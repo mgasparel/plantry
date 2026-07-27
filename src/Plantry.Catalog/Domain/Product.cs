@@ -178,28 +178,47 @@ public sealed class Product : AggregateRoot<ProductId>
     /// <see cref="ConversionSource.UserConfirmed"/> so existing callers are unchanged; pass
     /// <see cref="ConversionSource.AiSuggested"/> when the factor is machine-seeded (ADR-022).
     ///
-    /// <para>Merge rule for a colliding <c>(fromUnit, toUnit)</c> pair (ADR-022): a
-    /// user-confirmed factor <b>supersedes</b> an existing AI-suggested one — the stale suggestion
-    /// is dropped so the two never fight. An AI suggestion never overwrites or duplicates an
-    /// existing conversion (of any provenance) for the same pair; the seed is idempotent, and the
-    /// pre-existing conversion is returned unchanged. This does not dedupe two user-confirmed
-    /// entries for the same pair (unchanged historical behaviour).</para>
+    /// <para>At most one conversion may exist per product per <b>unordered</b> unit pair
+    /// (ADR-022 amendment, plantry-pcfe) — <c>fromUnit/toUnit</c> and <c>toUnit/fromUnit</c> are
+    /// the same pair. <see cref="UnitConverter.Convert"/> already adds both directions from a
+    /// single stored row (the stored direction multiplies by <c>Factor</c>, the reverse divides by
+    /// it), so a second row in the reverse direction is not a duplicate — it is a contradiction
+    /// that leaves the BFS to nondeterministically pick whichever edge it discovers first. The row
+    /// is always stored in the direction the caller supplies; no factor is ever inverted at rest
+    /// (see <see cref="UnitConverter"/>'s precision note on why a reverse edge divides rather than
+    /// multiplying by a precomputed reciprocal).</para>
+    ///
+    /// <para>Merge rule for a colliding unordered pair:
+    /// <list type="bullet">
+    /// <item><b>User-confirmed + existing AI-suggested (either direction)</b> — the stale
+    /// suggestion is dropped, the new row is inserted.</item>
+    /// <item><b>User-confirmed + existing user-confirmed (either direction)</b> — <b>replaces</b>:
+    /// the existing row is removed and the new one inserted. There is no history table and no
+    /// edit-conversion UI, so replace is the only repair path a user has, and leaving both rows is
+    /// exactly what produces the BFS nondeterminism above.</item>
+    /// <item><b>AI-suggested + any existing row (either direction)</b> — unchanged: the seed stays
+    /// idempotent and never fights a user or an earlier suggestion; the existing row is returned.</item>
+    /// </list></para>
     /// </summary>
     public ProductConversion AddConversion(UnitId fromUnitId, UnitId toUnitId, decimal factor, IClock clock, ConversionSource source = ConversionSource.UserConfirmed)
     {
-        var existingForPair = _conversions.Where(c => c.FromUnitId == fromUnitId && c.ToUnitId == toUnitId).ToList();
+        var existingForPair = _conversions.Where(c =>
+            (c.FromUnitId == fromUnitId && c.ToUnitId == toUnitId) ||
+            (c.FromUnitId == toUnitId && c.ToUnitId == fromUnitId)).ToList();
 
         if (source == ConversionSource.AiSuggested)
         {
-            // A suggestion never fights an existing entry — return whatever is already on file.
+            // A suggestion never fights an existing entry (of any provenance, either direction) —
+            // return whatever is already on file.
             if (existingForPair.Count > 0)
                 return existingForPair[0];
         }
         else
         {
-            // A user-confirmed factor supersedes stale AI suggestions for the same pair.
-            foreach (var suggested in existingForPair.Where(c => c.IsAiSuggested))
-                _conversions.Remove(suggested);
+            // A user-confirmed factor supersedes ANY existing row for the same unordered pair —
+            // stale AI suggestion or a previously user-confirmed factor being corrected.
+            foreach (var existing in existingForPair)
+                _conversions.Remove(existing);
         }
 
         var conversion = ProductConversion.Create(HouseholdId, Id, fromUnitId, toUnitId, factor, source);
@@ -212,6 +231,12 @@ public sealed class Product : AggregateRoot<ProductId>
     /// Endorses an AI-suggested conversion, flipping it to <see cref="ConversionSource.UserConfirmed"/>
     /// (ADR-022). Idempotent — promoting an already-confirmed conversion is a no-op success. The
     /// conversion must belong to this product (aggregate boundary).
+    ///
+    /// <para>Same unordered-pair guard as <see cref="AddConversion"/> (ADR-022 amendment,
+    /// plantry-pcfe): promoting could otherwise manufacture a same-pair contradiction if another
+    /// row already exists for this conversion's unordered pair (either direction). The promoted
+    /// row <b>supersedes</b> it — the user is endorsing this factor right now, so it wins,
+    /// consistent with <see cref="AddConversion"/>'s user-confirmed-wins merge rule.</para>
     /// </summary>
     public void PromoteConversion(ProductConversionId conversionId, IClock clock)
     {
@@ -219,6 +244,13 @@ public sealed class Product : AggregateRoot<ProductId>
             ?? throw new InvalidOperationException($"Conversion '{conversionId}' does not belong to product '{Id}'.");
 
         if (!conversion.IsAiSuggested) return; // idempotent no-op
+
+        var colliding = _conversions.Where(c =>
+            c.Id != conversion.Id &&
+            ((c.FromUnitId == conversion.FromUnitId && c.ToUnitId == conversion.ToUnitId) ||
+             (c.FromUnitId == conversion.ToUnitId && c.ToUnitId == conversion.FromUnitId))).ToList();
+        foreach (var other in colliding)
+            _conversions.Remove(other);
 
         conversion.Promote();
         Touch(clock);

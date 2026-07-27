@@ -27,7 +27,10 @@ public sealed class UnitConverterTests
     {
         var unitId = Plantry.Catalog.Domain.UnitId.New();
 
-        var result = UnitConverter.Convert(5m, unitId.Value, unitId.Value, [], []);
+        // Explicit empty-array typing (plantry-jvd7): a bare `[]` literal is ambiguous now that
+        // Convert has both an entity-typed and a shape-typed overload — this test exercises the
+        // entity-typed one, matching every production call site.
+        var result = UnitConverter.Convert(5m, unitId.Value, unitId.Value, Array.Empty<CatalogUnit>(), Array.Empty<ProductConversion>());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(5m, result.Value);
@@ -145,7 +148,8 @@ public sealed class UnitConverterTests
         var fromId = Plantry.Catalog.Domain.UnitId.New();
         var toId = Plantry.Catalog.Domain.UnitId.New();
 
-        var result = UnitConverter.Convert(1m, fromId.Value, toId.Value, [], []);
+        // Explicit empty-array typing (plantry-jvd7) — see SameUnit_Resolves_To_Identity above.
+        var result = UnitConverter.Convert(1m, fromId.Value, toId.Value, Array.Empty<CatalogUnit>(), Array.Empty<ProductConversion>());
 
         Assert.True(result.IsFailure);
         Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
@@ -210,8 +214,13 @@ public sealed class UnitConverterTests
     [Fact]
     public void DirectProductConversion_PreferredOver_Inverse_When_Both_Match()
     {
-        // Pathological double-entry data: both directions stored. Direct must win, by
-        // resolution-order contract, so behaviour stays deterministic.
+        // Pathological double-entry data, constructed directly (NOT via product.Conversions) to
+        // pin UnitConverter's own resolution-order contract at the pure-function level: given both
+        // directions in its input collection, direct must win. Product.AddConversion's
+        // unordered-pair invariant (ADR-022 amendment, plantry-pcfe) means a real product's own
+        // Conversions can no longer produce this shape — see
+        // ProductConversions_NeverContainContradictingDuplicatePair_SoResolutionIsAlwaysDeterministic
+        // below for the invariant-preserving version of this same scenario.
         var cups = MakeUnit("cup", Dimension.Volume, 240m);
         var grams = MakeUnit("g", Dimension.Mass, 1m, isBase: true);
         var product = Product.Create(HouseholdId, "Flour", grams.Id, SystemClock.Instance);
@@ -222,6 +231,49 @@ public sealed class UnitConverterTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(120m, result.Value);
+    }
+
+    /// <summary>
+    /// plantry-pcfe (ADR-022 amendment): the old pathological "both directions stored" case above
+    /// could only ever happen with a hand-built input array — a real product's own
+    /// <see cref="Product.Conversions"/> can no longer contain it, because
+    /// <see cref="Product.AddConversion"/> now replaces any existing row for the same UNORDERED
+    /// pair rather than allowing a second, contradicting row to coexist. This test drives
+    /// <see cref="UnitConverter.Convert"/> off the real aggregate collection — not a hand-built
+    /// array — to prove the result is deterministic by construction (exactly one edge pair backs
+    /// any product/unit-pair combination), regardless of which direction was entered last or how
+    /// EF materializes the (now-singular) row.
+    /// </summary>
+    [Fact]
+    public void ProductConversions_NeverContainContradictingDuplicatePair_SoResolutionIsAlwaysDeterministic()
+    {
+        var cups = MakeUnit("cup", Dimension.Volume, 240m);
+        var grams = MakeUnit("g", Dimension.Mass, 1m, isBase: true);
+        var product = Product.Create(HouseholdId, "Flour", grams.Id, SystemClock.Instance);
+
+        MakeConversion(product, cups.Id, grams.Id, 8m); // "1 cup = 8 g" — superseded below
+        // Reverse direction, same unordered pair — supersedes the row above rather than adding a
+        // second, contradicting one (this exact "both directions stored" shape was previously
+        // pathological — see DirectProductConversion_PreferredOver_Inverse_When_Both_Match above).
+        // 0.125 = 1/8 is an exact terminating decimal — deliberately chosen so this test isolates
+        // the invariant (exactly one row survives) from decimal-division rounding, which is a
+        // different, already-covered concern (see UnitConverter's own precision note and the
+        // 1/600 example it cites).
+        MakeConversion(product, grams.Id, cups.Id, 0.125m); // "1 g = 0.125 cup" (consistent reciprocal)
+
+        var onlyConversion = Assert.Single(product.Conversions);
+        Assert.Equal(grams.Id, onlyConversion.FromUnitId);
+        Assert.Equal(cups.Id, onlyConversion.ToUnitId);
+
+        var cupsToGrams = UnitConverter.Convert(1m, cups.Id.Value, grams.Id.Value, [cups, grams], product.Conversions);
+        var gramsToCups = UnitConverter.Convert(8m, grams.Id.Value, cups.Id.Value, [cups, grams], product.Conversions);
+
+        Assert.True(cupsToGrams.IsSuccess);
+        Assert.True(gramsToCups.IsSuccess);
+        // Deterministic because there is exactly one row (the reverse-entered "1 g = 0.125 cup"
+        // fact), not because BFS happened to prefer one edge over another among duplicates.
+        Assert.Equal(8m, cupsToGrams.Value);  // 1 cup / 0.125 = 8 g
+        Assert.Equal(1m, gramsToCups.Value);  // 8 g * 0.125 cup/g = 1 cup
     }
 
     // ── plantry-xddq: multi-hop graph-walk composition ─────────────────────────
@@ -329,6 +381,89 @@ public sealed class UnitConverterTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(12m, result.Value);
+    }
+
+    // ── plantry-jvd7: shape-typed overload (WeekBagEnricher's canonical entry point) ───────────
+
+    /// <summary>
+    /// The entity-typed overload is documented as a thin wrapper over the shape-typed one
+    /// (plantry-jvd7) — this proves it, using the exact multi-hop scenario above: converting the
+    /// entity-typed inputs to <see cref="UnitConverter.UnitShape"/>/<see cref="UnitConverter.ConversionShape"/>
+    /// by hand and calling the shape-typed overload directly must produce the byte-identical result.
+    /// </summary>
+    [Fact]
+    public void ShapeTypedOverload_ProducesSameResult_AsEntityTypedOverload_ForMultiHopChain()
+    {
+        var cups = MakeUnit("cup", Dimension.Volume, 240m);
+        var grams = MakeUnit("g", Dimension.Mass, 1m, isBase: true);
+        var servings = MakeUnit("srv", Dimension.Count, 1m, isBase: true);
+        var packs = MakeUnit("pk", Dimension.Count, 1m);
+        var product = Product.Create(HouseholdId, "Oat Bar", servings.Id, SystemClock.Instance);
+        var cupToGrams = MakeConversion(product, cups.Id, grams.Id, 105m);
+        var srvToCup = MakeConversion(product, servings.Id, cups.Id, 0.75m);
+        var pkToGrams = MakeConversion(product, packs.Id, grams.Id, 600m);
+        var allUnits = new[] { cups, grams, servings, packs };
+        var allConversions = new[] { cupToGrams, srvToCup, pkToGrams };
+
+        var entityTyped = UnitConverter.Convert(1m, servings.Id.Value, packs.Id.Value, allUnits, allConversions);
+
+        var unitShapes = allUnits
+            .Select(u => new UnitConverter.UnitShape(u.Id.Value, u.Dimension, u.FactorToBase))
+            .ToList();
+        var conversionShapes = allConversions
+            .Select(c => new UnitConverter.ConversionShape(c.FromUnitId.Value, c.ToUnitId.Value, c.Factor))
+            .ToList();
+        var shapeTyped = UnitConverter.Convert(1m, servings.Id.Value, packs.Id.Value, unitShapes, conversionShapes);
+
+        Assert.True(entityTyped.IsSuccess);
+        Assert.True(shapeTyped.IsSuccess);
+        Assert.Equal(entityTyped.Value, shapeTyped.Value);
+        Assert.Equal(0.13125m, shapeTyped.Value);
+    }
+
+    /// <summary>
+    /// AC4 (plantry-jvd7): <see cref="Unit.Create"/> enforces <c>factorToBase &gt; 0</c>, so the
+    /// entity-typed overload can never supply a zero — but a <see cref="UnitConverter.UnitShape"/>
+    /// built from a flat ADR-021 read-model row (WeekBagEnricher) is not covered by that invariant.
+    /// A zero <c>FactorToBase</c> must not divide-by-zero or fabricate a bogus edge — the pair simply
+    /// stays unresolvable, exactly like today's <c>WeekBagEnricher.SameDimensionFactor</c> guard.
+    /// </summary>
+    [Fact]
+    public void ShapeTypedOverload_ZeroFactorToBase_DoesNotDivideByZero_OrProduceEdge()
+    {
+        var fromId = Guid.NewGuid();
+        var toId = Guid.NewGuid();
+        var units = new[]
+        {
+            new UnitConverter.UnitShape(fromId, Dimension.Mass, 0m),
+            new UnitConverter.UnitShape(toId, Dimension.Mass, 1m),
+        };
+
+        var result = UnitConverter.Convert(5m, fromId, toId, units, []);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
+    }
+
+    /// <summary>
+    /// Same guard, other operand: a zero <c>FactorToBase</c> on the TO side must not divide-by-zero
+    /// either (mirrors the old copy's <c>if (toFactor == 0m) return null;</c> check).
+    /// </summary>
+    [Fact]
+    public void ShapeTypedOverload_ZeroFactorToBase_OnToUnit_DoesNotDivideByZero()
+    {
+        var fromId = Guid.NewGuid();
+        var toId = Guid.NewGuid();
+        var units = new[]
+        {
+            new UnitConverter.UnitShape(fromId, Dimension.Mass, 1m),
+            new UnitConverter.UnitShape(toId, Dimension.Mass, 0m),
+        };
+
+        var result = UnitConverter.Convert(5m, fromId, toId, units, []);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
     }
 }
 

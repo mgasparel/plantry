@@ -608,6 +608,11 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--color-danger);
 }
 
+.field__hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
 /* ── File upload ───────────────────────────────────────────────────────────── */
 /* Compose with `.field__input` (the shared input frame): `.file-field` restyles the
    native `::file-selector-button` to match `.btn--secondary` so a file picker sits

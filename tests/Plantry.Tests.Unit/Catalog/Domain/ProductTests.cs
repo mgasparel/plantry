@@ -441,6 +441,134 @@ public sealed class ProductTests
         Assert.Equal(ConversionSource.UserConfirmed, remaining.Source);
     }
 
+    // ── Unordered-pair invariant (ADR-022 amendment, plantry-pcfe) ───────────
+
+    [Fact]
+    public void AddConversion_UserConfirmed_Replaces_Existing_UserConfirmed_For_Same_Pair_SameDirection()
+    {
+        var product = NewProduct();
+        var from = Plantry.Catalog.Domain.UnitId.New();
+        var to = Plantry.Catalog.Domain.UnitId.New();
+        product.AddConversion(from, to, 5m, Clock, ConversionSource.UserConfirmed);
+
+        var replacement = product.AddConversion(from, to, 6m, Clock, ConversionSource.UserConfirmed);
+
+        // There is no history table and no edit-conversion UI, so re-confirming the same pair is
+        // the user's only repair path — the stale factor must not survive alongside the new one.
+        var remaining = Assert.Single(product.Conversions);
+        Assert.Same(replacement, remaining);
+        Assert.Equal(6m, remaining.Factor);
+    }
+
+    [Fact]
+    public void AddConversion_UserConfirmed_Replaces_Existing_UserConfirmed_For_Same_Pair_ReverseDirection()
+    {
+        var product = NewProduct();
+        var a = Plantry.Catalog.Domain.UnitId.New();
+        var b = Plantry.Catalog.Domain.UnitId.New();
+        product.AddConversion(a, b, 5m, Clock, ConversionSource.UserConfirmed);
+
+        // Reverse direction, same unordered pair {a, b} — must replace, not coexist. Two rows for
+        // the same unordered pair would assert incompatible truths (A->B=5 implies B->A=1/5), and
+        // UnitConverter.Convert's BFS would silently pick whichever it discovers first.
+        var replacement = product.AddConversion(b, a, 7m, Clock, ConversionSource.UserConfirmed);
+
+        var remaining = Assert.Single(product.Conversions);
+        Assert.Same(replacement, remaining);
+        Assert.Equal(b, remaining.FromUnitId);
+        Assert.Equal(a, remaining.ToUnitId);
+        Assert.Equal(7m, remaining.Factor);
+    }
+
+    [Fact]
+    public void AddConversion_UserConfirmed_Supersedes_An_Existing_Suggested_For_The_Reverse_Direction_Of_The_Same_Pair()
+    {
+        // Regression test for the ADR-022 hole this ticket closes: with the old DIRECTIONAL lookup,
+        // an AI-suggested A->B plus a user-confirmed B->A left BOTH rows on file — a stale machine
+        // guess actively contradicting the user's confirmed number. The lookup is now
+        // unordered-pair, so this must leave exactly one row: the user's.
+        var product = NewProduct();
+        var a = Plantry.Catalog.Domain.UnitId.New();
+        var b = Plantry.Catalog.Domain.UnitId.New();
+        product.AddConversion(a, b, 5m, Clock, ConversionSource.AiSuggested);
+
+        var confirmed = product.AddConversion(b, a, 3m, Clock, ConversionSource.UserConfirmed);
+
+        var remaining = Assert.Single(product.Conversions);
+        Assert.Same(confirmed, remaining);
+        Assert.Equal(b, remaining.FromUnitId);
+        Assert.Equal(a, remaining.ToUnitId);
+        Assert.Equal(3m, remaining.Factor);
+        Assert.Equal(ConversionSource.UserConfirmed, remaining.Source);
+        Assert.False(remaining.IsAiSuggested);
+    }
+
+    [Fact]
+    public void AddConversion_Suggested_Does_Not_Displace_An_Existing_Confirmed_In_The_Reverse_Direction()
+    {
+        var product = NewProduct();
+        var a = Plantry.Catalog.Domain.UnitId.New();
+        var b = Plantry.Catalog.Domain.UnitId.New();
+        var confirmed = product.AddConversion(a, b, 6m, Clock, ConversionSource.UserConfirmed);
+
+        // A suggestion for the reverse direction of the same pair must not fight the user's row.
+        var returned = product.AddConversion(b, a, 9m, Clock, ConversionSource.AiSuggested);
+
+        var remaining = Assert.Single(product.Conversions);
+        Assert.Same(confirmed, remaining);
+        Assert.Same(confirmed, returned);
+        Assert.Equal(6m, remaining.Factor);
+        Assert.Equal(ConversionSource.UserConfirmed, remaining.Source);
+    }
+
+    [Fact]
+    public void PromoteConversion_Supersedes_A_Colliding_Row_For_The_Same_Unordered_Pair()
+    {
+        // Product.AddConversion's own invariant means this state cannot arise through the public
+        // API alone (a colliding row is always superseded or refused on the way in) — but
+        // PromoteConversion must still defend the invariant against a state that could reach it by
+        // another route (e.g. EF materializing a product whose stored rows predate this migration).
+        // Reflection stands in for that "loaded, not built through AddConversion" state.
+        var product = NewProduct();
+        var a = Plantry.Catalog.Domain.UnitId.New();
+        var b = Plantry.Catalog.Domain.UnitId.New();
+        var suggested = product.AddConversion(a, b, 5m, Clock, ConversionSource.AiSuggested);
+        var colliding = InjectConversionBypassingInvariant(product, b, a, 3m, ConversionSource.UserConfirmed);
+
+        product.PromoteConversion(suggested.Id, Clock);
+
+        // The user is endorsing the suggested factor right now, so it wins — the pre-existing
+        // colliding row is superseded, consistent with AddConversion's user-confirmed-wins rule.
+        var remaining = Assert.Single(product.Conversions);
+        Assert.Same(suggested, remaining);
+        Assert.Equal(ConversionSource.UserConfirmed, remaining.Source);
+        Assert.DoesNotContain(colliding, product.Conversions);
+    }
+
+    /// <summary>
+    /// Constructs a <see cref="ProductConversion"/> and appends it directly to
+    /// <paramref name="product"/>'s backing list via reflection, bypassing
+    /// <see cref="Product.AddConversion"/>'s unordered-pair invariant entirely. Simulates the one
+    /// state that can put two colliding rows on an aggregate despite that invariant: EF hydrating a
+    /// <see cref="Product"/> from rows that were written before this migration/invariant existed
+    /// (or any other out-of-band mutation of the child collection) — the exact scenario
+    /// <see cref="Product.PromoteConversion"/>'s own guard defends against.
+    /// </summary>
+    private static ProductConversion InjectConversionBypassingInvariant(
+        Product product, Plantry.Catalog.Domain.UnitId from, Plantry.Catalog.Domain.UnitId to, decimal factor, ConversionSource source)
+    {
+        var createMethod = typeof(ProductConversion).GetMethod(
+            "Create", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var conversion = (ProductConversion)createMethod.Invoke(
+            null, [product.HouseholdId, product.Id, from, to, factor, source])!;
+
+        var field = typeof(Product).GetField("_conversions", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var list = (List<ProductConversion>)field.GetValue(product)!;
+        list.Add(conversion);
+
+        return conversion;
+    }
+
     [Fact]
     public void InheritFrom_Preserves_Conversion_Provenance()
     {

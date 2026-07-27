@@ -38,6 +38,54 @@ public sealed class UnitCommandsTests
     }
 
     [Fact]
+    public async Task CreateUnitCommand_Fails_When_Count_Unit_Has_NonOne_Factor()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(householdId);
+
+        var result = await new CreateUnitCommand("dz", "Dozen", Dimension.Count, 12m, isBase: false, repo, tenant)
+            .ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.InvalidCountFactor", result.Error.Code);
+        Assert.Empty(repo.Items);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task CreateUnitCommand_Succeeds_When_Count_Unit_Has_Factor_One()
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(householdId);
+
+        var result = await new CreateUnitCommand("bunch", "Bunch", Dimension.Count, 1m, isBase: false, repo, tenant)
+            .ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var unit = Assert.Single(repo.Items);
+        Assert.Equal(1m, unit.FactorToBase);
+    }
+
+    [Theory]
+    [InlineData(Dimension.Mass)]
+    [InlineData(Dimension.Volume)]
+    public async Task CreateUnitCommand_Allows_NonOne_Factor_For_Mass_And_Volume(Dimension dimension)
+    {
+        var householdId = Guid.NewGuid();
+        var repo = new FakeUnitRepository();
+        var tenant = new FakeTenantContext(householdId);
+
+        var result = await new CreateUnitCommand("xu", "X unit", dimension, 240m, isBase: false, repo, tenant)
+            .ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var unit = Assert.Single(repo.Items);
+        Assert.Equal(240m, unit.FactorToBase);
+    }
+
+    [Fact]
     public async Task CreateUnitCommand_Fails_On_Duplicate_Code()
     {
         var householdId = Guid.NewGuid();

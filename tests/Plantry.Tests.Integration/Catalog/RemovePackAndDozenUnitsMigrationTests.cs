@@ -168,6 +168,135 @@ public sealed class RemovePackAndDozenUnitsMigrationTests : IAsyncLifetime
         Assert.Equal(eaId, loaded.DefaultUnitId);
     }
 
+    [Fact(DisplayName =
+        "product_skus relabel: a SKU sized in 'doz' is relabeled onto 'ea' by the migration's second statement")]
+    public async Task ProductSku_SizedInDoz_RelabelsToEa()
+    {
+        var household = HouseholdId.New();
+        var clock = SystemClock.Instance;
+
+        await MigrateToAsync(BaselineMigration);
+
+        UnitId eaId;
+        ProductId productId;
+        ProductSkuId skuId;
+        await using (var seed = NewContext(household))
+        {
+            var ea = CatalogUnit.Create(household, "ea", "Each", Dimension.Count, 1m, isBase: true);
+            var doz = CatalogUnit.Create(household, "doz", "Dozen", Dimension.Count, 12m);
+            await seed.Units.AddRangeAsync(ea, doz);
+
+            var product = Product.Create(household, "Eggs", ea.Id, clock);
+            var sku = product.AddSku("Dozen carton", 1m, doz.Id, clock);
+            await seed.Products.AddAsync(product);
+
+            await seed.SaveChangesAsync();
+
+            eaId = ea.Id;
+            productId = product.Id;
+            skuId = sku.Id;
+        }
+
+        await MigrateToAsync(MigrationUnderTest);
+
+        await using var read = NewContext(household);
+        var loaded = await read.Products.Include(p => p.Skus).SingleAsync(p => p.Id == productId);
+
+        var relabeled = Assert.Single(loaded.Skus, s => s.Id == skuId);
+        Assert.Equal(eaId, relabeled.SizeUnitId);
+    }
+
+    [Fact(DisplayName =
+        "Self-conversion cleanup: an explicit doz->ea conversion collapses to ea->ea and is deleted, while an unrelated conversion survives")]
+    public async Task DozToEaConversion_BecomesSelfConversion_IsDeleted_UnrelatedConversionSurvives()
+    {
+        var household = HouseholdId.New();
+        var clock = SystemClock.Instance;
+
+        await MigrateToAsync(BaselineMigration);
+
+        UnitId eaId, gId;
+        ProductId productId;
+        await using (var seed = NewContext(household))
+        {
+            var ea = CatalogUnit.Create(household, "ea", "Each", Dimension.Count, 1m, isBase: true);
+            var doz = CatalogUnit.Create(household, "doz", "Dozen", Dimension.Count, 12m);
+            var g = CatalogUnit.Create(household, "g", "Gram", Dimension.Mass, 1m, isBase: true);
+            await seed.Units.AddRangeAsync(ea, doz, g);
+
+            // doz->ea becomes ea->ea once doz relabels (self-conversion cleanup's target case), and
+            // an unrelated ea->g conversion on the same product must survive untouched — proving the
+            // cleanup only removes the from==to row, not every conversion on the product.
+            var product = Product.Create(household, "Eggs", ea.Id, clock);
+            product.AddConversion(doz.Id, ea.Id, 12m, clock);
+            product.AddConversion(ea.Id, g.Id, 50m, clock);
+            await seed.Products.AddAsync(product);
+
+            await seed.SaveChangesAsync();
+
+            eaId = ea.Id;
+            gId = g.Id;
+            productId = product.Id;
+        }
+
+        await MigrateToAsync(MigrationUnderTest);
+
+        await using var read = NewContext(household);
+        var loaded = await read.Products.Include(p => p.Conversions).SingleAsync(p => p.Id == productId);
+
+        var surviving = Assert.Single(loaded.Conversions);
+        Assert.Equal(eaId, surviving.FromUnitId);
+        Assert.Equal(gId, surviving.ToUnitId);
+        Assert.Equal(50m, surviving.Factor);
+    }
+
+    [Fact(DisplayName =
+        "to_unit_id mutant coverage: a lone g->doz conversion (no counterpart, guard no-ops) is relabeled onto g->ea by the to-side UPDATE")]
+    public async Task LoneGToDozConversion_NoCounterpart_RelabelsToGToEa()
+    {
+        var household = HouseholdId.New();
+        var clock = SystemClock.Instance;
+
+        await MigrateToAsync(BaselineMigration);
+
+        UnitId eaId, gId;
+        ProductId productId;
+        await using (var seed = NewContext(household))
+        {
+            // An 'ea' unit MUST exist or the migration's ea_units join yields zero rows and nothing
+            // relabels. Exactly ONE conversion is seeded on the product — g->doz — and deliberately NO
+            // g->ea counterpart: the pre-relabel guard's EXISTS clause requires another conversion on
+            // the same product satisfying the post-relabel (from, to) pair, so with a single row it
+            // no-ops. The from-side UPDATE also no-ops ('g' is not pk/doz), so the row reaches the
+            // to-side UPDATE intact and is relabeled to g->ea. See plantry-o4dp's ticket notes for the
+            // full trace of why the original g->ea+g->doz seeding tripped the guard instead.
+            var ea = CatalogUnit.Create(household, "ea", "Each", Dimension.Count, 1m, isBase: true);
+            var doz = CatalogUnit.Create(household, "doz", "Dozen", Dimension.Count, 12m);
+            var g = CatalogUnit.Create(household, "g", "Gram", Dimension.Mass, 1m, isBase: true);
+            await seed.Units.AddRangeAsync(ea, doz, g);
+
+            var product = Product.Create(household, "Eggs", ea.Id, clock);
+            product.AddConversion(g.Id, doz.Id, 600m, clock);
+            await seed.Products.AddAsync(product);
+
+            await seed.SaveChangesAsync();
+
+            eaId = ea.Id;
+            gId = g.Id;
+            productId = product.Id;
+        }
+
+        await MigrateToAsync(MigrationUnderTest);
+
+        await using var read = NewContext(household);
+        var loaded = await read.Products.Include(p => p.Conversions).SingleAsync(p => p.Id == productId);
+
+        var surviving = Assert.Single(loaded.Conversions);
+        Assert.Equal(gId, surviving.FromUnitId);
+        Assert.Equal(eaId, surviving.ToUnitId);
+        Assert.Equal(600m, surviving.Factor);
+    }
+
     private async Task MigrateToAsync(string targetMigration)
     {
         await using var ctx = NewContext(HouseholdId.New());

@@ -29,17 +29,50 @@ namespace Plantry.Catalog.Domain;
 /// </summary>
 public static class UnitConverter
 {
+    /// <summary>
+    /// Structural shape of the three <see cref="Unit"/> fields the algorithm actually reads. Lets a
+    /// caller that cannot legitimately materialize a <see cref="Unit"/> aggregate (e.g.
+    /// <c>WeekBagEnricher</c>, driven off a flat ADR-021 SQL projection rather than an EF load) still
+    /// run the exact same conversion graph (plantry-jvd7).
+    /// </summary>
+    public readonly record struct UnitShape(Guid Id, Dimension Dimension, decimal FactorToBase);
+
+    /// <summary>Structural shape of the three <see cref="ProductConversion"/> fields the algorithm actually reads — see <see cref="UnitShape"/>.</summary>
+    public readonly record struct ConversionShape(Guid FromUnitId, Guid ToUnitId, decimal Factor);
+
+    /// <summary>
+    /// Entity-typed overload — a thin wrapper that maps <see cref="Unit"/>/<see cref="ProductConversion"/>
+    /// aggregates to their structural shapes and delegates to the shape-typed overload below. Kept
+    /// exactly as-is (same signature) so every existing call site is unaffected (plantry-jvd7): the
+    /// Catalog domain surface stays additive, not breaking.
+    /// </summary>
     public static Result<decimal> Convert(
         decimal amount,
         Guid fromUnitId,
         Guid toUnitId,
         IReadOnlyCollection<Unit> units,
-        IReadOnlyCollection<ProductConversion> productConversions)
+        IReadOnlyCollection<ProductConversion> productConversions) =>
+        Convert(
+            amount, fromUnitId, toUnitId,
+            units.Select(u => new UnitShape(u.Id.Value, u.Dimension, u.FactorToBase)).ToList(),
+            productConversions.Select(c => new ConversionShape(c.FromUnitId.Value, c.ToUnitId.Value, c.Factor)).ToList());
+
+    /// <summary>
+    /// Shape-typed overload — the canonical algorithm. Structural inputs let a read-model caller drive
+    /// the same BFS without materializing EF aggregates (plantry-jvd7); the entity-typed overload above
+    /// is a thin wrapper over this one.
+    /// </summary>
+    public static Result<decimal> Convert(
+        decimal amount,
+        Guid fromUnitId,
+        Guid toUnitId,
+        IReadOnlyCollection<UnitShape> units,
+        IReadOnlyCollection<ConversionShape> conversions)
     {
         if (fromUnitId == toUnitId)
             return amount;
 
-        var graph = BuildConversionGraph(units, productConversions);
+        var graph = BuildConversionGraph(units, conversions);
 
         // BFS: shortest hop count wins, and among same-length options the earliest-discovered
         // edge wins (mirrors the old resolution-order contract — same-dimension edges are added
@@ -90,8 +123,8 @@ public static class UnitConverter
     /// physical dimensions, then <see cref="ProductConversion"/> edges (both directions).
     /// </summary>
     private static Dictionary<Guid, List<ConversionEdge>> BuildConversionGraph(
-        IReadOnlyCollection<Unit> units,
-        IReadOnlyCollection<ProductConversion> productConversions)
+        IReadOnlyCollection<UnitShape> units,
+        IReadOnlyCollection<ConversionShape> conversions)
     {
         var graph = new Dictionary<Guid, List<ConversionEdge>>();
 
@@ -111,20 +144,28 @@ public static class UnitConverter
         {
             foreach (var to in scalable)
             {
-                if (from.Id.Value == to.Id.Value || from.Dimension != to.Dimension)
+                if (from.Id == to.Id || from.Dimension != to.Dimension)
                     continue;
 
-                AddEdge(from.Id.Value, to.Id.Value, from.FactorToBase / to.FactorToBase, invert: false);
+                // Guard non-positive FactorToBase (plantry-jvd7): Unit.Create enforces factorToBase >
+                // 0, so the entity-typed overload can never supply one — this is a no-op there. A
+                // UnitShape built from a flat read-model row (WeekBagEnricher) is not covered by that
+                // aggregate invariant, so skip creating a scale edge rather than dividing by (or by
+                // way of) a non-positive factor.
+                if (from.FactorToBase <= 0 || to.FactorToBase <= 0)
+                    continue;
+
+                AddEdge(from.Id, to.Id, from.FactorToBase / to.FactorToBase, invert: false);
             }
         }
 
         // Product-specific conversions, traversable in both directions: stored direction
         // multiplies by the stored factor, reverse divides by it (never a precomputed reciprocal
         // — see the precision note in Convert above).
-        foreach (var conversion in productConversions)
+        foreach (var conversion in conversions)
         {
-            AddEdge(conversion.FromUnitId.Value, conversion.ToUnitId.Value, conversion.Factor, invert: false);
-            AddEdge(conversion.ToUnitId.Value, conversion.FromUnitId.Value, conversion.Factor, invert: true);
+            AddEdge(conversion.FromUnitId, conversion.ToUnitId, conversion.Factor, invert: false);
+            AddEdge(conversion.ToUnitId, conversion.FromUnitId, conversion.Factor, invert: true);
         }
 
         return graph;

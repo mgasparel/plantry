@@ -1,3 +1,4 @@
+using Plantry.Catalog.Domain;
 using Plantry.MealPlanning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
@@ -301,76 +302,34 @@ internal sealed class WeekBagEnricher
     }
 
     /// <summary>
-    /// Builds the sync converter delegate for the pure compute overloads from the WeekBag units
-    /// and product-specific conversions. Mirrors the algorithm in <c>Catalog.Domain.UnitConverter</c>
-    /// (same-dimension scaling + product conversion bridges) without allocating EF domain objects.
+    /// Builds the sync converter delegate for the pure compute overloads from the WeekBag units and
+    /// product-specific conversions. Delegates entirely to the canonical
+    /// <see cref="UnitConverter"/>'s shape-typed <c>Convert</c> overload (plantry-jvd7) — this
+    /// method's only job is mapping WeekBag facts to
+    /// <see cref="UnitConverter.UnitShape"/>/<see cref="UnitConverter.ConversionShape"/>, entirely in
+    /// memory over data the caller already loaded (ADR-021 rule 1: SQL fetches data, C# keeps the
+    /// math — no new round-trips here). This is what keeps the week-bag costing/fulfillment path and
+    /// Inventory.Consume on one shared conversion algorithm instead of a second, independently
+    /// drifting copy.
     /// </summary>
     private Func<Guid, decimal, Guid, Guid, Result<decimal>> BuildConverter(Guid recipeId)
     {
-        // Capture bags by reference — closures are cheap, the dictionaries are already loaded.
-        var units = _bag.Units;
-        var conversionsByProduct = _bag.ConversionsByProduct;
+        // Map once per call — the unit set is shared across every product this recipe touches.
+        // UnitFact.FactorToBase is decimal? (nullable in the flat SQL projection, MealPlanWeekReadModel.cs);
+        // a null value maps to 1m, preserving today's week-bag behaviour exactly (deliberate, not a
+        // projection change — plantry-jvd7 AC5). DimensionExtensions.Parse is the same helper
+        // CatalogDbContext's Dimension value conversion uses.
+        var unitShapes = _bag.Units.Values
+            .Select(u => new UnitConverter.UnitShape(u.UnitId, DimensionExtensions.Parse(u.Dimension), u.FactorToBase ?? 1m))
+            .ToList();
 
         return (productId, amount, fromUnitId, toUnitId) =>
         {
-            // Same unit: identity.
-            if (fromUnitId == toUnitId)
-                return Result<decimal>.Success(amount);
+            var conversionShapes = _bag.GetConversions(productId)
+                .Select(c => new UnitConverter.ConversionShape(c.FromUnitId, c.ToUnitId, c.Factor))
+                .ToList();
 
-            // Same-dimension scaling: both units must be in the loaded bag.
-            var sameDimFactor = SameDimensionFactor(fromUnitId, toUnitId, units);
-            if (sameDimFactor.HasValue)
-                return Result<decimal>.Success(amount * sameDimFactor.Value);
-
-            // Product-specific conversions (cross-dimension / density).
-            if (conversionsByProduct.TryGetValue(productId, out var productConversions))
-            {
-                foreach (var conv in productConversions)
-                {
-                    // Forward direction: from → conv.From → conv.To → to
-                    var bridgeIn = SameDimensionFactor(fromUnitId, conv.FromUnitId, units);
-                    var bridgeOut = SameDimensionFactor(conv.ToUnitId, toUnitId, units);
-                    if (bridgeIn.HasValue && bridgeOut.HasValue)
-                        return Result<decimal>.Success(amount * bridgeIn.Value * conv.Factor * bridgeOut.Value);
-                }
-
-                foreach (var conv in productConversions)
-                {
-                    // Inverse direction: from → conv.To → conv.From → to
-                    var bridgeIn = SameDimensionFactor(fromUnitId, conv.ToUnitId, units);
-                    var bridgeOut = SameDimensionFactor(conv.FromUnitId, toUnitId, units);
-                    if (bridgeIn.HasValue && bridgeOut.HasValue)
-                        return Result<decimal>.Success(amount * bridgeIn.Value / conv.Factor * bridgeOut.Value);
-                }
-            }
-
-            return Result<decimal>.Failure(Error.Custom(
-                "Catalog.UnresolvableConversion",
-                $"No conversion known from unit '{fromUnitId}' to unit '{toUnitId}' for product '{productId}'."));
+            return UnitConverter.Convert(amount, fromUnitId, toUnitId, unitShapes, conversionShapes);
         };
-    }
-
-    /// <summary>Linear scaling factor between two units of the same dimension; null when not resolvable.</summary>
-    private static decimal? SameDimensionFactor(
-        Guid fromUnitId,
-        Guid toUnitId,
-        IReadOnlyDictionary<Guid, UnitFact> units)
-    {
-        if (fromUnitId == toUnitId)
-            return 1m;
-
-        if (!units.TryGetValue(fromUnitId, out var fromUnit) ||
-            !units.TryGetValue(toUnitId, out var toUnit))
-            return null;
-
-        if (fromUnit.Dimension != toUnit.Dimension)
-            return null;
-
-        // Both FactorToBase values should be non-null for non-base units; guard against null.
-        var fromFactor = fromUnit.FactorToBase ?? 1m;
-        var toFactor = toUnit.FactorToBase ?? 1m;
-        if (toFactor == 0m) return null;
-
-        return fromFactor / toFactor;
     }
 }

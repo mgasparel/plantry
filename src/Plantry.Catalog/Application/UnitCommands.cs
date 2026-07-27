@@ -20,6 +20,16 @@ public sealed class CreateUnitCommand(
         if (tenant.HouseholdId is not { } householdId)
             return Error.Unauthorized;
 
+        // Count units get no free same-dimension scaling from UnitConverter.BuildConversionGraph — only
+        // Mass/Volume do — so a non-1 factor on a Count unit is inert and misleading, recreating the exact
+        // mistake plantry-qszb fixed for the seeded doz unit. Reject it here rather than in Unit.Create /
+        // the constructor, which EF also uses to materialize legacy un-migrated rows (see plantry-vw6r).
+        if (dimension == Dimension.Count && factorToBase != 1m)
+        {
+            logger?.LogWarning("CreateUnit rejected — Count unit {UnitCode} requested non-1 factor {Factor}.", code, factorToBase);
+            return Error.Custom("Catalog.InvalidCountFactor", "Count units must have a factor of 1 — Count units don't scale against a base unit.");
+        }
+
         if (await units.FindByCodeAsync(code.Trim(), ct) is not null)
         {
             logger?.LogWarning("CreateUnit rejected — duplicate unit code {UnitCode}.", code);
