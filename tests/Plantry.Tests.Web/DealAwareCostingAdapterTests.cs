@@ -186,7 +186,8 @@ public sealed class DealAwareCostingAdapterTests
             new UnusedRecipeReadModel(),
             new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
             new FakeMealPlanCatalogProductReader(UnitId),
-            new IdentityMealPlanUnitConverter());
+            new IdentityMealPlanUnitConverter(),
+            clock);
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
@@ -204,7 +205,8 @@ public sealed class DealAwareCostingAdapterTests
             new UnusedRecipeReadModel(),
             new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
             new FakeMealPlanCatalogProductReader(UnitId),
-            new IdentityMealPlanUnitConverter());
+            new IdentityMealPlanUnitConverter(),
+            clock);
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
@@ -233,7 +235,8 @@ public sealed class DealAwareCostingAdapterTests
             new UnusedRecipeReadModel(),
             new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
             new FakeMealPlanCatalogProductReader(UnitId),
-            new IdentityMealPlanUnitConverter());
+            new IdentityMealPlanUnitConverter(),
+            clock);
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
