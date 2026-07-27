@@ -29,7 +29,8 @@
 
 <section class="catalog-section">
     <h2 class="catalog-section__heading">Add a custom unit</h2>
-    <form method="post" asp-page-handler="Create" class="form-stack">
+    <form method="post" asp-page-handler="Create" class="form-stack"
+          x-data="{ isCount: @(Model.Input.Dimension == Plantry.Catalog.Domain.Dimension.Count ? "true" : "false") }">
         <div class="field field--inline">
             <label asp-for="Input.Code" class="field__label">Code</label>
             <input asp-for="Input.Code" class="field__input" placeholder="e.g. bunch" />
@@ -42,12 +43,15 @@
         </div>
         <div class="field field--inline">
             <label asp-for="Input.Dimension" class="field__label">Dimension</label>
-            <select asp-for="Input.Dimension" class="field__input" asp-items="Html.GetEnumSelectList<Plantry.Catalog.Domain.Dimension>()"></select>
+            <select asp-for="Input.Dimension" class="field__input" asp-items="Html.GetEnumSelectList<Plantry.Catalog.Domain.Dimension>()"
+                    @@change="isCount = $event.target.value === '@((int)Plantry.Catalog.Domain.Dimension.Count)'"></select>
             <span asp-validation-for="Input.Dimension" class="field__error"></span>
         </div>
         <div class="field field--inline">
             <label asp-for="Input.FactorToBase" class="field__label">Factor to base unit</label>
-            <input asp-for="Input.FactorToBase" class="field__input" type="number" step="any" />
+            <input asp-for="Input.FactorToBase" class="field__input" type="number" step="any"
+                   x-bind:disabled="isCount" x-bind:value="isCount ? 1 : $el.value" />
+            <span class="field__hint" x-cloak x-show="isCount">Count units always have a factor of 1 — they don't scale against a base unit.</span>
             <span asp-validation-for="Input.FactorToBase" class="field__error"></span>
         </div>
         <button type="submit" class="btn btn--primary">Create unit</button>
