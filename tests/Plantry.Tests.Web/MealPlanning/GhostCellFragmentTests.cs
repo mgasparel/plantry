@@ -278,8 +278,7 @@ internal static class GhostCellFixture
         get
         {
             var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
-            var offset = ((int)today.DayOfWeek + 6) % 7; // days since Monday
-            return today.AddDays(-offset);
+            return MealPlan.NormalizeToMonday(today);
         }
     }
 
@@ -585,7 +584,7 @@ internal sealed class TwoDishPendingProposalStore : IPendingProposalStore
     {
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
         var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
-        var monday = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
+        var monday = MealPlan.NormalizeToMonday(today);
         return new ProposedMeal(
             Date: monday,
             MealSlotId: slot.Id,

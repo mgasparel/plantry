@@ -115,8 +115,7 @@ public sealed class PlanningSettingsFragmentTests
         // Derive the current Monday for the week param — pinned to the same instant the SUT's IClock
         // resolves (plantry-1w87), since WeekGridFragmentFactory now pins IClock in its base ConfigureWebHost.
         var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
-        var daysFromMonday = ((int)today.DayOfWeek + 6) % 7; // ISO Monday
-        var monday = today.AddDays(-daysFromMonday);
+        var monday = MealPlan.NormalizeToMonday(today);
 
         var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
