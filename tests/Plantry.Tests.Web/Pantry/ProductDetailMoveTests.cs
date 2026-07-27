@@ -76,6 +76,27 @@ public sealed class ProductDetailMoveTests : IDisposable
         Assert.Contains("disabled", html, StringComparison.Ordinal);
     }
 
+    [Fact(DisplayName = "MoveSheet — the Alpine-labelled submit button ships with non-empty server-rendered fallback text (plantry-5c5i)")]
+    public async Task MoveSheet_SubmitButton_HasNonEmptyFallbackText()
+    {
+        var client = AuthClient();
+
+        var response = await client.GetAsync(
+            $"/Pantry/Products/Detail/{ProductDetailMoveFixture.ProductId}?handler=MoveSheet&entryId={_factory.LotEntryId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        // Content-based assertion, not just x-text attribute presence: a JS failure (error, CSP block)
+        // must not leave the primary action button with an empty accessible name. Match the whole
+        // submit button element (non-greedy up to its closing tag) so this catches an empty body even
+        // if the x-text attribute itself is present.
+        var button = Regex.Match(html, "<button type=\"submit\" class=\"btn btn--primary\" x-text=\"confirmLabel\">([^<]*)</button>");
+        Assert.True(button.Success, "Could not find the Move sheet's submit button.");
+        Assert.False(string.IsNullOrWhiteSpace(button.Groups[1].Value), "Submit button has no server-rendered fallback text.");
+        Assert.StartsWith("Move ", button.Groups[1].Value, StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "MoveSheet — a never-thawed lot's sheet emits hasThawedAt:false (refreeze warning gated off)")]
     public async Task MoveSheet_NeverThawedLot_EmitsHasThawedAtFalse()
     {

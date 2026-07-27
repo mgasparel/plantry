@@ -439,6 +439,7 @@ public sealed class DetailModel(
         var defaultDestinationId = destinations.FirstOrDefault(d => !d.IsCurrent && d.IsFrozen != sourceIsFrozen)?.Id
             ?? destinations.FirstOrDefault(d => !d.IsCurrent)?.Id
             ?? Guid.Empty;
+        var defaultDestinationName = destinations.FirstOrDefault(d => d.Id == defaultDestinationId)?.Name ?? "—";
 
         var freezeDays = product?.DefaultDueDaysAfterFreezing;
         var thawDays = product?.DefaultDueDaysAfterThawing;
@@ -475,7 +476,8 @@ public sealed class DetailModel(
             thawCandidateDisplay,
             thawNote,
             destinations,
-            defaultDestinationId);
+            defaultDestinationId,
+            $"Move {lot.Quantity.ToString("0.###")} {lot.UnitCode} → {defaultDestinationName}");
     }
 
     /// <summary>
@@ -938,7 +940,14 @@ public sealed record MoveSheetViewModel(
     string? ThawCandidateDisplay,
     string ThawNote,
     IReadOnlyList<MoveDestinationOption> Destinations,
-    Guid DefaultDestinationId);
+    Guid DefaultDestinationId,
+    /// <summary>Server-rendered fallback for the submit button's <c>x-text="confirmLabel"</c>
+    /// (plantry-5c5i) — content the button ships with BEFORE Alpine hydrates, so a JS failure (error,
+    /// CSP block) never leaves the primary action rendered with no accessible name. Alpine overwrites
+    /// it with the live freeze/thaw/move-aware label once <c>confirmLabel</c> evaluates; this fallback
+    /// intentionally stays the generic "Move" verb rather than replicating that kind computation
+    /// server-side, mirroring <c>_ReviewStep1.cshtml</c>'s render-then-let-Alpine-overwrite pattern.</summary>
+    string ConfirmLabelFallback);
 
 /// <summary>
 /// View model for the Amend sheet (ADR-023 §6/A11) — everything <c>_AmendSheet.cshtml</c> needs,
