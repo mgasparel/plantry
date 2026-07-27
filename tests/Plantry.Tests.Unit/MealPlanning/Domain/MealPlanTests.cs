@@ -29,6 +29,15 @@ public sealed class MealPlanTests
     private static DishSpec RecipeDish(int servings = 2) =>
         new(DishKind.Recipe, Guid.NewGuid(), servings);
 
+    private static DishSpec RecipeDish(Guid recipeId, int servings = 2) =>
+        new(DishKind.Recipe, recipeId, servings);
+
+    private static DishSpec ProductDish(int servings = 1) =>
+        new(DishKind.Product, Guid.NewGuid(), servings);
+
+    private static DishSpec ProductDish(Guid productId, int servings = 1) =>
+        new(DishKind.Product, productId, servings);
+
     // ── M8 — Monday normalization ─────────────────────────────────────────────
 
     [Fact]
@@ -206,6 +215,129 @@ public sealed class MealPlanTests
         Assert.Equal(2, after[0].PlannedDishes.Count);
         // Second meal unchanged
         Assert.Equal(secondId, after[1].Id);
+    }
+
+    // ── UpdateDishes — diff instead of replace (plantry-0tnx) ─────────────────
+    // Editing a meal must preserve the PlannedDishId of any dish that is still present after the
+    // edit, since cook/eat history is keyed to that id (MealPlanCookStatusReaderAdapter). A
+    // wholesale replace mints fresh ids and silently orphans that history, making already-
+    // cooked/eaten dishes render as pending again.
+
+    [Fact]
+    public void UpdateDishes_PreservesId_ForUnchangedRecipeDish_WhenAnotherDishInTheMealChanges()
+    {
+        var plan = CreatePlan();
+        var recipeId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(recipeId), ProductDish()], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+        var originalRecipeDishId = plan.FindById(mealId)!.PlannedDishes.Single(d => d.RecipeId == recipeId).Id;
+
+        // Edit: keep the recipe dish, swap the product for a different one
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(recipeId), ProductDish()], null, "test", UserId, Clock, mealId: mealId);
+
+        var afterRecipeDish = plan.FindById(mealId)!.PlannedDishes.Single(d => d.RecipeId == recipeId);
+        Assert.Equal(originalRecipeDishId, afterRecipeDish.Id);
+    }
+
+    [Fact]
+    public void UpdateDishes_PreservesId_ForUnchangedProductDish_WhenOtherDishesChange()
+    {
+        var plan = CreatePlan();
+        var productId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(), ProductDish(productId)], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+        var originalProductDishId = plan.FindById(mealId)!.PlannedDishes.Single(d => d.ProductId == productId).Id;
+
+        // Edit: replace the recipe, keep the same product
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(), ProductDish(productId)], null, "test", UserId, Clock, mealId: mealId);
+
+        var afterProductDish = plan.FindById(mealId)!.PlannedDishes.Single(d => d.ProductId == productId);
+        Assert.Equal(originalProductDishId, afterProductDish.Id);
+    }
+
+    [Fact]
+    public void UpdateDishes_AssignsFreshId_ForGenuinelyNewDish()
+    {
+        var plan = CreatePlan();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+
+        var newProductId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(), ProductDish(newProductId)], null, "test", UserId, Clock, mealId: mealId);
+
+        var meal = plan.FindById(mealId)!;
+        Assert.Equal(2, meal.PlannedDishes.Count);
+        Assert.Contains(meal.PlannedDishes, d => d.ProductId == newProductId);
+    }
+
+    [Fact]
+    public void UpdateDishes_DropsDish_WhenRemovedFromTheNewSpecList()
+    {
+        var plan = CreatePlan();
+        var keepId = Guid.NewGuid();
+        var removeId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(keepId), RecipeDish(removeId)], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(keepId)], null, "test", UserId, Clock, mealId: mealId);
+
+        var meal = plan.FindById(mealId)!;
+        Assert.Single(meal.PlannedDishes);
+        Assert.Equal(keepId, meal.PlannedDishes[0].RecipeId);
+    }
+
+    [Fact]
+    public void UpdateDishes_UpdatesServings_ButKeepsIdentity_ForMatchedDish()
+    {
+        var plan = CreatePlan();
+        var recipeId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(recipeId, servings: 4)], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+        var originalId = plan.PlannedMeals[0].PlannedDishes[0].Id;
+
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(recipeId, servings: 6)], null, "test", UserId, Clock, mealId: mealId);
+
+        var afterDish = plan.FindById(mealId)!.PlannedDishes.Single();
+        Assert.Equal(originalId, afterDish.Id);
+        Assert.Equal(6, afterDish.Servings);
+    }
+
+    [Fact]
+    public void UpdateDishes_RenumbersOrdinalsContiguously_AfterDiff()
+    {
+        var plan = CreatePlan();
+        var keepId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [ProductDish(), RecipeDish(keepId)], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+
+        // Drop the first (product) dish, keep the recipe dish, add a new one — the kept dish
+        // should move to ordinal 1.
+        var newProductId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(keepId), ProductDish(newProductId)], null, "test", UserId, Clock, mealId: mealId);
+
+        var dishes = plan.FindById(mealId)!.PlannedDishes.OrderBy(d => d.Ordinal).ToList();
+        Assert.Equal(2, dishes.Count);
+        Assert.Equal(1, dishes[0].Ordinal);
+        Assert.Equal(keepId, dishes[0].RecipeId);
+        Assert.Equal(2, dishes[1].Ordinal);
+        Assert.Equal(newProductId, dishes[1].ProductId);
+    }
+
+    [Fact]
+    public void UpdateDishes_MatchesDuplicateItems_InOrdinalOrder_GreedyFirstUnmatched()
+    {
+        // Two identical recipe dishes in the same meal; editing to drop one should keep exactly
+        // one of the original ids (deterministic: the lowest-ordinal match), not mint two new ones.
+        var plan = CreatePlan();
+        var recipeId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(recipeId), RecipeDish(recipeId)], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+        var originalIds = plan.PlannedMeals[0].PlannedDishes.OrderBy(d => d.Ordinal).Select(d => d.Id).ToList();
+
+        plan.AssignMeal(Monday, SlotA, [RecipeDish(recipeId)], null, "test", UserId, Clock, mealId: mealId);
+
+        var afterDish = plan.FindById(mealId)!.PlannedDishes.Single();
+        Assert.Equal(originalIds[0], afterDish.Id);
     }
 
     // ── MP-O8 — clear by mealId + renumber ───────────────────────────────────

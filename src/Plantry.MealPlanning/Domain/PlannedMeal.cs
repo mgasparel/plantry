@@ -132,22 +132,92 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
         };
     }
 
-    /// <summary>Updates the dishes of this meal (wholesale replace). Validates M13 (dishes XOR note).</summary>
+    /// <summary>
+    /// Updates the dishes of this meal. Diffs against the existing dishes rather than replacing
+    /// them wholesale: a new-spec dish is matched (by Kind + RecipeId/ProductId, greedy,
+    /// oldest-ordinal-first, one match per existing dish, <b>monotonic</b> in old <see cref="Ordinal"/>
+    /// — see below) against an existing <see cref="PlannedDish"/> and, when matched, that same
+    /// instance is kept — preserving its <see cref="PlannedDishId"/> and therefore any cook/eat
+    /// history recorded against it (CookEvent.PlannedDishId, Inventory journal SourceRef — see
+    /// MealPlanCookStatusReaderAdapter). Its servings and ordinal are updated to the new spec, but
+    /// a dish that was already cooked/eaten stays "done" — the status lookup only checks whether
+    /// history exists for the id, not the servings value, which is the intended semantic ("this
+    /// dish was cooked"). Only genuinely new dishes get a fresh <see cref="PlannedDish"/>; only
+    /// genuinely removed dishes are dropped from the meal (their history remains, just no longer
+    /// displayed — correct, since the dish is gone from the plan).
+    ///
+    /// <para>
+    /// <b>Ordinal-uniqueness hazard.</b> <c>ux_planned_dish_meal_ordinal</c> is a plain UNIQUE
+    /// index on (planned_meal_id, ordinal) and, unlike the meal-level slot constraint, is NOT
+    /// deferrable — migration 20260617143350 made the meal-level constraint deferrable
+    /// specifically to allow in-place ordinal swaps, and 20260617180000 later dropped that
+    /// deferability once the swap path it existed for was removed, so there is no deferrable
+    /// fallback anywhere in this schema today. A true ordinal permutation (e.g. kept dish A moving
+    /// from ordinal 1 to 2 while kept dish B moves from 2 to 1 in the same edit) would emit two
+    /// in-place UPDATEs that collide against that index. The match below is therefore constrained
+    /// to be monotonic in the old dishes' <see cref="Ordinal"/> — a kept dish can only match an old
+    /// dish at or after the old dish consumed by the previous match — which guarantees kept dishes
+    /// can only shift down (or stay), never invert relative order, so no swap is ever produced (a
+    /// dish removed and later re-added becomes a brand-new <see cref="PlannedDish"/> instead, which
+    /// is also the correct semantic — the user deleted it). If a dish-reorder affordance is ever
+    /// added to the meal editor, or any other path that would insert a new dish ahead of a kept
+    /// one, this monotonic guarantee no longer holds and the unique index needs to be replaced with
+    /// <c>UNIQUE (planned_meal_id, ordinal) DEFERRABLE INITIALLY DEFERRED</c>, per the
+    /// 20260617143350 precedent.
+    /// </para>
+    ///
+    /// Validates M13 (dishes XOR note).
+    /// </summary>
     internal void UpdateDishes(IReadOnlyList<DishSpec> dishes, Guid updatedBy, DateTimeOffset now)
     {
         if (dishes.Count == 0)
             throw new InvalidOperationException("At least one dish is required for a dish-based meal (M13).");
 
         Note = null;
-        _plannedDishes.Clear();
+
+        var candidates = _plannedDishes.OrderBy(d => d.Ordinal).ToList();
+        var matchedOld = new HashSet<PlannedDish>();
+        var added = new List<PlannedDish>(dishes.Count);
+        var searchFrom = 0; // monotonic: never match an older dish that precedes an already-matched one
 
         for (var i = 0; i < dishes.Count; i++)
         {
             var spec = dishes[i];
-            _plannedDishes.Add(spec.Kind == DishKind.Recipe
-                ? PlannedDish.CreateForRecipe(HouseholdId, Id, spec.ItemId, spec.Servings, ordinal: i + 1)
-                : PlannedDish.CreateForProduct(HouseholdId, Id, spec.ItemId, spec.Servings, ordinal: i + 1));
+            var matchIndex = -1;
+            for (var j = searchFrom; j < candidates.Count; j++)
+            {
+                var old = candidates[j];
+                var sameItem = spec.Kind == DishKind.Recipe
+                    ? old.RecipeId == spec.ItemId
+                    : old.ProductId == spec.ItemId;
+                if (sameItem)
+                {
+                    matchIndex = j;
+                    break;
+                }
+            }
+
+            if (matchIndex >= 0)
+            {
+                var match = candidates[matchIndex];
+                searchFrom = matchIndex + 1;
+                matchedOld.Add(match);
+                match.SetServings(spec.Servings);
+                match.SetOrdinal(i + 1);
+            }
+            else
+            {
+                added.Add(spec.Kind == DishKind.Recipe
+                    ? PlannedDish.CreateForRecipe(HouseholdId, Id, spec.ItemId, spec.Servings, ordinal: i + 1)
+                    : PlannedDish.CreateForProduct(HouseholdId, Id, spec.ItemId, spec.Servings, ordinal: i + 1));
+            }
         }
+
+        // Drop dishes that weren't matched (genuinely removed from the plan). Kept dishes stay in
+        // place in the backing list (not removed/re-added) so EF's change tracker sees them as
+        // in-place updates, not delete+insert.
+        _plannedDishes.RemoveAll(d => !matchedOld.Contains(d));
+        _plannedDishes.AddRange(added);
 
         UpdatedBy = updatedBy;
         UpdatedAt = now;
