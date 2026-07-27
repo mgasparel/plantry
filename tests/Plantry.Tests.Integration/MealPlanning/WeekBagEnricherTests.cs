@@ -25,6 +25,19 @@ public sealed class WeekBagEnricherTests
     private static readonly Guid GramUnitId = Guid.Parse("dddddddd-0000-0000-0000-000000000001");
     private static readonly Guid KgUnitId   = Guid.Parse("dddddddd-0000-0000-0000-000000000002");
 
+    // Two Count-dimension units with no universal ratio between them (plantry-jvd7).
+    private static readonly Guid EachUnitId  = Guid.Parse("dddddddd-0000-0000-0000-000000000003");
+    private static readonly Guid DozenUnitId = Guid.Parse("dddddddd-0000-0000-0000-000000000004");
+
+    // Multi-hop chain units (plantry-jvd7) — same shape as UnitConverterTests'
+    // MultiHopProductConversions_Compose_Through_SharedPivotUnit: srv --conv--> cup --conv--> g <--conv-- pk.
+    private static readonly Guid ServingUnitId = Guid.Parse("dddddddd-0000-0000-0000-000000000005");
+    private static readonly Guid PackUnitId    = Guid.Parse("dddddddd-0000-0000-0000-000000000006");
+    private static readonly Guid CupUnitId     = Guid.Parse("dddddddd-0000-0000-0000-000000000007");
+
+    // A Mass unit with a null FactorToBase (plantry-jvd7 AC5 — pins the null→1m coalesce).
+    private static readonly Guid NullFactorMassUnitId = Guid.Parse("dddddddd-0000-0000-0000-000000000008");
+
     // ── Helpers ───────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -169,6 +182,225 @@ public sealed class WeekBagEnricherTests
         Assert.NotNull(result);
         // 1 tracked ingredient, 0 fully InStock (Low) → 0 % fulfillment.
         Assert.Equal(0, result.FulfillmentPercent);
+    }
+
+    // ── Count-dimension parity + multi-hop bridging (plantry-jvd7) ─────────────────
+
+    /// <summary>
+    /// Regression for the bug this ticket exists to fix: BEFORE plantry-jvd7, WeekBagEnricher carried
+    /// its own copy of the same-dimension scaling rule (<c>SameDimensionFactor</c>) with no
+    /// <see cref="Plantry.Catalog.Domain.Dimension.Count"/> exclusion — unlike
+    /// <see cref="Plantry.Catalog.Domain.UnitConverter"/>, which has excluded Count from free
+    /// same-dimension scaling since plantry-xddq (commit f69fd57 — the same commit that made Convert a
+    /// full BFS, which is why WeekBagEnricher's copy drifted on both axes at once) (two Count units, e.g. "dozen" and
+    /// "each", share no universal ratio the way two Mass or Volume units do). So a stock lot held in a
+    /// different Count unit than the product's default, with no explicit <c>ProductConversion</c>
+    /// linking the two, would resolve for free in the week-bag path while
+    /// <c>Inventory.Consume</c> correctly failed loud and demanded one.
+    ///
+    /// Here the product's default unit is "each" and the only stock lot is 1 "dz" (dozen, factor 12),
+    /// with NO ProductConversion between them. If dz→each still resolved for free (the bug: 12/1 =
+    /// 12 each ≥ the 5 each required), this ingredient would read InStock (100%). After the fix the
+    /// lot cannot be converted, contributes 0, and the ingredient reads Missing (0%) — exactly the
+    /// behaviour <c>Inventory.Consume</c> already had. This assertion is the one that would have
+    /// failed against the pre-fix implementation.
+    /// </summary>
+    [Fact(DisplayName = "Two Count-dimension units with no ProductConversion do not free-scale — parity with Inventory.Consume (plantry-jvd7)")]
+    public void CountDimensionUnits_WithNoProductConversion_DoNotFreeScale()
+    {
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Test Recipe", DefaultServings: 1),
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                [RecipeId] = [new IngredientFact(Ing1Id, RecipeId, ProductId, Quantity: 5m, UnitId: EachUnitId, Ordinal: 0)],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [ProductId] = new ProductFact(
+                    ProductId, "Widget",
+                    TrackStock: true,
+                    DefaultUnitId: EachUnitId,
+                    ParentProductId: null,
+                    HasVariants: false,
+                    Archived: false,
+                    VariantProductIds: []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>(), // no ProductConversion at all
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [EachUnitId]  = new UnitFact(EachUnitId,  "each", "each",   "count", FactorToBase: 1m,  IsBase: true),
+                [DozenUnitId] = new UnitFact(DozenUnitId, "dz",   "dozens", "count", FactorToBase: 12m, IsBase: false),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>
+            {
+                // Only a 1-dz lot on hand — no "each" lot. Under the pre-fix bug, 1 dz would convert
+                // to 12 each (>= the 5 each required) for free.
+                [ProductId] = new StockFact(
+                    ProductId,
+                    Lots: [new StockLotFact(ProductId, DozenUnitId, 1m)],
+                    SoonestExpiry: null),
+            },
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>());
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = enricher.Enrich(RecipeId, servings: 1, today);
+
+        Assert.NotNull(result);
+        Assert.Equal(0, result!.FulfillmentPercent); // Missing, not InStock — the dz lot cannot free-scale to each.
+    }
+
+    /// <summary>
+    /// New capability unlocked by delegating to <see cref="Plantry.Catalog.Domain.UnitConverter"/>'s
+    /// shape-typed <c>Convert</c> overload: BEFORE plantry-jvd7, <c>WeekBagEnricher.BuildConverter</c> tried each <c>ProductConversion</c>
+    /// with at most ONE same-dimension bridge per side (a single hop), so a conversion resolvable only
+    /// by chaining several <c>ProductConversion</c>s end-to-end was unresolvable in week-bag costing —
+    /// even though <c>UnitConverter.Convert</c> has been a full BFS (arbitrary hop count) since
+    /// plantry-xddq.
+    ///
+    /// Same shape as UnitConverterTests.MultiHopProductConversions_Compose_Through_SharedPivotUnit:
+    /// the product's default (stock) unit is "pk" (pack) and the recipe asks for "srv" (servings), with
+    /// only cup↔g, srv↔cup, and pk↔g conversions on file — no direct srv↔pk conversion. Resolving
+    /// pk → srv requires chaining THREE ProductConversion edges (pk --conv--> g --conv(inverse)-->
+    /// cup --conv(inverse)--> srv).
+    ///
+    /// The required quantity is deliberately 5 srv, not 1: "pk" and "srv" are both Dimension.Count
+    /// with FactorToBase = 1m, so the OLD copy's delegate short-circuited on its very first check —
+    /// <c>SameDimensionFactor(fromUnitId, toUnitId, units)</c>, called before either bridging loop —
+    /// which (pre-fix, with no Count exclusion) returned <c>1/1 = 1</c> for any two same-dimension
+    /// units regardless of Count, undercounting 1 pk as exactly 1 srv rather than attempting any
+    /// chain at all. At 1 srv required that bogus 1:1 conversion would have satisfied the ingredient
+    /// too, so the assertion would not discriminate. At 5 srv required, the old bogus 1-srv result
+    /// is Missing/Low (0%) while the real ≈7.619-srv chain (see below) is InStock (100%) — a genuine
+    /// before/after discriminator for AC3.
+    /// </summary>
+    [Fact(DisplayName = "Multi-hop ProductConversion chain now resolves through the week-bag path — new capability (plantry-jvd7)")]
+    public void MultiHopProductConversionChain_ResolvesThroughWeekBagPath()
+    {
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Oat Bar Recipe", DefaultServings: 1),
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                // Recipe asks for 5 servings — see the discriminator note above for why not 1.
+                [RecipeId] = [new IngredientFact(Ing1Id, RecipeId, ProductId, Quantity: 5m, UnitId: ServingUnitId, Ordinal: 0)],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [ProductId] = new ProductFact(
+                    ProductId, "Oat Bar",
+                    TrackStock: true,
+                    DefaultUnitId: PackUnitId,
+                    ParentProductId: null,
+                    HasVariants: false,
+                    Archived: false,
+                    VariantProductIds: []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>
+            {
+                [ProductId] =
+                [
+                    new ConversionFact(ProductId, CupUnitId, GramUnitId, 105m),      // 1 cup = 105 g
+                    new ConversionFact(ProductId, ServingUnitId, CupUnitId, 0.75m),  // 1 srv = 0.75 cup
+                    new ConversionFact(ProductId, PackUnitId, GramUnitId, 600m),     // 1 pk = 600 g
+                ],
+            },
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [GramUnitId]    = new UnitFact(GramUnitId,    "g",   "grams",    "mass",   FactorToBase: 1m,   IsBase: true),
+                [CupUnitId]     = new UnitFact(CupUnitId,     "cup", "cups",     "volume", FactorToBase: 240m, IsBase: false),
+                [ServingUnitId] = new UnitFact(ServingUnitId, "srv", "servings", "count",  FactorToBase: 1m,   IsBase: true),
+                [PackUnitId]    = new UnitFact(PackUnitId,    "pk",  "packs",    "count",  FactorToBase: 1m,   IsBase: false),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>
+            {
+                // 1 pk on hand, already in the default unit — BuildStockById adds it directly with no
+                // conversion, so the multi-hop resolution is exercised at the fulfillment-comparison
+                // step (converting the available quantity from "pk" into the ingredient's "srv").
+                [ProductId] = new StockFact(
+                    ProductId,
+                    Lots: [new StockLotFact(ProductId, PackUnitId, 1m)],
+                    SoonestExpiry: null),
+            },
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>());
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = enricher.Enrich(RecipeId, servings: 1, today);
+
+        Assert.NotNull(result);
+        // 1 pk = 600 g = 600/105 cup = 600/105/0.75 srv ≈ 7.619 srv, above the 5 srv required —
+        // the old bogus 1:1 Count short-circuit would have given only 1 srv, which is NOT >= 5.
+        Assert.Equal(100, result!.FulfillmentPercent);
+    }
+
+    /// <summary>
+    /// Pins AC5 (plantry-jvd7): <c>UnitFact.FactorToBase</c> is <c>decimal?</c> in the flat SQL
+    /// projection (<c>MealPlanWeekReadModel.cs</c>), but the domain field it stands in for is
+    /// required-positive — <see cref="Plantry.Web.MealPlanning.WeekBagEnricher"/>'s
+    /// <c>BuildConverter</c> deliberately coalesces a null value to <c>1m</c>, preserving the
+    /// week-bag path's pre-jvd7 behaviour exactly. That coalesce is a fully surviving mutant unless
+    /// a covered path actually crosses it: this test prices a Mass unit ("mys") whose
+    /// <c>FactorToBase</c> is null against a recipe ingredient measured in grams, so
+    /// <see cref="CostingService"/> MUST convert mys → g through the coalesced 1m factor to price
+    /// the ingredient at all. Changing the coalesce (e.g. to <c>?? 999m</c>) must turn this test
+    /// red — verified empirically before landing this fix.
+    /// </summary>
+    [Fact(DisplayName = "Null FactorToBase on a Mass unit coalesces to 1m — pins the AC5 behaviour-preserving mapping (plantry-jvd7)")]
+    public void NullFactorToBase_OnMassUnit_CoalescesToOne_AndCostsCorrectly()
+    {
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Test Recipe", DefaultServings: 4),
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                [RecipeId] = [new IngredientFact(Ing1Id, RecipeId, ProductId, Quantity: 250m, UnitId: GramUnitId, Ordinal: 0)],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [ProductId] = new ProductFact(
+                    ProductId, "Mystery Ingredient",
+                    TrackStock: true,
+                    DefaultUnitId: GramUnitId,
+                    ParentProductId: null,
+                    HasVariants: false,
+                    Archived: false,
+                    VariantProductIds: []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>(), // no ProductConversion — must cross the free same-dimension edge
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [GramUnitId]          = new UnitFact(GramUnitId,          "g",   "grams",    "mass", FactorToBase: 1m,   IsBase: true),
+                [NullFactorMassUnitId] = new UnitFact(NullFactorMassUnitId, "mys", "mystery", "mass", FactorToBase: null, IsBase: false),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>(),
+            // Priced in the null-factor unit — CostingService must convert mys -> g, which is only
+            // possible if the coalesced FactorToBase (null -> 1m) is applied.
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>
+            {
+                [ProductId] = new PriceFact(ProductId, Price: 2.00m, Quantity: 500m, UnitId: NullFactorMassUnitId, UnitPrice: null, ObservedAt: DateTime.UtcNow),
+            });
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = enricher.Enrich(RecipeId, servings: 4, today);
+
+        Assert.NotNull(result);
+        // $2.00 / 500 mys = $0.004/mys; mys<->g is 1:1 under the null->1m coalesce, so $0.004/g.
+        // 250 g x $0.004/g = $1.00 for the recipe at its default 4 servings (matches
+        // ParentReferencingIngredient_WithPricedVariant_ShowsCostInWeekRollup's identical arithmetic).
+        Assert.Equal(1.00m, result!.TotalCost);
+        Assert.False(result.CostIsPartial);
     }
 
     // ── DM-19: parent-referencing ingredient rolls up a priced variant (plantry-daal) ─────────────

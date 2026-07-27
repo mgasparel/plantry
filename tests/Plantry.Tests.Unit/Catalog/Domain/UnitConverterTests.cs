@@ -27,7 +27,10 @@ public sealed class UnitConverterTests
     {
         var unitId = Plantry.Catalog.Domain.UnitId.New();
 
-        var result = UnitConverter.Convert(5m, unitId.Value, unitId.Value, [], []);
+        // Explicit empty-array typing (plantry-jvd7): a bare `[]` literal is ambiguous now that
+        // Convert has both an entity-typed and a shape-typed overload — this test exercises the
+        // entity-typed one, matching every production call site.
+        var result = UnitConverter.Convert(5m, unitId.Value, unitId.Value, Array.Empty<CatalogUnit>(), Array.Empty<ProductConversion>());
 
         Assert.True(result.IsSuccess);
         Assert.Equal(5m, result.Value);
@@ -145,7 +148,8 @@ public sealed class UnitConverterTests
         var fromId = Plantry.Catalog.Domain.UnitId.New();
         var toId = Plantry.Catalog.Domain.UnitId.New();
 
-        var result = UnitConverter.Convert(1m, fromId.Value, toId.Value, [], []);
+        // Explicit empty-array typing (plantry-jvd7) — see SameUnit_Resolves_To_Identity above.
+        var result = UnitConverter.Convert(1m, fromId.Value, toId.Value, Array.Empty<CatalogUnit>(), Array.Empty<ProductConversion>());
 
         Assert.True(result.IsFailure);
         Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
@@ -377,6 +381,89 @@ public sealed class UnitConverterTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(12m, result.Value);
+    }
+
+    // ── plantry-jvd7: shape-typed overload (WeekBagEnricher's canonical entry point) ───────────
+
+    /// <summary>
+    /// The entity-typed overload is documented as a thin wrapper over the shape-typed one
+    /// (plantry-jvd7) — this proves it, using the exact multi-hop scenario above: converting the
+    /// entity-typed inputs to <see cref="UnitConverter.UnitShape"/>/<see cref="UnitConverter.ConversionShape"/>
+    /// by hand and calling the shape-typed overload directly must produce the byte-identical result.
+    /// </summary>
+    [Fact]
+    public void ShapeTypedOverload_ProducesSameResult_AsEntityTypedOverload_ForMultiHopChain()
+    {
+        var cups = MakeUnit("cup", Dimension.Volume, 240m);
+        var grams = MakeUnit("g", Dimension.Mass, 1m, isBase: true);
+        var servings = MakeUnit("srv", Dimension.Count, 1m, isBase: true);
+        var packs = MakeUnit("pk", Dimension.Count, 1m);
+        var product = Product.Create(HouseholdId, "Oat Bar", servings.Id, SystemClock.Instance);
+        var cupToGrams = MakeConversion(product, cups.Id, grams.Id, 105m);
+        var srvToCup = MakeConversion(product, servings.Id, cups.Id, 0.75m);
+        var pkToGrams = MakeConversion(product, packs.Id, grams.Id, 600m);
+        var allUnits = new[] { cups, grams, servings, packs };
+        var allConversions = new[] { cupToGrams, srvToCup, pkToGrams };
+
+        var entityTyped = UnitConverter.Convert(1m, servings.Id.Value, packs.Id.Value, allUnits, allConversions);
+
+        var unitShapes = allUnits
+            .Select(u => new UnitConverter.UnitShape(u.Id.Value, u.Dimension, u.FactorToBase))
+            .ToList();
+        var conversionShapes = allConversions
+            .Select(c => new UnitConverter.ConversionShape(c.FromUnitId.Value, c.ToUnitId.Value, c.Factor))
+            .ToList();
+        var shapeTyped = UnitConverter.Convert(1m, servings.Id.Value, packs.Id.Value, unitShapes, conversionShapes);
+
+        Assert.True(entityTyped.IsSuccess);
+        Assert.True(shapeTyped.IsSuccess);
+        Assert.Equal(entityTyped.Value, shapeTyped.Value);
+        Assert.Equal(0.13125m, shapeTyped.Value);
+    }
+
+    /// <summary>
+    /// AC4 (plantry-jvd7): <see cref="Unit.Create"/> enforces <c>factorToBase &gt; 0</c>, so the
+    /// entity-typed overload can never supply a zero — but a <see cref="UnitConverter.UnitShape"/>
+    /// built from a flat ADR-021 read-model row (WeekBagEnricher) is not covered by that invariant.
+    /// A zero <c>FactorToBase</c> must not divide-by-zero or fabricate a bogus edge — the pair simply
+    /// stays unresolvable, exactly like today's <c>WeekBagEnricher.SameDimensionFactor</c> guard.
+    /// </summary>
+    [Fact]
+    public void ShapeTypedOverload_ZeroFactorToBase_DoesNotDivideByZero_OrProduceEdge()
+    {
+        var fromId = Guid.NewGuid();
+        var toId = Guid.NewGuid();
+        var units = new[]
+        {
+            new UnitConverter.UnitShape(fromId, Dimension.Mass, 0m),
+            new UnitConverter.UnitShape(toId, Dimension.Mass, 1m),
+        };
+
+        var result = UnitConverter.Convert(5m, fromId, toId, units, []);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
+    }
+
+    /// <summary>
+    /// Same guard, other operand: a zero <c>FactorToBase</c> on the TO side must not divide-by-zero
+    /// either (mirrors the old copy's <c>if (toFactor == 0m) return null;</c> check).
+    /// </summary>
+    [Fact]
+    public void ShapeTypedOverload_ZeroFactorToBase_OnToUnit_DoesNotDivideByZero()
+    {
+        var fromId = Guid.NewGuid();
+        var toId = Guid.NewGuid();
+        var units = new[]
+        {
+            new UnitConverter.UnitShape(fromId, Dimension.Mass, 1m),
+            new UnitConverter.UnitShape(toId, Dimension.Mass, 0m),
+        };
+
+        var result = UnitConverter.Convert(5m, fromId, toId, units, []);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.UnresolvableConversion", result.Error.Code);
     }
 }
 
