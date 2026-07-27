@@ -15,7 +15,6 @@ using Plantry.Tests.Web.MealPlanning;
 using Plantry.Tests.Web.Preferences;
 using Plantry.Web.MealPlanning;
 using Xunit;
-using SharedSystemClock = Plantry.SharedKernel.Domain.SystemClock;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -191,8 +190,8 @@ public sealed class MealCardCookStripFactory : WebApplicationFactory<Program>
             services.AddSingleton<IMealPlanCookStatusReader>(new FixedCookStatusReader(
                 new Dictionary<Guid, DishCookStatus>
                 {
-                    [Repo.DoneRecipeDishIdA] = new DishCookStatus(DateTimeOffset.UtcNow.AddMinutes(-30)),
-                    [Repo.DoneRecipeDishIdB] = new DishCookStatus(DateTimeOffset.UtcNow.AddMinutes(-10)),
+                    [Repo.DoneRecipeDishIdA] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-30)),
+                    [Repo.DoneRecipeDishIdB] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-10)),
                 }));
 
             services.RemoveAll<IMealPlanStockReader>();
@@ -240,6 +239,11 @@ public sealed class MealCardCookStripFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant the fixture below derives "today" from (plantry-1w87), so the
+            // SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -252,7 +256,7 @@ internal static class CookStripFixture
     public static readonly Guid HouseholdId = Guid.Parse("55555555-0000-0000-0000-000000000005");
 
     private static readonly HouseholdId HhId = SharedKernel.HouseholdId.From(HouseholdId);
-    public static readonly MealSlotConfig SlotConfig = MealSlotConfig.CreateWithDefaults(HhId, SharedSystemClock.Instance);
+    public static readonly MealSlotConfig SlotConfig = MealSlotConfig.CreateWithDefaults(HhId, new FixedClock(MealPlanningTestClock.Instant));
 
     private static readonly List<MealSlot> OrderedSlots = [.. SlotConfig.Slots.OrderBy(s => s.Ordinal)];
     public static readonly MealSlotId BreakfastSlotId = OrderedSlots[0].Id;
@@ -289,8 +293,8 @@ public sealed class CookStripMealPlanRepo : IMealPlanRepository
     public CookStripMealPlanRepo()
     {
         var hhId = SharedKernel.HouseholdId.From(CookStripFixture.HouseholdId);
-        var clock = SharedSystemClock.Instance;
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var clock = new FixedClock(MealPlanningTestClock.Instant);
+        var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
         ThisWeekMonday = MealPlan.NormalizeToMonday(today);
         FutureWeekMonday = MealPlan.NormalizeToMonday(today.AddDays(60));
 

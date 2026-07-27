@@ -501,6 +501,11 @@ public sealed class SessionKeyedStoreFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant SessionKeyedMealPlanRepo derives its clock from (plantry-1w87),
+            // so the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -605,6 +610,11 @@ public sealed class SessionKeyedTwoProposalFactory : WebApplicationFactory<Progr
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant SessionKeyedMealPlanRepo derives its clock from (plantry-1w87),
+            // so the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -617,7 +627,7 @@ public sealed class SessionKeyedTwoProposalFactory : WebApplicationFactory<Progr
 internal sealed class SessionKeyedMealPlanRepo : IMealPlanRepository
 {
     private readonly Dictionary<string, MealPlan> _plans = [];
-    private static readonly IClock _clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+    private static readonly IClock _clock = new FixedClock(MealPlanningTestClock.Instant);
 
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
     {

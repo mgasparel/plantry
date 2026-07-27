@@ -78,7 +78,7 @@ public sealed class InsightsRailFragmentTests : IClassFixture<InsightsRailFragme
         // Use a date in the current week so Plan Insights are active (plantry-lb9t: insights are
         // suppressed for past weeks). Monday of the current week is a safe choice — the server
         // also treats the current week as non-historical regardless of the exact weekday.
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
         var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
         var payload = new { date = monday.ToString("yyyy-MM-dd"), slotId = slot.Id.Value, mode = "note", note = "Takeout" };
         var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");

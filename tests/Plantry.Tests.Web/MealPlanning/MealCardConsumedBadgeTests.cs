@@ -15,7 +15,6 @@ using Plantry.Tests.Web.MealPlanning;
 using Plantry.Tests.Web.Preferences;
 using Plantry.Web.MealPlanning;
 using Xunit;
-using SharedSystemClock = Plantry.SharedKernel.Domain.SystemClock;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -252,6 +251,11 @@ public sealed class ConsumedBadgeFactory(int dishCount, int? nonExpiringDishInde
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant the fixture below derives "today" from (plantry-1w87), so the
+            // SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -261,7 +265,7 @@ internal static class ConsumedBadgeFixture
     public static readonly Guid HouseholdId = Guid.Parse("77777777-0000-0000-0000-000000000007");
 
     private static readonly HouseholdId HhId = SharedKernel.HouseholdId.From(HouseholdId);
-    public static readonly MealSlotConfig SlotConfig = MealSlotConfig.CreateWithDefaults(HhId, SharedSystemClock.Instance);
+    public static readonly MealSlotConfig SlotConfig = MealSlotConfig.CreateWithDefaults(HhId, new FixedClock(MealPlanningTestClock.Instant));
 
     private static readonly List<MealSlot> OrderedSlots = [.. SlotConfig.Slots.OrderBy(s => s.Ordinal)];
     public static readonly MealSlotId LunchSlotId = OrderedSlots[1].Id;
@@ -285,8 +289,8 @@ public sealed class ConsumedBadgeMealPlanRepo : IMealPlanRepository
 
     public ConsumedBadgeMealPlanRepo(int dishCount)
     {
-        var clock = SharedSystemClock.Instance;
-        Today = DateOnly.FromDateTime(DateTime.Today);
+        var clock = new FixedClock(MealPlanningTestClock.Instant);
+        Today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
         WeekMonday = MealPlan.NormalizeToMonday(Today);
 
         var productIds = Enumerable.Range(0, dishCount).Select(_ => Guid.CreateVersion7()).ToList();
@@ -328,14 +332,14 @@ internal sealed class ExpiringStockReader(
     {
         if (expiringProductIds.Contains(productId))
         {
-            var soonestExpiry = DateOnly.FromDateTime(DateTime.Today.AddDays(2));
+            var soonestExpiry = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime.AddDays(2));
             return Task.FromResult<MealPlanProductStock?>(
                 new MealPlanProductStock(productId, 2m, UnitId, soonestExpiry));
         }
 
         if (nonExpiringButStockedProductIds.Contains(productId))
         {
-            var farExpiry = DateOnly.FromDateTime(DateTime.Today.AddDays(30));
+            var farExpiry = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime.AddDays(30));
             return Task.FromResult<MealPlanProductStock?>(
                 new MealPlanProductStock(productId, 2m, UnitId, farExpiry));
         }

@@ -56,7 +56,7 @@ public sealed class UploadFragmentFactory : WebApplicationFactory<Program>
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
 
             services.RemoveAll<IClock>();
-            services.AddSingleton<IClock>(new FixedClock(ReviewSessionFixture.SnapshotDate));
+            services.AddSingleton<IClock>(new SnapshotFixedClock(ReviewSessionFixture.SnapshotDate));
 
             // Fake the session repository so the GET (recent-intakes list) renders without a DB and the
             // upload write path (AddAsync/SaveChanges) is a no-op. FindAsync returns null for the staged id,

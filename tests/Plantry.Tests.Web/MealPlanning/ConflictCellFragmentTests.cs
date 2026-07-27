@@ -135,9 +135,10 @@ public sealed class ConflictCellFactory : WebApplicationFactory<Program>
             services.AddScoped<IMealSlotConfigRepository>(_ =>
             {
                 var hh = Plantry.SharedKernel.HouseholdId.From(WeekGridFixture.HouseholdId);
-                var config = MealSlotConfig.CreateWithDefaults(hh, Plantry.SharedKernel.Domain.SystemClock.Instance);
+                var clock = new FixedClock(MealPlanningTestClock.Instant);
+                var config = MealSlotConfig.CreateWithDefaults(hh, clock);
                 foreach (var slot in config.Slots.Where(s => s.IsActive))
-                    config.SetDefaultAttendees(slot.Id, [ConflictCellFixture.AliceId, ConflictCellFixture.BobId], Plantry.SharedKernel.Domain.SystemClock.Instance);
+                    config.SetDefaultAttendees(slot.Id, [ConflictCellFixture.AliceId, ConflictCellFixture.BobId], clock);
                 return new FakeSlotRepo(config);
             });
 
@@ -223,6 +224,11 @@ public sealed class ConflictCellFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant ConflictCellFixture.WeekStart derives from (plantry-1w87),
+            // so the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -231,12 +237,13 @@ public sealed class ConflictCellFactory : WebApplicationFactory<Program>
 
 internal static class ConflictCellFixture
 {
-    /// <summary>Monday of the current ISO week — kept dynamic so dates always fall in the rendered week.</summary>
+    /// <summary>Monday of the pinned test week (plantry-1w87) — matches the SUT's pinned IClock so dates
+    /// always fall in the rendered week.</summary>
     public static DateOnly WeekStart
     {
         get
         {
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
             var offset = ((int)today.DayOfWeek + 6) % 7;
             return today.AddDays(-offset);
         }
@@ -255,15 +262,17 @@ internal static class ConflictCellFixture
 
     public static UserPreference BuildAlicePref()
     {
-        var pref = UserPreference.Create(Hh, AliceId, Plantry.SharedKernel.Domain.SystemClock.Instance);
-        pref.SetStance(VeganTag, "Required", Plantry.SharedKernel.Domain.SystemClock.Instance);
+        var clock = new FixedClock(MealPlanningTestClock.Instant);
+        var pref = UserPreference.Create(Hh, AliceId, clock);
+        pref.SetStance(VeganTag, "Required", clock);
         return pref;
     }
 
     public static UserPreference BuildBobPref()
     {
-        var pref = UserPreference.Create(Hh, BobId, Plantry.SharedKernel.Domain.SystemClock.Instance);
-        pref.SetStance(MeatTag, "Required", Plantry.SharedKernel.Domain.SystemClock.Instance);
+        var clock = new FixedClock(MealPlanningTestClock.Instant);
+        var pref = UserPreference.Create(Hh, BobId, clock);
+        pref.SetStance(MeatTag, "Required", clock);
         return pref;
     }
 }

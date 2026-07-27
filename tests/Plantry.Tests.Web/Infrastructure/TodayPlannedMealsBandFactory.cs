@@ -225,7 +225,7 @@ public static class TodayPlannedBandFixture
     /// page looks the meal up under the LOCAL date, so the two diverge whenever the test runs in the
     /// evening of a UTC-negative offset (UTC date != local date) — the flaky window this fixes.
     /// </summary>
-    public static readonly IClock Clock = new FixedClock(new DateOnly(2026, 6, 15));
+    public static readonly IClock Clock = new SnapshotFixedClock(new DateOnly(2026, 6, 15));
 
     /// <summary>
     /// Shared singleton slot config — both the slot-config repo and the meal-plan repo must

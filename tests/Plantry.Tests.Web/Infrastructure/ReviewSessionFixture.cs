@@ -44,7 +44,7 @@ public static class ReviewSessionFixture
 
     private static readonly DateOnly Expiry = new(2026, 7, 1);
 
-    /// <summary>The pinned "today" date used by <see cref="FixedClock"/> in snapshot tests — the clock
+    /// <summary>The pinned "today" date used by <see cref="SnapshotFixedClock"/> in snapshot tests — the clock
     /// returns this date so the product-default expiry prefill (today + DefaultDueDays) embedded in
     /// Alpine x-data is stable across calendar days.</summary>
     public static readonly DateOnly SnapshotDate = new(2026, 6, 15);

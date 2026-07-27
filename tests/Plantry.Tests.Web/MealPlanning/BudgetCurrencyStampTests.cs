@@ -52,7 +52,7 @@ public sealed class BudgetCurrencyStampTests
 
         var token = await AntiforgeryTokenAsync(client, "/MealPlan");
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
         var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
 
         var form = new FormUrlEncodedContent(new Dictionary<string, string>

@@ -155,9 +155,10 @@ public sealed class UnfulfillableCellFactory : WebApplicationFactory<Program>
             services.AddScoped<IMealSlotConfigRepository>(_ =>
             {
                 var hh = Plantry.SharedKernel.HouseholdId.From(WeekGridFixture.HouseholdId);
-                var config = MealSlotConfig.CreateWithDefaults(hh, Plantry.SharedKernel.Domain.SystemClock.Instance);
+                var clock = new FixedClock(MealPlanningTestClock.Instant);
+                var config = MealSlotConfig.CreateWithDefaults(hh, clock);
                 foreach (var slot in config.Slots.Where(s => s.IsActive))
-                    config.SetDefaultAttendees(slot.Id, [UnfulfillableCellFixture.AliceId], Plantry.SharedKernel.Domain.SystemClock.Instance);
+                    config.SetDefaultAttendees(slot.Id, [UnfulfillableCellFixture.AliceId], clock);
                 return new FakeSlotRepo(config);
             });
 
@@ -236,6 +237,11 @@ public sealed class UnfulfillableCellFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant UnfulfillableCellFixture.WeekStart derives from (plantry-1w87),
+            // so the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -244,12 +250,13 @@ public sealed class UnfulfillableCellFactory : WebApplicationFactory<Program>
 
 internal static class UnfulfillableCellFixture
 {
-    /// <summary>Monday of the current ISO week — kept dynamic so dates always fall in the rendered week.</summary>
+    /// <summary>Monday of the pinned test week (plantry-1w87) — matches the SUT's pinned IClock so dates
+    /// always fall in the rendered week.</summary>
     public static DateOnly WeekStart
     {
         get
         {
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
             var offset = ((int)today.DayOfWeek + 6) % 7;
             return today.AddDays(-offset);
         }
@@ -265,9 +272,10 @@ internal static class UnfulfillableCellFixture
 
     public static UserPreference BuildAlicePref()
     {
-        var pref = UserPreference.Create(Hh, AliceId, Plantry.SharedKernel.Domain.SystemClock.Instance);
+        var clock = new FixedClock(MealPlanningTestClock.Instant);
+        var pref = UserPreference.Create(Hh, AliceId, clock);
         // Alice requires vegetarian food, but there are NO vegetarian recipes in the corpus.
-        pref.SetStance(VegetarianTag, "Required", Plantry.SharedKernel.Domain.SystemClock.Instance);
+        pref.SetStance(VegetarianTag, "Required", clock);
         return pref;
     }
 }

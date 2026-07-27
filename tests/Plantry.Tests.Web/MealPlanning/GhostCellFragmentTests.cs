@@ -258,6 +258,11 @@ public sealed class GhostCellFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant GhostCellFixture.WeekStart derives from (plantry-1w87), so
+            // the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -266,13 +271,13 @@ public sealed class GhostCellFactory : WebApplicationFactory<Program>
 
 internal static class GhostCellFixture
 {
-    /// <summary>Monday of the current ISO week — kept dynamic so the proposal date always
-    /// falls within the week the server renders on today's GET /MealPlan.</summary>
+    /// <summary>Monday of the pinned test week (plantry-1w87) — matches the SUT's pinned IClock so the
+    /// proposal date always falls within the week the server renders on GET /MealPlan.</summary>
     public static DateOnly WeekStart
     {
         get
         {
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
             var offset = ((int)today.DayOfWeek + 6) % 7; // days since Monday
             return today.AddDays(-offset);
         }
@@ -471,6 +476,11 @@ public sealed class MixedCostGhostFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant TwoDishPendingProposalStore derives "today" from (plantry-1w87),
+            // so the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 
@@ -517,7 +527,7 @@ public sealed class MixedCostGhostFactory : WebApplicationFactory<Program>
         // ProdA priced at $5.00; ProdB deliberately has no price entry.
         var prices = new Dictionary<Guid, PriceFact>
         {
-            [ProdAId] = new PriceFact(ProdAId, 5m, 1m, UnitId, 5m, DateTime.UtcNow.AddDays(-1)),
+            [ProdAId] = new PriceFact(ProdAId, 5m, 1m, UnitId, 5m, MealPlanningTestClock.Instant.UtcDateTime.AddDays(-1)),
         };
 
         var bag = new WeekBag(recipes, ingredientsByRecipe, products,
@@ -574,7 +584,7 @@ internal sealed class TwoDishPendingProposalStore : IPendingProposalStore
     private static ProposedMeal BuildProposal()
     {
         var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
         var monday = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
         return new ProposedMeal(
             Date: monday,
