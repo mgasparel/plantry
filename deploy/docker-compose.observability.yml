@@ -17,11 +17,10 @@
 #   pass: set GF_SECURITY_ADMIN_PASSWORD in .env (no default accepted)
 #
 # Footprint: ~0.5-1 GB RAM + an lgtm_data volume on the host.
-# Retention: configure PROMETHEUS_RETENTION_TIME in .env (interpolated into
-# PROMETHEUS_EXTRA_ARGS — see .env.example). LOKI_RETENTION_PERIOD is documented in
-# .env.example but currently has no effect — Loki runs with its built-in default
-# (unbounded) retention; see the `lgtm` service's LOKI_EXTRA_ARGS comment below and
-# plantry-032n for the tracked follow-up that wires bounded Loki retention back up.
+# Retention: configure PROMETHEUS_RETENTION_TIME and LOKI_RETENTION_PERIOD in .env
+# (interpolated into PROMETHEUS_EXTRA_ARGS / LOKI_EXTRA_ARGS respectively — see
+# .env.example). Loki's compactor now enforces this window (plantry-032n) — see the
+# `lgtm` service's LOKI_EXTRA_ARGS comment below for the flag details.
 # Tempo block-retention is not exposed via CLI in the bundled otel-lgtm image; its
 # built-in default applies. See .env.example for details.
 #
@@ -67,16 +66,20 @@ services:
       # It is NOT safe to assume a flag name by guessing from the YAML config key: Loki
       # has no `-limits.retention-period` flag (its YAML key `limits_config.retention_period`
       # doesn't have a same-named CLI flag) — Loki 3.7.1 rejects it at startup with
-      # "flag provided but not defined", which took the whole Loki process down. The real
-      # flag is `-store.retention`, and it additionally needs compactor flags
-      # (retention-enabled, working-directory, delete-request-store) to actually take
-      # effect — wiring that up is real config work, tracked separately in plantry-032n.
-      # LOKI_EXTRA_ARGS is intentionally left unset here: Loki now starts and retains logs
-      # with its built-in default (unbounded) retention until 032n lands. Before adding a
-      # flag for any of these daemons (including Tempo/Pyroscope below), verify it against
-      # that binary's own `--help` inside the container — don't assume passthrough behaves
-      # identically across all of them.
+      # "flag provided but not defined", which took the whole Loki process down (plantry-e4z0).
+      # The real flag is `-store.retention`, and it additionally needs compactor flags to
+      # actually take effect: `-compactor.retention-enabled` turns retention sweeps on,
+      # `-compactor.working-directory` must be pointed under the persisted `/data` volume
+      # (its own default of /var/loki/compactor is NOT under lgtm_data and loses compactor
+      # state on container recreation), and `-compactor.delete-request-store` is required
+      # by Loki 3.7.1 whenever retention is enabled — set to `filesystem` to match this
+      # image's baked-in `schema_config.configs[0].object_store: filesystem` (the only
+      # object store configured here). Verified together via `loki -verify-config`
+      # (plantry-032n). Before adding a flag for any of these daemons (including
+      # Tempo/Pyroscope below), verify it against that binary's own `--help` inside the
+      # container — don't assume passthrough behaves identically across all of them.
       PROMETHEUS_EXTRA_ARGS: "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}"
+      LOKI_EXTRA_ARGS: "--store.retention=${LOKI_RETENTION_PERIOD:-744h} --compactor.retention-enabled=true --compactor.working-directory=/data/loki/compactor --compactor.delete-request-store=filesystem"
       # Note: Tempo retention in otel-lgtm is controlled by its built-in block
       # retention config.  OTEL_TEMPO_RETENTION is documented in .env.example as
       # a user-facing label only; pass it as TEMPO_EXTRA_ARGS if the bundled Tempo
