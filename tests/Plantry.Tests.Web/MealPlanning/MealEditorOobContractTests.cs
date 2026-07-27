@@ -373,7 +373,7 @@ public sealed class MealEditorOobContractFactory : WeekGridFragmentFactory
 /// </summary>
 internal sealed class SeededMealEditorRepo : IMealPlanRepository
 {
-    private static readonly IClock _clock = SystemClock.Instance;
+    private static readonly IClock _clock = new FixedClock(MealPlanningTestClock.Instant);
     private MealPlan? _plan;
 
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
@@ -436,7 +436,7 @@ public sealed class ExistingDishMealEditorFactory : WeekGridFragmentFactory
 
 public sealed class ExistingDishMealRepo : IMealPlanRepository
 {
-    private static readonly IClock _clock = SystemClock.Instance;
+    private static readonly IClock _clock = new FixedClock(MealPlanningTestClock.Instant);
     private readonly MealPlan _plan;
 
     public ExistingDishMealRepo(Guid recipeId)

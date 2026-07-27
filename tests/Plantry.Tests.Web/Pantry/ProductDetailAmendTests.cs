@@ -101,6 +101,40 @@ public sealed class ProductDetailAmendTests : IDisposable
         Assert.Contains("value=\"1\"", html, StringComparison.Ordinal); // entered-at-review quantity prefilled
     }
 
+    [Fact(DisplayName = "AmendSheet GET — a previously-amended line shows the repeat state and prefills to the prior fix, not the original entry")]
+    public async Task AmendSheet_Renders_RepeatAmendmentState_WhenPreviouslyAmended()
+    {
+        var client = AuthClient();
+
+        // Simulate a prior amendment: entered-at-review was 1 lb (fixture default), now corrected to 2 lb.
+        var markResult = _factory.Line.MarkAmended(2m, ProductDetailAmendFixture.Clock.UtcNow);
+        Assert.True(markResult.IsSuccess);
+
+        var response = await client.GetAsync(
+            $"/Pantry/Products/Detail/{ProductDetailAmendFixture.ProductId}?handler=AmendSheet&entryId={_factory.LotEntryId.Value}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        // The repeat-state display: original entered quantity is still shown...
+        Assert.Contains("Quantity entered at review: <b>1", html, StringComparison.Ordinal);
+        // ...alongside the prior fix, with its unit.
+        Assert.Contains("previously fixed to <b>2 lb</b>", html, StringComparison.Ordinal);
+
+        // The quantity input (and Alpine's `quantity`/`effective` seed) prefill to the PRIOR FIX (2),
+        // not the originally-entered quantity (1) — proves _AmendSheet.cshtml:5's
+        // `PreviouslyFixedQuantity ?? EnteredQuantity` fallback picked the amended branch.
+        Assert.Contains("value=\"2\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("value=\"1\"", html, StringComparison.Ordinal);
+
+        // The Alpine `x-data` seed itself — `effective`/`quantity` — must also pick the prior fix,
+        // not just the input's `value=` attribute (a separate, identically-shaped fallback in
+        // Detail.cshtml.cs's AmendInput binding). This is what _AmendSheet.cshtml:5's
+        // `PreviouslyFixedQuantity ?? EnteredQuantity` actually feeds.
+        Assert.Contains("effective: 2", html, StringComparison.Ordinal);
+        Assert.Contains("quantity: 2", html, StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "AmendSheet GET — closed by a later Correction opens the explaining/blocked state, not the form")]
     public async Task AmendSheet_Blocked_WhenClosedByCorrection()
     {

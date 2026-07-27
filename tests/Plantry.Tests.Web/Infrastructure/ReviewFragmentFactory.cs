@@ -57,7 +57,7 @@ public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
             // in Alpine x-data is stable across test runs. SnapshotDate is the pinned "today" that the
             // snapshot baselines were generated against.
             services.RemoveAll<IClock>();
-            services.AddSingleton<IClock>(new FixedClock(ReviewSessionFixture.SnapshotDate));
+            services.AddSingleton<IClock>(new SnapshotFixedClock(ReviewSessionFixture.SnapshotDate));
 
             // ── Data seams: the review handlers construct GetSessionForReviewQuery / line commands over
             // IImportSessionRepository + IReviewReferenceDataProvider. Fake both so no DbContext query runs.
@@ -79,7 +79,7 @@ public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
 /// Test clock that always returns a fixed <see cref="DateTimeOffset"/>, making snapshot HTML that
 /// embeds today's date (for product-default expiry prefill) stable across calendar days.
 /// </summary>
-internal sealed class FixedClock(DateOnly date) : IClock
+internal sealed class SnapshotFixedClock(DateOnly date) : IClock
 {
     public DateTimeOffset UtcNow { get; } = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
 }

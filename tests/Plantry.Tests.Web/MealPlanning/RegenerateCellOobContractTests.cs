@@ -45,23 +45,24 @@ public sealed class RegenerateCellOobContractTests(RegenerateCellFactory factory
         return match.Groups[1].Value;
     }
 
-    /// <summary>Monday of the current ISO week as ISO-8601 string, matching the server's default week.</summary>
+    /// <summary>Monday of the pinned test week (plantry-1w87) as ISO-8601 string, matching the server's
+    /// pinned-IClock default week.</summary>
     private static string CurrentMondayIso
     {
         get
         {
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
             var offset = ((int)today.DayOfWeek + 6) % 7;
             return today.AddDays(-offset).ToString("yyyy-MM-dd");
         }
     }
 
-    /// <summary>Wednesday of the current ISO week (Day0+2) — used for "empty cell" target in merge-safety tests.</summary>
+    /// <summary>Wednesday of the pinned test week (Day0+2) — used for "empty cell" target in merge-safety tests.</summary>
     private static string CurrentWednesdayIso
     {
         get
         {
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
             var offset = ((int)today.DayOfWeek + 6) % 7;
             return today.AddDays(-offset + 2).ToString("yyyy-MM-dd");
         }
@@ -267,7 +268,7 @@ internal static class TwoProposalFixture
     {
         get
         {
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
             var offset = ((int)today.DayOfWeek + 6) % 7;
             return today.AddDays(-offset);
         }
@@ -456,6 +457,11 @@ public sealed class TwoProposalRegenerateFactory : WebApplicationFactory<Program
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant TwoProposalFixture derives "today" from (plantry-1w87), so
+            // the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -556,6 +562,11 @@ public sealed class RegenerateCellFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant CurrentMondayIso/CurrentWednesdayIso derive from (plantry-1w87),
+            // so the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }

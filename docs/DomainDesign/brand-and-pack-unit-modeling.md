@@ -157,5 +157,13 @@ unless that product also has an explicit `ProductConversion` between them — th
 treats `doz`/`ea` the same as `srv`/`pk` (no ProductConversion, no free ratio), which is
 correct per the ticket's rule but means seeded `doz` is inert until a product configures
 it. No code currently relies on the old free `doz↔ea` hop (verified — no test or
-production caller round-trips them without a `ProductConversion`), so this is a latent
-data-modeling gap to note, not a regression to fix here.
+production caller round-trips them without a `ProductConversion`).
+
+**Resolved (plantry-qszb, 2026-07-27):** `pk`/`doz` are no longer seeded by
+`CatalogReferenceDataSeeder` — only `ea` and `srv` are. Existing households were
+relabeled from `pk`/`doz` to `ea` by a one-time data migration chain
+(`20260727061526_RemovePackAndDozenUnits.cs` in Catalog, a
+`RelabelPackAndDozenUnitReferences` migration in every other bounded context holding a
+soft `unit_id` reference, and a final delete in Housekeeping). A household that wants
+dozen-style tracking creates a custom count unit (Catalog → Units) and adds a
+`ProductConversion` for it, the same as any other product-specific count ratio.

@@ -55,8 +55,6 @@ public sealed class UnitStagerTests
     [InlineData("l", "l", "volume", 1000.0)]
     [InlineData("Piece", "ea", "count", 1.0)]
     [InlineData("ea", "ea", "count", 1.0)]
-    [InlineData("Pack", "pk", "count", 1.0)]
-    [InlineData("pk", "pk", "count", 1.0)]
     public void SeedMatch_AssignsCorrectDimensionCodeAndFactor(
         string grocyName, string expectedCode, string expectedDimension, double expectedFactor)
     {
@@ -150,8 +148,8 @@ public sealed class UnitStagerTests
     [Theory]
     [InlineData("Pint", "pt", "volume", 474.0)]
     [InlineData("Quart", "qt", "volume", 948.0)]
-    [InlineData("Case12", "case12", "count", 12.0)]
-    [InlineData("Case24", "case24", "count", 24.0)]
+    [InlineData("Pack", "pk", "count", 1.0)]
+    [InlineData("pk", "pk", "count", 1.0)]
     public void KnownCreateNew_AssignsCorrectCodeDimensionAndFactor(
         string grocyName, string expectedCode, string expectedDimension, double expectedFactor)
     {
@@ -167,6 +165,33 @@ public sealed class UnitStagerTests
         Assert.Equal(UnitMappingAction.CreateNew, row.Action);
         Assert.Equal(UnitStagingStatus.Auto, row.Status);
         Assert.Null(row.AnomalyNote);
+    }
+
+    // Case12/Case24/Dozen (plantry-qszb): Grocy stores these with a real per-unit count ratio, but
+    // Plantry's UnitConverter never applies a free ratio between two Count units — so unlike
+    // Pint/Quart/Pack (whose Grocy factor is either a real cross-dimension ratio or already 1),
+    // these are created with factor 1 and an AnomalyNote steering the importer to a per-product
+    // ProductConversion instead.
+    [Theory]
+    [InlineData("Case12", "case12", "count")]
+    [InlineData("Case24", "case24", "count")]
+    [InlineData("Dozen", "doz", "count")]
+    [InlineData("doz", "doz", "count")]
+    public void KnownCreateNew_CountRatioUnits_CreatedWithFactorOne_AndAnomalyFlagged(
+        string grocyName, string expectedCode, string expectedDimension)
+    {
+        var manifest = ManifestWith([Unit(1, grocyName)]);
+
+        var rows = UnitStager.Stage(manifest);
+
+        Assert.Single(rows);
+        var row = rows[0];
+        Assert.Equal(expectedCode, row.PlantryCode);
+        Assert.Equal(expectedDimension, row.Dimension);
+        Assert.Equal(1m, row.FactorToBase);
+        Assert.Equal(UnitMappingAction.CreateNew, row.Action);
+        Assert.Equal(UnitStagingStatus.NeedsReview, row.Status);
+        Assert.NotNull(row.AnomalyNote);
     }
 
     // ──────────── Graph-based dimension tests ────────────────────────────
@@ -353,15 +378,17 @@ public sealed class UnitStagerTests
 
         // Seed-matched count
         AssertRow(rows, grocyId: 2, code: "ea", dim: "count", factor: 1m, action: UnitMappingAction.MatchExisting, hasAnomaly: false);
-        AssertRow(rows, grocyId: 3, code: "pk", dim: "count", factor: 1m, action: UnitMappingAction.MatchExisting, hasAnomaly: false);
 
         // Create-new volume
         AssertRow(rows, grocyId: 24, code: "pt", dim: "volume", factor: 474m, action: UnitMappingAction.CreateNew, hasAnomaly: false);
         AssertRow(rows, grocyId: 25, code: "qt", dim: "volume", factor: 948m, action: UnitMappingAction.CreateNew, hasAnomaly: false);
 
-        // Create-new count
-        AssertRow(rows, grocyId: 6, code: "case12", dim: "count", factor: 12m, action: UnitMappingAction.CreateNew, hasAnomaly: false);
-        AssertRow(rows, grocyId: 21, code: "case24", dim: "count", factor: 24m, action: UnitMappingAction.CreateNew, hasAnomaly: false);
+        // Create-new count (pk is no longer seeded — plantry-qszb — so Pack now creates its own unit)
+        AssertRow(rows, grocyId: 3, code: "pk", dim: "count", factor: 1m, action: UnitMappingAction.CreateNew, hasAnomaly: false);
+        // Case12/Case24 (plantry-qszb): created with factor 1, not Grocy's 12/24 — UnitConverter never
+        // gives two Count units a free ratio, so the real ratio must be a per-product ProductConversion.
+        AssertRow(rows, grocyId: 6, code: "case12", dim: "count", factor: 1m, action: UnitMappingAction.CreateNew, hasAnomaly: true);
+        AssertRow(rows, grocyId: 21, code: "case24", dim: "count", factor: 1m, action: UnitMappingAction.CreateNew, hasAnomaly: true);
 
         // Skipped fractions
         var halfCup = rows.First(r => r.GrocyId == 26);

@@ -73,12 +73,6 @@ public static class UnitStager
             ["pieces"]   = new("ea", "Each",   "count", 1m),
             ["ea"]       = new("ea", "Each",   "count", 1m),
             ["each"]     = new("ea", "Each",   "count", 1m),
-            ["pack"]     = new("pk", "Pack",   "count", 1m),
-            ["packs"]    = new("pk", "Pack",   "count", 1m),
-            ["pk"]       = new("pk", "Pack",   "count", 1m),
-            ["package"]  = new("pk", "Pack",   "count", 1m),
-            ["dozen"]    = new("doz", "Dozen", "count", 12m),
-            ["doz"]      = new("doz", "Dozen", "count", 12m),
         };
 
     // Units to be explicitly skipped (redundant fractions — collapsed to base × fraction).
@@ -112,8 +106,32 @@ public static class UnitStager
         {
             ["pint"]    = new("pt",     "Pint",    "volume", 474m),
             ["quart"]   = new("qt",     "Quart",   "volume", 948m),
-            ["case12"]  = new("case12", "Case 12", "count",  12m),
-            ["case24"]  = new("case24", "Case 24", "count",  24m),
+            // Case12/Case24 (plantry-qszb): Grocy stores these as a global "N pieces per case" ratio,
+            // but Plantry's UnitConverter never applies a free same-dimension ratio between two Count
+            // units (UnitConverter.BuildConversionGraph excludes Count from same-dimension edges) — a
+            // created unit carrying the Grocy ratio as FactorToBase would be exactly the inert/
+            // misleading factor this ticket retires (see CatalogReferenceDataSeeder.BuildUnits). Create
+            // with factor 1 instead; the note tells the importer to add a per-product ProductConversion.
+            ["case12"]  = new("case12", "Case 12", "count", 1m,
+                "Grocy stored a global 'Case 12 = 12 pieces' ratio. Plantry's UnitConverter never applies a free ratio between two count units, so this unit is created with factor 1; add a per-product conversion (Catalog -> Product -> Add Conversion) for any product you buy by the case."),
+            ["case24"]  = new("case24", "Case 24", "count", 1m,
+                "Grocy stored a global 'Case 24 = 24 pieces' ratio. Plantry's UnitConverter never applies a free ratio between two count units, so this unit is created with factor 1; add a per-product conversion (Catalog -> Product -> Add Conversion) for any product you buy by the case."),
+            // Pack/Dozen (plantry-qszb): 'pk'/'doz' are no longer seeded by CatalogReferenceDataSeeder
+            // (UnitConverter never gave Count units a free same-dimension ratio, so the seeded factor
+            // was inert/misleading — see CatalogReferenceDataSeeder.BuildUnits). Previously these were
+            // MatchExisting against the seed; now they're CreateNew, same as Case12/Case24 — a
+            // household importing Grocy "Pack"/"Dozen" data gets its own custom count unit instead of
+            // a MatchExisting lookup that would now fail (Plantry unit with code 'pk'/'doz' not found).
+            // Pack has no ratio to lose (Grocy's pack factor is already 1). Dozen does carry a real
+            // "12 pieces" ratio — same inert-factor trap as Case12/Case24 above, fixed the same way.
+            ["pack"]     = new("pk", "Pack",   "count", 1m),
+            ["packs"]    = new("pk", "Pack",   "count", 1m),
+            ["pk"]       = new("pk", "Pack",   "count", 1m),
+            ["package"]  = new("pk", "Pack",   "count", 1m),
+            ["dozen"]    = new("doz", "Dozen", "count", 1m,
+                "Grocy stored a global 'Dozen = 12 pieces' ratio. Plantry's UnitConverter never applies a free ratio between two count units, so this unit is created with factor 1; add a per-product conversion (Catalog -> Product -> Add Conversion) for any product you buy by the dozen."),
+            ["doz"]      = new("doz", "Dozen", "count", 1m,
+                "Grocy stored a global 'Dozen = 12 pieces' ratio. Plantry's UnitConverter never applies a free ratio between two count units, so this unit is created with factor 1; add a per-product conversion (Catalog -> Product -> Add Conversion) for any product you buy by the dozen."),
         };
 
     /// <summary>
@@ -180,7 +198,7 @@ public static class UnitStager
                 continue;
             }
 
-            // Known create entry (Pint, Quart, Case12, Case24)?
+            // Known create entry (Pint, Quart, Case12, Case24, Pack, Dozen)?
             if (KnownCreateEntries.TryGetValue(nameTrimmed, out var create))
             {
                 rows.Add(new UnitStagingRow
@@ -192,8 +210,10 @@ public static class UnitStager
                     PlantryName = create.PlantryName,
                     FactorToBase= create.PlantryFactor,
                     Action      = UnitMappingAction.CreateNew,
-                    Status      = UnitStagingStatus.Auto,
-                    AnomalyNote = null,
+                    Status      = create.AnomalyNote is not null
+                                    ? UnitStagingStatus.NeedsReview
+                                    : UnitStagingStatus.Auto,
+                    AnomalyNote = create.AnomalyNote,
                 });
                 seedMatchedIds.Add(unit.Id);
                 continue;

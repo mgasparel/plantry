@@ -365,6 +365,10 @@ public sealed class DishServingsFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock so the SUT never races an independent live-clock read (plantry-1w87).
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -409,7 +413,7 @@ public static class WeekGridFixture
     public static readonly Guid HouseholdId = Guid.Parse("11111111-0000-0000-0000-000000000001");
 
     private static readonly HouseholdId HhId = Plantry.SharedKernel.HouseholdId.From(HouseholdId);
-    private static readonly IClock Clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+    private static readonly IClock Clock = new FixedClock(MealPlanningTestClock.Instant);
 
     /// <summary>Shared singleton config so slot IDs are stable within a test run.</summary>
     public static readonly MealSlotConfig SharedConfig = MealSlotConfig.CreateWithDefaults(HhId, Clock);
@@ -528,6 +532,11 @@ public class WeekGridFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock so the SUT never races an independent live-clock read (plantry-1w87). Inherited
+            // by WeekGridNoSlotsFragmentFactory and MultiMealCellFragmentFactory via base.ConfigureWebHost.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -572,7 +581,7 @@ public sealed class MultiMealCellFragmentFactory : WeekGridFragmentFactory
 /// </summary>
 internal sealed class TwoMealCellRepo : IMealPlanRepository
 {
-    private static readonly IClock _clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+    private static readonly IClock _clock = new FixedClock(MealPlanningTestClock.Instant);
 
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
     {
@@ -841,6 +850,10 @@ public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock so the SUT never races an independent live-clock read (plantry-1w87).
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -868,8 +881,9 @@ internal static class HardStanceWarningFixture
         private static UserPreference BuildPref()
         {
             var hhId = Plantry.SharedKernel.HouseholdId.From(WeekGridFixture.HouseholdId);
-            var pref = UserPreference.Create(hhId, AttendeeUserId, Plantry.SharedKernel.Domain.SystemClock.Instance);
-            pref.SetStance(RestrictedTagId, "Restricted", Plantry.SharedKernel.Domain.SystemClock.Instance);
+            var clock = new FixedClock(MealPlanningTestClock.Instant);
+            var pref = UserPreference.Create(hhId, AttendeeUserId, clock);
+            pref.SetStance(RestrictedTagId, "Restricted", clock);
             return pref;
         }
 

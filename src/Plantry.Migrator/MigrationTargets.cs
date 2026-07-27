@@ -38,7 +38,11 @@ public sealed record MigrationTarget(
 ///
 /// ORDER IS LOAD-BEARING. Plantry.Identity.Infrastructure MUST remain first — its initial
 /// migration creates the <c>app_user</c> role that every other schema's RLS policies (and
-/// the app_user-authenticated test/runtime connections) depend on.
+/// the app_user-authenticated test/runtime connections) depend on. Plantry.Housekeeping.Infrastructure
+/// MUST remain LAST — its 20260727062625_DeletePackAndDozenUnits data migration deletes
+/// catalog.units rows only after every other context's RelabelPackAndDozenUnitReferences migration
+/// has run (plantry-qszb); a context appended after it, or a reorder, would delete units still
+/// referenced by an un-relabeled schema.
 /// </summary>
 public static class MigrationTargets
 {

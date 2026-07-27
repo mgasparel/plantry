@@ -182,7 +182,7 @@ public static class MembersFixture
     // Shared fixed clock: seeds the invite fixtures below AND is registered as the page's
     // IClock in MembersFragmentFactory (the SAME instance), so PendingInvite.IsExpired
     // (clock.UtcNow >= ExpiresAt) is deterministic and cannot straddle a day boundary.
-    public static readonly IClock Clock = new FixedClock(new DateOnly(2026, 6, 15));
+    public static readonly IClock Clock = new SnapshotFixedClock(new DateOnly(2026, 6, 15));
 
     public static readonly HouseholdUser MemberAlice = new(InviterUserId.ToString(), "Alice");
 

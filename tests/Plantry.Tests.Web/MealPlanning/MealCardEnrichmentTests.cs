@@ -15,7 +15,6 @@ using Plantry.Tests.Web.MealPlanning;
 using Plantry.Tests.Web.Preferences;
 using Plantry.Web.MealPlanning;
 using Xunit;
-using SharedSystemClock = Plantry.SharedKernel.Domain.SystemClock;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -296,6 +295,11 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
             services.RemoveAll<SetPlanningSettingsService>();
             services.AddScoped<SetPlanningSettingsService>();
+
+            // Pin IClock to the same instant EnrichmentMealPlanRepo derives "today" from (plantry-1w87), so
+            // the SUT and the fixture never race two independent reads of the real system clock.
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
         });
     }
 }
@@ -314,11 +318,12 @@ internal sealed class EnrichmentMealPlanRepo(Guid recipeId) : IMealPlanRepositor
     {
         var hhId = SharedKernel.HouseholdId.From(EnrichmentFixture.HouseholdId);
         // Use a Monday in the past so it falls in "this week" window during tests
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
         var monday = MealPlan.NormalizeToMonday(today);
-        var plan = MealPlan.Start(hhId, monday, SharedSystemClock.Instance);
+        var clock = new FixedClock(MealPlanningTestClock.Instant);
+        var plan = MealPlan.Start(hhId, monday, clock);
         plan.AssignMeal(monday, EnrichmentFixture.SlotId, [new DishSpec(DishKind.Recipe, recipeId, 2)],
-            null, "manual", Guid.Empty, SharedSystemClock.Instance);
+            null, "manual", Guid.Empty, clock);
         return plan;
     }
 
@@ -364,7 +369,7 @@ internal static class EnrichmentFixture
     public static readonly Guid RecipeId = Guid.Parse("33333333-0000-0000-0000-000000000003");
 
     private static readonly HouseholdId HhId = SharedKernel.HouseholdId.From(HouseholdId);
-    public static readonly MealSlotConfig SlotConfig = MealSlotConfig.CreateWithDefaults(HhId, SharedSystemClock.Instance);
+    public static readonly MealSlotConfig SlotConfig = MealSlotConfig.CreateWithDefaults(HhId, new FixedClock(MealPlanningTestClock.Instant));
     public static readonly MealSlotId SlotId = SlotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First().Id;
 }
 
@@ -447,7 +452,7 @@ internal sealed class FakeEnrichmentWeekReadModel(
                 [Prod5] = MakeProduct(Prod5, "Prod5"),
             };
             // prod5 has no stock → Missing.
-            var expiry = useExpiring ? DateOnly.FromDateTime(DateTime.Today.AddDays(2)) : (DateOnly?)null;
+            var expiry = useExpiring ? DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime.AddDays(2)) : (DateOnly?)null;
             stockDict = new()
             {
                 // prod1: in stock with an imminent expiry (within 4 days) when useExpiring=true.
@@ -517,7 +522,7 @@ internal sealed class FakeEnrichmentWeekReadModel(
     /// Since UnitPrice is set, CostingService uses it directly without dividing Price/Quantity.
     /// </summary>
     private static PriceFact MakePrice(Guid productId, decimal unitPrice) =>
-        new(productId, unitPrice, 1m, UnitId, unitPrice, DateTime.UtcNow.AddDays(-1));
+        new(productId, unitPrice, 1m, UnitId, unitPrice, MealPlanningTestClock.Instant.UtcDateTime.AddDays(-1));
 }
 
 // NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).
