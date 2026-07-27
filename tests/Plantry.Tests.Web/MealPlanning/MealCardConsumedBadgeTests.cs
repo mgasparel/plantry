@@ -138,6 +138,48 @@ public sealed class MealCardConsumedBadgeTests
         // the badge here; only the per-dish fix clears it.
         Assert.DoesNotContain("mc-soon", eatHtml);
     }
+
+    /// <summary>
+    /// plantry-3aqj: regression guard for the recipe branch (Index.cshtml.cs:1154) of the
+    /// consumed-badge fix. A pending, expiring recipe dish must still show the badge — pins that
+    /// the fix isn't an over-eager suppression that always hides it.
+    /// </summary>
+    [Fact(DisplayName = "Recipe dish: badge shows while pending and expiring (plantry-3aqj)")]
+    public async Task Recipe_Badge_Shows_While_Pending()
+    {
+        await using var factory = new RecipeConsumedBadgeFactory(cooked: false);
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EnrichmentFixture.HouseholdId.ToString());
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var pageHtml = await response.Content.ReadAsStringAsync();
+        Assert.Contains("mc-soon", pageHtml);
+    }
+
+    /// <summary>
+    /// plantry-3aqj: pins the recipe branch's <c>&amp;&amp; !dishIsConsumed</c> guard
+    /// (Index.cshtml.cs:1154). Same expiring recipe dish as
+    /// <see cref="Recipe_Badge_Shows_While_Pending"/>, but with cook status injected via
+    /// <see cref="FixedCookStatusReader"/> so the dish reads as consumed — the badge must clear.
+    /// Reverting the guard (restoring <c>if (dishEnr.HasExpiringIngredients) hasExpiring = true;</c>)
+    /// must turn this test red while <see cref="Recipe_Badge_Shows_While_Pending"/> stays green.
+    /// </summary>
+    [Fact(DisplayName = "Recipe dish: badge clears once cooked, even though it is still expiring (plantry-3aqj)")]
+    public async Task Recipe_Badge_Clears_When_Cooked()
+    {
+        await using var factory = new RecipeConsumedBadgeFactory(cooked: true);
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EnrichmentFixture.HouseholdId.ToString());
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var pageHtml = await response.Content.ReadAsStringAsync();
+        // The recipe card must actually be on the page — otherwise the negative
+        // assertion below would pass vacuously on an error/empty render.
+        Assert.Contains("Test Recipe", pageHtml);
+        Assert.DoesNotContain("mc-soon", pageHtml);
+    }
 }
 
 // ── Fixture ─────────────────────────────────────────────────────────────────────
@@ -345,5 +387,152 @@ internal sealed class ExpiringStockReader(
         }
 
         return Task.FromResult<MealPlanProductStock?>(null);
+    }
+}
+
+// ── plantry-3aqj: recipe-branch fixture ────────────────────────────────────────
+
+/// <summary>
+/// Meal plan repo seeding one recipe dish (mirrors <see cref="EnrichmentMealPlanRepo"/>), but also
+/// exposes the seeded dish's id so a test can key a <see cref="FixedCookStatusReader"/> double to
+/// it and target it as the "consumed" dish.
+/// </summary>
+public sealed class RecipeConsumedBadgeMealPlanRepo : IMealPlanRepository
+{
+    private readonly MealPlan _plan;
+    public Guid RecipeDishId { get; }
+
+    public RecipeConsumedBadgeMealPlanRepo(Guid recipeId)
+    {
+        var hhId = SharedKernel.HouseholdId.From(EnrichmentFixture.HouseholdId);
+        var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
+        var monday = MealPlan.NormalizeToMonday(today);
+        var clock = new FixedClock(MealPlanningTestClock.Instant);
+        _plan = MealPlan.Start(hhId, monday, clock);
+        _plan.AssignMeal(monday, EnrichmentFixture.SlotId, [new DishSpec(DishKind.Recipe, recipeId, 2)],
+            null, "manual", Guid.Empty, clock);
+
+        var meal = _plan.PlannedMeals.Single(m => m.MealSlotId == EnrichmentFixture.SlotId);
+        RecipeDishId = meal.PlannedDishes.Single(d => d.RecipeId == recipeId).Id.Value;
+    }
+
+    public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
+        => Task.FromResult<MealPlan?>(_plan);
+
+    public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
+        => Task.FromResult(_plan);
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
+/// WAF factory for the recipe branch (Index.cshtml.cs:1154) of the consumed-badge fix (plantry-3aqj).
+/// Reuses <see cref="EnrichmentFixture"/>'s ids and the standard 80%/$12.50/expiring enrichment case
+/// (via <see cref="EnrichmentRecipeReader"/> and <see cref="FakeEnrichmentWeekReadModel"/>, both
+/// defined in MealCardEnrichmentTests.cs), and injects cook status directly via
+/// <see cref="FixedCookStatusReader"/> — there is no real "Cook" write double in this test project
+/// the way Eat/UndoEat has <see cref="SpyEatWriter"/>, matching how
+/// <c>MealCardCookStripTests.cs</c> already tests the cook strip's rendering contract without a
+/// real <c>CookEvent</c> write path.
+/// </summary>
+public sealed class RecipeConsumedBadgeFactory(bool cooked) : WebApplicationFactory<Program>
+{
+    public RecipeConsumedBadgeMealPlanRepo Repo { get; } = new(EnrichmentFixture.RecipeId);
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddFakeDisplayCurrency("USD");
+            services.AddFakeExpiringSoonHorizon();
+            services.AddAuthentication(opts =>
+                {
+                    opts.DefaultScheme = TestAuthHandler.SchemeName;
+                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
+                })
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+
+            services.RemoveAll<UserManager<AppUser>>();
+            services.AddSingleton<UserManager<AppUser>>(
+                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000ee" }));
+
+            services.RemoveAll<IMealPlanRepository>();
+            services.AddSingleton<IMealPlanRepository>(Repo);
+
+            services.RemoveAll<IMealSlotConfigRepository>();
+            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(EnrichmentFixture.SlotConfig));
+
+            services.RemoveAll<IHouseholdMemberReader>();
+            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
+
+            services.RemoveAll<IRecipeReadModel>();
+            services.AddSingleton<IRecipeReadModel>(new EnrichmentRecipeReader(
+                EnrichmentFixture.RecipeId,
+                new RecipeDishEnrichment(80, 12.50m, false, true)));
+
+            services.RemoveAll<IMealPlanWeekReadModel>();
+            services.AddSingleton<IMealPlanWeekReadModel>(
+                new FakeEnrichmentWeekReadModel(useExpiring: true, fulfillmentPct: 80, totalCost: 12.50m));
+
+            services.RemoveAll<IMealPlanCatalogProductReader>();
+            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeCatalogProductReaderW(existsResult: true));
+
+            services.RemoveAll<IMealPlanStockReader>();
+            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
+            services.RemoveAll<IMealPlanPriceReader>();
+            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
+            services.RemoveAll<IMealPlanShoppingWriter>();
+            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new FixedCookStatusReader(
+                cooked
+                    ? new Dictionary<Guid, DishCookStatus> { [Repo.RecipeDishId] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-10)) }
+                    : new Dictionary<Guid, DishCookStatus>()));
+
+            services.RemoveAll<PlanFulfillmentService>();
+            services.AddScoped<PlanFulfillmentService>();
+            services.RemoveAll<PlanCostingService>();
+            services.AddScoped<PlanCostingService>();
+            services.RemoveAll<ShopForWeekService>();
+            services.AddScoped<ShopForWeekService>();
+
+            services.RemoveAll<AssignMealService>();
+            services.AddScoped<AssignMealService>();
+            services.RemoveAll<MoveMealService>();
+            services.AddScoped<MoveMealService>();
+
+            services.RemoveAll<IMealPlanner>();
+            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
+            services.RemoveAll<IPendingProposalStore>();
+            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
+            services.RemoveAll<GeneratePlanService>();
+            services.AddScoped<GeneratePlanService>();
+            services.RemoveAll<AcceptProposalService>();
+            services.AddScoped<AcceptProposalService>();
+
+            services.RemoveAll<IUserPreferenceRepository>();
+            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
+
+            services.RemoveAll<ITagReader>();
+            services.AddSingleton<ITagReader>(new NullTagReader());
+
+            services.RemoveAll<IMealPlanExpiringStockReader>();
+            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
+            services.RemoveAll<PlanInsightsService>();
+            services.AddScoped<PlanInsightsService>();
+
+            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
+            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
+            services.RemoveAll<IWeekPlanningOverrideRepository>();
+            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
+            services.RemoveAll<SetPlanningSettingsService>();
+            services.AddScoped<SetPlanningSettingsService>();
+
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
+        });
     }
 }
