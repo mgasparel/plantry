@@ -94,6 +94,30 @@ against the tree before ruling — a verified lead is eligible for FIX-IN-CASE; 
 cannot verify either FILEs naming the missing check, or DROPs. Pure process exhaust
 (guards-about-guards, micro-dedups with no user-visible risk) DROPs regardless.
 
+**Economics of a ruling — the standing prior: FILE is the expensive path, not the cheap
+one.** At ruling time, every cost of fixing is already sunk — the worktree is open, the
+code is hot in the worker's context, the critic has read the diff. So the two rulings are
+priced:
+
+- **FIX-IN-CASE** ≈ one incremental commit + one build+test re-run. That is the whole
+  marginal cost.
+- **FILE** discards that paid-for state and buys, later: a **full second pipeline case**
+  (a fresh worker re-reading spec, code, and precedents from scratch; build; five suites;
+  up to 3 new Opus critic passes; another arbiter dispatch), plus **the owner's triage and
+  consolidation attention** — the only non-renewable budget in the loop — plus **spec rot**
+  while the bead queues (line numbers drift, counts go stale, findings need live
+  re-verification before work can start), plus a **recurrence tax** (every later case that
+  touches the seam re-raises the finding, each re-raise costing critic tokens and a ruling,
+  until someone fixes it), plus **days-to-weeks of the defect staying live** versus minutes.
+
+As a marginal-cost ratio, deferral runs an order of magnitude more tokens than fixing in
+place — and consumes human time the in-case path costs none of. This is a prior, not a
+licence to invent numeric thresholds (ground rules unchanged). "A bead is cheap and
+reversible" was the pricing error behind the pre-2026-07-28 FILE-heavy defaults — do not
+re-derive it in any future rebalancing. When FILE is genuinely required (needs-human /
+cannot-complete), these costs are the price of a real blocker, never a reason to skip
+filing — but they are always a reason to double-check that the blocker is real.
+
 **Recurrence detection:** key every finding using the class-key vocabulary in the
 Rulebook below — the three historically largest families are `coverage:l5-e2e`,
 `component-library:drift`, and the clock family (`missing-seam:iclock` /
