@@ -9,11 +9,21 @@ namespace Plantry.Tests.Unit.Identity.Application;
 
 /// <summary>
 /// L1 tests for <see cref="HouseholdExpiryDefaultsService"/> (the <see cref="IHouseholdExpiryDefaults"/>
-/// read source that feeds Catalog's <c>ExpiryDefaultResolver</c> freeze/thaw fallback, plus the future
-/// /Settings/Expiry write path) and the <see cref="Household.DefaultDueDaysAfterFreezing"/>/
+/// read source that feeds Catalog's <c>ExpiryDefaultResolver</c> freeze/thaw fallback, plus the
+/// /Settings/Expiry write path, plantry-qckx) and the <see cref="Household.DefaultDueDaysAfterFreezing"/>/
 /// <see cref="Household.DefaultDueDaysAfterThawing"/> settings (plantry-hh1f). Defaults are 90/3; the
-/// write path requires a household in context and rejects negative day counts through the aggregate.
-/// Mirrors <c>DisplayCurrencyServiceTests</c>'s shape.
+/// write path requires a household in context and rejects a day count outside
+/// [<see cref="HouseholdExpiryDefaultsService.MinDays"/>, <see cref="HouseholdExpiryDefaultsService.MaxDays"/>]
+/// = [0, 3650] with <see cref="Error.Custom(string, string)"/> (plantry-qckx tightened this from letting
+/// a negative value fall through to the aggregate's <see cref="ArgumentOutOfRangeException"/> — the
+/// service now validates before ever reaching the aggregate, mirroring
+/// <c>ExpiringSoonSettingsService.SetDaysAsync</c>). Mirrors <c>DisplayCurrencyServiceTests</c>'s shape.
+///
+/// This service does not (and never did) own a per-household "expiry warning days" setting — the
+/// domain column that briefly existed under that name, along with the Get/SetWarningDaysAsync
+/// wrapper methods that briefly lived here, were retired in the same plantry-qckx change as dead
+/// configuration duplicating the Inventory context's live "expiring soon" horizon (see
+/// <c>ExpiringSoonSettingsServiceTests</c> for that coverage).
 /// </summary>
 public sealed class HouseholdExpiryDefaultsServiceTests
 {
@@ -107,14 +117,54 @@ public sealed class HouseholdExpiryDefaultsServiceTests
         Assert.Equal(0, repo.SaveChangesCalls);
     }
 
-    [Fact(DisplayName = "SetAfterFreezingAsync rejects a negative value through the aggregate")]
+    [Fact(DisplayName = "SetAfterFreezingAsync rejects a negative value with Error.Custom, without reaching the aggregate")]
     public async Task SetAfterFreezing_Rejects_Negative()
     {
         var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
         var service = Service(repo, _household);
 
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.SetAfterFreezingAsync(-1));
+        var result = await service.SetAfterFreezingAsync(-1);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Identity.InvalidExpiryDefaultDays", result.Error.Code);
         Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact(DisplayName = "SetAfterFreezingAsync rejects a value above the maximum with Error.Custom")]
+    public async Task SetAfterFreezing_Rejects_AboveMax()
+    {
+        var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
+        var service = Service(repo, _household);
+
+        var result = await service.SetAfterFreezingAsync(HouseholdExpiryDefaultsService.MaxDays + 1);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Identity.InvalidExpiryDefaultDays", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact(DisplayName = "SetAfterThawingAsync rejects a value above the maximum with Error.Custom")]
+    public async Task SetAfterThawing_Rejects_AboveMax()
+    {
+        var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
+        var service = Service(repo, _household);
+
+        var result = await service.SetAfterThawingAsync(HouseholdExpiryDefaultsService.MaxDays + 1);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Identity.InvalidExpiryDefaultDays", result.Error.Code);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact(DisplayName = "SetAfterFreezingAsync accepts the boundary values Min (0) and Max (3650)")]
+    public async Task SetAfterFreezing_Accepts_Boundaries()
+    {
+        var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
+        var service = Service(repo, _household);
+
+        Assert.True((await service.SetAfterFreezingAsync(HouseholdExpiryDefaultsService.MinDays)).IsSuccess);
+        Assert.True((await service.SetAfterFreezingAsync(HouseholdExpiryDefaultsService.MaxDays)).IsSuccess);
+        Assert.Equal(2, repo.SaveChangesCalls);
     }
 
     // ── Aggregate invariant ───────────────────────────────────────────────────

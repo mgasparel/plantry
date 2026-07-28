@@ -7,7 +7,6 @@ public sealed class Household : AggregateRoot<HouseholdId>
 {
     public string Name { get; private set; } = string.Empty;
     public string? EmailIntakeAddress { get; private set; }
-    public int ExpiryWarningDays { get; private set; } = 3;
     public string Theme { get; private set; } = "slate";
 
     /// <summary>
@@ -81,20 +80,14 @@ public sealed class Household : AggregateRoot<HouseholdId>
         Theme = theme;
     }
 
-    public void SetExpiryWarningDays(int days)
-    {
-        if (days < 0) throw new ArgumentOutOfRangeException(nameof(days));
-        ExpiryWarningDays = days;
-    }
-
-    /// <summary>Sets the household's default after-freezing due-days (plantry-hh1f). Non-negative only, mirroring <see cref="SetExpiryWarningDays"/>.</summary>
+    /// <summary>Sets the household's default after-freezing due-days (plantry-hh1f). Non-negative only, mirroring the other guarded scalar setters on this aggregate (e.g. <see cref="SetDisplayCurrency"/>) — validate before assigning, no public setter.</summary>
     public void SetDefaultDueDaysAfterFreezing(int days)
     {
         if (days < 0) throw new ArgumentOutOfRangeException(nameof(days));
         DefaultDueDaysAfterFreezing = days;
     }
 
-    /// <summary>Sets the household's default after-thawing due-days (plantry-hh1f). Non-negative only, mirroring <see cref="SetExpiryWarningDays"/>.</summary>
+    /// <summary>Sets the household's default after-thawing due-days (plantry-hh1f). Non-negative only, mirroring <see cref="SetDefaultDueDaysAfterFreezing"/>.</summary>
     public void SetDefaultDueDaysAfterThawing(int days)
     {
         if (days < 0) throw new ArgumentOutOfRangeException(nameof(days));

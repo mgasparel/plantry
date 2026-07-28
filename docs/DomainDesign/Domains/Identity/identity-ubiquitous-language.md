@@ -21,7 +21,7 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | Term | Kind | Definition |
 |---|---|---|
 | **Household** | Aggregate root | The tenant unit. All data in Plantry belongs to a Household. Created when the first member registers; never deleted. |
-| **HouseholdSettings** | Value / 1:1 child | Per-household configuration: expiry warning threshold, theme, email intake address, encrypted AI key. Always exists (created with the Household). |
+| **HouseholdSettings** | Value / 1:1 child | Per-household configuration: theme, email intake address, encrypted AI key. Always exists (created with the Household). |
 | **HouseholdInvite** | Entity (child of Household) | A time-limited, token-secured invitation issued to an email address. Status: `pending` → `accepted` / `revoked` / `expired`. |
 | **User** (delegated) | ASP.NET Core `IdentityUser<Guid>` | Extended with `HouseholdId` (membership) and `DisplayName`. Auth, sessions, and passwords are fully managed by ASP.NET Core Identity. |
 
@@ -39,7 +39,6 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | **DisplayName** | The user-facing name shown in attribution contexts (cook history, check-off, etc.). Stored on the extended `IdentityUser`. |
 | **Theme** | `light` / `dark` / `system` — per-household UI preference on `HouseholdSettings`. |
 | **Email intake address** | The forwarding address in `HouseholdSettings` used by the async email receipt path (Intake context). |
-| **Expiry warning days** | The configurable threshold (default: 7 days) controlling when expiring items surface with a visual flag (Pantry / Inventory). |
 
 ---
 

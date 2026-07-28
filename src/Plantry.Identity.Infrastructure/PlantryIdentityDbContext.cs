@@ -33,7 +33,6 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
                 .HasColumnName("id");
             b.Property(h => h.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
             b.Property(h => h.EmailIntakeAddress).HasColumnName("email_intake_address").HasMaxLength(254);
-            b.Property(h => h.ExpiryWarningDays).HasColumnName("expiry_warning_days");
             b.Property(h => h.Theme).HasColumnName("theme").HasMaxLength(20);
             // Household-wide assistive-AI switch (plantry-qll2.1). Store default true backfills
             // pre-existing households to ON; new households are inserted with the aggregate default (true).

@@ -30,6 +30,11 @@ namespace Plantry.Tests.Integration.Inventory;
 /// <para>Also proves the freeze→thaw→freeze cycle does not compound (SPECIFIC GUIDANCE): each
 /// transition recomputes from "today", not from the lot's current expiry, so refreezing after a thaw
 /// lands back on exactly <c>today + household default</c>, never <c>today + default + default</c>.</para>
+///
+/// <para>plantry-qckx adds one more proof: a household default changed through
+/// <see cref="HouseholdExpiryDefaultsService.SetAfterFreezingAsync"/> — the exact write path
+/// /Settings/Expiry exercises — flows through to the next freeze, satisfying that ticket's acceptance
+/// criterion end-to-end against this file's already-real resolver chain.</para>
 /// </summary>
 [Collection(nameof(PostgresCollection))]
 public sealed class TransferHouseholdExpiryDefaultsTests(PostgresFixture db) : IAsyncLifetime
@@ -130,6 +135,33 @@ public sealed class TransferHouseholdExpiryDefaultsTests(PostgresFixture db) : I
         // second freeze lands on exactly the same value as the first.
         Assert.Equal(Today.AddDays(HouseholdAfterFreezing), freeze2.Value.ExpiryDate);
         Assert.Equal(freeze1.Value.ExpiryDate, freeze2.Value.ExpiryDate);
+    }
+
+    [Fact(DisplayName = "Freeze picks up a household default changed through HouseholdExpiryDefaultsService.SetAfterFreezingAsync (plantry-qckx write path)")]
+    public async Task Freeze_PicksUp_DefaultChangedThroughSettingsWritePath()
+    {
+        // Distinguishable from every other constant this file uses (90/3 baked-in, 45/6 seeded in
+        // InitializeAsync) so a passing assertion proves the LIVE write, not a coincidental default.
+        const int newAfterFreezing = 120;
+
+        await using (var identityDb = new PlantryIdentityDbContext(IdentityOptions()))
+        {
+            identityDb.SetHouseholdId(_household.Value);
+            var tenant = new FixedTenantContext(_household.Value);
+            var writeService = new HouseholdExpiryDefaultsService(
+                new HouseholdRepository(identityDb), tenant, NullLogger<HouseholdExpiryDefaultsService>.Instance);
+
+            // The exact write path /Settings/Expiry (plantry-qckx) exercises through the page model.
+            var setResult = await writeService.SetAfterFreezingAsync(newAfterFreezing);
+            Assert.True(setResult.IsSuccess);
+        }
+
+        var result = await Transfer(_fridgeId, _freezerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TransferKind.Freeze, result.Value.Kind);
+        Assert.True(result.Value.DefaultApplied);
+        Assert.Equal(Today.AddDays(newAfterFreezing), result.Value.ExpiryDate);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

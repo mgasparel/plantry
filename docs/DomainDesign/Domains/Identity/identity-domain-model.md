@@ -50,7 +50,6 @@ Identity is the most upstream context. It **provides** identity data; it **reads
 | `household_id` (the tenancy key, present on every table) | All contexts — Row-Level Security anchors on it |
 | `user_id` (attribution soft-ref) | Inventory (`user_id` on journal entries), Intake (`created_by_user_id`), Shopping (`checked_by`), Recipes (`cooked_by` on `CookEvent`), Pricing (`user_id`) |
 | `email_intake_address` from `HouseholdSettings` | Intake (async email receipt path) |
-| `expiry_warning_days` from `HouseholdSettings` | Inventory / Pantry view (configurable expiry badge threshold) |
 
 ---
 

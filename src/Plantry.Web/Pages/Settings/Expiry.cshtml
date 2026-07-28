@@ -1,0 +1,45 @@
+@page
+@model Plantry.Web.Pages.Settings.ExpiryModel
+@{
+    ViewData["Title"] = "Expiry defaults";
+}
+
+<div class="cfg-wrap" data-screen-label="Expiry defaults">
+    <div class="cfg-head">
+        <div class="eyebrow">Household setup</div>
+        <h1>Expiry defaults</h1>
+        <p>
+            Set the household-wide due-days Plantry falls back to when a product carries no
+            per-product override. A product&rsquo;s own &ldquo;Expiry after freezing/thawing
+            (days)&rdquo; fields (Catalog &rarr; product detail) take priority when set; these are
+            the fallback.
+        </p>
+        <p>
+            Looking for how many days ahead an item counts as expiring soon? That&rsquo;s set under
+            <a href="/Settings/Pantry">Pantry settings</a>.
+        </p>
+    </div>
+
+    <form method="post" class="form-stack">
+        @if (Model.Saved)
+        {
+            @await Html.PartialAsync("Settings/_SettingSaved", "Setting saved")
+        }
+
+        <field asp-for="Input.AfterFreezingDays">
+            <input asp-for="Input.AfterFreezingDays" class="field__input" type="number"
+                   min="@Plantry.Identity.Application.HouseholdExpiryDefaultsService.MinDays"
+                   max="@Plantry.Identity.Application.HouseholdExpiryDefaultsService.MaxDays" />
+            <span asp-validation-for="Input.AfterFreezingDays" class="field__error"></span>
+        </field>
+
+        <field asp-for="Input.AfterThawingDays">
+            <input asp-for="Input.AfterThawingDays" class="field__input" type="number"
+                   min="@Plantry.Identity.Application.HouseholdExpiryDefaultsService.MinDays"
+                   max="@Plantry.Identity.Application.HouseholdExpiryDefaultsService.MaxDays" />
+            <span asp-validation-for="Input.AfterThawingDays" class="field__error"></span>
+        </field>
+
+        <button type="submit" class="btn btn--primary">Save</button>
+    </form>
+</div>
