@@ -473,6 +473,38 @@ public sealed class MealPlanTests
         Assert.Null(evt.SwappedMealId);
     }
 
+    // ── OccurredAt is caller-supplied, not ambient (plantry-lgbu AC3) ────────
+
+    [Fact]
+    public void AssignMeal_RaisesMealPlannedEvent_WithOccurredAtEqualToTheFixedClock()
+    {
+        var fixedNow = new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero);
+        var fixedClock = new FixedClock(fixedNow);
+        var plan = CreatePlan();
+
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, fixedClock);
+
+        var evt = Assert.IsType<MealPlanned>(Assert.Single(plan.DomainEvents));
+        Assert.Equal(fixedNow, evt.OccurredAt);
+    }
+
+    [Fact]
+    public void MoveMeal_RaisesMealMovedEvent_WithOccurredAtEqualToTheFixedClock()
+    {
+        var plan = CreatePlan();
+        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+        plan.ClearDomainEvents(); // clear MealPlanned event
+
+        var fixedNow = new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero);
+        var fixedClock = new FixedClock(fixedNow);
+        var tuesday = Monday.AddDays(1);
+        plan.MoveMeal(mealId, tuesday, SlotB, fixedClock);
+
+        var evt = Assert.IsType<MealMoved>(Assert.Single(plan.DomainEvents));
+        Assert.Equal(fixedNow, evt.OccurredAt);
+    }
+
     // ── ApplyProposal — skips occupied cells (MP-O8) ─────────────────────────
 
     [Fact]
@@ -513,5 +545,10 @@ public sealed class MealPlanTests
         Assert.Equal(1, accepted);
         var meal = Assert.Single(plan.PlannedMeals);
         Assert.Equal("ai", meal.Source);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = now;
     }
 }

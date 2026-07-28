@@ -522,7 +522,7 @@ public sealed class DetailModel(
         if (!ModelState.IsValid)
             return await ReloadAmendSheetAsync(id, entryId);
 
-        var lineResult = await new GetCommittedLineByJournalIdQuery(entryId, sessions, tenant).ExecuteAsync();
+        var lineResult = await new GetCommittedLineByJournalIdQuery(entryId, sessions, tenant, clock).ExecuteAsync();
         if (lineResult.IsFailure)
             return NotFound();
 
@@ -562,7 +562,7 @@ public sealed class DetailModel(
     /// </summary>
     private async Task<AmendSheetViewModel?> BuildAmendSheetAsync(Guid productId, Guid entryId)
     {
-        var lineResult = await new GetCommittedLineByJournalIdQuery(entryId, sessions, tenant).ExecuteAsync();
+        var lineResult = await new GetCommittedLineByJournalIdQuery(entryId, sessions, tenant, clock).ExecuteAsync();
         if (lineResult.IsFailure) return null;
         var line = lineResult.Value;
 

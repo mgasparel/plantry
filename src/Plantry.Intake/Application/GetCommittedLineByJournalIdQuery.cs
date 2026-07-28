@@ -1,5 +1,6 @@
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Intake.Application;
@@ -45,7 +46,8 @@ public sealed record AmendableLine(
 public sealed class GetCommittedLineByJournalIdQuery(
     Guid journalId,
     IImportSessionRepository sessions,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    IClock clock)
 {
     public async Task<Result<AmendableLine>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -65,7 +67,7 @@ public sealed class GetCommittedLineByJournalIdQuery(
         // to "Unknown store" / today, rather than failing the whole reverse lookup.
         var session = await sessions.FindAsync(line.SessionId, ct);
         var receiptDate = session?.PurchaseDate
-            ?? DateOnly.FromDateTime((session?.CreatedAt ?? DateTimeOffset.UtcNow).LocalDateTime);
+            ?? DateOnly.FromDateTime((session?.CreatedAt ?? clock.UtcNow).LocalDateTime);
 
         return new AmendableLine(
             line.Id.Value,

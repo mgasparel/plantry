@@ -107,7 +107,7 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
                 ?? throw new InvalidOperationException($"No meal with id {mealId} found in plan.");
             existing.UpdateDishes(dishes, createdBy, now);
             existing.SetAttendeesOverride(attendeesOverride, createdBy, now);
-            RaiseDomainEvent(new MealPlanned(Id, existing.Id, date, slotId));
+            RaiseDomainEvent(new MealPlanned(Id, existing.Id, date, slotId, now));
         }
         else
         {
@@ -115,7 +115,7 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
             var ordinal = NextOrdinal(date, slotId);
             var meal = PlannedMeal.CreateWithDishes(HouseholdId, Id, date, slotId, dishes, attendeesOverride, source, createdBy, now, ordinal);
             _plannedMeals.Add(meal);
-            RaiseDomainEvent(new MealPlanned(Id, meal.Id, date, slotId));
+            RaiseDomainEvent(new MealPlanned(Id, meal.Id, date, slotId, now));
         }
 
         UpdatedAt = now;
@@ -153,7 +153,7 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
                 ?? throw new InvalidOperationException($"No meal with id {mealId} found in plan.");
             existing.UpdateNote(note, createdBy, now);
             existing.SetAttendeesOverride(attendeesOverride, createdBy, now);
-            RaiseDomainEvent(new MealPlanned(Id, existing.Id, date, slotId));
+            RaiseDomainEvent(new MealPlanned(Id, existing.Id, date, slotId, now));
         }
         else
         {
@@ -161,7 +161,7 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
             var ordinal = NextOrdinal(date, slotId);
             var meal = PlannedMeal.CreateWithNote(HouseholdId, Id, date, slotId, note, attendeesOverride, source, createdBy, now, ordinal);
             _plannedMeals.Add(meal);
-            RaiseDomainEvent(new MealPlanned(Id, meal.Id, date, slotId));
+            RaiseDomainEvent(new MealPlanned(Id, meal.Id, date, slotId, now));
         }
 
         UpdatedAt = now;
@@ -223,7 +223,7 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
         // Renumber the source cell (mover has already left it in memory)
         RenumberCell(fromDate, fromSlotId);
 
-        RaiseDomainEvent(new MealMoved(Id, mover.Id, fromDate, fromSlotId, toDate, toSlotId));
+        RaiseDomainEvent(new MealMoved(Id, mover.Id, fromDate, fromSlotId, toDate, toSlotId, now));
         UpdatedAt = now;
     }
 
