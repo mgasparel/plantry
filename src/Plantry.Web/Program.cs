@@ -430,6 +430,7 @@ builder.Services.Configure<FlyerIngestionOptions>(builder.Configuration.GetSecti
 // Singleton: it owns no per-request state and opens a fresh DI scope per household itself, so it is safe
 // to inject into the singleton hosted worker (a scoped registration would fault at root resolution).
 builder.Services.AddSingleton<FlyerIngestionCycle>();
+builder.Services.AddSingleton<IFlyerIngestionCycle>(sp => sp.GetRequiredService<FlyerIngestionCycle>());
 builder.Services.AddHostedService<FlyerIngestionWorker>();
 
 // Generic in-process fire-and-forget work queue (plantry-qll2.4): a request can enqueue post-response work
