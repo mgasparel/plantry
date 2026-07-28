@@ -91,8 +91,8 @@ numbers consistent with the release gate, coverage here is aggregated with the
      — there are zero dependencies; `node --test` runs directly. Capture the pass
      count summary (`tests N / pass N / fail N`). If any test fails or zero tests
      execute: write the report with status **FAILED — tests (JS)** and stop. Include
-     the node output verbatim. This suite is part of the gate as of the rig landing
-     in bead plantry-2zvm.11; skipping it is not a valid option.
+     the node output verbatim. This suite is part of the gate as of the ADR-020-amendment
+     `node --test` rig landing; skipping it is not a valid option.
    - **Stage 2c — Coverage floors.** Only after every test suite above is green.
      Aggregate the per-project cobertura files into per-assembly line coverage
      and enforce the tiered floors below.
@@ -140,8 +140,7 @@ numbers consistent with the release gate, coverage here is aggregated with the
         report's coverage section so the SKILL.md edit is visible in the diff.
      5. **Repowise coverage sync (advisory; never fails the gate).** On a green
         coverage run, feed the fresh reports into the Repowise health index so
-        `get_health` stops firing false `untested_hotspot` criticals
-        (plantry-5l7o):
+        `get_health` stops firing false `untested_hotspot` criticals:
         ```
         repowise coverage add .preflight/coverage/*/coverage.cobertura.xml
         python tools/sync-repowise-coverage.py
@@ -313,7 +312,7 @@ architecture). Grandfathered exceptions (floor < tier target):
 | Plantry.Catalog | domain | 84.7% | 84 |
 | Plantry.Ai.Infrastructure | infra | 40.0% | 40 |
 
-**Denominator correction (plantry-96zg, 2026-07-14).** Since the baseline above,
+**Denominator correction (2026-07-14).** Since the baseline above,
 `coverage.runsettings` excludes structurally-uncoverable files (EF
 factories/migrations, one-off migration tooling + its import UI, dev-only
 pages/fakes, null-object AI stubs, options POCOs). Excluding only ever-0%-covered

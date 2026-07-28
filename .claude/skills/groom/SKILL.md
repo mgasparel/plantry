@@ -110,11 +110,11 @@ remove it. Same goes for `needs-human`
    PROPOSED GROOMING (n issues)
 
    id            type            +class:            +flags                +theme:             why
-   plantry-6vg   bug (ok)        class:bug          —                     theme:recipes       fulfillment recomputes wrong on scale-up
-   plantry-04j   task (ok)       class:tech-debt    —                     theme:ui-components Dev-library component parity, invisible to users
-   plantry-gta   feature (ok)    class:ux           needs-spec            theme:home          empty landing stub a user lands on; under-defined
-   plantry-1mu   feature (ok)    class:improvement  needs-spec            theme:intake        net-new LLM weight conversion, vague  ?
-   plantry-g0m   task (ok)       class:tech-debt    needs-split           theme:ui-components "investigate and prune..." -- open-ended, several issues
+   plantry-ex1   bug (ok)        class:bug          —                     theme:recipes       fulfillment recomputes wrong on scale-up
+   plantry-ex2   task (ok)       class:tech-debt    —                     theme:ui-components Dev-library component parity, invisible to users
+   plantry-ex3   feature (ok)    class:ux           needs-spec            theme:home          empty landing stub a user lands on; under-defined
+   plantry-ex4   feature (ok)    class:improvement  needs-spec            theme:intake        net-new LLM weight conversion, vague  ?
+   plantry-ex5   task (ok)       class:tech-debt    needs-split           theme:ui-components "investigate and prune..." -- open-ended, several issues
 
    LABEL CLEANUP
    delete stale label `foo` (0 open issues)

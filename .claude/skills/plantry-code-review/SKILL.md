@@ -101,10 +101,10 @@ already has for free. The added cost (tree-reading in a pass that's deliberately
 bounded: it only fires per-DEFER, and only for the finding shapes the five checks above name, not
 for every finding.
 
-Sanity-checked against the four cases that motivated this requirement: for `plantry-bc2c`,
-checks 1 and 2 would have caught both the phantom project reference and the guard's 44
-unmatched-token failure on arrival; for `plantry-7p32`, check 3 would have caught the inverted
-rename; for `plantry-kfjj`, check 5 would have caught the "unsettled fork" that
-`docker-compose.prod.yml` already resolves; for `plantry-sl2e`, check 4 would have caught the
-ungrounded factory count, and check 5 would have caught the extension-method recommendation
-contradicting the house convention already in `Infrastructure/`.
+Sanity-checked against the four filed beads that motivated this requirement: checks 1 and 2
+would have caught a recommendation naming a phantom project reference and a proposed guard
+that failed on arrival with 44 unmatched tokens; check 3 would have caught an inverted
+rename (the recommendation targeted the already-conforming member of the pattern); check 5
+would have caught an "unsettled fork" that `docker-compose.prod.yml` already resolves;
+check 4 would have caught an ungrounded factory count, and check 5 an extension-method
+recommendation contradicting the house convention already in `Infrastructure/`.

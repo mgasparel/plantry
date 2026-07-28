@@ -36,7 +36,7 @@ do not duplicate or diverge in either consumer.**
   anchor commit; it does not forbid the narrow, separately-named exception where the
   anchor commit itself co-commits with another aggregate sharing the same DbContext/
   connection (e.g. `CookRecipe`'s `Recipe.SetYield` co-committing with the `CookEvent`
-  anchor — see ADR-010's 2026-07-25 amendment, plantry-kw52). Any such co-commit must
+  anchor — see ADR-010's 2026-07-25 amendment). Any such co-commit must
   be named in ADR-010 as a bounded exception, not assumed by analogy.
 - **Invariants stay inside the aggregate.** Mutation goes through guarded methods on
   the root — private constructor + static `Create` factory + methods like
@@ -268,7 +268,7 @@ Gate 1 asks *"is there coverage?"* — Gate 10 governs whether the tests that ex
 **sound**: deterministic, at the right altitude, and actually asserting behavior. A test
 that passes or fails on wall-clock time, machine culture, or scheduling luck is worse than
 no test — it erodes trust in the whole suite and trains reviewers to rerun until green.
-Motivating case: `plantry-ouvi` — six Today planned-band tests that intermittently missed
+Motivating case: six Today planned-band tests that intermittently missed
 because the fixture seeded a meal under `DateTime.UtcNow` while the page resolved "today"
 under `LocalDateTime`; no prior gate looked at test *quality*, so nothing flagged it.
 
@@ -425,8 +425,9 @@ manufactures a near-certain future finding — so they carry obligations for bot
 author and the reviewer:
 
 - **Spec authors must declare the lock's kind.** `load-bearing`: the lock protects a safety
-  argument (e.g. a byte-identity move whose review safety depends on nothing else changing —
-  plantry-bc2c scope decision 3 is the canonical example). `hygiene`: mere scope tidiness.
+  argument (the canonical example: a byte-identity CSS-consolidation move whose review
+  safety depended on nothing else changing, so its spec forbade any dedup during the move).
+  `hygiene`: mere scope tidiness.
   Hygiene locks are discouraged — the default for a small adjacent tidy is to include it
   in-case as a separate commit rather than lock it out.
 - **A lock that defers known work must cite or create its companion bead at spec time.**

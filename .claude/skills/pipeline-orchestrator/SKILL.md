@@ -21,12 +21,12 @@ metadata:
 The long-running serial loop that closes the circuit between `bd ready` and a
 merged commit on `main` — **one PR per epic, not per issue.**
 
-**Why batch (v5):** after the CI cost change (`plantry-49hm`), per-PR CI is a fast
+**Why batch (v5):** after the CI cost change, per-PR CI is a fast
 gate only and the full suite + deploy moved to the release tag. The remaining lever
 is the *number* of PRs. So every issue flows through an **epic integration branch**:
 children merge into `epic/<epic-id>` with no per-child PR and no per-child CI, and the
 epic ships as **one** `epic→main` PR when it is 100% complete. A 10-child epic that
-used to cost 10 PRs/merges/CI-runs now costs one. See `plantry-ekoo`.
+used to cost 10 PRs/merges/CI-runs now costs one.
 
 **Serial model:** one issue at a time, and **drain the current epic before claiming
 unrelated work** so the epic branch never falls behind `main`. There is no merge queue
@@ -38,7 +38,7 @@ stale.
 
 **Two kinds of epic:**
 
-| | Curated epic (e.g. `plantry-hcj3`) | Rollup epic (catch-all) |
+| | Curated epic | Rollup epic (catch-all) |
 |---|---|---|
 | Source | a real feature; children defined in beads | loose one-offs the loop auto-attaches |
 | Identity | the epic bead id | a `type=epic` bead labelled `rollup`; **identity is the bead id** (branch `epic/<bead-id>`), title is just a dated label. Only ever one open unsealed rollup at a time. |
