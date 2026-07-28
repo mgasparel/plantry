@@ -135,6 +135,32 @@ public sealed class ProductDetailAmendTests : IDisposable
         Assert.Contains("quantity: 2", html, StringComparison.Ordinal);
     }
 
+    [Fact(DisplayName = "AmendSheet — string x-data fields are HTML-encoded so the attribute is not truncated (plantry-wcmg)")]
+    public async Task AmendSheet_XData_IsHtmlEncoded_AndAttributeSpansWholeObject()
+    {
+        var client = AuthClient();
+
+        var response = await client.GetAsync(
+            $"/Pantry/Products/Detail/{ProductDetailAmendFixture.ProductId}?handler=AmendSheet&entryId={_factory.LotEntryId.Value}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        // A string-valued seed must arrive HTML-encoded — a raw `"` would terminate the
+        // x-data="..." attribute early (the plantry-gcpb/plantry-wcmg regression).
+        Assert.Contains("unit: &quot;lb&quot;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("unit: \"lb\"", html, StringComparison.Ordinal);
+
+        // The attribute value must span the *entire* object literal: [^"]* stops at the first
+        // raw double quote, so this only matches if nothing truncated it mid-object. The sheet's
+        // outer <div> carries its own separate (close()-only) x-data, so anchor specifically on
+        // the form's x-data — the one whose object literal opens with `price:` — rather than the
+        // first x-data in the fragment.
+        var xData = Regex.Match(html, "x-data=\"(\\{\\s*price:[^\"]*)\"");
+        Assert.True(xData.Success, "No x-data attribute found on the Amend sheet's form.");
+        Assert.Contains("pricePreview", xData.Groups[1].Value, StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "AmendSheet GET — closed by a later Correction opens the explaining/blocked state, not the form")]
     public async Task AmendSheet_Blocked_WhenClosedByCorrection()
     {

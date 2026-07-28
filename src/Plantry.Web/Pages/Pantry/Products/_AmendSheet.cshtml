@@ -28,13 +28,13 @@
             <form class="form-stack" hx-post="@Url.Page("./Detail", "Amend", new { id = Model.ProductId })"
                   hx-target="#sheet-host" hx-swap="innerHTML"
                   x-data="{
-                    price: @Html.Raw(JsonSerializer.Serialize(sheet.Price)),
-                    entered: @Html.Raw(JsonSerializer.Serialize(sheet.EnteredQuantity)),
-                    effective: @Html.Raw(JsonSerializer.Serialize(previouslyFixed)),
-                    consumed: @Html.Raw(JsonSerializer.Serialize(sheet.ConsumedTotal)),
-                    unit: @Html.Raw(JsonSerializer.Serialize(sheet.UnitCode)),
-                    currency: @Html.Raw(JsonSerializer.Serialize(sheet.CurrencySymbol)),
-                    quantity: @Html.Raw(JsonSerializer.Serialize(previouslyFixed)),
+                    price: @JsonSerializer.Serialize(sheet.Price),
+                    entered: @JsonSerializer.Serialize(sheet.EnteredQuantity),
+                    effective: @JsonSerializer.Serialize(previouslyFixed),
+                    consumed: @JsonSerializer.Serialize(sheet.ConsumedTotal),
+                    unit: @JsonSerializer.Serialize(sheet.UnitCode),
+                    currency: @JsonSerializer.Serialize(sheet.CurrencySymbol),
+                    quantity: @JsonSerializer.Serialize(previouslyFixed),
 
                     fmt(n) { return (Math.round(n * 1000) / 1000).toString() },
                     get guardMessage() {
