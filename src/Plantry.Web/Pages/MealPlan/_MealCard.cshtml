@@ -23,6 +23,16 @@
     // names/note text (spec:ready notes on plantry-rhxv) — those can be long, absent, or plural.
     var cardDate = DateOnly.ParseExact(Model.DateIso, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
     var cardContext = $"{cardDate:dddd} {cardDate:MMM d}, {Model.SlotLabel}";
+    // plantry-0m9h: two-or-more meals in one slot render byte-identical cardContext above (same
+    // day+date+slot), so both cards' accessible names still collide — append a 1-based positional
+    // ordinal to disambiguate. Suppressed entirely when this is the slot's only meal (MealCount == 1)
+    // so every existing single-meal card keeps today's label byte-for-byte. Option B (dish/note text)
+    // and option C (accept the collision) were both rejected by the owner (plantry-rhxv, 2026-07-28) —
+    // do not substitute dish names here.
+    if (Model.MealCount > 1)
+    {
+        cardContext += $" (meal {Model.MealOrdinal} of {Model.MealCount})";
+    }
 
     // plantry-ely3: click-anywhere-opens-editor. Shared with the pencil's own onclick so both
     // paths call the identical island bridge signature. The card-level handler guards against

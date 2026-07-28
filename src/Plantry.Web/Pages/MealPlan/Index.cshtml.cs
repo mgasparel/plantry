@@ -1950,6 +1950,15 @@ public sealed class IndexModel(
         /// the identical "Open meal details"/"Edit meal" name to a screen-reader user.
         /// </summary>
         string SlotLabel,
+        /// <summary>
+        /// 1-based position of this meal within its cell's <c>Meals</c> list (plantry-0m9h) — the
+        /// _MealCard partial appends "(meal N of M)" to the accessible-name context when
+        /// <see cref="MealCount"/> is greater than 1, disambiguating two meals sharing one
+        /// day+date+slot (which otherwise render byte-identical accessible names).
+        /// </summary>
+        int MealOrdinal,
+        /// <summary>Total meal count in this cell (plantry-0m9h) — the ordinal suffix is suppressed when this is 1.</summary>
+        int MealCount,
         /// <summary>Household display currency for the per-meal cost figure (plantry-2x6e.2).</summary>
         string DisplayCurrency = "USD");
     /// <summary>
