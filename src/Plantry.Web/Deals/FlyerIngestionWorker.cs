@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Options;
-using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Web.Deals;
 
@@ -22,11 +21,21 @@ namespace Plantry.Web.Deals;
 /// the "no sweep when none is due" guarantee — a short-lived test/E2E boot with a fresh database still sees
 /// no *repeated* sweeping — while closing the starvation gap a bare timer left open.
 /// </para>
+/// <para>
+/// <b>Time seam (plantry-hdry).</b> The boot due-check's "now" read, its <c>Delay</c>, and the
+/// <see cref="PeriodicTimer"/> are all driven by the same injected <see cref="TimeProvider"/> rather than
+/// the wall clock directly — a single seam, not a mix, since a due-check that read "now" ambiently while
+/// waiting on the injected clock would silently disagree with itself under a fake clock (the exact bug this
+/// fixes). Tests substitute <c>Microsoft.Extensions.Time.Testing.FakeTimeProvider</c> and advance time
+/// deterministically instead of sleeping. Production DI registers <see cref="TimeProvider.System"/> (see
+/// Program.cs).
+/// </para>
 /// </summary>
 public sealed class FlyerIngestionWorker(
     IFlyerIngestionCycle cycle,
     IOptions<FlyerIngestionOptions> options,
-    ILogger<FlyerIngestionWorker> logger) : BackgroundService
+    ILogger<FlyerIngestionWorker> logger,
+    TimeProvider timeProvider) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -42,7 +51,7 @@ public sealed class FlyerIngestionWorker(
         if (!await RunBootDueCheckAsync(opts, stoppingToken))
             return; // host is shutting down — never reached the timer loop
 
-        using var timer = new PeriodicTimer(opts.PollInterval);
+        using var timer = new PeriodicTimer(opts.PollInterval, timeProvider);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             if (!await RunCycleSafelyAsync(stoppingToken))
@@ -75,7 +84,7 @@ public sealed class FlyerIngestionWorker(
             lastPulledAt = null;
         }
 
-        var now = SystemClock.Instance.UtcNow;
+        var now = timeProvider.GetUtcNow();
         var initialDelay = FlyerIngestionBootSchedule.ComputeInitialDelay(lastPulledAt, opts.PollInterval, now);
 
         if (initialDelay > TimeSpan.Zero)
@@ -85,7 +94,7 @@ public sealed class FlyerIngestionWorker(
                 lastPulledAt, initialDelay);
             try
             {
-                await Task.Delay(initialDelay, stoppingToken);
+                await Task.Delay(initialDelay, timeProvider, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

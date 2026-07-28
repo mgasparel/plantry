@@ -437,6 +437,10 @@ builder.Services.Configure<FlyerIngestionOptions>(builder.Configuration.GetSecti
 // to inject into the singleton hosted worker (a scoped registration would fault at root resolution).
 builder.Services.AddSingleton<FlyerIngestionCycle>();
 builder.Services.AddSingleton<IFlyerIngestionCycle>(sp => sp.GetRequiredService<FlyerIngestionCycle>());
+// TimeProvider seam (plantry-hdry): FlyerIngestionWorker's boot delay + PeriodicTimer are driven through
+// this instead of the wall clock directly so FlyerIngestionWorkerTests can substitute FakeTimeProvider.
+// TimeProvider.System is not auto-registered by the generic host, so it's wired explicitly here.
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<FlyerIngestionWorker>();
 
 // Generic in-process fire-and-forget work queue (plantry-qll2.4): a request can enqueue post-response work
