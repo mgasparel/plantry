@@ -260,17 +260,17 @@
         Field-row layout
     </h3>
     <form method="post" class="form-stack" style="max-width: 32rem">
-        <field asp-for="FieldRowDemo.Name"
+        <field asp-for="FormHintFieldRowDemo.Name"
                label="Product name"
                hint="The full commercial name of the product, including brand and size (e.g. Whole milk, 2 L).">
-            <input asp-for="FieldRowDemo.Name" class="field__input" placeholder="e.g. Whole milk" />
-            <span asp-validation-for="FieldRowDemo.Name" class="field__error"></span>
+            <input asp-for="FormHintFieldRowDemo.Name" class="field__input" placeholder="e.g. Whole milk" />
+            <span asp-validation-for="FormHintFieldRowDemo.Name" class="field__error"></span>
         </field>
-        <field asp-for="FieldRowDemo.Quantity"
+        <field asp-for="FormHintFieldRowDemo.Quantity"
                label="Expiry date"
                hint="Use the best-before or use-by date printed on the packaging. Leave blank if the product doesn't expire.">
-            <input asp-for="FieldRowDemo.Quantity" class="field__input" type="number" step="any" min="0" />
-            <span asp-validation-for="FieldRowDemo.Quantity" class="field__error"></span>
+            <input asp-for="FormHintFieldRowDemo.Quantity" class="field__input" type="number" step="any" min="0" />
+            <span asp-validation-for="FormHintFieldRowDemo.Quantity" class="field__error"></span>
         </field>
     </form>
 
@@ -284,19 +284,19 @@
         </div>
         <div class="card__body">
             <form method="post" class="form-grid">
-                <field asp-for="FormGridDemo.Name" stacked full
+                <field asp-for="FormHintStackedDemo.Name" stacked full
                        hint="The full commercial name of the product, including brand and size.">
-                    <input asp-for="FormGridDemo.Name" class="field__input" placeholder="e.g. Whole milk" />
-                    <span asp-validation-for="FormGridDemo.Name" class="field__error"></span>
+                    <input asp-for="FormHintStackedDemo.Name" class="field__input" placeholder="e.g. Whole milk" />
+                    <span asp-validation-for="FormHintStackedDemo.Name" class="field__error"></span>
                 </field>
-                <field asp-for="FormGridDemo.Par" stacked
+                <field asp-for="FormHintStackedDemo.Par" stacked
                        label="Expiry date"
                        hint="Use the best-before or use-by date printed on the packaging. Leave blank if the product doesn't expire.">
-                    <input asp-for="FormGridDemo.Par" class="field__input" type="date" />
-                    <span asp-validation-for="FormGridDemo.Par" class="field__error"></span>
+                    <input asp-for="FormHintStackedDemo.Par" class="field__input" type="date" />
+                    <span asp-validation-for="FormHintStackedDemo.Par" class="field__error"></span>
                 </field>
-                <field asp-for="FormGridDemo.Unit" stacked>
-                    <select asp-for="FormGridDemo.Unit" class="field__input" asp-items="Model.UnitOptions">
+                <field asp-for="FormHintStackedDemo.Unit" stacked>
+                    <select asp-for="FormHintStackedDemo.Unit" class="field__input" asp-items="Model.UnitOptions">
                         <option value="">— Select a unit —</option>
                     </select>
                 </field>
@@ -322,10 +322,10 @@
     </p>
 
     <form method="post" class="form-stack" style="max-width: 32rem">
-        <field asp-for="FieldRowDemo.Unit" label="Default unit">
-            <input asp-for="FieldRowDemo.Unit" class="field__input" placeholder="e.g. L" />
+        <field asp-for="FieldHintTextDemo.Unit" label="Default unit">
+            <input asp-for="FieldHintTextDemo.Unit" class="field__input" placeholder="e.g. L" />
             <span class="field__hint">Used when no unit is specified while logging stock.</span>
-            <span asp-validation-for="FieldRowDemo.Unit" class="field__error"></span>
+            <span asp-validation-for="FieldHintTextDemo.Unit" class="field__error"></span>
         </field>
     </form>
 
@@ -1668,8 +1668,8 @@
     <div style="max-width: 36rem" x-data="{ servings: 4, origServings: 4, scaleMode: 'Keep', hasIngredients: true, showOffer() { return this.hasIngredients && this.servings !== this.origServings; } }">
         <div class="form-stack" style="gap:var(--space-3)">
             <div class="form-grid">
-                <field stacked asp-for="FieldRowDemo.Quantity">
-                    <input type="number" class="field__input" x-model.number="servings" min="1" step="1" />
+                <field stacked asp-for="ServingsScaleDemo.Quantity">
+                    <input asp-for="ServingsScaleDemo.Quantity" type="number" class="field__input" x-model.number="servings" min="1" step="1" />
                 </field>
             </div>
             <div class="card" x-show="showOffer()" x-cloak>
@@ -2313,4 +2313,64 @@ if (!resp.ok) { /* handle */ }")</code></pre>
         + <code>// @@ts-check</code> + JSDoc. The only sanctioned path to a build step is esbuild —
         an amendment to ADR-020, not a silent change.
     </p>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Utilities / helpers</h2>
+    </div>
+    <p>
+        Small, generic CSS primitives that don't belong to any one component family — reach for
+        one of these directly rather than hand-rolling a near-duplicate. Unlike the rest of this
+        gallery, an entry here isn't a tag helper or partial, just a documented class.
+    </p>
+
+    <h3 class="catalog-section__heading" style="font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2)"><code>.sr-only</code></h3>
+    <p>
+        Visually hides an element while keeping it in the accessibility tree — for content a
+        sighted user doesn't need but a screen reader does. Most consumers are a
+        <code>&lt;table&gt;</code> <code>&lt;caption&gt;</code> naming a grid whose purpose is
+        already visually obvious from its surrounding heading, but the class is not limited to
+        captions — anything that should stay in the accessibility tree without a visible
+        presence qualifies. Seven live consumers today: <code>Import/Categories</code>,
+        <code>Import/Locations</code>, <code>Import/Products</code>, <code>Import/Recipes</code>
+        (two grids), <code>Import/Units</code>, and <code>MealPlan/_MealCard</code> — the last
+        being the one <em>interactive</em> consumer: a hidden <code>&lt;button&gt;</code> that is
+        the card's sole keyboard/AT activation target, with its focus ring proxied onto the
+        visible card via <code>.meal-card:has(.mc-open-details:focus-visible)</code>.
+    </p>
+    <p class="alert alert--warning">
+        <strong>Never use <code>display:none</code> or <code>visibility:hidden</code> for this
+        purpose</strong> — both remove the element from assistive tech entirely, which defeats
+        the point. <code>.sr-only</code> uses the standard clip/1px + <code>clip-path:inset(50%)</code>
+        recipe, and it is defined at the true end of <code>plenish.css</code> so it wins every
+        equal-specificity tie against an earlier-defined rule (e.g. <code>.data-grid__caption</code>
+        itself) — keep it there if it's ever touched.
+    </p>
+
+    <div class="card" style="max-width: 28rem">
+        <div class="card__body" style="padding: 0; overflow-x: auto">
+            <table class="data-grid__table">
+                <caption class="data-grid__caption sr-only">Demo grid — this caption is in the DOM but visually hidden</caption>
+                <thead>
+                    <tr>
+                        <th scope="col" class="data-grid__header">Name</th>
+                        <th scope="col" class="data-grid__header">Category</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="data-grid__cell">Whole milk</td>
+                        <td class="data-grid__cell">Dairy</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted)">
+        The table above has a <code>&lt;caption&gt;</code> naming it for assistive tech — inspect
+        the DOM or a screen reader to see it; sighted users see only the table itself.
+    </p>
+
+    <pre class="code-sample"><code>@("<table class=\"data-grid__table\">\n    <caption class=\"data-grid__caption sr-only\">Grocy unit mapping grid</caption>\n    <thead>...</thead>\n    <tbody>...</tbody>\n</table>")</code></pre>
 </section>
