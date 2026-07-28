@@ -118,6 +118,22 @@ node; only the buildable prefix can ship this round). The loop **never asks a qu
 in this mode — it drains drainable components and skips blocked ones until a human
 unblocks them.
 
+### Scope locks must declare their kind and cite-or-create their companion bead
+
+When authoring or amending a child spec that forbids work inside its own footprint ("do
+not deduplicate here", "reused verbatim", "do not consolidate"):
+
+1. **Declare the lock's kind** in the spec: `load-bearing` (protects a safety argument,
+   e.g. a byte-identity move) or `hygiene` (mere tidiness). Hygiene locks are
+   discouraged — prefer letting the worker do a small adjacent tidy as a separate commit.
+2. **Cite or create the companion bead in the same spec.** A lock that defers known work
+   names the bead that work lives in, creating it right then if needed. Otherwise the
+   critic re-discovers the locked work later and the arbiter has nothing to ABSORB it
+   into — the deferral gets tracked twice.
+
+See "Spec scope locks" in `.claude/review-criteria.md` for how critics and the arbiter
+treat locks.
+
 ### Sweep / cleanup children belong as post-epic follow-ups, not batch siblings
 
 A "sweep" child (dead-code removal, final cleanup, doc update) that runs against the
@@ -307,6 +323,13 @@ loop:
     SendMessage(to=worker, "<critic's raw verdict text, verbatim>")
     continue loop
 
+  if response is "=== implement-ticket READY-FOR-ARBITER ===" (fields ISSUE, WORKTREE,
+     BASE, DEFER FINDINGS):
+    arbiter = Agent(subagent_type="fable-arbiter", prompt=<"DEFER ruling for <ISSUE>.
+      Worktree: <WORKTREE>. Base: <BASE>. Findings:\n<DEFER FINDINGS verbatim>">)
+    SendMessage(to=worker, "<arbiter's raw ruling text, verbatim>")
+    continue loop
+
   if response is "=== implement-ticket VERDICT ===" (RESULT: PASS | FAILED):
     done — fall through to Step 3
 ```
@@ -314,9 +337,13 @@ loop:
 Each `READY-FOR-CRITIC` handoff gets a **fresh** Opus critic spawn — never reuse a critic
 across passes, and never let the orchestrator itself read the diff or apply review
 criteria; it only ferries the critic's verdict text back to the worker, which owns all
-report-writing, `bd comment`/DEFER-filing, and the FIX-apply loop. This keeps the same
-context-firewall property the worker dispatch already had — the orchestrator's own
-context only ever holds a verdict's worth of text, never the implementation diff.
+report-writing, `bd comment` posting, and the FIX-apply loop. The same firewall applies to
+the arbiter handoff: spawn `fable-arbiter` fresh, ferry its ruling text back verbatim, and
+never rule on findings yourself — the worker executes the rulings (FIX-IN-CASE applies /
+FILE creates the bead / ABSORB comments an existing bead / DROP records the rationale).
+This keeps the context-firewall property the worker dispatch already had — the
+orchestrator's own context only ever holds a verdict's or ruling's worth of text, never
+the implementation diff.
 
 The final verdict looks like:
 
@@ -334,10 +361,55 @@ WORKTREE: ../worktrees/<issue-id>
 ### Step 3 — Integrate the child (per verdict)
 
 **On `RESULT: FAILED`:** the worker already parked the issue (`blocked` + `needs-human`).
-The epic now has a blocked child, so it cannot reach 100% and will not flush — that is
-the intended "a parked child blocks its batch" behaviour; a human clears it later. Log
-`PARKED: <issue-id> — <REASON>` and go to Step 4 (the epic is not ready; the loop moves
-on to other work).
+What happens next depends on the park reason:
+
+- **Capability-shaped reasons** (`critic-loop-exhausted`, `build-loop-exhausted`,
+  `test-loop-exhausted`) → consult the arbiter before accepting the park:
+  ```
+  arbiter = Agent(subagent_type="fable-arbiter", prompt=<"Park ruling for <issue-id>.
+    Reason: <REASON>. Report: <PREFLIGHT>. Worktree: <WORKTREE>. Branch: <BRANCH>.">)
+  ```
+  Then execute its ruling:
+  - **PARK-FOR-HUMAN** → post the arbiter's COMMENT on the issue, log
+    `PARKED: <issue-id> — <REASON>` and go to Step 4 (today's behaviour, now
+    arbiter-confirmed).
+  - **RETRY-ESCALATED** → post the COMMENT, then un-park the bead and clear the parked
+    attempt so the retry starts genuinely clean — the arbiter has already read it:
+    ```bash
+    bd update <issue-id> --status in_progress
+    bd update <issue-id> --remove-label needs-human
+    bd update <issue-id> --notes "Un-parked <timestamp>: arbiter ruled RETRY-ESCALATED on <reason-string>."
+    git worktree remove ../worktrees/<issue-id> --force
+    git branch -m issue/<issue-id> issue/<issue-id>-parked-1   # rename, don't delete — the parked HEAD stays recoverable
+    ```
+    Then dispatch **one** fresh worker on Fable with the arbiter's distilled failure
+    summary appended to the issue-id prompt:
+    `Agent(subagent_type="implement-ticket-worker", model="fable",
+    prompt="<issue-id>\n\nESCALATED RETRY (one attempt only). Prior-attempt summary from
+    the arbiter:\n<distilled summary>")`. The retry worker's Step 2 now creates a fresh
+    worktree and branch with no trace of the stuck attempt's tree. Run the same Step 2
+    loop for the retry. If the retry also returns FAILED, park unconditionally — never
+    consult the arbiter for a RETRY-ESCALATED ruling twice on the same issue (its
+    guardrail; enforce it here too).
+  - **OVERRIDE** → the arbiter has proven the final critic's blocking finding wrong (its
+    ruling contains the enumeration + verification evidence). Post the COMMENT with that
+    evidence, un-park the bead:
+    ```bash
+    bd update <issue-id> --status in_progress
+    bd update <issue-id> --remove-label needs-human
+    bd update <issue-id> --notes "Un-parked <timestamp>: arbiter ruled OVERRIDE on <reason-string>; evidence in comments."
+    ```
+    and resume the worker: `SendMessage(to=worker, "ARBITER OVERRIDE — the final verdict
+    is treated as PASS. Proceed from Step 5 (squash, commit, completion comment, verdict).
+    In the commit body and completion comment, state 'arbiter override — evidence in case
+    comment' instead of claiming an Opus-review PASS. <arbiter's ruling text>")`. Then
+    handle its PASS verdict normally.
+- **All other reasons** (`underspecified-scope`, `blocked-on-dependency`,
+  `unrecoverable-error:*`, merge conflicts) are decision- or environment-shaped — the
+  arbiter is not consulted. Log `PARKED: <issue-id> — <REASON>` and go to Step 4.
+
+Either way a still-parked child blocks its batch — the epic cannot reach 100% and will
+not flush until a human (or a successful retry/override) clears it.
 
 **On `RESULT: PASS`:** merge the child into the epic branch, then label it staged. No
 main PR, no `bd close` yet.

@@ -93,6 +93,13 @@ Working entirely within `../worktrees/<issue-id>/`:
 - Read `CLAUDE.md` and `.claude/CLAUDE.md` for conventions.
 - Implement the full scope described in the issue.
 - Follow all Plantry architectural conventions (see `.claude/review-criteria.md`).
+- **Build the test infrastructure your tests need — don't defer it.** The loop is serial,
+  so whatever you build is inherited by every later case. But **reuse first**: before
+  creating any test helper, fake, or fixture, search the test tree for prior art
+  (`grep -rn "<helper concept>" tests/`) and extend or consume what exists. Creating a
+  duplicate of an existing helper is a critic FIX. Infra whose *shape* is genuinely
+  unsettled (a production seam with no precedent, a new harness with no ADR) is a
+  contested-decision — surface it, don't silently pick a side.
 - You will commit a WIP snapshot before every critic handoff (see Step 4c) so the diff a
   critic reviews is always complete, including brand-new files — `git diff` cannot show an
   untracked file, and reviewing an incomplete diff has shipped bugs before. These WIP commits
@@ -316,10 +323,12 @@ above):
 > CatalogQueryService.cs:38."
 >
 > **LOAD-BEARING REQUIREMENT for DEFER findings:** Every DEFER finding MUST name which
-> boundary trigger justifies deferral (contested-decision / out-of-scope / missing-test-infra
-> / low-confidence) and give a concrete recommendation — this text becomes a tracked bead, so
-> it must be actionable on its own. A DEFER justified only by "this is a lot of work" is invalid;
-> re-classify it as FIX.
+> boundary trigger justifies deferral (contested-decision / out-of-scope / low-confidence —
+> see the trigger definitions in `.claude/review-criteria.md`; "missing test infrastructure"
+> is NOT a trigger: needed test-layer infra is built in-case as part of the FIX, and a
+> genuinely unsettled infra shape is a contested-decision naming the actual contest) and give
+> a concrete recommendation — this text becomes a tracked bead, so it must be actionable on
+> its own. A DEFER justified only by "this is a lot of work" is invalid; re-classify it as FIX.
 >
 > **Return exactly this format:**
 > ```
@@ -361,8 +370,12 @@ bd comment <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<o
 **Then act on the tiers:**
 
 - **Any FIX findings** (`VERDICT: FAILED`):
-  - If `pass_count == 3`: run the **Park procedure** below (`critic-loop-exhausted`). Do not file
-    DEFER beads for a parked issue — the human triages the whole report.
+  - If `pass_count == 3`: run the **Park procedure** below (`critic-loop-exhausted`).
+    **Do NOT apply the FIX findings — park the branch exactly as the critic saw it.** The
+    pass budget exists because an unreviewed fix is not trustworthy; applying one at the
+    cap produces a commit no reviewer has ever seen and leaves the triager (human or
+    arbiter) a diff that no longer matches the report. Do not file DEFER beads for a
+    parked issue either — the park ruling covers the whole report.
   - Otherwise: apply every FIX instruction exactly as specified, then loop back to **4a**.
     (Honour the scope ceiling: if a FIX would spread beyond this change's footprint, the critic
     should have classified it DEFER — if you discover mid-fix that it does, stop and re-classify
@@ -370,19 +383,49 @@ bd comment <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<o
     `READY-FOR-CRITIC` handoff and another pause — that is expected; each pass gets a fresh
     critic and a fresh handoff.
 - **No FIX findings** (`VERDICT: PASS`): before proceeding to **Step 5**, resolve the other tiers:
-  - **DEFER findings** — for each, create a tracked issue so it is never silently dropped.
-    Set priority by the finding's gate, and label it `code-review` so gate-filed beads are
-    filterable apart from hand-authored `Quality` work:
-    - gates **1–5** → `--priority=1` (correctness / security / tenancy / AI-staging)
-    - gates **6–8** → `--priority=2` (UI conventions / persistence contract / product alignment)
+  - **DEFER findings — never file them directly.** Every DEFER is ruled by the
+    **fable-arbiter** first (`.claude/agents/fable-arbiter.md`). Like the critic, the
+    arbiter is spawned by your caller, not by you. If the final PASS verdict carries one
+    or more DEFER findings, emit exactly this and stop — do not do anything else this
+    turn:
+
+    ```
+    === implement-ticket READY-FOR-ARBITER ===
+    ISSUE: <issue-id>
+    WORKTREE: <worktree-path>
+    BASE: <base-branch>
+    DEFER FINDINGS:
+    <the final critic report's DEFER findings, verbatim>
+    ```
+
+    **When resumed with the arbiter's ruling text**, execute each ruling exactly:
+    - **FIX-IN-CASE** — apply the arbiter's instruction exactly as specified (it is held
+      to the same self-contained standard as a critic FIX; the arbiter is the reviewer of
+      record for this commit). Then re-run **4a Build** and **4b Test** — green is
+      required, but do **not** trigger another critic pass. If applying the instruction
+      turns out to require design decisions the instruction doesn't cover, stop and treat
+      that finding as **FILE** instead, noting why in the case comment.
+    - **FILE** — create the bead with the arbiter's priority and text, preserving the
+      critic's gate-based floor (gates 1–5 → P1, gates 6–8 → P2 unless the arbiter says
+      higher):
+      ```bash
+      bd create --title="<arbiter's title>" --description="<arbiter's bead-ready text (finding + file:line + WHY DEFER + RECOMMEND)>" --type=task --priority=<arbiter's priority> --labels code-review
+      ```
+    - **ABSORB `<bead-id>`** — `bd comment <bead-id> "<arbiter's comment text>"`; file
+      nothing new. If the arbiter recommended a priority bump, apply it
+      (`bd update <bead-id> --priority=<p>`).
+    - **DROP** — no bead; the rationale lands in the case comment below.
+
+    Then post the arbiter's summary comment on this issue:
     ```bash
-    bd create --title="<short title>" --description="<finding + file:line + WHY DEFER + RECOMMEND, verbatim from the critic>" --type=task --priority=<1 if gate 1–5 else 2> --labels code-review
-    bd comment <issue-id> "Deferred follow-up filed as <new-id> (P<priority>, code-review): <one-line gist>"
+    bd comment <issue-id> "<the COMMENT block from the arbiter ruling, verbatim>"
     ```
   - **NOTE findings** — recorded in the report and commit message only; no further action.
-  - Then proceed to **Step 5**.
+  - Then proceed to **Step 5**. (No DEFER findings → skip the arbiter handoff entirely.)
 
-DEFER and NOTE findings never block PASS and never trigger another loop; only FIX findings do.
+DEFER and NOTE findings never block PASS and never trigger another critic pass; only FIX
+findings do. Arbiter FIX-IN-CASE commits re-run build+test but never re-enter the critic
+loop — the arbiter's explicit instruction is the review for those commits.
 
 ---
 
@@ -494,7 +537,10 @@ Triggered by any condition in the table below:
 1. Write `.preflight/<timestamp>-issue-<issue-id>.md` documenting the failure stage
    (build errors, test failures, or last critic output with fix instructions). If a
    per-pass critic report already exists, reference it and add a summary of why it
-   was not resolved.
+   was not resolved. **State the branch HEAD sha and, for `critic-loop-exhausted`, that
+   it is the exact commit the final critic reviewed** — the triager's (human's or
+   arbiter's) baseline must be unambiguous, and nothing may be committed after the final
+   verdict.
 
 2. Update the issue. Set `notes` to the current-status headline (overwrite — it always reflects
    where the bead stands now), then log the **outstanding detail** as a comment so a human can

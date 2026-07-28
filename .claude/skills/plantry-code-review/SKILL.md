@@ -40,9 +40,11 @@ and a concrete fix, ideally pointing at an existing pattern to mirror.
 
 Tag each finding with its tier:
 - **FIX** — must be resolved before merge; include explicit, self-contained fix instructions.
-- **DEFER** — name the boundary trigger (contested-decision / out-of-scope / missing-test-infra
-  / low-confidence), then **verify the recommendation against the tree it would land in** (see
-  "Verifying a DEFER recommendation" below) before writing it as bead-ready text.
+- **DEFER** — name the boundary trigger (contested-decision / out-of-scope / low-confidence;
+  see the trigger definitions in `.claude/review-criteria.md` — "missing test infrastructure"
+  is not a trigger: test-layer infra is built in-case as part of a FIX), then **verify the
+  recommendation against the tree it would land in** (see "Verifying a DEFER recommendation"
+  below) before writing it as bead-ready text.
 - **NOTE** — informational; no action.
 
 End with an overall verdict: **PASS** (no FIX findings) or **FAILED** (one or more FIX
