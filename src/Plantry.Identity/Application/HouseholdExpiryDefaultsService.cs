@@ -71,25 +71,28 @@ public sealed class HouseholdExpiryDefaultsService(
     }
 
     /// <summary>
-    /// Persists the household's after-freezing default. Returns a failure when there is no household in
-    /// context (unauthorized), the household row cannot be found, or <paramref name="days"/> falls
-    /// outside [<see cref="MinDays"/>, <see cref="MaxDays"/>] — validated here (not left to the
-    /// aggregate's non-negative-only guard) so an out-of-range value comes back as a reportable
-    /// <see cref="Error.Custom(string, string)"/> instead of an exception, mirroring
-    /// <c>ExpiringSoonSettingsService.SetDaysAsync</c>.
+    /// Persists both the after-freezing and after-thawing defaults in one load/mutate/save
+    /// (plantry-hw39, absorbing plantry-6nqw) — the single write path for /Settings/Expiry. Both values
+    /// are range-validated up front, before the household is loaded, so an out-of-range value never
+    /// touches the database. Returns the persisted (AfterFreezing, AfterThawing) tuple on success — since
+    /// neither mutator normalizes its input, this is exactly <paramref name="afterFreezing"/>/
+    /// <paramref name="afterThawing"/> echoed back, letting a caller (e.g. <c>ExpiryModel.OnPostAsync</c>)
+    /// reflect the new state without an extra <see cref="GetAsync"/> round trip.
     /// </summary>
-    public async Task<Result> SetAfterFreezingAsync(int days, CancellationToken ct = default)
+    public async Task<Result<(int AfterFreezing, int AfterThawing)>> SetAllAsync(
+        int afterFreezing, int afterThawing, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdGuid)
         {
-            logger.LogWarning("SetDefaultDueDaysAfterFreezing rejected — no household in context.");
+            logger.LogWarning("SetAllAsync rejected — no household in context.");
             return Error.Unauthorized;
         }
 
-        if (days < MinDays || days > MaxDays)
+        if (afterFreezing < MinDays || afterFreezing > MaxDays || afterThawing < MinDays || afterThawing > MaxDays)
         {
             logger.LogWarning(
-                "SetDefaultDueDaysAfterFreezing rejected — {Days} is outside [{Min}, {Max}].", days, MinDays, MaxDays);
+                "SetAllAsync rejected — AfterFreezing={AfterFreezing} AfterThawing={AfterThawing} outside [{Min}, {Max}].",
+                afterFreezing, afterThawing, MinDays, MaxDays);
             return DaysOutOfRangeError;
         }
 
@@ -97,50 +100,18 @@ public sealed class HouseholdExpiryDefaultsService(
         var household = await households.FindAsync(householdId, ct);
         if (household is null)
         {
-            logger.LogWarning(
-                "SetDefaultDueDaysAfterFreezing rejected — household {HouseholdId} not found.", householdId.Value);
+            logger.LogWarning("SetAllAsync rejected — household {HouseholdId} not found.", householdId.Value);
             return Error.NotFound;
         }
 
-        household.SetDefaultDueDaysAfterFreezing(days);
+        household.SetDefaultDueDaysAfterFreezing(afterFreezing);
+        household.SetDefaultDueDaysAfterThawing(afterThawing);
         await households.SaveChangesAsync(ct);
         logger.LogInformation(
-            "Default after-freezing due-days set to {Days} for household {HouseholdId}.", days, householdId.Value);
+            "Default expiry days set to AfterFreezing={AfterFreezing} AfterThawing={AfterThawing} for household {HouseholdId}.",
+            afterFreezing, afterThawing, householdId.Value);
 
-        return Result.Success();
-    }
-
-    /// <summary>Persists the household's after-thawing default. Mirrors <see cref="SetAfterFreezingAsync"/>.</summary>
-    public async Task<Result> SetAfterThawingAsync(int days, CancellationToken ct = default)
-    {
-        if (tenant.HouseholdId is not { } householdGuid)
-        {
-            logger.LogWarning("SetDefaultDueDaysAfterThawing rejected — no household in context.");
-            return Error.Unauthorized;
-        }
-
-        if (days < MinDays || days > MaxDays)
-        {
-            logger.LogWarning(
-                "SetDefaultDueDaysAfterThawing rejected — {Days} is outside [{Min}, {Max}].", days, MinDays, MaxDays);
-            return DaysOutOfRangeError;
-        }
-
-        var householdId = HouseholdId.From(householdGuid);
-        var household = await households.FindAsync(householdId, ct);
-        if (household is null)
-        {
-            logger.LogWarning(
-                "SetDefaultDueDaysAfterThawing rejected — household {HouseholdId} not found.", householdId.Value);
-            return Error.NotFound;
-        }
-
-        household.SetDefaultDueDaysAfterThawing(days);
-        await households.SaveChangesAsync(ct);
-        logger.LogInformation(
-            "Default after-thawing due-days set to {Days} for household {HouseholdId}.", days, householdId.Value);
-
-        return Result.Success();
+        return (afterFreezing, afterThawing);
     }
 
     private static readonly Error DaysOutOfRangeError = Error.Custom(

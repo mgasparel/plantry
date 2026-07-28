@@ -6,15 +6,17 @@ namespace Plantry.Tests.Unit.Composition;
 /// <summary>
 /// L2 test for <see cref="HouseholdExpiryDefaultsReaderAdapter"/> — the composition-root ACL adapter
 /// that lets Catalog's <c>ExpiryDefaultResolver</c> freeze/thaw fallback read Identity's household
-/// defaults without Catalog depending on Identity directly (plantry-hh1f). A thin delegate, so the only
-/// thing worth proving is that it forwards the exact tuple <see cref="IHouseholdExpiryDefaults"/> returns.
+/// defaults without Catalog depending on Identity directly (plantry-hh1f). A thin delegate onto
+/// <see cref="HouseholdExpiryDefaultsAccessor"/> (plantry-hw39), so the only thing worth proving is
+/// that it forwards the exact tuple the accessor returns.
 /// </summary>
 public sealed class HouseholdExpiryDefaultsReaderAdapterTests
 {
     [Fact(DisplayName = "GetDefaultsAsync forwards the (AfterFreezing, AfterThawing) tuple from IHouseholdExpiryDefaults verbatim")]
     public async Task Forwards_Defaults_Verbatim()
     {
-        var adapter = new HouseholdExpiryDefaultsReaderAdapter(new FakeHouseholdExpiryDefaults(45, 5));
+        var adapter = new HouseholdExpiryDefaultsReaderAdapter(
+            new HouseholdExpiryDefaultsAccessor(new FakeHouseholdExpiryDefaults(45, 5)));
 
         var result = await adapter.GetDefaultsAsync();
 
