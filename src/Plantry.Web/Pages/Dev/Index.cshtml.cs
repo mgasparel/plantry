@@ -55,6 +55,30 @@ public sealed class IndexModel : PageModel
     [BindProperty]
     public SearchableSelectDemoInput SearchableSelectDemo { get; set; } = new();
 
+    /// <summary>Backs the "Form Hint" section's field-row layout demo only (plantry-g29s) — a
+    /// dedicated model so its bound inputs don't share ids with the unrelated "Field row" section,
+    /// which also binds Name/Quantity.</summary>
+    [BindProperty]
+    public FormHintFieldRowDemoInput FormHintFieldRowDemo { get; set; } = new();
+
+    /// <summary>Backs the "Form Hint" section's stacked form-grid layout demo only (plantry-g29s) —
+    /// a dedicated model so its bound inputs don't share ids with the unrelated "Form grid field"
+    /// section, which also binds Name/Par/Unit.</summary>
+    [BindProperty]
+    public FormHintStackedDemoInput FormHintStackedDemo { get; set; } = new();
+
+    /// <summary>Backs the "Field hint text" (<c>.field__hint</c>) section only (plantry-g29s) — a
+    /// dedicated model so its Unit field doesn't share an id with the "Field row" section's Unit.</summary>
+    [BindProperty]
+    public FieldHintTextDemoInput FieldHintTextDemo { get; set; } = new();
+
+    /// <summary>Backs the "Servings scale offer" section only (plantry-g29s) — a dedicated model so
+    /// its <c>&lt;field&gt;</c> wrapper doesn't share an id with the "Field row" section's Quantity;
+    /// the actual value is Alpine-owned (<c>x-model.number="servings"</c>), this only supplies the
+    /// label/id for the <c>&lt;field&gt;</c> tag helper.</summary>
+    [BindProperty]
+    public ServingsScaleDemoInput ServingsScaleDemo { get; set; } = new();
+
     public IReadOnlyList<SelectListItem> UnitOptions { get; } =
         new[] { "g", "kg", "ml", "L", "each" }
             .Select(u => new SelectListItem(u, u))
@@ -119,6 +143,56 @@ public sealed class IndexModel : PageModel
         /// two <searchable-select> demos on this page don't collide over the same posted value.</summary>
         [Display(Name = "Grocery item (fuzzy + create)")]
         public string? FuzzyItem { get; set; }
+    }
+
+    /// <summary>Field-row layout half of the "Form Hint" section demo (plantry-g29s) — split out of
+    /// <see cref="FieldRowDemoInput"/> so this section's Name/Quantity ids don't collide with the
+    /// "Field row" section's own Name/Quantity fields.</summary>
+    public sealed class FormHintFieldRowDemoInput
+    {
+        [Required, MaxLength(200)]
+        [Display(Name = "Name")]
+        public string Name { get; set; } = string.Empty;
+
+        [Range(0, 9999)]
+        [Display(Name = "Quantity on hand")]
+        public decimal? Quantity { get; set; }
+    }
+
+    /// <summary>Stacked form-grid layout half of the "Form Hint" section demo (plantry-g29s) — split
+    /// out of <see cref="FormGridDemoInput"/> so this section's Name/Par/Unit ids don't collide with
+    /// the "Form grid field" section's own Name/Par/Unit fields.</summary>
+    public sealed class FormHintStackedDemoInput
+    {
+        [Required, MaxLength(200)]
+        [Display(Name = "Name")]
+        public string Name { get; set; } = string.Empty;
+
+        [Range(0, 9999)]
+        [Display(Name = "Restock level")]
+        public decimal? Par { get; set; }
+
+        [Display(Name = "Default unit")]
+        public string? Unit { get; set; }
+    }
+
+    /// <summary>Backs the "Field hint text" (<c>.field__hint</c>) section demo (plantry-g29s) — a
+    /// dedicated Unit field so its id doesn't collide with the "Field row" section's Unit.</summary>
+    public sealed class FieldHintTextDemoInput
+    {
+        [Display(Name = "Default unit")]
+        public string? Unit { get; set; }
+    }
+
+    /// <summary>Backs the "Servings scale offer" section demo (plantry-g29s) — a dedicated Quantity
+    /// field so its id doesn't collide with the "Field row" section's Quantity. Unused for posting
+    /// (the demo's actual value is Alpine-owned via <c>x-model.number="servings"</c>); it exists only
+    /// to give the <c>&lt;field&gt;</c> tag helper a distinct <c>asp-for</c> target.</summary>
+    public sealed class ServingsScaleDemoInput
+    {
+        [Range(0, 9999)]
+        [Display(Name = "Default servings")]
+        public decimal? Quantity { get; set; }
     }
 
     public void OnGet()

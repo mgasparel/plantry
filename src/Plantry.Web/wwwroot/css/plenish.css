@@ -7499,9 +7499,10 @@ input.ing-section__name:focus {
     margin-bottom: var(--space-4);
 }
 .rd-topbar .rd-back { margin-bottom: 0; }
-/* ── Pages/Dev/Index.cshtml — tag editor demo (moved, plantry-bc2c) ────────── */
-.recipe-tag-editor:focus-within { border-color: var(--color-accent); }
-.tag-picker-option:hover { background: var(--color-surface-2) !important; }
+/* .recipe-tag-editor:focus-within / .tag-picker-option:hover for the /Dev tag editor demo were
+   moved here from Pages/Dev/Index.cshtml (plantry-bc2c) but were byte-identical duplicates of the
+   rules above (moved from Pages/Recipes/Edit.cshtml) — deduplicated, plantry-g29s. The /Dev demo
+   is covered by the Edit-block copy since these are global rules, not page-scoped. */
 
 /* ── Utilities (last in file: a utility must win every equal-specificity tie) ──
    .sr-only — visually hides content while keeping it in the accessibility
