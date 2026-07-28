@@ -7295,3 +7295,205 @@ kbd, .kbd {
 .active-flyer-line .store { font-weight: 700; font-size: 0.9375rem; color: var(--color-text); }
 .flyer-link { color: var(--color-info); text-decoration: none; font-weight: 600; }
 .flyer-link:hover { text-decoration: underline; }
+/* ── Pages/Recipes/Edit.cshtml — ingredient sections & rows (moved, plantry-bc2c) ──── */
+/* ── Section (plantry-vff8): heading card + its clustered rows ── */
+.ing-section { border-bottom: 1px solid var(--color-border); }
+.ing-section:last-of-type { border-bottom: none; }
+.ing-section__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4);
+}
+.ing-section__name {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+    font-weight: 700;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 3px 6px;
+    font-family: inherit;
+}
+/* Only the editable (named) heading gets the hover/focus affordance. */
+input.ing-section__name:hover { border-color: var(--color-border); }
+input.ing-section__name:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    letter-spacing: normal;
+    text-transform: none;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+}
+.ing-section__name--ungrouped { font-style: italic; color: var(--color-text-faint); }
+.ing-section__count { font-size: 11px; color: var(--color-text-faint); font-weight: 600; flex-shrink: 0; }
+.ing-section__del {
+    background: none;
+    border: none;
+    color: var(--color-text-faint);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+.ing-section__del:hover { color: var(--color-danger); background: var(--color-danger-bg); }
+
+.ing-rows { min-height: 4px; }
+/* While a drag is active, keep even an emptied section a comfortable drop target. */
+.ingredient-sections--dragging .ing-rows { min-height: 34px; }
+
+.ingredient-row {
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid var(--color-border);
+}
+.ing-rows .ingredient-row:last-child { border-bottom: none; }
+.ingredient-row--needs-conversion { border-left: 3px solid var(--color-warning); }
+/* plantry-429l: tracked row missing qty/unit — same warning accent as the conversion path. */
+.ingredient-row--needs-attention { border-left: 3px solid var(--color-warning); }
+.ingredient-row--dragging { opacity: .4; }
+
+/* Landed-row conversion block tones (plantry-kw1t). The FILLED/MISSING tone MUST be
+   carried by :class modifiers, NOT a string :style ternary. This element also has x-show,
+   and Alpine applies a string :style by rewriting the element's entire style attribute —
+   which erases the display:none that x-show set. Because x-show caches _x_isShown, it then
+   skips re-hiding and the block stays visibly shown (the phantom conversion prompt). :class
+   toggles never touch the style attribute, so x-show's hidden state survives.
+   GUARD-RAIL: never bind a string :style on an element that also carries x-show. */
+.ingredient-row__conversion { padding: var(--space-3) var(--space-4); }
+.ingredient-row__conversion--filled  { background: var(--color-surface-2);   border-top: 1px solid var(--color-border); }
+.ingredient-row__conversion--missing { background: var(--color-warning-bg);  border-top: 1px solid var(--color-warning); }
+
+/* Read-only landed row: drag · summary (grows) · edit · delete */
+.ingredient-row__body {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+}
+.ingredient-row__drag {
+    cursor: grab;
+    color: var(--color-text-muted);
+    padding: var(--space-2);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+/* Summary reads as text but is a button (click-to-edit). */
+.ingredient-row__summary {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: var(--space-2) 0;
+    font: inherit;
+    color: var(--color-text);
+    cursor: pointer;
+}
+.ingredient-row__summary:hover { color: var(--color-accent); }
+.ingredient-row__action { flex-shrink: 0; }
+
+.recipe-tag-editor:focus-within { border-color: var(--color-accent); }
+.tag-picker-option:hover { background: var(--color-surface-2) !important; }
+
+/* AI tag-suggestion row (plantry-qll2.2) — sits under the tag editor. Page-specific layout that
+   composes the shared .ai-chip primitive (defined in plenish.css). */
+.ai-suggest-row { margin-top: var(--space-3); }
+.ai-suggest-row__label {
+    display: flex; align-items: center; gap: var(--space-1);
+    font-family: var(--font-mono, var(--font-sans));
+    font-size: var(--font-size-xs);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-2);
+}
+.ai-suggest-row__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.ai-suggest-row__dismiss { color: var(--color-text-muted); }
+
+/* ── Inclusion rows (plantry-fqb0.3): 'N servings · Sub' + batch hint + inline servings stepper ── */
+.incl-row__main { flex: 1; min-width: 0; padding: var(--space-2) 0; }
+.incl-row__title { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); }
+.incl-row__title .icon { color: var(--color-accent); flex-shrink: 0; }
+.incl-row__hint { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 2px; }
+.incl-row__servings { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.incl-row__servings-lbl { font-size: 11px; color: var(--color-text-faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+.incl-row__servings-input { width: 5rem; text-align: right; }
+
+/* Include-a-recipe search dropdown */
+.incl-search {
+    position: absolute; z-index: 50; left: 0; top: calc(100% + 4px);
+    width: 20rem; max-width: 90vw;
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+    padding: var(--space-2);
+}
+.incl-search__results { margin-top: var(--space-2); max-height: 14rem; overflow-y: auto; }
+.incl-search__empty { font-size: var(--font-size-sm); color: var(--color-text-muted); padding: var(--space-2); margin: 0; }
+.incl-search__opt {
+    display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);
+    width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+    padding: var(--space-2) var(--space-3); font: inherit; color: var(--color-text);
+    border-radius: var(--radius-sm);
+}
+.incl-search__opt:hover { background: var(--color-surface-2); }
+.incl-search__opt-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.incl-search__opt-meta { font-size: var(--font-size-sm); color: var(--color-text-faint); flex-shrink: 0; }
+/* ── Pages/TidyUp/Index.cshtml — findings & dismissed list (moved, plantry-bc2c) ──── */
+.tidyup-finding {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--color-border-subtle);
+}
+
+.tidyup-finding__text { min-width: 0; }
+.tidyup-finding__primary { font-weight: 600; font-size: var(--font-size-sm); }
+.tidyup-finding__secondary { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.tidyup-finding__consequence { color: var(--color-text-faint); font-size: var(--font-size-xs); margin-top: 1px; }
+.tidyup-finding__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.tidyup-finding__icon--warning { color: var(--color-warning); }
+.tidyup-finding__icon--info { color: var(--color-info); }
+
+.tidyup-dismissed { margin-top: var(--space-6); }
+.tidyup-dismissed summary {
+    cursor: pointer;
+    color: var(--color-text-faint);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.tidyup-dismissed summary::-webkit-details-marker { display: none; }
+.tidyup-dismissed[open] summary { margin-bottom: var(--space-2); }
+.tidyup-finding--dismissed { opacity: .62; }
+.tidyup-finding--dismissed .tidyup-finding__primary {
+    text-decoration: line-through;
+    text-decoration-color: var(--color-text-faint);
+    text-decoration-thickness: 1px;
+}
+/* ── Pages/Recipes/Details.cshtml — top-bar (moved, plantry-bc2c) ──────────── */
+/* Back-link row hosting the entity-level .card__head-actions slot (plantry-jby4). Flex so the
+   slot's margin-left:auto right-aligns Archive; owns the row's bottom gap (.rd-back's own is
+   zeroed here) so the pill and button stay vertically centred. */
+.rd-topbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+}
+.rd-topbar .rd-back { margin-bottom: 0; }
+/* ── Pages/Dev/Index.cshtml — tag editor demo (moved, plantry-bc2c) ────────── */
+.recipe-tag-editor:focus-within { border-color: var(--color-accent); }
+.tag-picker-option:hover { background: var(--color-surface-2) !important; }
