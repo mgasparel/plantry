@@ -120,7 +120,7 @@ The worker's quality loop, all local:
    criterion depends on that did not execute is a hard stop, not a footnote. Fix-and-retry
    up to 3; else park `test-loop-exhausted`.
 3. **Opus critic** — a fresh Opus sub-agent reviews the diff against `.claude/review-criteria.md`
-   (Gates 1–8) and returns FIX / DEFER / NOTE findings. Any FIX → fix and re-loop (≤3 passes);
+   (Gates 1–10) and returns FIX / DEFER / NOTE findings. Any FIX → fix and re-loop (≤3 passes);
    3 passes still failing → park `critic-loop-exhausted`. PASS → file DEFER beads, then proceed.
 
 Every pass writes a `.preflight/` report and a `bd comment` audit line.

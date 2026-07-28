@@ -32,17 +32,29 @@ integration branch. An issue dispatched by the orchestrator always has a parent;
 there is none (a human running the worker by hand), see the fallback in Step 2.
 
 - **Minor ambiguity** (implementation detail, naming, which pattern to follow): make
-  the best reasonable interpretation and document it immediately on the issue:
+  the best reasonable interpretation and document it immediately on the issue. Never
+  pass the text inline via a quoted argument on PowerShell — `CommandLineToArgvW`
+  silently mis-rebuilds embedded quotes/whitespace (code/CLAUDE.md's bd CLI guardrail).
+  Write it to a scratch file first, then post via `--file`. Throughout this file,
+  `<scratchpad>/<name>.md` means a path in the session scratchpad **outside** the git
+  worktree — never inside `../worktrees/<issue-id>`, because Step 4c's `git add -A`
+  would commit it and Step 5's `git reset --soft` would carry it straight into the
+  final commit:
   ```bash
-  bd comment <issue-id> "Interpretation: <what was ambiguous, what was decided, and why>"
+  # write "Interpretation: <what was ambiguous, what was decided, and why>" to
+  # <scratchpad>/interpretation.md
+  bd comment <issue-id> --file <scratchpad>/interpretation.md
   ```
 
 - **Significant underspecification** (core scope unclear, acceptance criteria missing,
   can't determine what to build without guessing): **Park** (`underspecified-scope`).
   Leave a comment explaining specifically what information is needed before work can
-  resume:
+  resume. Write it to a scratch file first, then post via `--file` (never inline — see
+  code/CLAUDE.md's bd CLI guardrail):
   ```bash
-  bd comment <issue-id> "Needs clarification before implementation: <specific questions>"
+  # write "Needs clarification before implementation: <specific questions>" to
+  # <scratchpad>/needs-clarification.md
+  bd comment <issue-id> --file <scratchpad>/needs-clarification.md
   ```
 
 The line between the two: if you can make a reasonable call that a knowledgeable
@@ -290,7 +302,7 @@ above):
 > ## Step C — Review
 >
 > **Criteria:** Read `.claude/review-criteria.md` for the full gate definitions
-> (Gates 1–8) **and the Action tiers section** (FIX / DEFER / NOTE, plus the FIX-vs-DEFER
+> (Gates 1–10) **and the Action tiers section** (FIX / DEFER / NOTE, plus the FIX-vs-DEFER
 > boundary). Apply all gates and classify every finding into exactly one tier using that
 > boundary. Remember: effort, size, and diff-footprint are never reasons to DEFER — DEFER
 > only what the loop cannot complete autonomously (`needs-human` / `cannot-complete`) — and
@@ -381,12 +393,21 @@ pointer. (The `notes` field is reserved for the bead's current-status headline,
 overwritten only at disposition; never put the timeline there — it gets clobbered by the
 next status write.)
 
-```bash
-bd comment <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<one-line gist or 'none'>). DEFER: <n>. NOTE: <n>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md (worktree-scratch, ephemeral)<if DEFER count > 0>
+This text is free-form and, when DEFER findings are present, multi-line with embedded
+colons/quotes — never pass it inline (code/CLAUDE.md's bd CLI guardrail). Write it to a
+scratch file first, then post via `--file`:
 
-DEFER FINDINGS (verbatim from this pass's critic):
-<file>:<line> — <gate N> — <what is wrong> — WHY DEFER: <trigger> — RECOMMEND: <the full recommendation>
-<one line per finding, in full — do not truncate or summarise></if>"
+```bash
+# write the following to <scratchpad>/preflight-pass-<pass_count>-comment.md (append
+# the DEFER FINDINGS block only if DEFER count > 0):
+#   Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<one-line gist or 'none'>).
+#   DEFER: <n>. NOTE: <n>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md
+#   (worktree-scratch, ephemeral)
+#
+#   DEFER FINDINGS (verbatim from this pass's critic):
+#   <file>:<line> — <gate N> — <what is wrong> — WHY DEFER: <trigger> — RECOMMEND: <the full recommendation>
+#   <one line per finding, in full — do not truncate or summarise>
+bd comment <issue-id> --file <scratchpad>/preflight-pass-<pass_count>-comment.md
 ```
 
 **Then act on the tiers:**
@@ -431,27 +452,34 @@ DEFER FINDINGS (verbatim from this pass's critic):
       **FILE** only if the choice is genuinely needs-human (product/UX/threshold or an
       unprecedented consequential fork), noting why.
     - **FILE** — create the bead with the arbiter's priority and text, preserving the
-      critic's gate-based floor (gates 1–5 → P1, gates 6–8 → P2 unless the arbiter says
+      critic's gate-based floor (gates 1–5 → P1, gates 6–10 → P2 unless the arbiter says
       higher). The bead description must be self-contained: the critic's finding verbatim
       PLUS the arbiter's ruling justification and recurrence KEY — someone working the
       bead months later has no worktree and no report to consult. If the finding carries
       the `[recommendation-unverified]` tag (see the critic template's output format
       above), append `recommendation-unverified` as a second label so whoever works the
       bead knows to re-derive the recommendation from the tree rather than implement it
-      verbatim — otherwise use `--labels code-review` alone:
+      verbatim — otherwise use `--labels code-review` alone. Never pass this text inline
+      via `--description` on PowerShell (code/CLAUDE.md's bd CLI guardrail) — write it to
+      a scratch file first, then pass via `--body-file`:
       ```bash
+      # write the bead-ready text (finding verbatim: file:line + WHY DEFER + RECOMMEND,
+      # plus KEY + the arbiter's ruling justification) to <scratchpad>/defer-<key>.md
       # --labels: `code-review` alone, or `code-review,recommendation-unverified` when the
       # finding carried the [recommendation-unverified] tag
-      bd create --title="<arbiter's title>" --description="<arbiter's bead-ready text: finding verbatim (file:line + WHY DEFER + RECOMMEND) + KEY + the arbiter's ruling justification>" --type=task --priority=<arbiter's priority> --labels <code-review | code-review,recommendation-unverified>
+      bd create --title="<arbiter's title>" --body-file "<scratchpad>/defer-<key>.md" --type=task --priority=<arbiter's priority> --labels <code-review | code-review,recommendation-unverified>
       ```
-    - **ABSORB `<bead-id>`** — `bd comment <bead-id> "<arbiter's comment text>"`; file
-      nothing new. If the arbiter recommended a priority bump, apply it
-      (`bd update <bead-id> --priority=<p>`).
+    - **ABSORB `<bead-id>`** — write the arbiter's comment text to
+      `<scratchpad>/absorb-<bead-id>.md`, then `bd comment <bead-id> --file
+      <scratchpad>/absorb-<bead-id>.md` (never inline); file nothing new. If the arbiter
+      recommended a priority bump, apply it (`bd update <bead-id> --priority=<p>`).
     - **DROP** — no bead; the rationale lands in the case comment below.
 
-    Then post the arbiter's summary comment on this issue:
+    Then post the arbiter's summary comment on this issue — write the COMMENT block to
+    `<scratchpad>/arbiter-summary.md` first, never inline (code/CLAUDE.md's bd CLI
+    guardrail):
     ```bash
-    bd comment <issue-id> "<the COMMENT block from the arbiter ruling, verbatim>"
+    bd comment <issue-id> --file <scratchpad>/arbiter-summary.md
     ```
   - **NOTE findings** — recorded in the report and commit message only; no further action.
   - Then proceed to **Step 5**. (No DEFER findings → skip the arbiter handoff entirely.)
@@ -521,8 +549,16 @@ as a NOTE and continue — the branch is pushed and a PR can be opened manually.
 
 ## Step 5.6 — Write completion comment
 
+Never pass this inline (code/CLAUDE.md's bd CLI guardrail) — write it to a scratch file
+first, then post via `--file`:
+
 ```bash
-bd comment <issue-id> "Implementation complete. Branch: issue/<issue-id> (off epic/<parent-id>). Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups> Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>"
+# write the following to <scratchpad>/completion-comment.md:
+#   Implementation complete. Branch: issue/<issue-id> (off epic/<parent-id>).
+#   Pre-flight: PASS, Opus critic pass <pass_count> of <pass_count>. Report:
+#   .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md.<if DEFER follow-ups>
+#   Deferred: <bead-ids>.</if><if NOTE findings> Notes: <brief list>.</if>
+bd comment <issue-id> --file <scratchpad>/completion-comment.md
 ```
 
 Write this before returning the verdict. Keep it to one or two sentences — the preflight report and commit body have the detail.
@@ -577,12 +613,21 @@ Triggered by any condition in the table below:
 
 2. Update the issue. Set `notes` to the current-status headline (overwrite — it always reflects
    where the bead stands now), then log the **outstanding detail** as a comment so a human can
-   act without opening the worktree:
+   act without opening the worktree. Neither flag takes free text inline on PowerShell
+   (code/CLAUDE.md's bd CLI guardrail): `--notes` has no file variant, so build it via a Bash
+   single-quoted heredoc; `bd comment` does have a file variant, so write the park detail to a
+   scratch file first:
    ```bash
    bd update <issue-id> --status blocked
    bd update <issue-id> --add-label needs-human
-   bd update <issue-id> --notes "Auto-parked <timestamp>: <reason-string>. Report: .preflight/<timestamp>-issue-<issue-id>.md"
-   bd comment <issue-id> "Park detail: <the unresolved findings/errors verbatim — for critic-loop-exhausted, every outstanding FIX finding with file:line + gate + fix instruction; for build/test loops, the failing output>"
+   bd update <issue-id> --notes "$(cat <<'EOF'
+Auto-parked <timestamp>: <reason-string>. Report: .preflight/<timestamp>-issue-<issue-id>.md
+EOF
+)"
+   # write "Park detail: <the unresolved findings/errors verbatim — for critic-loop-exhausted,
+   # every outstanding FIX finding with file:line + gate + fix instruction; for build/test
+   # loops, the failing output>" to <scratchpad>/park-detail.md, then:
+   bd comment <issue-id> --file <scratchpad>/park-detail.md
    ```
 
 3. Output verdict:

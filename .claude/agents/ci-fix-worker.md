@@ -165,10 +165,17 @@ EOF
 git -C ../worktrees/<issue-id> push origin issue/<issue-id>
 ```
 
-Log to the issue:
+Log to the issue. Never pass this inline on PowerShell (code/CLAUDE.md's bd CLI
+guardrail) — write it to a scratch file first, then post via `--file`. Here and
+throughout this file, `<scratchpad>/<name>.md` means a path in the session scratchpad
+**outside** the git worktree — never inside `../worktrees/<issue-id>`, because a `git
+add -A` in this worktree (this step, or a later pass if CI goes red again) would
+otherwise commit it and ship it to main:
 
 ```bash
-bd comment <issue-id> "ci-fix-worker: CI red → fixed. Root cause: <summary>. Fix attempt: <fix_attempt>. Local build+test PASS. Pushed — CI re-running."
+# write "ci-fix-worker: CI red → fixed. Root cause: <summary>. Fix attempt: <fix_attempt>.
+# Local build+test PASS. Pushed — CI re-running." to <scratchpad>/ci-fix-comment.md
+bd comment <issue-id> --file <scratchpad>/ci-fix-comment.md
 ```
 
 Output verdict:
@@ -202,13 +209,22 @@ The driver will call `gh run rerun --failed <run-id>` once and go back to pollin
 
 ## Park procedure
 
-Triggered by any unresolvable condition.
+Triggered by any unresolvable condition. Neither flag takes free text inline on
+PowerShell (code/CLAUDE.md's bd CLI guardrail): `--notes` has no file variant, so build
+it via a Bash single-quoted heredoc; `bd comment` does have a file variant, so write the
+park detail to a scratch file first.
 
 ```bash
 bd update <issue-id> --status blocked
 bd update <issue-id> --add-label needs-human
-bd update <issue-id> --notes "Auto-parked <timestamp>: <reason>. PR #<pr-number> preserved. Run: <run-id>."
-bd comment <issue-id> "ci-fix-worker park: <reason>. Failing log excerpt: <key lines from the CI log>. Fix attempts: <fix_attempt>. Branch issue/<issue-id> and worktree preserved for human review."
+bd update <issue-id> --notes "$(cat <<'EOF'
+Auto-parked <timestamp>: <reason>. PR #<pr-number> preserved. Run: <run-id>.
+EOF
+)"
+# write "ci-fix-worker park: <reason>. Failing log excerpt: <key lines from the CI log>.
+# Fix attempts: <fix_attempt>. Branch issue/<issue-id> and worktree preserved for human
+# review." to <scratchpad>/park-detail.md, then:
+bd comment <issue-id> --file <scratchpad>/park-detail.md
 ```
 
 Output verdict:
