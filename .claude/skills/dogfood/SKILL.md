@@ -87,8 +87,8 @@ UX friction (rough), or a missing capability.
 6. **File on approval.** Never pass the description inline via `--description`
    — in PowerShell 5.1, embedded double quotes in a native command's argument
    are silently mis-rebuilt by `CommandLineToArgvW`, truncating the text at
-   the first quote/whitespace boundary with no error (confirmed root cause of
-   plantry-2rav). Instead, write the description to a temp file in the
+   the first quote/whitespace boundary with no error (confirmed root cause of a
+   silently truncated filing). Instead, write the description to a temp file in the
    session scratchpad and pass it via `--body-file`:
 
    ```bash
