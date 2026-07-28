@@ -121,6 +121,12 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
             services.RemoveAll<IMealPlanStockReader>();
             services.AddSingleton<IMealPlanStockReader>(new FakeTodayNullStockReader());
 
+            // Product-dish name/unit resolution port (plantry-nlg4) — the fixture plan has a
+            // recipe dish only, so the batched pre-pass's product-id union is empty and this
+            // reader is never called, but IndexModel still requires an instance to construct.
+            services.RemoveAll<IMealPlanCatalogProductReader>();
+            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeTodayNullCatalogProductReader());
+
             // IHouseholdMemberReader — Today page now loads members for attendee avatars.
             // The fixture household has one member (the registering user — Guid.Empty for simplicity).
             services.RemoveAll<IHouseholdMemberReader>();
@@ -401,6 +407,23 @@ internal sealed class FakeTodayNullStockReader : IMealPlanStockReader
 {
     public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
         => Task.FromResult<MealPlanProductStock?>(null);
+}
+
+/// <summary>
+/// Null catalog-product reader (plantry-nlg4) — the planned-band fixture has a recipe dish only,
+/// so the batched product name/unit pre-pass never invokes this; each method returns an
+/// empty/false result rather than throwing.
+/// </summary>
+internal sealed class FakeTodayNullCatalogProductReader : IMealPlanCatalogProductReader
+{
+    public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(
+        string nameQuery, int maxResults = 20, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<MealPlanProductReadModel>>([]);
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 }
 
 /// <summary>

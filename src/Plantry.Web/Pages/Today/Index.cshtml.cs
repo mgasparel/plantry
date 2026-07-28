@@ -39,6 +39,20 @@ public sealed record ReviewBannerItem(
     DateTimeOffset CreatedAt);
 
 /// <summary>
+/// Per-dish data for a planned meal in the Today band (plantry-nlg4) — mirrors the fields
+/// MealPlan's <c>MealCardDishVm</c> (MealPlan/Index.cshtml.cs) carries for name/quantity/unit
+/// fidelity: name, kind, servings, and a nullable unit code. Deliberately excludes MealPlan's
+/// Cook-strip-only fields (<c>CookedAt</c>, <c>HasPhoto</c> per dish) — porting cook-strip state
+/// onto Today is the redesign ticket's (plantry-5oaa) territory, not this one.
+/// </summary>
+/// <param name="UnitCode">
+/// The product's default unit's display code — null for a recipe dish, which keeps rendering
+/// "servings"; "?" when a product dish's unit could not be resolved. Mirrors the convention
+/// MealPlan's <c>MealCardDishVm.UnitCode</c> established (plantry-ri26).
+/// </param>
+public sealed record PlannedMealDishVm(string Name, DishKind Kind, int Servings, string? UnitCode = null);
+
+/// <summary>
 /// View model for a single meal slot in the Today planned-meals band (plantry-zp7).
 /// Represents either a planned meal or an empty slot for the current date.
 /// </summary>
@@ -48,10 +62,9 @@ public sealed record ReviewBannerItem(
 /// <param name="RecipeId">Primary recipe id when the first (or only) dish is a recipe; null for note meals or product-only meals.</param>
 /// <param name="RecipeName">Display name of the primary recipe; null when not a recipe meal.</param>
 /// <param name="HasPhoto">True when the primary recipe has a stored photo.</param>
-/// <param name="DishNames">All dish names in the meal (for display when there are multiple dishes).</param>
+/// <param name="Dishes">Every dish in the meal, each with its own name/kind/servings/unit (plantry-nlg4); empty for note meals.</param>
 /// <param name="Note">Free-text note when the meal is note-based; null otherwise.</param>
 /// <param name="CookTimeMinutes">Cook time for the primary recipe; null when unknown or no recipe.</param>
-/// <param name="Servings">Servings from the first planned dish.</param>
 /// <param name="EffectiveAttendees">Resolved attendee user IDs (override ?? slot default).</param>
 /// <param name="IsFullyCookable">True when fulfillment pct == 100 (all ingredients in stock).</param>
 /// <param name="MealId">The planned meal's ID (for linking to the planner).</param>
@@ -63,10 +76,9 @@ public sealed record PlannedMealSlotVm(
     Guid? RecipeId,
     string? RecipeName,
     bool HasPhoto,
-    IReadOnlyList<string> DishNames,
+    IReadOnlyList<PlannedMealDishVm> Dishes,
     string? Note,
     int? CookTimeMinutes,
-    int Servings,
     IReadOnlyList<Guid> EffectiveAttendees,
     bool IsFullyCookable,
     Guid MealId,
@@ -86,6 +98,7 @@ public sealed class IndexModel(
     IRecipeRepository recipeRepo,
     IHouseholdMemberReader memberReader,
     BrowseDeals browseDeals,
+    IMealPlanCatalogProductReader catalogReader,
     IClock clock,
     ITenantContext tenant) : PageModel
 {
@@ -242,17 +255,40 @@ public sealed class IndexModel(
         var weekStart = Plantry.MealPlanning.Domain.MealPlan.NormalizeToMonday(today);
         var plan = await mealPlanRepo.FindByWeekAsync(householdId, weekStart, ct);
 
-        var result = new List<PlannedMealSlotVm>(activeSlots.Count);
-
+        // First pass: pick the one planned meal per slot the band shows (first by ordinal in the
+        // cell), without resolving anything yet — this just fixes which meals participate below.
+        var slotMeals = new List<(MealSlot Slot, PlannedMeal? Meal)>(activeSlots.Count);
         foreach (var slot in activeSlots)
         {
-            // Get the first planned meal in this cell (by ordinal) — the band shows one per slot.
-            var mealsInCell = plan?.MealsInCell(today, slot.Id)
+            var meal = plan?.MealsInCell(today, slot.Id)
                 .OrderBy(m => m.Ordinal)
-                .ToList() ?? [];
+                .FirstOrDefault();
+            slotMeals.Add((slot, meal));
+        }
 
-            var meal = mealsInCell.FirstOrDefault();
+        // Batched product-dish name/unit resolution (plantry-nlg4): one pair of catalogReader
+        // calls for the union of product ids across every slot's meal today, up front — mirroring
+        // the week-wide pre-pass MealPlan's LoadWeekAsync established at Index.cshtml.cs:1076-1082
+        // (plantry-vj6z) — never a per-dish call inside the slot loop below.
+        var allProductIds = slotMeals
+            .Where(sm => sm.Meal is { Note: null })
+            .SelectMany(sm => sm.Meal!.PlannedDishes)
+            .Where(d => d.ProductId.HasValue)
+            .Select(d => d.ProductId!.Value)
+            .Distinct()
+            .ToList();
 
+        IReadOnlyDictionary<Guid, string> productNames = allProductIds.Count > 0
+            ? await catalogReader.ResolveNamesAsync(allProductIds, ct)
+            : new Dictionary<Guid, string>();
+        IReadOnlyDictionary<Guid, string> productUnitCodes = allProductIds.Count > 0
+            ? await catalogReader.ResolveDefaultUnitCodesAsync(allProductIds, ct)
+            : new Dictionary<Guid, string>();
+
+        var result = new List<PlannedMealSlotVm>(activeSlots.Count);
+
+        foreach (var (slot, meal) in slotMeals)
+        {
             if (meal is null)
             {
                 // Empty slot — no meal planned yet.
@@ -263,10 +299,9 @@ public sealed class IndexModel(
                     RecipeId: null,
                     RecipeName: null,
                     HasPhoto: false,
-                    DishNames: [],
+                    Dishes: [],
                     Note: null,
                     CookTimeMinutes: null,
-                    Servings: 0,
                     EffectiveAttendees: slot.DefaultAttendees,
                     IsFullyCookable: false,
                     MealId: Guid.Empty,
@@ -286,22 +321,13 @@ public sealed class IndexModel(
             string? primaryRecipeName = null;
             bool hasPhoto = false;
             int? cookTimeMinutes = null;
-            int servings = 0;
-            var dishNames = new List<string>();
+            var dishVms = new List<PlannedMealDishVm>();
 
-            if (meal.Note is not null)
-            {
-                // Note-based meal: no recipe, just display the note text.
-                dishNames.Add(meal.Note);
-                servings = 1;
-            }
-            else
+            if (meal.Note is null)
             {
                 var orderedDishes = meal.PlannedDishes.OrderBy(d => d.Ordinal).ToList();
-                servings = orderedDishes.FirstOrDefault()?.Servings ?? 0;
 
-                // Build dish name list from dish recipe IDs (best-effort; null recipe = "Unknown recipe").
-                // Primary recipe = first recipe dish (by ordinal).
+                // Build per-dish view models (plantry-nlg4). Primary recipe = first recipe dish (by ordinal).
                 foreach (var dish in orderedDishes)
                 {
                     if (dish.RecipeId.HasValue)
@@ -310,7 +336,7 @@ public sealed class IndexModel(
                         // established cross-context seam for MealPlanning→Recipes lookups.
                         var recipeModel = await recipeReadModel.GetByIdAsync(dish.RecipeId.Value, ct);
                         var name = recipeModel?.Name ?? "Unknown recipe";
-                        dishNames.Add(name);
+                        dishVms.Add(new PlannedMealDishVm(name, DishKind.Recipe, dish.Servings));
 
                         if (!primaryRecipeId.HasValue)
                         {
@@ -330,9 +356,12 @@ public sealed class IndexModel(
                     }
                     else if (dish.ProductId.HasValue)
                     {
-                        // Product-dish: display a generic label (catalog name resolution is expensive;
-                        // the meal plan editor already resolved these — not re-loaded here).
-                        dishNames.Add("Product dish");
+                        // Product-dish: name + default unit code, resolved from the batched pre-pass
+                        // above (never a per-dish call here). Same fallback text/placeholder MealPlan's
+                        // MealCardDishVm projection uses (Index.cshtml.cs:1136/1140).
+                        var name = productNames.GetValueOrDefault(dish.ProductId.Value, "Unknown product");
+                        var unitCode = productUnitCodes.GetValueOrDefault(dish.ProductId.Value, "?");
+                        dishVms.Add(new PlannedMealDishVm(name, DishKind.Product, dish.Servings, unitCode));
                     }
                 }
             }
@@ -347,10 +376,9 @@ public sealed class IndexModel(
                 RecipeId: primaryRecipeId,
                 RecipeName: primaryRecipeName,
                 HasPhoto: hasPhoto,
-                DishNames: dishNames,
+                Dishes: dishVms,
                 Note: meal.Note,
                 CookTimeMinutes: cookTimeMinutes,
-                Servings: servings,
                 EffectiveAttendees: effectiveAttendees,
                 IsFullyCookable: fulfillment.FulfillmentPercent == 100,
                 MealId: meal.Id.Value,
@@ -359,6 +387,18 @@ public sealed class IndexModel(
 
         return result;
     }
+
+    /// <summary>
+    /// Formats a dish's quantity for display (plantry-nlg4) — shared by the single-dish meta
+    /// quantity and the multi-dish sub-line in <c>_PlannedMealsBand.cshtml</c> so the two never
+    /// drift into separately-worded formatting rules. A product dish shows its resolved unit code
+    /// (or "?" when unresolved); a recipe dish shows the full "serving"/"servings" word — Today's
+    /// voice is fuller than MealPlan's abbreviated "srv" (plantry-ri26 convention; do not abbreviate here).
+    /// </summary>
+    internal static string FormatDishQuantity(PlannedMealDishVm dish) =>
+        dish.UnitCode is not null
+            ? $"{dish.Servings} {dish.UnitCode}"
+            : $"{dish.Servings} serving{(dish.Servings == 1 ? "" : "s")}";
 
     /// <summary>
     /// Loads ready-to-review intake sessions and projects them to <see cref="ReviewBannerItem"/>

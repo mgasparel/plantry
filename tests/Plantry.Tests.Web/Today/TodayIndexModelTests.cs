@@ -15,6 +15,24 @@ using Plantry.Web.Pages.Today;
 namespace Plantry.Tests.Web.Today;
 
 /// <summary>
+/// Null catalog-product reader (plantry-nlg4) shared by the <see cref="IndexModel"/> constructor
+/// helpers below — these tests never seed a product dish, so no method is expected to be called;
+/// each returns an empty/false result rather than throwing, matching the other Null* seam fakes
+/// in this file.
+/// </summary>
+internal sealed class NullTodayCatalogProductReader : IMealPlanCatalogProductReader
+{
+    public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(
+        string nameQuery, int maxResults = 20, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<MealPlanProductReadModel>>([]);
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+}
+
+/// <summary>
 /// L1 tests for <see cref="IndexModel"/>.
 ///
 /// Covers two independent pieces of logic:
@@ -197,6 +215,7 @@ public sealed class TodayIndexModelTests
             new FakeRecipeRepository(hasRecipes),
             new NullMemberReader(),
             browseDeals,
+            new NullTodayCatalogProductReader(),
             FixedClock,
             tenant);
     }
@@ -437,6 +456,7 @@ public sealed class ExpiringWidgetModelTests
             new FakeRecipeRepo2(hasRecipes),
             new NullMemberReader2(),
             browseDeals,
+            new NullTodayCatalogProductReader(),
             FixedClock,
             tenant);
     }
