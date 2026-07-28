@@ -124,8 +124,13 @@ services:
         condition: service_completed_successfully
       dp-cert-init:
         condition: service_completed_successfully
+      # service_started, not service_healthy: lgtm's healthcheck is a detection
+      # signal only, not a startup gate — see the amendment under ADR-016
+      # Decision 2. A dead Loki/OTLP receiver must never block plantry-web from
+      # starting; the .NET OTLP exporter buffers and retries against a
+      # not-yet-ready collector. (plantry-kfjj)
       lgtm:
-        condition: service_healthy
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=app_user;Password=${APP_USER_PASSWORD}"
@@ -227,7 +232,33 @@ services:
     healthcheck:
       # curl-minimal is present in the grafana/otel-lgtm image (wget is not).
       # -sf: -s silent, -f fail on HTTP error → exit 1 on non-2xx.
-      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      #
+      # Probes Grafana, Loki, and the OTel collector's OTLP/HTTP receiver —
+      # deliberately NOT Tempo, Pyroscope, or Prometheus (plantry-kfjj). Loki is
+      # the daemon that has actually died in production (plantry-e4z0); the OTLP
+      # receiver on 4318 is the ingest path, so its death is the worst silent
+      # failure — nothing reaches any backend. Each additional probe is a new
+      # flake source with its own readiness path to verify, and losing Tempo/
+      # Pyroscope/Prometheus costs less than losing either daemon in scope. Do
+      # not "helpfully" add the rest without re-litigating that trade-off.
+      #
+      # Loki: GET /ready on 3100 returns 200 when ready, 503 while starting
+      # (start_period covers this) or when down — verified inside a running
+      # grafana/otel-lgtm container (plantry-kfjj). -sf is correct here: a
+      # non-2xx status is a real failure signal.
+      #
+      # OTel collector: GET / on 4318 (the OTLP/HTTP receiver) returns 404 when
+      # the receiver is up — there is no dedicated health path, so any HTTP
+      # response (even an error status) proves the process is listening.
+      # Deliberately no -f here: with -f a steady-state 404 would always "fail"
+      # the probe. A dead receiver instead refuses the connection (curl exit 7),
+      # which still fails the chain via the trailing `|| exit 1`.
+      #
+      # This healthcheck reports detection status only — it does NOT gate
+      # plantry-web's startup (see the lgtm depends_on entry above).
+      test:
+        - "CMD-SHELL"
+        - "curl -sf http://localhost:3000/api/health && curl -sf http://localhost:3100/ready && curl -s -o /dev/null http://localhost:4318/ || exit 1"
       interval: 10s
       timeout: 5s
       retries: 10
