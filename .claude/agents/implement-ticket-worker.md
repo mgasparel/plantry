@@ -359,12 +359,21 @@ Include: pass number, verdict, all FIX findings with fix instructions, all DEFER
 with their trigger + recommendation, all NOTE findings. Write this regardless of verdict.
 
 **Then immediately summarise this pass as a comment on the issue.** Comments are the
-append-only, timestamped audit trail — the durable timeline that outlives the `.preflight/`
-scratch. (The `notes` field is reserved for the bead's current-status headline, overwritten
-only at disposition; never put the timeline there — it gets clobbered by the next status write.)
+append-only, timestamped audit trail — and they are the **only durable record**: the
+`.preflight/` report is written inside this worktree, and the orchestrator removes the
+worktree after integrating the child, so the report path in the comment is dead by the
+time anyone triages the bead. Any substance that must survive the case — every DEFER
+finding above all — goes **verbatim into the comment**, never as a count plus a report
+pointer. (The `notes` field is reserved for the bead's current-status headline,
+overwritten only at disposition; never put the timeline there — it gets clobbered by the
+next status write.)
 
 ```bash
-bd comment <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<one-line gist or 'none'>). DEFER: <n>. NOTE: <n>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md"
+bd comment <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<one-line gist or 'none'>). DEFER: <n>. NOTE: <n>. Report: .preflight/<timestamp>-<issue-id>-pass-<pass_count>.md (worktree-scratch, ephemeral)<if DEFER count > 0>
+
+DEFER FINDINGS (verbatim from this pass's critic):
+<file>:<line> — <gate N> — <what is wrong> — WHY DEFER: <trigger> — RECOMMEND: <the full recommendation>
+<one line per finding, in full — do not truncate or summarise></if>"
 ```
 
 **Then act on the tiers:**
@@ -407,9 +416,11 @@ bd comment <issue-id> "Pre-flight pass <pass_count>: <PASS|FAILED>. FIX: <n> (<o
       that finding as **FILE** instead, noting why in the case comment.
     - **FILE** — create the bead with the arbiter's priority and text, preserving the
       critic's gate-based floor (gates 1–5 → P1, gates 6–8 → P2 unless the arbiter says
-      higher):
+      higher). The bead description must be self-contained: the critic's finding verbatim
+      PLUS the arbiter's ruling justification and recurrence KEY — someone working the
+      bead months later has no worktree and no report to consult:
       ```bash
-      bd create --title="<arbiter's title>" --description="<arbiter's bead-ready text (finding + file:line + WHY DEFER + RECOMMEND)>" --type=task --priority=<arbiter's priority> --labels code-review
+      bd create --title="<arbiter's title>" --description="<arbiter's bead-ready text: finding verbatim (file:line + WHY DEFER + RECOMMEND) + KEY + the arbiter's ruling justification>" --type=task --priority=<arbiter's priority> --labels code-review
       ```
     - **ABSORB `<bead-id>`** — `bd comment <bead-id> "<arbiter's comment text>"`; file
       nothing new. If the arbiter recommended a priority bump, apply it
