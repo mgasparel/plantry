@@ -81,7 +81,7 @@
                             {
                                 <div class="today-meal-photo">
                                     <img src="/Recipes/@(slot.RecipeId)?handler=Photo"
-                                         alt="@(slot.RecipeName ?? slot.DishNames.FirstOrDefault() ?? "")"
+                                         alt="@(slot.RecipeName ?? slot.Dishes.FirstOrDefault()?.Name ?? "")"
                                          class="today-meal-photo__img"
                                          loading="lazy" />
                                 </div>
@@ -115,13 +115,18 @@
                                         }
                                         else
                                         {
-                                            @(slot.DishNames.FirstOrDefault() ?? "Planned meal")
+                                            @(slot.Dishes.FirstOrDefault()?.Name ?? "Planned meal")
                                         }
                                     </div>
-                                    @if (slot.DishNames.Count > 1)
+                                    @if (slot.Dishes.Count > 1)
                                     {
+                                        @* Multi-dish meal (plantry-nlg4): each dish carries its own name + quantity/unit,
+                                           since a single flattened Servings has no correct answer for a mixed meal.
+                                           The meta quantity below is suppressed for this case — this line already
+                                           carries every dish's quantity, so no information is lost. *@
                                         <div class="today-meal-dishes">
-                                            @string.Join(" + ", slot.DishNames)
+                                            @string.Join(" + ", slot.Dishes.Select(d =>
+                                                $"{d.Name} ({IndexModel.FormatDishQuantity(d)})"))
                                         </div>
                                     }
                                 }
@@ -137,11 +142,14 @@
                                         </span>
                                         <span class="today-meal-meta-dot"></span>
                                     }
-                                    @if (slot.Servings > 0 && slot.Note is null)
+                                    @* Meta quantity shows only for a single-dish meal, where it's unambiguous and
+                                       matches the headline — a multi-dish meal suppresses it in favour of the
+                                       per-dish sub-line above (plantry-nlg4). *@
+                                    @if (slot.Dishes.Count == 1 && slot.Dishes[0].Servings > 0)
                                     {
                                         <span class="today-meal-meta-item">
                                             <svg class="icon" aria-hidden="true"><use href="#i-servings" /></svg>
-                                            @slot.Servings serving@(slot.Servings == 1 ? "" : "s")
+                                            @IndexModel.FormatDishQuantity(slot.Dishes[0])
                                         </span>
                                     }
                                     @if (slot.EffectiveAttendees.Count > 0)

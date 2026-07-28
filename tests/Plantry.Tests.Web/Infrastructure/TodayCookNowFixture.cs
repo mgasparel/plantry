@@ -250,6 +250,11 @@ internal static class TodayMealPlanningStubs
 
         services.RemoveAll<IHouseholdMemberReader>();
         services.AddSingleton<IHouseholdMemberReader>(new NullTodayMemberReader());
+
+        // Product-dish name/unit resolution port (plantry-nlg4) — these factories seed no product
+        // dishes, so the batched pre-pass never calls it, but IndexModel still requires an instance.
+        services.RemoveAll<IMealPlanCatalogProductReader>();
+        services.AddSingleton<IMealPlanCatalogProductReader>(new NullTodayCatalogProductReader());
     }
 
     private sealed class NullTodayMealPlanRepo : IMealPlanRepository
@@ -293,5 +298,17 @@ internal static class TodayMealPlanningStubs
     {
         public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<HouseholdMember>>([]);
+    }
+
+    private sealed class NullTodayCatalogProductReader : IMealPlanCatalogProductReader
+    {
+        public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(
+            string nameQuery, int maxResults = 20, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<MealPlanProductReadModel>>([]);
+        public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(
+            IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
     }
 }

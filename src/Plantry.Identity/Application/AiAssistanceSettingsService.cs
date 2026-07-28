@@ -8,7 +8,7 @@ namespace Plantry.Identity.Application;
 /// <summary>
 /// Reads and writes the household-wide "AI assistance" switch (plantry-qll2.1), and serves as the
 /// <see cref="IAiAssistanceGate"/> read source for every governed call site. The setting lives on the
-/// <see cref="Household"/> aggregate root (like <c>Theme</c> and <c>ExpiryWarningDays</c>) — one row
+/// <see cref="Household"/> aggregate root (like <c>Theme</c> and <c>DisplayCurrency</c>) — one row
 /// per household in the <c>identity</c> schema, already the tenant anchor — so no separate settings
 /// table or RLS wiring is needed. Defaults to <see cref="DefaultEnabled"/> (ON) when unset.
 /// </summary>

@@ -27,11 +27,16 @@
 <div class="meal-card @(isNote ? "note" : "") @(allDishesDone ? "cooked" : "")"
      draggable="true"
      ondragstart="onDragStart(event, '@meal.MealId.ToString("D")', '@Model.DateIso', '@Model.SlotId.Value')"
-     role="button"
-     tabindex="0"
-     aria-label="Open meal details"
-     onclick="if (!event.target.closest('a,button')) { @openEditorCall }"
-     onkeydown="if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); @openEditorCall }">
+     onclick="if (!event.target.closest('a,button')) { @openEditorCall }">
+
+    @* Keyboard/AT primary activation control (a11y fix, plantry-bg2v): role="button" on the card
+       itself was invalid — a button role must not wrap other interactive elements (the pencil,
+       cook-strip actions, Cook link), all of which it did. This hidden button is the sole
+       keyboard/AT entry point; mouse users keep click-anywhere via the div's onclick above. Native
+       <button> semantics mean no onkeydown handler is needed (Enter/Space are built in). *@
+    <button class="mc-open-details sr-only" type="button" onclick="@openEditorCall" aria-label="Open meal details">
+        Open meal details
+    </button>
 
     @* Edit pencil — calls the meal-planner island bridge (plantry-2zvm.4: Preact island port).
        Redundant with the card-level click-anywhere handler above (plantry-ely3); kept as a

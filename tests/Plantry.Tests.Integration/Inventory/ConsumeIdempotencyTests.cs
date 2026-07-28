@@ -208,7 +208,7 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
-        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo);
+        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var stocks = new ProductStockRepository(invDb);
         var tenant = new TestTenant(_household.Value);
 
@@ -234,7 +234,7 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
-        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo);
+        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var stocks = new ProductStockRepository(invDb);
         var tenant = new TestTenant(_household.Value);
 

@@ -109,12 +109,12 @@ public sealed class MealCardCookStripTests
         Assert.DoesNotContain("mc-cook-done", html);
     }
 
-    [Fact(DisplayName = "GET /MealPlan: the meal-card root carries the click-anywhere markup contract (plantry-ely3)")]
+    [Fact(DisplayName = "GET /MealPlan: the meal-card root carries the click-anywhere markup contract (plantry-ely3, plantry-bg2v)")]
     public async Task MealCard_Root_Carries_ClickAnywhere_Markup_Contract()
     {
         // L4 fast complement to the E2E journey (MealCardClickAnywhereJourneyTests): pins the
-        // rendered markup contract so a future edit that drops the role/tabindex/guard turns this
-        // test red immediately, without booting a browser. The actual click/keyboard BEHAVIOR is
+        // rendered markup contract so a future edit that drops the guard or the hidden button turns
+        // this test red immediately, without booting a browser. The actual click/keyboard BEHAVIOR is
         // proven at L5 by MealCardClickAnywhereJourneyTests — a markup assertion alone cannot prove
         // a browser interaction works.
         await using var factory = new MealCardCookStripFactory();
@@ -129,16 +129,25 @@ public sealed class MealCardCookStripTests
         Assert.True(cardMatch.Success, "No .meal-card root found in the rendered page.");
         var cardTag = cardMatch.Value;
 
-        Assert.Contains("role=\"button\"", cardTag);
-        Assert.Contains("tabindex=\"0\"", cardTag);
-        Assert.Contains("aria-label=\"Open meal details\"", cardTag);
+        // plantry-bg2v: role="button"/tabindex="0"/onkeydown moved OFF the card div — a button
+        // role must not wrap other interactive elements (pencil, cook-strip actions, Cook link).
+        Assert.DoesNotContain("role=\"button\"", cardTag);
+        Assert.DoesNotContain("tabindex=\"0\"", cardTag);
         // The onclick guard bails when the click target is (or is nested inside) an <a>/<button>,
-        // so the pencil, Cook link, and Eat/Undo buttons keep their own behavior (AC2). The literal
-        // guard text is written directly in the .cshtml and is NOT HTML-encoded by Razor; only the
-        // @openEditorCall substitution downstream of it is (hence the &amp;&amp; / &#x27; below).
+        // so the pencil, Cook link, Eat/Undo buttons, and the new hidden button keep their own
+        // behavior (AC2). The literal guard text is written directly in the .cshtml and is NOT
+        // HTML-encoded by Razor; only the @openEditorCall substitution downstream of it is (hence
+        // the &amp;&amp; / &#x27; below).
         Assert.Contains("onclick=\"if (!event.target.closest('a,button')) { window.__mealPlannerIsland &amp;&amp; window.__mealPlannerIsland.openEditor(&#x27;", cardTag);
-        // Enter/Space activate the card the same way (AC4), guarded the same way.
-        Assert.Contains("onkeydown=\"if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); window.__mealPlannerIsland &amp;&amp; window.__mealPlannerIsland.openEditor(&#x27;", cardTag);
+
+        // plantry-bg2v: the new hidden primary-activation button is the sole keyboard/AT entry
+        // point (AC4) — native <button> semantics mean no onkeydown handler is needed. It also
+        // wears the shared .sr-only utility (plantry-m375, landed earlier in this epic) instead
+        // of duplicating a per-component clip-rect rule.
+        var hiddenBtnMatch = System.Text.RegularExpressions.Regex.Match(html, "<button class=\"mc-open-details sr-only\"[^>]*>");
+        Assert.True(hiddenBtnMatch.Success, "No .mc-open-details.sr-only button found in the rendered page.");
+        Assert.Contains("aria-label=\"Open meal details\"", hiddenBtnMatch.Value);
+        Assert.Contains("onclick=\"window.__mealPlannerIsland &amp;&amp; window.__mealPlannerIsland.openEditor(&#x27;", hiddenBtnMatch.Value);
     }
 }
 

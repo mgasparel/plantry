@@ -66,10 +66,12 @@ public sealed record CatalogProductInfo(
     /// Catalog. Null means no default is configured.
     /// </summary>
     int? DefaultDueDaysAfterOpening = null,
-    /// <summary>The resolved after-freezing due-days default (plantry-6owm rule 3) —
+    /// <summary>The resolved after-freezing due-days default (plantry-6owm rule 3, plantry-hh1f) —
     /// <c>ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing</c>, already materialized here so
     /// <c>TransferStockCommand</c> can pass it straight to <c>ProductStock.Transfer</c> without
-    /// Inventory reaching into Catalog. Null means no default is configured.</summary>
+    /// Inventory reaching into Catalog. Falls back product override → household default (plantry-hh1f),
+    /// so this is only ever null when the product itself could not be resolved (e.g.
+    /// <see cref="ICatalogReadFacade.FindProductAsync"/> returned null).</summary>
     int? DefaultDueDaysAfterFreezing = null,
     /// <summary>The resolved after-thawing due-days default (plantry-6owm rule 3), mirroring
     /// <see cref="DefaultDueDaysAfterFreezing"/>.</summary>

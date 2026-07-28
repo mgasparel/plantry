@@ -110,6 +110,27 @@ public sealed class ProductDetailMoveTests : IDisposable
         Assert.Contains("hasThawedAt: false", html, StringComparison.Ordinal);
     }
 
+    [Fact(DisplayName = "MoveSheet — a product with no per-product override renders the household-default freeze note without claiming it's from this product (plantry-hh1f)")]
+    public async Task MoveSheet_NoProductOverride_RendersHouseholdDefaultNote_NotFromThisProduct()
+    {
+        var client = AuthClient();
+        // FakeMoveCatalogFacade's DefaultDueDaysAfterFreezing is unset (null) by default — the resolved
+        // value it carries here is what CatalogReadFacade would have already resolved through the
+        // household default (plantry-hh1f), so from this page's perspective it's just "the resolved
+        // due-days"; either way, the copy must not claim it came from the product.
+        _factory.Catalog.DefaultDueDaysAfterFreezing = 90;
+        _factory.Catalog.DefaultDueDaysAfterThawing = 3;
+
+        var response = await client.GetAsync(
+            $"/Pantry/Products/Detail/{ProductDetailMoveFixture.ProductId}?handler=MoveSheet&entryId={_factory.LotEntryId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("90-day after-freezing default, counted from today.", html, StringComparison.Ordinal);
+        Assert.Contains("3-day after-thawing default, counted from today.", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("from this product", html, StringComparison.Ordinal);
+    }
+
     [Fact(DisplayName = "MoveSheet — string x-data fields are HTML-encoded so the attribute is not truncated (plantry-gcpb)")]
     public async Task MoveSheet_XData_IsHtmlEncoded_AndAttributeSpansWholeObject()
     {

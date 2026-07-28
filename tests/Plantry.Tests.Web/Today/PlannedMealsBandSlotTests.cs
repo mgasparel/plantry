@@ -4,13 +4,15 @@ using Plantry.Web.Pages.Today;
 namespace Plantry.Tests.Web.Today;
 
 /// <summary>
-/// L1 unit tests for <see cref="PlannedMealSlotVm"/> shape invariants (plantry-zp7).
+/// L1 unit tests for <see cref="PlannedMealSlotVm"/> shape invariants (plantry-zp7, plantry-nlg4).
 ///
 /// These tests verify the view-model record-level contract:
 /// <list type="bullet">
 ///   <item>Empty slot: <c>IsPlanned=false</c>, no recipe details, no fulfillment data.</item>
 ///   <item>Planned slot (recipe): <c>IsPlanned=true</c>, <c>RecipeId</c> set, <c>IsFullyCookable</c> reflects 100% fulfillment.</item>
 ///   <item>Planned slot (note): <c>IsPlanned=true</c>, <c>Note</c> set, <c>RecipeId=null</c>.</item>
+///   <item>Per-dish fidelity (plantry-nlg4): <see cref="PlannedMealDishVm"/> shape and
+///     <see cref="IndexModel.FormatDishQuantity"/> for recipe vs. product dishes.</item>
 ///   <item><c>AllMealsPlanned</c> computation (inline simulation matching <see cref="IndexModel.AllMealsPlanned"/>).</item>
 /// </list>
 /// </summary>
@@ -32,10 +34,9 @@ public sealed class PlannedMealsBandSlotTests
             RecipeId: null,
             RecipeName: null,
             HasPhoto: false,
-            DishNames: [],
+            Dishes: [],
             Note: null,
             CookTimeMinutes: null,
-            Servings: 0,
             EffectiveAttendees: [],
             IsFullyCookable: false,
             MealId: Guid.Empty,
@@ -60,10 +61,9 @@ public sealed class PlannedMealsBandSlotTests
             RecipeId: RecipeId,
             RecipeName: "Pasta Carbonara",
             HasPhoto: true,
-            DishNames: ["Pasta Carbonara"],
+            Dishes: [new PlannedMealDishVm("Pasta Carbonara", DishKind.Recipe, 2)],
             Note: null,
             CookTimeMinutes: 25,
-            Servings: 2,
             EffectiveAttendees: [],
             IsFullyCookable: true,
             MealId: MealId,
@@ -87,10 +87,9 @@ public sealed class PlannedMealsBandSlotTests
             RecipeId: RecipeId,
             RecipeName: "Veggie Stir",
             HasPhoto: false,
-            DishNames: ["Veggie Stir"],
+            Dishes: [new PlannedMealDishVm("Veggie Stir", DishKind.Recipe, 2)],
             Note: null,
             CookTimeMinutes: 20,
-            Servings: 2,
             EffectiveAttendees: [],
             IsFullyCookable: false,    // < 100% fulfillment
             MealId: MealId,
@@ -112,10 +111,9 @@ public sealed class PlannedMealsBandSlotTests
             RecipeId: null,
             RecipeName: null,
             HasPhoto: false,
-            DishNames: [],
+            Dishes: [],
             Note: "Leftover soup",
             CookTimeMinutes: null,
-            Servings: 0,
             EffectiveAttendees: [],
             IsFullyCookable: false,
             MealId: MealId,
@@ -138,16 +136,67 @@ public sealed class PlannedMealsBandSlotTests
             RecipeId: RecipeId,
             RecipeName: "Carbonara",
             HasPhoto: false,
-            DishNames: ["Carbonara"],
+            Dishes: [new PlannedMealDishVm("Carbonara", DishKind.Recipe, 2)],
             Note: null,
             CookTimeMinutes: 30,
-            Servings: 2,
             EffectiveAttendees: [],
             IsFullyCookable: true,
             MealId: MealId,
             HasExpiringIngredients: true);   // ← from PlanFulfillmentService
 
         Assert.True(vm.HasExpiringIngredients);
+    }
+
+    // ── Per-dish fidelity (plantry-nlg4) ─────────────────────────────────────
+
+    [Fact(DisplayName = "PlannedMealDishVm — recipe dish has UnitCode=null")]
+    public void RecipeDish_UnitCodeIsNull()
+    {
+        var dish = new PlannedMealDishVm("Pasta Carbonara", DishKind.Recipe, 4);
+
+        Assert.Null(dish.UnitCode);
+        Assert.Equal(DishKind.Recipe, dish.Kind);
+    }
+
+    [Fact(DisplayName = "PlannedMealDishVm — product dish carries its resolved unit code")]
+    public void ProductDish_UnitCodeResolved()
+    {
+        var dish = new PlannedMealDishVm("Chicken thighs", DishKind.Product, 5, "lb");
+
+        Assert.Equal("lb", dish.UnitCode);
+        Assert.Equal(DishKind.Product, dish.Kind);
+    }
+
+    [Fact(DisplayName = "FormatDishQuantity — recipe dish renders 'N servings' (plural)")]
+    public void FormatDishQuantity_RecipeDish_Plural()
+    {
+        var dish = new PlannedMealDishVm("Pasta Carbonara", DishKind.Recipe, 4);
+
+        Assert.Equal("4 servings", IndexModel.FormatDishQuantity(dish));
+    }
+
+    [Fact(DisplayName = "FormatDishQuantity — recipe dish renders '1 serving' (singular)")]
+    public void FormatDishQuantity_RecipeDish_Singular()
+    {
+        var dish = new PlannedMealDishVm("Pasta Carbonara", DishKind.Recipe, 1);
+
+        Assert.Equal("1 serving", IndexModel.FormatDishQuantity(dish));
+    }
+
+    [Fact(DisplayName = "FormatDishQuantity — product dish renders 'N <unit>', not servings")]
+    public void FormatDishQuantity_ProductDish_UsesUnitCode()
+    {
+        var dish = new PlannedMealDishVm("Chicken thighs", DishKind.Product, 5, "lb");
+
+        Assert.Equal("5 lb", IndexModel.FormatDishQuantity(dish));
+    }
+
+    [Fact(DisplayName = "FormatDishQuantity — product dish with unresolved unit renders 'N ?'")]
+    public void FormatDishQuantity_ProductDish_UnresolvedUnit()
+    {
+        var dish = new PlannedMealDishVm("Mystery product", DishKind.Product, 3, "?");
+
+        Assert.Equal("3 ?", IndexModel.FormatDishQuantity(dish));
     }
 
     // ── AllMealsPlanned invariant ────────────────────────────────────────────
@@ -200,10 +249,9 @@ public sealed class PlannedMealsBandSlotTests
             RecipeId: Guid.NewGuid(),
             RecipeName: label + " recipe",
             HasPhoto: false,
-            DishNames: [label + " recipe"],
+            Dishes: [new PlannedMealDishVm(label + " recipe", DishKind.Recipe, 2)],
             Note: null,
             CookTimeMinutes: 20,
-            Servings: 2,
             EffectiveAttendees: [],
             IsFullyCookable: true,
             MealId: Guid.NewGuid(),
@@ -217,10 +265,9 @@ public sealed class PlannedMealsBandSlotTests
             RecipeId: null,
             RecipeName: null,
             HasPhoto: false,
-            DishNames: [],
+            Dishes: [],
             Note: null,
             CookTimeMinutes: null,
-            Servings: 0,
             EffectiveAttendees: [],
             IsFullyCookable: false,
             MealId: Guid.Empty,

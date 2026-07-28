@@ -33,7 +33,6 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
                 .HasColumnName("id");
             b.Property(h => h.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
             b.Property(h => h.EmailIntakeAddress).HasColumnName("email_intake_address").HasMaxLength(254);
-            b.Property(h => h.ExpiryWarningDays).HasColumnName("expiry_warning_days");
             b.Property(h => h.Theme).HasColumnName("theme").HasMaxLength(20);
             // Household-wide assistive-AI switch (plantry-qll2.1). Store default true backfills
             // pre-existing households to ON; new households are inserted with the aggregate default (true).
@@ -46,6 +45,14 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
                 .HasColumnName("display_currency")
                 .HasMaxLength(3)
                 .HasDefaultValue("USD");
+            // Household-wide freeze/thaw expiry defaults (plantry-hh1f). Store defaults 90/3 backfill
+            // pre-existing households in one shot; new households insert with the aggregate default.
+            b.Property(h => h.DefaultDueDaysAfterFreezing)
+                .HasColumnName("default_due_days_after_freezing")
+                .HasDefaultValue(90);
+            b.Property(h => h.DefaultDueDaysAfterThawing)
+                .HasColumnName("default_due_days_after_thawing")
+                .HasDefaultValue(3);
             b.Property(h => h.CreatedAt).HasColumnName("created_at");
 
             // App-layer half of the defense-in-depth pair (the Postgres RLS policy is the other).

@@ -69,14 +69,16 @@
                     </div>
                     <span asp-validation-for="Input.DefaultDueDaysAfterOpening" class="field__error"></span>
                 </field>
-                <field asp-for="Input.DefaultDueDaysAfterFreezing" stacked>
+                <field asp-for="Input.DefaultDueDaysAfterFreezing" stacked
+                       hint="Leave blank to use the household default (Settings → Expiry).">
                     <div class="form-grid__unit-suffix">
                         <input asp-for="Input.DefaultDueDaysAfterFreezing" class="field__input" type="number" min="0" />
                         <span class="form-grid__unit-suffix__label">days</span>
                     </div>
                     <span asp-validation-for="Input.DefaultDueDaysAfterFreezing" class="field__error"></span>
                 </field>
-                <field asp-for="Input.DefaultDueDaysAfterThawing" stacked>
+                <field asp-for="Input.DefaultDueDaysAfterThawing" stacked
+                       hint="Leave blank to use the household default (Settings → Expiry).">
                     <div class="form-grid__unit-suffix">
                         <input asp-for="Input.DefaultDueDaysAfterThawing" class="field__input" type="number" min="0" />
                         <span class="form-grid__unit-suffix__label">days</span>

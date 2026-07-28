@@ -40,8 +40,9 @@ do not duplicate or diverge in either consumer.**
   be named in ADR-010 as a bounded exception, not assumed by analogy.
 - **Invariants stay inside the aggregate.** Mutation goes through guarded methods on
   the root — private constructor + static `Create` factory + methods like
-  `UpdateName`/`SetExpiryWarningDays` that validate before assigning (house style, e.g.
-  `Household`). No public setters, no reaching into a child collection from outside.
+  `UpdateName`/`SetDefaultDueDaysAfterFreezing` that validate before assigning (house
+  style, e.g. `Household`). No public setters, no reaching into a child collection from
+  outside.
 
 ## Gate 3 — Household tenancy
 

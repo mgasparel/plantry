@@ -328,7 +328,7 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
-        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo);
+        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var stocks = new ProductStockRepository(invDb);
         var journalReader = new JournalEntriesBySourceRefReader(invDb);
         var tenant = new TestTenant(_household.Value);

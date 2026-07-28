@@ -23,7 +23,6 @@
 | Column | Type | Notes |
 |---|---|---|
 | `household_id` | `uuid` PK | FK → `household` (also the PK — 1:1) |
-| `expiry_warning_days` | `int` | default 7 (SPEC §7f) |
 | `theme` | `text` | `light` / `dark` / `system` |
 | `email_intake_address` | `text` null | forwarding address (SPEC §7d) |
 | `ai_api_key_encrypted` | `bytea` null | **per-household key, encrypted at rest** via ASP.NET Core Data Protection; decrypted server-side only, **never serialized to the client** (form shows "key set ••••"). Reconciles user-entered keys with ADR-007's "held server-side, never exposed to client." |
