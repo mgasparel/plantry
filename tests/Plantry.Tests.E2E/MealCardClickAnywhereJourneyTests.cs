@@ -13,7 +13,9 @@ namespace Plantry.Tests.E2E;
 ///   AC1 — clicking the card body (a dish name) opens the editor panel.
 ///   AC2 — the Eat button still fires its own hx-post (swap to the Eaten row) and does NOT also open
 ///         the panel; the Cook deep-link still navigates to /Recipes/{id}/Cook.
-///   AC4 — the card is keyboard-focusable and Enter opens the panel.
+///   AC4 — the card's hidden primary-activation button is keyboard-focusable and Enter opens the
+///         panel (plantry-bg2v: role="button" moved off the card div onto a dedicated hidden
+///         &lt;button&gt;, since a button role can't legally wrap other interactive elements).
 /// AC3 (drag unaffected) and AC5 (empty/ghost cells unchanged) touch no code in this change — the
 /// ondragstart wiring and the empty/ghost cell templates are untouched — so they are not re-asserted
 /// here; the existing WeekGridJourneyTests drag/relocate journeys already cover AC3's ondragstart path.
@@ -159,13 +161,15 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
             await page.WaitForURLAsync("**/Recipes/*/Cook**");
             Assert.Matches(new Regex("/Recipes/[0-9a-fA-F-]+/Cook"), page.Url);
 
-            // ── AC4: the card is keyboard-focusable (role="button" tabindex="0") and Enter
-            // opens the editor panel. ──
+            // ── AC4: the card's hidden primary-activation button is keyboard-focusable and Enter
+            // opens the editor panel (plantry-bg2v: role="button" moved off the card div itself,
+            // onto a dedicated hidden <button>, since a button role can't legally wrap other
+            // interactive elements). ──
             await page.GotoAsync($"{BaseUrl}/MealPlan");
             await page.WaitForURLAsync("**/MealPlan**");
             var card2 = page.Locator(".meal-card:not(.note)").First;
             await Assertions.Expect(card2).ToBeVisibleAsync();
-            await card2.FocusAsync();
+            await card2.Locator(".mc-open-details").FocusAsync();
             await page.Keyboard.PressAsync("Enter");
             await Assertions.Expect(dialog).ToBeVisibleAsync(new() { Timeout = 15_000 });
         }

@@ -5016,8 +5016,13 @@ button.sadd svg { width: 13px; height: 13px; }
   flex: 0 0 auto; min-height: 150px; transition: border-color .14s, box-shadow .14s; cursor: pointer;
 }
 .meal-card:hover { border-color: var(--color-border-subtle); box-shadow: var(--shadow-md); }
-/* plantry-ely3: card is a click-anywhere activation target (role="button" tabindex="0") */
-.meal-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* plantry-ely3: card is a click-anywhere activation target for mouse users.
+   plantry-bg2v: keyboard/AT focus now lives on the hidden .mc-open-details button (not the card
+   itself — role="button" can't legally wrap other interactive elements), so the focus ring shows
+   on the card whenever that hidden button has focus. Visual hiding for .mc-open-details itself
+   is the shared .sr-only utility (added by plantry-m375, landed earlier in this epic) — no
+   per-component clip-rect duplicate needed. */
+.meal-card:has(.mc-open-details:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .add-meal {
   display: flex; align-items: center; justify-content: center; gap: 6px; flex: none;
   border: 1px dashed var(--color-border); background: color-mix(in srgb, var(--color-surface) 40%, transparent);
