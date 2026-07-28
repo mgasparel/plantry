@@ -152,10 +152,9 @@ to fray — police it as a bright, boring rule.
   a server-VM ↔ island-props JSON contract (the hydration payload + the JSON the island
   POSTs back) that pure hypermedia lacks — **no compiler spans it.** A change to the
   server-emitted shape not reflected in the island's consumption (or vice versa) is a real
-  defect → FIX. A *missing* contract test for a new island surface is FIX or DEFER per the
-  boundary — build the test-layer rig in-case (FIX) unless its shape is genuinely contested
-  (`contested-decision`, naming the contest) or the fix escapes the diff's footprint
-  (`out-of-scope`).
+  defect → FIX. A *missing* contract test for a new island surface is a FIX — build the
+  test-layer rig in-case — unless its shape is a genuinely unprecedented design call
+  (`needs-human`, naming the contest).
 - **Reusable island widgets follow the same reuse discipline as Razor/CSS (below).** A
   reactive widget built inline in one island and then near-duplicated in another (e.g. a
   search-as-you-type picker living as both `ProductSearch` and `DishSearch`) is the JS
@@ -216,8 +215,10 @@ A judgment call — raise as advisory unless egregious:
 ## Gate 9 — Observability
 
 New code in handlers, application services, and domain event handlers must carry adequate
-instrumentation. The rules below apply to **new code only**; retrofitting existing
-uninstrumented code is a DEFER (file a bead, don't expand the diff).
+instrumentation. The rules below apply to **new code only**. Pre-existing uninstrumented
+code that the diff touches or that sits on the changed call path is instrumented as part
+of the FIX; unrelated uninstrumented code is a NOTE — archaeology belongs to deliberate
+sweeps, not per-case beads.
 
 - **Structured logging via `ILogger<T>`, injected — never `Console.Write*`.**
   Any class that logs must receive `ILogger<T>` through its constructor. Direct console
@@ -260,7 +261,8 @@ uninstrumented code is a DEFER (file a bead, don't expand the diff).
 | New AI model call (`ChatClient` invocation) with no enclosing `ActivitySource` span | **FIX** |
 | Exception path (catch or re-throw) with no `LogWarning`/`LogError` | **FIX** |
 | PII or secret value in a log message parameter | **FIX** (Gate 1 + Gate 9) |
-| Existing, pre-diff code that is uninstrumented and untouched by the diff | **DEFER** — file a bead; do not expand the diff |
+| Existing, pre-diff uninstrumented code on the changed call path | **FIX** — instrument it in-case |
+| Existing, pre-diff uninstrumented code unrelated to the diff | **NOTE** — no per-case bead; deliberate sweeps own archaeology |
 | Unit test asserting on `ILogger` calls as a side-effect proxy | **FIX** (unless the test is explicitly about log output) |
 
 ## Gate 10 — Test quality & determinism
@@ -350,8 +352,8 @@ majority**; L3 integration is one suite per context; **L4 (`WebApplicationFactor
 | Asserted/order-determining value comes from `Guid.NewGuid()`/`Random`, or `Thread.Sleep`/`Task.Delay` used as sync | **FIX** |
 | Assertion on unordered-collection `.First()`/indexer, DB rows without `ORDER BY`, or DOM `[i]` without guaranteed order | **FIX** |
 | Culture-sensitive parse/format without `InvariantCulture`; real network/fs/env in a "hermetic" test; async misuse (missing `await`, `.Result`) | **FIX** |
-| Pyramid inversion — pure domain logic pinned *only* by an L4/L5 path a fast L1/L2 test would cover | **FIX or DEFER** per boundary (drop the assertion down → FIX; needs new fixture/harness → DEFER) |
-| Assertion-free/tautological, change-detector/over-mocked, or brittle over-specified test | **FIX or DEFER** per boundary (in-scope & clearly wrong → FIX; needs a rewrite escaping the diff → DEFER) |
+| Pyramid inversion — pure domain logic pinned *only* by an L4/L5 path a fast L1/L2 test would cover | **FIX** — drop the assertion down, building any missing fixture/harness in-case |
+| Assertion-free/tautological, change-detector/over-mocked, or brittle over-specified test | **FIX** — rewrite it in-case, wherever it lives |
 
 ---
 
@@ -364,40 +366,56 @@ a mechanical next step.
 | Tier | Meaning | What the runner does |
 |------|---------|----------------------|
 | **FIX** | Must be resolved before this change merges. Covers both hard correctness/security/tenancy defects **and** cheap, safe, already-decided quality wins. | Fix it in-loop, then re-run the full gate (build → test → critic). |
-| **DEFER** | A real issue, but resolving it is genuinely *open* — see the boundary below. Its recommendation must be tree-verified before it's written as bead-ready text — see "Verifying a DEFER recommendation" below. | In the autonomous pipeline: hand the batch of DEFERs to the **fable-arbiter** (`.claude/agents/fable-arbiter.md`), which rules each one FIX-IN-CASE / FILE / ABSORB / DROP — a bead is filed only on a FILE ruling. Outside the pipeline (standalone review): file the `bd` issue directly. Never silently dropped either way. |
+| **DEFER** | A real issue the loop **cannot resolve autonomously** — a `needs-human` decision or a named `cannot-complete` blocker; see the boundary below. Its recommendation must be tree-verified before it's written as bead-ready text — see "Verifying a DEFER recommendation" below. | In the autonomous pipeline: hand the batch of DEFERs to the **fable-arbiter** (`.claude/agents/fable-arbiter.md`), which rules each one FIX-IN-CASE / FILE / ABSORB / DROP — a bead is filed only on a FILE ruling. Outside the pipeline (standalone review): file the `bd` issue directly. Never silently dropped either way. |
 | **NOTE** | Informational; **no recommended action** (e.g. a pre-existing transitive-dependency warning). A finding with a next step is FIX or DEFER — see *Guardrails on NOTE*. | Record in the report only. |
 
 ### The FIX vs DEFER boundary
 
-DEFER is for **open questions, not large diffs.** Trigger DEFER only when at least one holds.
-There are exactly **three** triggers — each defined with a boundary test, because a bare label
-invites laundering "this is a lot of work" through it:
+**Owner directive (2026-07-28): DEFER is for work the loop cannot complete autonomously —
+never for work that merely escapes the diff.** The worker's job is to get the issue merged
+with every real finding resolved; expanding the diff to do that is expected, not a
+violation. Effort, size, and footprint are never boundaries: a fix is re-verified by the
+full gate for free, while a bead taxes the owner's backlog and re-manufactures the same
+finding in every later case that touches the seam.
 
-- **`contested-decision`** — resolving it means choosing between genuinely viable approaches, *and*
-  no existing ADR or established pattern settles the choice (see "Resolve apparent design forks"
-  below). *Boundary test:* the finding must name the actual fork (option A vs option B and what
-  makes them both viable), not merely an artifact that doesn't exist yet. "We'd need to decide
-  where the seam lives" is contested only if two placements are genuinely viable and unprecedented.
-- **`out-of-scope`** — the fix escapes the change under review: it touches another bounded
-  context, a schema/migration, or a public contract beyond the current diff's footprint.
-  *Boundary test:* name the specific file/contract outside the footprint that the fix must touch.
-  A fix confined to the diff's files plus trivially adjacent ones is in scope regardless of size.
-- **`low-confidence`** — the reviewer isn't sure the fix is correct or that the finding is real.
-  *Boundary test:* state what would raise confidence (a check that couldn't be run, a behavior
-  that couldn't be observed). In the pipeline, low-confidence findings are exactly what the
-  arbiter adjudicates — it verifies or drops them; they are leads, never specs.
+Trigger DEFER only when at least one holds. There are exactly **two** triggers — each
+defined with a boundary test, because a bare label invites laundering "this is a lot of
+work" through it:
+
+- **`needs-human`** — resolving it requires a decision that is genuinely the owner's:
+  product/UX behaviour, a numeric threshold/cutoff, or a consequential design fork that no
+  existing ADR, precedent, or house pattern settles (see "Resolve apparent design forks"
+  below). *Boundary test:* name the actual fork (option A vs option B, what makes both
+  viable, and why an agent picking either would be overreach). **Having options is not
+  ambiguity** — when any defensible choice exists (an ADR, a precedent, the way the nearest
+  analog already works, or a plain house convention), make the call, record it in the case
+  comment, and FIX.
+- **`cannot-complete`** — the fix genuinely cannot be built *and verified green* within
+  this case: it needs external resources/credentials the pipeline lacks, a production data
+  operation, work covered by a **load-bearing spec scope lock** (see below), or the
+  attempted fix failed the gate in a way the pass budget cannot absorb. *Boundary test:*
+  state specifically what was attempted or what is missing. "It would touch other
+  files/contexts/schemas" is **never** sufficient — that is a description of the fix, not
+  a blocker.
+
+**Retired triggers (2026-07-28)** — do not use these labels:
+- `out-of-scope` is retired. Footprint escape alone defers nothing; fix it and let the
+  gate verify it.
+- `low-confidence` is retired as a *deferral*. A finding the reviewer cannot confirm is a
+  **verification task, not a bead**: state the check that would settle it, run that check
+  in-case (the worker has the tree and the test suites), then FIX or discard. Only when
+  the settling check is itself impossible in-case does it defer — as `cannot-complete`,
+  naming the missing check.
 
 **"Missing test infrastructure" is NOT a trigger.** If a test needs a helper, fake, fixture, or
 harness that doesn't exist: **building it is part of the FIX.** The loop is serial — infra built
 in one case is inherited by every later case, whereas deferring it manufactures the same defer in
 every subsequent case that touches the seam (observed: the TimeProvider seam deferred 3+ times in
-one week before this rule existed). Two genuine escapes exist, and
-both already have a trigger: infra whose *shape* is unsettled (a production seam with no
-precedent, a harness with no ADR — e.g. a Testcontainers rig placement question) is a
-`contested-decision` naming the actual contest; infra requiring changes outside the diff's
-footprint (production DI, another context) is `out-of-scope`. In either case, if the fix itself
-ships while its verification is deferred, the filed bead MUST list which shipped changes are
-unverified pending it — verification debt is tracked, never silent.
+one week before this rule existed). The one genuine escape already has a trigger: infra whose
+*shape* is a consequential, unprecedented design call (a production seam with no analog, a
+harness with no ADR) is `needs-human` naming the actual contest. If a fix ships while its
+verification is deferred, the filed bead MUST list which shipped changes are unverified pending
+it — verification debt is tracked, never silent.
 
 **Reuse-first for test helpers.** Before creating any test helper, fake, or fixture, search the
 test tree for prior art. Creating a duplicate of an existing helper (same shape, same purpose —
@@ -414,9 +432,10 @@ decision, check whether an existing ADR or established pattern already makes the
 it and **FIX** — don't punt a decision to a human that the codebase has already made. Only a fork that
 is genuinely unsettled *and* consequential is a DEFER.
 
-**Tie-breaker: when torn between FIX and DEFER, DEFER.** A wrong auto-fix is expensive and can ship
-silently; a bead is cheap and reversible — and in the pipeline the arbiter audits every DEFER
-anyway, so erring toward DEFER costs one ruling, not one wasted case.
+**Tie-breaker: when torn between FIX and DEFER, FIX.** Every fix re-runs the full gate —
+build, all suites, a fresh critic — so a wrong fix is caught before merge, not shipped. A
+bead is not cheap: it lands on the owner's triage queue, and deferring work an agent could
+do is the failure mode this boundary exists to prevent.
 
 ### Verifying a DEFER recommendation
 
@@ -505,9 +524,11 @@ author and the reviewer:
 
 ### Guardrails on FIX (in-loop auto-fix)
 
-- **Scope ceiling.** An auto-fix must stay within the change's existing footprint (the files already in
-  the diff, or trivially adjacent). If a "cheap fix" starts spreading to unrelated files, it has become a
-  DEFER — file the bead instead of expanding the diff.
+- **No footprint ceiling (owner directive 2026-07-28).** An auto-fix may expand the diff —
+  other files, other bounded contexts, schema/migrations, new test infrastructure — when the
+  change is decided and the gate can verify it. The only hard ceilings are **load-bearing
+  spec scope locks** and **`needs-human` decisions**; hitting either mid-fix converts the
+  finding to DEFER with that trigger.
 - **Re-verify.** Every FIX re-runs the full gate; FIX is bounded by the loop's pass cap. Confident-but-wrong
   fixes are caught by test/critic, not shipped.
 
@@ -547,13 +568,13 @@ finding actually lands.
 | 1–5 | **FIX** — correctness/security/tenancy/AI-staging defects always block merge |
 | 6 — new *shipped* JS dep / npm dependency tree / bundler / import map / Node or a build on the shipped path; island outside the three sanctioned surfaces; SPA shell or client router | **FIX** (test-time `node --test` + a deps-free test manifest are explicitly allowed — not a finding) |
 | 6 — §7 tripwire breach (domain logic computed inside an island); contract-seam divergence between server VM and island props | **FIX** — and a §7 breach also reopens ADR-020 (record an amendment) |
-| 6 — UI library drift, divergent Razor/CSS or island widgets, missing contract test for a new island surface | **FIX or DEFER** per the boundary (cheap & in-scope → FIX, including building any test-layer rig the contract test needs; a new shared component with an unsettled design → DEFER as contested-decision) |
+| 6 — UI library drift, divergent Razor/CSS or island widgets, missing contract test for a new island surface | **FIX** — swap to canonical markup / extract the primitive / build the contract test in-case; DEFER as `needs-human` only for a genuinely unprecedented shared-component design call |
 | 7 | **FIX** — persistence contract violations cause correctness bugs |
 | 8 | **DEFER or NOTE** — product-alignment judgment; FIX only if egregious and in-scope |
 | 9 — new handler/service with no `ILogger<T>`, new AI call with no `ActivitySource` span, exception path with no `LogWarning`/`LogError`, PII in log parameters | **FIX** |
-| 9 — existing uninstrumented code untouched by the diff | **DEFER** — file a bead; do not expand the diff |
+| 9 — existing uninstrumented code on the changed call path | **FIX** — instrument in-case; unrelated archaeology is a **NOTE** |
 | 10 — determinism / anti-flake (ambient time, UTC-vs-local fixture trap, unseeded randomness, `Sleep`/`Delay` as sync, unordered-collection assumptions, culture coupling, async misuse) | **FIX** — a nondeterministic test erodes the gate itself |
-| 10 — pyramid altitude (L4/L5-only coverage of pure domain logic) & test-value anti-patterns (change-detector/over-mocked, tautological, brittle) | **FIX or DEFER** per boundary (drop-the-assertion / in-scope rewrite → FIX, building any needed test-layer harness as part of it; escapes the diff → DEFER as out-of-scope) |
+| 10 — pyramid altitude (L4/L5-only coverage of pure domain logic) & test-value anti-patterns (change-detector/over-mocked, tautological, brittle) | **FIX** — drop the assertion down / rewrite in-case, building any needed test-layer harness as part of it |
 
 ### Calibration anchor
 
