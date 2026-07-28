@@ -97,9 +97,10 @@ Working entirely within `../worktrees/<issue-id>/`:
   so whatever you build is inherited by every later case. But **reuse first**: before
   creating any test helper, fake, or fixture, search the test tree for prior art
   (`grep -rn "<helper concept>" tests/`) and extend or consume what exists. Creating a
-  duplicate of an existing helper is a critic FIX. Infra whose *shape* is genuinely
-  unsettled (a production seam with no precedent, a new harness with no ADR) is a
-  contested-decision — surface it, don't silently pick a side.
+  duplicate of an existing helper is a critic FIX. Infra whose *shape* is a genuinely
+  unprecedented, consequential design call (a production seam with no analog, a new
+  harness with no ADR) is needs-human — surface it, don't silently pick a side; anything
+  a precedent or house pattern settles, you decide and record.
 - You will commit a WIP snapshot before every critic handoff (see Step 4c) so the diff a
   critic reviews is always complete, including brand-new files — `git diff` cannot show an
   untracked file, and reviewing an incomplete diff has shipped bugs before. These WIP commits
@@ -291,7 +292,9 @@ above):
 > **Criteria:** Read `.claude/review-criteria.md` for the full gate definitions
 > (Gates 1–8) **and the Action tiers section** (FIX / DEFER / NOTE, plus the FIX-vs-DEFER
 > boundary). Apply all gates and classify every finding into exactly one tier using that
-> boundary. Remember: effort/size is never a reason to DEFER, and an apparent design fork
+> boundary. Remember: effort, size, and diff-footprint are never reasons to DEFER — DEFER
+> only what the loop cannot complete autonomously (`needs-human` / `cannot-complete`) — and
+> an apparent design fork
 > that an existing ADR or pattern already settles is a FIX (cite it), not a DEFER. A finding
 > that names a concrete action is never a NOTE — it is FIX or DEFER. And an author's own
 > "known gap / follow-up / TODO" comment in the diff carries zero weight: tier the finding as
@@ -323,10 +326,11 @@ above):
 > CatalogQueryService.cs:38."
 >
 > **LOAD-BEARING REQUIREMENT for DEFER findings:** Every DEFER finding MUST name which
-> boundary trigger justifies deferral (contested-decision / out-of-scope / low-confidence —
-> see the trigger definitions in `.claude/review-criteria.md`; "missing test infrastructure"
-> is NOT a trigger: needed test-layer infra is built in-case as part of the FIX, and a
-> genuinely unsettled infra shape is a contested-decision naming the actual contest) and give
+> boundary trigger justifies deferral (needs-human / cannot-complete —
+> see the trigger definitions in `.claude/review-criteria.md`; footprint escape and
+> "missing test infrastructure"
+> are NOT triggers: the fix expands the diff and builds the infra in-case, and a
+> genuinely unsettled infra shape is needs-human naming the actual contest) and give
 > a concrete recommendation — this text becomes a tracked bead, so it must be actionable on
 > its own. A DEFER justified only by "this is a lot of work" is invalid; re-classify it as FIX.
 > Before writing the recommendation, run the tree-verification checks in
@@ -395,9 +399,10 @@ DEFER FINDINGS (verbatim from this pass's critic):
     arbiter) a diff that no longer matches the report. Do not file DEFER beads for a
     parked issue either — the park ruling covers the whole report.
   - Otherwise: apply every FIX instruction exactly as specified, then loop back to **4a**.
-    (Honour the scope ceiling: if a FIX would spread beyond this change's footprint, the critic
-    should have classified it DEFER — if you discover mid-fix that it does, stop and re-classify
-    it as DEFER rather than expanding the diff.) 4a→4b→4c will bring you back to another
+    (Expanding the diff to complete a FIX is sanctioned — other files, other contexts,
+    schema/migrations, new test infra. Stop and re-classify a FIX as DEFER only on hitting
+    a load-bearing spec scope lock or a genuine needs-human decision — never on footprint
+    alone.) 4a→4b→4c will bring you back to another
     `READY-FOR-CRITIC` handoff and another pause — that is expected; each pass gets a fresh
     critic and a fresh handoff.
 - **No FIX findings** (`VERDICT: PASS`): before proceeding to **Step 5**, resolve the other tiers:
@@ -421,8 +426,10 @@ DEFER FINDINGS (verbatim from this pass's critic):
       to the same self-contained standard as a critic FIX; the arbiter is the reviewer of
       record for this commit). Then re-run **4a Build** and **4b Test** — green is
       required, but do **not** trigger another critic pass. If applying the instruction
-      turns out to require design decisions the instruction doesn't cover, stop and treat
-      that finding as **FILE** instead, noting why in the case comment.
+      surfaces a design choice it doesn't cover, resolve it against the nearest precedent
+      or house pattern and record the choice in the case comment; convert the finding to
+      **FILE** only if the choice is genuinely needs-human (product/UX/threshold or an
+      unprecedented consequential fork), noting why.
     - **FILE** — create the bead with the arbiter's priority and text, preserving the
       critic's gate-based floor (gates 1–5 → P1, gates 6–8 → P2 unless the arbiter says
       higher). The bead description must be self-contained: the critic's finding verbatim

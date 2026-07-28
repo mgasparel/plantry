@@ -61,25 +61,38 @@ looking at the code it concerns is a guess.
 
 | Ruling | Meaning | What the worker does with it |
 |--------|---------|------------------------------|
-| **FIX-IN-CASE** | Cheap, behavior-safe, decided, and confined to the case's footprint (or trivially adjacent). Not worth a bead's full pipeline-case transaction cost. | Applies your instruction as a follow-up commit, re-runs build + test, records it in the case comment. |
-| **FILE** | A real, self-standing piece of work: product-visible defect, correctness risk, or decided work too large for this case. | Files the bead with the priority and bead-ready text you supply. Your bead-ready text MUST embed the finding's class key (e.g. `KEY: coverage:l5-e2e`) so future recurrence greps match it. |
+| **FIX-IN-CASE** | Decided (by ADR, precedent, house pattern, or any defensible default) and buildable + verifiable green in this case. **Footprint does not matter** — the worker expands the diff as needed. This is the default ruling. | Applies your instruction as a follow-up commit, re-runs build + test, records it in the case comment. |
+| **FILE** | Work the pipeline **cannot complete autonomously in this case**: a genuine needs-human decision (guardrail 2), or a named `cannot-complete` blocker (external resource, production data operation, load-bearing lock, gate failure the pass budget can't absorb). Size, footprint, and "new contracts beyond the diff" never qualify on their own. | Files the bead with the priority and bead-ready text you supply. Your bead-ready text MUST embed the finding's class key (e.g. `KEY: coverage:l5-e2e`) so future recurrence greps match it. |
 | **ABSORB** | Matches an existing bead — a spec-lock companion, a recurrence batch bead, or a previously filed finding. | Comments the finding onto that bead; files nothing new. |
 | **DROP** | Not worth tracking: process exhaust, cosmetic, or below any reasonable materiality bar. | Records ruling + your one-line rationale in the case comment; no bead. |
 
-**FIX-IN-CASE discipline:** your instruction must be explicit and self-contained — what,
-exactly where (file:line), the specific change — to the same standard the critic's FIX
-findings are held to. These commits land after the final critic pass, so **you are the
-reviewer of record** for them: an instruction vague enough that the worker must design
-the change itself is not a FIX-IN-CASE; rule FILE instead. Never rule FIX-IN-CASE on
-anything a load-bearing lock covers (guardrail 1).
+**Owner policy (Michael, 2026-07-28): FILE is the exception, not a default.** A bead is
+warranted only when the pipeline cannot proceed autonomously. Scope/footprint escape,
+effort, pipeline transaction cost, and "the fix needs new contracts beyond the diff" are
+NOT grounds for FILE — rule FIX-IN-CASE and let the worker expand the diff; build + test
+re-run after every FIX-IN-CASE commit. When torn between FIX-IN-CASE and FILE, rule
+FIX-IN-CASE.
 
-**Judgment criteria** (weigh, don't checklist): the transaction cost of a full pipeline
-case (claim → worktree → build → five suites → critic passes → merge) versus the
-finding's actual size; product-visible defect versus process exhaust (guards-about-guards,
-test-infra grooming, micro-dedups); whether the fix is confined to files the case already
-touched; whether the critic already verified the recommendation against the tree
-(`recommendation-unverified` findings are leads, not specs — they FILE or DROP, never
-FIX-IN-CASE).
+**FIX-IN-CASE discipline:** your instruction must be explicit and self-contained — what,
+exactly where (file:line), the specific change or the settling precedent (file:line of
+the analog to mirror) — to the same standard the critic's FIX findings are held to. These
+commits land after the final critic pass, so **you are the reviewer of record** for them.
+When the design is settled by a precedent, direct the worker to that precedent and let it
+implement within it; rule FILE only when the design is genuinely open (needs-human).
+Never rule FIX-IN-CASE on anything a load-bearing lock covers (guardrail 1).
+
+**Judgment criteria** — two questions, in order:
+1. **Is the change decided?** An ADR, a precedent, a house pattern, or any defensible
+   default an agent may pick counts as decided (record the pick). Only product/UX
+   choices, numeric thresholds, and genuinely unprecedented consequential forks are
+   undecided → FILE with `needs-human` noted (guardrail 2), or DROP if immaterial.
+2. **Can it be built and verified green in this case?** You have the worktree — judge
+   this from the tree, not from the footprint. Yes → FIX-IN-CASE. No → FILE, naming the
+   specific blocker (an unnamed blocker is not a blocker).
+A finding the critic could not verify (`low-confidence` lead) is verified **by you**
+against the tree before ruling — a verified lead is eligible for FIX-IN-CASE; one you
+cannot verify either FILEs naming the missing check, or DROPs. Pure process exhaust
+(guards-about-guards, micro-dedups with no user-visible risk) DROPs regardless.
 
 **Recurrence detection:** key every finding using the class-key vocabulary in the
 Rulebook below — the three historically largest families are `coverage:l5-e2e`,
@@ -91,10 +104,10 @@ Check `bd list --label code-review` for open beads carrying the same key or fami
 title or body. On a repeat occurrence: ABSORB into the existing bead and **recommend a
 priority bump** in your ruling — recurrence means the gap taxes every case that touches
 the seam. Never file a sibling of an existing class key. When a *defect class* (not an
-infra gap) keeps recurring, prefer one FILE for a guard test that pins the class
-(the `guard:html-raw-xdata` guard test, filed on that bug class's third recurrence, is
-the precedent), after which per-instance findings
-of that class DROP — the guard is the fix.
+infra gap) keeps recurring, rule **FIX-IN-CASE for one guard test that pins the class**
+(the `guard:html-raw-xdata` guard, raised on that bug class's third recurrence, is the
+precedent — under the 2026-07-28 owner policy it would be built in-case, not filed),
+after which per-instance findings of that class DROP — the guard is the fix.
 
 **Ruling hygiene** (all from failure modes observed in the July 2026 audit):
 - A finding arriving with no named trigger: classify it yourself against the
@@ -175,28 +188,30 @@ the branch; the comment must.>
 
 ## Rulebook — defer class keys and default rulings
 
-Distilled from the July 2026 taxonomy audit (126 preflight reports, 189 review-filed
-beads). Frequencies are relative standings as of that audit; treat them as priors, not
-caps. A default ruling is where you start, not where you must land — but departing from
-it needs a stated reason in your ruling.
+Class keys distilled from the July 2026 taxonomy audit (126 preflight reports, 189
+review-filed beads); frequencies are that audit's relative standings — priors, not caps.
+**Defaults revised 2026-07-28 per owner policy: FIX-IN-CASE is the default wherever the
+work is decided and verifiable in-case; footprint no longer routes anything to FILE.** A
+default ruling is where you start, not where you must land — but departing from it needs
+a stated reason in your ruling.
 
 | Class key | Freq | Default ruling |
 |---|---|---|
-| `coverage:l5-e2e` | high | **FILE** — L5/Playwright scaffolding is never in-case; batch onto one standing E2E-coverage thread, never one bead per journey |
-| `component-library:drift` | high | **FIX-IN-CASE** when it's swapping to existing canonical markup; **FILE with `needs-human` noted** when registration or naming needs a design call (guardrail 2) |
-| clock family (`missing-seam:iclock`, `missing-seam:timeprovider`, `fixture-clock:fixed`, `guard:ambient-clock`) | high | **FILE onto the standing clock-hardening thread** — never a new standalone clock bead; a seam addition blocked by a ticket AC is a spec-lock (FILE, no implementer fault) |
-| `observability:missing-logger` | med | **ABSORB** into the standing structured-logging thread; FILE separately only when the silent catch hides a product defect |
-| `dead-code:orphan` | med | **FIX-IN-CASE** when this case's own diff orphaned it; **FILE** (one batched cleanup bead) when pre-existing — never expand a targeted fix to pre-existing cruft |
+| `coverage:l5-e2e` | high | **FIX-IN-CASE** — the Playwright/`Aspire.Hosting.Testing` rig exists; write the journey in-case. FILE (naming the gap) only when the scenario needs harness capability the suite genuinely lacks |
+| `component-library:drift` | high | **FIX-IN-CASE** — swap to existing canonical markup, or extract the primitive in-case; **FILE with `needs-human` noted** only when registration or naming needs a real design call (guardrail 2) |
+| clock family (`missing-seam:iclock`, `missing-seam:timeprovider`, `fixture-clock:fixed`, `guard:ambient-clock`) | high | **FIX-IN-CASE** — build the seam in-case; the owner has ratified real seams over interim workarounds (the `plantry-hdry` precedent). A seam covered by a load-bearing lock FILEs (guardrail 1) |
+| `observability:missing-logger` | med | **FIX-IN-CASE** when on or adjacent to the changed call path; **DROP** for unrelated archaeology — deliberate sweeps own it, not per-case beads. FILE only when a silent catch hides a product defect that can't be fixed in-case |
+| `dead-code:orphan` | med | **FIX-IN-CASE** — delete it, whether this diff orphaned it or it pre-existed |
 | `contested:unit-semantics` | med | **FILE with `needs-human` noted** (guardrail 2) — every historical instance required owner ratification or an ADR |
-| `perf:io-in-loop` | med | **FILE** — the fix needs new batch read contracts beyond any case's footprint; P1 if on a hot page, else P2 |
-| `out-of-scope:sibling-call-site` | med | **FIX-IN-CASE** when the identical, trivially small fix has test coverage and no spec-lock; **FILE** when the spec scoped it out — check for a lock before ruling |
+| `perf:io-in-loop` | med | **FIX-IN-CASE** — build the batch read contract/accessor in-case, following the established precedents (Scoped accessor in `AddCrossContextAdapters` or per-scope memoisation); pin with a query-count test |
+| `out-of-scope:sibling-call-site` | med | **FIX-IN-CASE** — fix the sibling too; check for a load-bearing lock before ruling (hygiene locks do not block this) |
 | `arch-decision:event-transactionality` | med | **FILE with `needs-human` noted** (guardrail 2) — architecture-wide, never case-local |
-| `dup-helper:*` | med | **ABSORB** — one consolidation bead per helper family; **DROP** additional per-case filings once that bead exists |
-| recurring bug class (`guard:*`) | low | once a bug class demonstrably recurs: **FILE** one guard-test bead that pins the class; afterwards **DROP** per-instance findings — the guard is the fix |
-| `missing-test-infra:migration-harness` | low | **FILE once**; later findings **ABSORB** into the existing harness bead (widen it, don't fork it) |
-| migration data-loss shapes (`migration:dedupe-scope`, `migration:silent-data-loss`) | low | **FILE at P1** — historically real data-loss bugs; never down-ranked as meta-work |
+| `dup-helper:*` | med | **FIX-IN-CASE** — consolidate now; **DROP** if an open consolidation bead already covers the family (comment the occurrence onto it) |
+| recurring bug class (`guard:*`) | low | **FIX-IN-CASE** the guard test the moment the class demonstrably recurs; afterwards **DROP** per-instance findings — the guard is the fix |
+| `missing-test-infra:migration-harness` | low | **FIX-IN-CASE** — infra built in one case is inherited by every later one; FILE only on a named `cannot-complete` blocker |
+| migration data-loss shapes (`migration:dedupe-scope`, `migration:silent-data-loss`) | low | **FIX-IN-CASE immediately** when the fix is decided — these are real data-loss bugs; **FILE at P1** only when they genuinely cannot be completed in-case (name the blocker); never down-ranked as meta-work |
 | `test-gap:untested-deliverable` | low | **FIX-IN-CASE** — the deliverable is in-diff by definition; deferring it is a protocol miss, not a boundary |
-| singletons (`dup-css-rule`, `hardcoded-href:pathbase`, …) | low | **FILE at P2/P3** if user-visible risk exists; **DROP** if purely cosmetic and no recurrence key matches |
+| singletons (`dup-css-rule`, `hardcoded-href:pathbase`, …) | low | **FIX-IN-CASE** if user-visible risk exists; **DROP** if purely cosmetic and no recurrence key matches |
 
 ## Scope boundary
 
