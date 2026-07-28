@@ -13,9 +13,10 @@ namespace Plantry.Web.Pages.Settings;
 /// GET loads the two current values (falling back to the household-less defaults 90/3 when unset).
 /// POST validates each field to <see cref="HouseholdExpiryDefaultsService.MinDays"/>–
 /// <see cref="HouseholdExpiryDefaultsService.MaxDays"/> (client-side via <see cref="RangeAttribute"/>,
-/// server-side again in the service) and persists via <see cref="HouseholdExpiryDefaultsService"/>,
-/// then re-renders with a saved badge. Plain server-rendered form (no JS island) per the
-/// hypermedia-default UI convention (ADR-020), mirroring /Settings/Pantry and /Settings/Currency.
+/// server-side again in the service) and persists both fields in one load/mutate/save via
+/// <see cref="HouseholdExpiryDefaultsService.SetAllAsync"/> (plantry-hw39), then re-renders with a saved
+/// badge. Plain server-rendered form (no JS island) per the hypermedia-default UI convention (ADR-020),
+/// mirroring /Settings/Pantry and /Settings/Currency.
 ///
 /// This page deliberately does NOT offer an expiry-warning input — the household's previously
 /// unreachable, never-consumed per-row "expiry warning days" column was retired entirely
@@ -60,28 +61,23 @@ public sealed class ExpiryModel(HouseholdExpiryDefaultsService settings) : PageM
         if (!ModelState.IsValid)
             return Page();
 
-        var freezingResult = await settings.SetAfterFreezingAsync(Input.AfterFreezingDays, ct);
-        if (freezingResult.IsFailure)
+        // One load/mutate/save for both fields (plantry-hw39, absorbing plantry-6nqw) — previously
+        // two independent read-modify-save cycles against the same Household aggregate.
+        var result = await settings.SetAllAsync(Input.AfterFreezingDays, Input.AfterThawingDays, ct);
+        if (result.IsFailure)
         {
+            // Reachable only when there is no household in context or the row was deleted mid-request —
+            // both household-level, not tied to either field, so the error is reported against the
+            // first field (mirroring PantryModel's single-field precedent) rather than split arbitrarily.
             ModelState.AddModelError(
-                nameof(Input) + "." + nameof(InputModel.AfterFreezingDays), freezingResult.Error.Description);
-        }
-
-        var thawingResult = await settings.SetAfterThawingAsync(Input.AfterThawingDays, ct);
-        if (thawingResult.IsFailure)
-        {
-            ModelState.AddModelError(
-                nameof(Input) + "." + nameof(InputModel.AfterThawingDays), thawingResult.Error.Description);
-        }
-
-        if (!ModelState.IsValid)
-        {
+                nameof(Input) + "." + nameof(InputModel.AfterFreezingDays), result.Error.Description);
             await LoadAsync(ct);
             return Page();
         }
 
-        // Reflect the persisted values (in case of any normalization) and confirm.
-        await LoadAsync(ct);
+        // Neither mutator normalizes its input, so the persisted values are exactly what was submitted —
+        // reuse them instead of issuing a second household read via LoadAsync.
+        (Input.AfterFreezingDays, Input.AfterThawingDays) = result.Value;
         Saved = true;
         return Page();
     }
