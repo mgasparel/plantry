@@ -45,7 +45,7 @@
         @foreach (var meal in Model.Meals)
         {
             @await Html.PartialAsync("_MealCard", new Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm(
-                meal, dateIso, Model.SlotId, Model.Members, Model.DisplayCurrency))
+                meal, dateIso, Model.SlotId, Model.Members, Model.SlotLabel, Model.DisplayCurrency))
         }
         <button class="add-meal"
                 onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@dateIso', '@slotId', null)"
