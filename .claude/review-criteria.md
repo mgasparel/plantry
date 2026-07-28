@@ -390,7 +390,7 @@ invites laundering "this is a lot of work" through it:
 harness that doesn't exist: **building it is part of the FIX.** The loop is serial — infra built
 in one case is inherited by every later case, whereas deferring it manufactures the same defer in
 every subsequent case that touches the seam (observed: the TimeProvider seam deferred 3+ times in
-one week; see `docs/Operations/defer-taxonomy-audit-2026-07.md`). Two genuine escapes exist, and
+one week before this rule existed). Two genuine escapes exist, and
 both already have a trigger: infra whose *shape* is unsettled (a production seam with no
 precedent, a harness with no ADR — e.g. a Testcontainers rig placement question) is a
 `contested-decision` naming the actual contest; infra requiring changes outside the diff's

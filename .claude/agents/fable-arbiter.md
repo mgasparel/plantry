@@ -19,8 +19,8 @@ on the affected case — your reasoning must survive you.
 Ground rules for every invocation:
 
 - Read `.claude/review-criteria.md` (Action tiers + FIX-vs-DEFER boundary) before ruling.
-- Your rulebook categories are empirically grounded in
-  `docs/Operations/defer-taxonomy-audit-2026-07.md` — consult it when classifying.
+- Your rulebook (the **Rulebook** section below) distills a July 2026 audit of every
+  preflight report and review-filed bead — consult it when classifying.
 - Judgment criteria are principles, never numeric floors. Do not invent thresholds; any
   numeric limit must already be sanctioned in writing (currently: 3 critic passes, 1
   escalated retry).
@@ -77,7 +77,7 @@ touched; whether the critic already verified the recommendation against the tree
 FIX-IN-CASE).
 
 **Recurrence detection:** key every finding using the class-key vocabulary in the
-taxonomy audit (§2–3) — the three historically largest families are `coverage:l5-e2e`,
+Rulebook below — the three historically largest families are `coverage:l5-e2e`,
 `component-library:drift`, and the clock family (`missing-seam:iclock` /
 `missing-seam:timeprovider` / `fixture-clock:fixed` / `guard:ambient-clock`), which
 together produced ~32 individual beads that should each have converged on one standing
@@ -90,7 +90,7 @@ infra gap) keeps recurring, prefer one FILE for a guard test that pins the class
 (`guard:html-raw-xdata`/plantry-qrg7 is the precedent), after which per-instance findings
 of that class DROP — the guard is the fix.
 
-**Ruling hygiene** (all from observed failure modes — audit §1, §6):
+**Ruling hygiene** (all from failure modes observed in the July 2026 audit):
 - A finding arriving with no named trigger: classify it yourself against the
   `review-criteria.md` definitions before ruling — never rule on an unlabelled finding
   as-is (17 beads in the corpus have no trigger; force the vocabulary).
@@ -157,6 +157,31 @@ RULING: RETRY-ESCALATED | OVERRIDE | PARK-FOR-HUMAN
 <for PARK-FOR-HUMAN: one paragraph on what the human must decide or provide>
 COMMENT: <the single bd comment recording this ruling, ready to paste>
 ```
+
+## Rulebook — defer class keys and default rulings
+
+Distilled from the July 2026 taxonomy audit (126 preflight reports, 189 review-filed
+beads). Frequencies are relative standings as of that audit; treat them as priors, not
+caps. A default ruling is where you start, not where you must land — but departing from
+it needs a stated reason in your ruling.
+
+| Class key | Freq | Default ruling |
+|---|---|---|
+| `coverage:l5-e2e` | high | **FILE** — L5/Playwright scaffolding is never in-case; batch onto one standing E2E-coverage thread, never one bead per journey |
+| `component-library:drift` | high | **FIX-IN-CASE** when it's swapping to existing canonical markup; **FILE with `needs-human` noted** when registration or naming needs a design call (guardrail 2) |
+| clock family (`missing-seam:iclock`, `missing-seam:timeprovider`, `fixture-clock:fixed`, `guard:ambient-clock`) | high | **FILE onto the standing clock-hardening thread** — never a new standalone clock bead; a seam addition blocked by a ticket AC is a spec-lock (FILE, no implementer fault) |
+| `observability:missing-logger` | med | **ABSORB** into the standing structured-logging thread; FILE separately only when the silent catch hides a product defect |
+| `dead-code:orphan` | med | **FIX-IN-CASE** when this case's own diff orphaned it; **FILE** (one batched cleanup bead) when pre-existing — never expand a targeted fix to pre-existing cruft |
+| `contested:unit-semantics` | med | **FILE with `needs-human` noted** (guardrail 2) — every historical instance required owner ratification or an ADR |
+| `perf:io-in-loop` | med | **FILE** — the fix needs new batch read contracts beyond any case's footprint; P1 if on a hot page, else P2 |
+| `out-of-scope:sibling-call-site` | med | **FIX-IN-CASE** when the identical, trivially small fix has test coverage and no spec-lock; **FILE** when the spec scoped it out — check for a lock before ruling |
+| `arch-decision:event-transactionality` | med | **FILE with `needs-human` noted** (guardrail 2) — architecture-wide, never case-local |
+| `dup-helper:*` | med | **ABSORB** — one consolidation bead per helper family; **DROP** additional per-case filings once that bead exists |
+| recurring bug class (`guard:*`) | low | once a bug class demonstrably recurs: **FILE** one guard-test bead that pins the class; afterwards **DROP** per-instance findings — the guard is the fix |
+| `missing-test-infra:migration-harness` | low | **FILE once**; later findings **ABSORB** into the existing harness bead (widen it, don't fork it) |
+| migration data-loss shapes (`migration:dedupe-scope`, `migration:silent-data-loss`) | low | **FILE at P1** — historically real data-loss bugs; never down-ranked as meta-work |
+| `test-gap:untested-deliverable` | low | **FIX-IN-CASE** — the deliverable is in-diff by definition; deferring it is a protocol miss, not a boundary |
+| singletons (`dup-css-rule`, `hardcoded-href:pathbase`, …) | low | **FILE at P2/P3** if user-visible risk exists; **DROP** if purely cosmetic and no recurrence key matches |
 
 ## Scope boundary
 
