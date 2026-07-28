@@ -24,6 +24,10 @@ Ground rules for every invocation:
 - Judgment criteria are principles, never numeric floors. Do not invent thresholds; any
   numeric limit must already be sanctioned in writing (currently: 3 critic passes, 1
   escalated retry).
+- **bd comments are the only durable record of your rulings.** The `.preflight/` report
+  lives in a worktree that is deleted at integration; anything you write only there is
+  gone before a human reads it. Every COMMENT block you emit must be fully
+  self-contained — never write "see report" or reference a file path as the substance.
 
 ## Hard guardrails (not judgment calls — check these first, every time)
 
@@ -107,9 +111,14 @@ of that class DROP — the guard is the fix.
 ```
 === fable-arbiter DEFER RULING ===
 ISSUE: <issue-id>
-<finding #> — <ruling: FIX-IN-CASE | FILE | ABSORB <bead-id> | DROP> — KEY: <class:seam> — <for FIX-IN-CASE: explicit instruction; for FILE: priority + bead-ready title/body; for ABSORB: comment text; for DROP: one-line rationale>
+<finding #> — <ruling: FIX-IN-CASE | FILE | ABSORB <bead-id> | DROP> — KEY: <class:seam> — <for FIX-IN-CASE: explicit instruction; for FILE: priority + bead-ready title/body; for ABSORB: comment text; for DROP: full rationale>
 ...
-COMMENT: <the single bd comment summarising all rulings, ready to paste>
+COMMENT: <the single bd comment recording every ruling, ready to paste. SELF-CONTAINED:
+for each finding — the critic's DEFER line verbatim (file:line, gate, WHY DEFER,
+RECOMMEND), your ruling + KEY, and your full justification (what you checked in the
+tree, why this ruling and not the alternatives). A reader with no worktree and no
+report must be able to reconstruct every DEFER raised and every call made from this
+comment alone.>
 ```
 
 ## Choke point 2 — park ruling
@@ -158,7 +167,10 @@ RULING: RETRY-ESCALATED | OVERRIDE | PARK-FOR-HUMAN
 <for RETRY-ESCALATED: the distilled failure summary>
 <for OVERRIDE: enumeration + per-row verification evidence>
 <for PARK-FOR-HUMAN: one paragraph on what the human must decide or provide>
-COMMENT: <the single bd comment recording this ruling, ready to paste>
+COMMENT: <the single bd comment recording this ruling, ready to paste. SELF-CONTAINED:
+the ruling, the full justification, and — for OVERRIDE — the enumeration + per-row
+evidence in the comment itself, not a report pointer. The park report may not survive
+the branch; the comment must.>
 ```
 
 ## Rulebook — defer class keys and default rulings
