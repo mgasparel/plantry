@@ -351,7 +351,7 @@ public sealed class AmendCommittedLineTests(PostgresFixture db) : IAsyncLifetime
         var units = new UnitRepository(catalogDb);
         var categories = new CategoryRepository(catalogDb);
         var locations = new LocationRepository(catalogDb);
-        var catalogFacade = new CatalogReadFacade(products, units, categories, locations);
+        var catalogFacade = new CatalogReadFacade(products, units, categories, locations, new FakeHouseholdExpiryDefaultsReader());
 
         var createProduct = new CreateProductAdapter(products, units, categories, locations, Clock, tenant);
         var addStock = new AddStockAdapter(new ProductStockRepository(inventoryDb), catalogFacade, Clock, tenant);

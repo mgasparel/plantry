@@ -46,6 +46,14 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
                 .HasColumnName("display_currency")
                 .HasMaxLength(3)
                 .HasDefaultValue("USD");
+            // Household-wide freeze/thaw expiry defaults (plantry-hh1f). Store defaults 90/3 backfill
+            // pre-existing households in one shot; new households insert with the aggregate default.
+            b.Property(h => h.DefaultDueDaysAfterFreezing)
+                .HasColumnName("default_due_days_after_freezing")
+                .HasDefaultValue(90);
+            b.Property(h => h.DefaultDueDaysAfterThawing)
+                .HasColumnName("default_due_days_after_thawing")
+                .HasDefaultValue(3);
             b.Property(h => h.CreatedAt).HasColumnName("created_at");
 
             // App-layer half of the defense-in-depth pair (the Postgres RLS policy is the other).

@@ -32,6 +32,25 @@ public sealed class Household : AggregateRoot<HouseholdId>
     /// </summary>
     public string DisplayCurrency { get; private set; } = "USD";
 
+    /// <summary>
+    /// Household-wide default due-days applied when a lot is frozen and the product carries no
+    /// per-product after-freezing override (<c>Product.DefaultDueDaysAfterFreezing</c>), plantry-hh1f.
+    /// Catalog's <c>ExpiryDefaultResolver</c> falls back to this via the
+    /// <c>IHouseholdExpiryDefaultsReader</c> anti-corruption port so an auto-created product with no
+    /// per-product configuration (e.g. leftovers, plantry-hh1f's original report) still gets its expiry
+    /// recomputed on freeze instead of the move silently leaving it unchanged. Lives on the aggregate
+    /// (like <c>Theme</c>/<c>AiAssistanceEnabled</c>/<c>DisplayCurrency</c>) — one row per household in
+    /// the tenant-anchor <c>identity</c> schema, no separate settings table. Defaults to 90 days.
+    /// </summary>
+    public int DefaultDueDaysAfterFreezing { get; private set; } = 90;
+
+    /// <summary>
+    /// Household-wide default due-days applied when a lot is thawed and the product carries no
+    /// per-product after-thawing override, mirroring <see cref="DefaultDueDaysAfterFreezing"/>.
+    /// Defaults to 3 days.
+    /// </summary>
+    public int DefaultDueDaysAfterThawing { get; private set; } = 3;
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     private Household() { } // EF
@@ -66,6 +85,20 @@ public sealed class Household : AggregateRoot<HouseholdId>
     {
         if (days < 0) throw new ArgumentOutOfRangeException(nameof(days));
         ExpiryWarningDays = days;
+    }
+
+    /// <summary>Sets the household's default after-freezing due-days (plantry-hh1f). Non-negative only, mirroring <see cref="SetExpiryWarningDays"/>.</summary>
+    public void SetDefaultDueDaysAfterFreezing(int days)
+    {
+        if (days < 0) throw new ArgumentOutOfRangeException(nameof(days));
+        DefaultDueDaysAfterFreezing = days;
+    }
+
+    /// <summary>Sets the household's default after-thawing due-days (plantry-hh1f). Non-negative only, mirroring <see cref="SetExpiryWarningDays"/>.</summary>
+    public void SetDefaultDueDaysAfterThawing(int days)
+    {
+        if (days < 0) throw new ArgumentOutOfRangeException(nameof(days));
+        DefaultDueDaysAfterThawing = days;
     }
 
     /// <summary>Enables or disables the household's assistive-AI features (plantry-qll2.1).</summary>

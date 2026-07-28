@@ -219,6 +219,12 @@ builder.Services.AddScoped<IDisplayCurrency>(sp => sp.GetRequiredService<Display
 // Per-request cache over IDisplayCurrency (plantry-2x6e.2): the presentation edge resolves the household
 // display currency once per request (one DB read) and threads it onto view models via MoneyDisplay.
 builder.Services.AddScoped<DisplayCurrencyAccessor>();
+// Per-household freeze/thaw expiry defaults (plantry-hh1f): one settings service backs both the read
+// source (IHouseholdExpiryDefaults — Catalog's IHouseholdExpiryDefaultsReader ACL adapter, registered
+// below via AddCrossContextAdapters, delegates to this) and the future /Settings/Expiry write path
+// (plantry-qckx). Lives on the Household aggregate (identity schema).
+builder.Services.AddScoped<HouseholdExpiryDefaultsService>();
+builder.Services.AddScoped<IHouseholdExpiryDefaults>(sp => sp.GetRequiredService<HouseholdExpiryDefaultsService>());
 // Household membership invites (plantry-00v1): issue/revoke run under the authenticated household;
 // accept runs pre-auth and resolves the invite by its unique token (identity schema).
 builder.Services.AddScoped<IHouseholdInviteRepository, HouseholdInviteRepository>();

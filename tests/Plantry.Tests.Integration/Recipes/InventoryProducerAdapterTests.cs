@@ -348,7 +348,7 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
         var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catDb);
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
-        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo);
+        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var stocks = new ProductStockRepository(invDb);
         var tenant = new TestTenant(household.Value);
         return (catalog, stocks, locationRepo, tenant);

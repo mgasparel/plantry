@@ -447,12 +447,18 @@ public sealed class DetailModel(
         var freezeCandidateDisplay = freezeDays is { } fd ? today.AddDays(fd).ToString("d MMM yyyy") : null;
         var thawCandidateDisplay = thawDays is { } td ? today.AddDays(td).ToString("d MMM yyyy") : null;
 
+        // Source-neutral wording (plantry-hh1f): freezeDays/thawDays now resolve through the product's
+        // own override OR the household-wide default (ExpiryDefaultResolver), and CatalogProductInfo
+        // doesn't carry which one won — so the copy can no longer claim the value is "from this
+        // product". The null branch is now reachable only when the product itself couldn't be
+        // resolved (FindProductAsync returned null), not "no default configured" (a default always
+        // resolves once the product exists).
         var freezeNote = freezeDays is { } fdn
-            ? $"{fdn}-day after-freezing default from this product, counted from today."
-            : "No after-freezing default is set for this product — the expiry is left as-is. FrozenAt is still recorded.";
+            ? $"{fdn}-day after-freezing default, counted from today."
+            : "This product could not be loaded — the expiry is left as-is. FrozenAt is still recorded.";
         var thawNote = thawDays is { } tdn
-            ? $"{tdn}-day after-thawing default from this product, counted from today."
-            : "No after-thawing default is set for this product — the expiry is left as-is. ThawedAt is still recorded.";
+            ? $"{tdn}-day after-thawing default, counted from today."
+            : "This product could not be loaded — the expiry is left as-is. ThawedAt is still recorded.";
 
         // Transition fact (UI spec §1): the fact that matches the lot's CURRENT storage type — a lot
         // sitting in a frozen location shows when it was frozen; one sitting non-frozen shows when it
@@ -917,9 +923,12 @@ public sealed record MoveDestinationOption(Guid Id, string Name, bool IsFrozen, 
 /// component needs for its live split/effect preview, entirely precomputed server-side (see
 /// <see cref="DetailModel.BuildMoveSheetAsync"/>): the freeze/thaw candidate expiry depends only on
 /// "today" plus the product's resolved due-days default, neither of which changes as the shopper
-/// adjusts quantity or destination, so no date arithmetic needs to happen in JS. A null
-/// <see cref="FreezeCandidateDisplay"/>/<see cref="ThawCandidateDisplay"/> means no default is
-/// configured (rule 6) — the sheet shows "(unchanged)" for that transition instead of a recomputed date.
+/// adjusts quantity or destination, so no date arithmetic needs to happen in JS. Since plantry-hh1f, the
+/// product's own override falls back to the household-wide default, so a resolved due-days value (and
+/// therefore a non-null <see cref="FreezeCandidateDisplay"/>/<see cref="ThawCandidateDisplay"/>) is the
+/// normal case — a null candidate now means the product itself could not be resolved (rule 6's original
+/// "no default configured" case no longer applies once a household always has one), and the sheet shows
+/// "(unchanged)" for that transition instead of a recomputed date.
 /// </summary>
 public sealed record MoveSheetViewModel(
     Guid EntryId,

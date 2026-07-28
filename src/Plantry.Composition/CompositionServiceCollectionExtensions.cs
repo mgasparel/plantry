@@ -53,6 +53,10 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<ITakeStockReader, TakeStockReaderAdapter>();
         services.AddScoped<ITakeStockCatalogWriter, TakeStockCatalogWriterAdapter>();
 
+        // Catalog → Identity ACL (plantry-hh1f): ExpiryDefaultResolver's freeze/thaw fallback reads the
+        // household-wide defaults through this port instead of Catalog depending on Identity directly.
+        services.AddScoped<IHouseholdExpiryDefaultsReader, HouseholdExpiryDefaultsReaderAdapter>();
+
         // Pricing unit-price calculation ACL.
         services.AddScoped<IUnitPriceCalculator, UnitPriceCalculatorAdapter>();
 

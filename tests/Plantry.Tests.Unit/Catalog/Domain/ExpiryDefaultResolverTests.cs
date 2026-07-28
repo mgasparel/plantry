@@ -101,4 +101,53 @@ public sealed class ExpiryDefaultResolverTests
 
         Assert.Null(resolved);
     }
+
+    // ── ResolveDefaultDueDaysAfterFreezing / AfterThawing (plantry-hh1f) ──────
+    // Unlike AfterOpening, freeze/thaw now have a backstop: the household-wide default. The product's
+    // own override still wins when set; the household default only applies when it's unset — exactly
+    // the auto-created-leftovers gap plantry-hh1f reported (no category, no per-product override).
+
+    [Fact]
+    public void AfterFreezing_ProductOverride_Wins_Over_HouseholdDefault()
+    {
+        var product = Product.Create(HouseholdId, "Chicken thighs", UnitId.New(), Clock);
+        product.SetExpiryDefaults(null, null, defaultDueDaysAfterFreezing: 45, null, Clock);
+
+        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing(product, householdDefault: 90);
+
+        Assert.Equal(45, resolved);
+    }
+
+    [Fact]
+    public void AfterFreezing_Falls_Back_To_HouseholdDefault_When_Product_Has_No_Override()
+    {
+        // No category, no per-product override — the exact shape of an auto-created leftovers product
+        // (CookRecipe.cs:214, categoryId: null) that originally reported this ticket.
+        var product = Product.Create(HouseholdId, "Leftover casserole", UnitId.New(), Clock);
+
+        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing(product, householdDefault: 90);
+
+        Assert.Equal(90, resolved);
+    }
+
+    [Fact]
+    public void AfterThawing_ProductOverride_Wins_Over_HouseholdDefault()
+    {
+        var product = Product.Create(HouseholdId, "Chicken thighs", UnitId.New(), Clock);
+        product.SetExpiryDefaults(null, null, null, defaultDueDaysAfterThawing: 5, Clock);
+
+        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterThawing(product, householdDefault: 3);
+
+        Assert.Equal(5, resolved);
+    }
+
+    [Fact]
+    public void AfterThawing_Falls_Back_To_HouseholdDefault_When_Product_Has_No_Override()
+    {
+        var product = Product.Create(HouseholdId, "Leftover casserole", UnitId.New(), Clock);
+
+        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterThawing(product, householdDefault: 3);
+
+        Assert.Equal(3, resolved);
+    }
 }
