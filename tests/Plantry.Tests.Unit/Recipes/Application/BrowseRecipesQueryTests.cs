@@ -14,17 +14,20 @@ namespace Plantry.Tests.Unit.Recipes.Application;
 /// </summary>
 public sealed class BrowseRecipesQueryTests
 {
-    private static readonly IClock Clock = SystemClock.Instance;
+    // A FIXED instant, not SystemClock.Instance (plantry-lgbu Opus pass-1 FIX, gate 10A). The previous
+    // ambient SystemClock.Instance meant this static field and the SUT's own `clock.UtcNow` read
+    // (Harness passes this same Clock through by default) were two independent reads of the REAL wall
+    // clock, straddling local midnight — exactly the UTC-vs-local nondeterminism this ticket exists to
+    // remove from production, just reintroduced in the fixture. Pinning it here makes every "use soon"
+    // fixture below fully deterministic, and — as a bonus — a regression to ambient DateTime.UtcNow in
+    // BrowseRecipesQuery.cs now fails 4 tests (not just the dedicated Today_* regression tests),
+    // because every fixture built off Today stops matching what the SUT actually computes.
+    private static readonly IClock Clock = new FixedIClock(new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero));
     private static readonly HouseholdId Household = HouseholdId.New();
     private static readonly Guid HouseholdGuid = Household.Value;
-    // Track the same ambient clock BrowseRecipesQuery uses for its "expiring soon" comparison
-    // (BrowseRecipesQuery.cs: today = DateOnly.FromDateTime(DateTime.UtcNow)). Pinning this to a
-    // fixed calendar date made the "use soon" fixtures a time-bomb: an ingredient dated
-    // Today.AddDays(30) sits beyond the 7-day horizon only while real-now stays near the fixed
-    // date, so the test began failing once the wall clock drifted a few weeks past 2026-06-14.
-    // Basing the fixture dates on the same clock the query reads keeps the ±N-day offsets correct
-    // on every run (unrelated pre-existing failure surfaced during plantry-pqlo).
-    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
+    // Track the same clock BrowseRecipesQuery uses for its "expiring soon" comparison
+    // (BrowseRecipesQuery.cs: today = DateOnly.FromDateTime(clock.UtcNow.LocalDateTime), plantry-lgbu).
+    private static readonly DateOnly Today = DateOnly.FromDateTime(Clock.UtcNow.LocalDateTime);
 
     // ── Dedicated test doubles for BrowseRecipesQuery ────────────────────────
 
@@ -117,13 +120,16 @@ public sealed class BrowseRecipesQueryTests
         public readonly IdentityUnitConverter Converter = new();
         public readonly BrowseRecipesQuery Query;
 
-        public Harness()
+        /// <param name="queryClock">The clock <see cref="BrowseRecipesQuery"/> itself reads for "today"
+        /// (distinct from the fixture's own <see cref="Clock"/>, which stamps domain object timestamps).
+        /// Defaults to <see cref="Clock"/> so existing fixtures are unaffected.</param>
+        public Harness(IClock? queryClock = null)
         {
             var tenant = new FakeTenantContext(HouseholdGuid);
             var expansionSvc = new RecipeExpansionService(Recipes);
             var fulfillmentSvc = new FulfillmentService(Stock, Catalog, Converter, new FakeExpiringSoonHorizonReader());
             var costingSvc = new CostingService(Prices, Converter, Catalog);
-            Query = new BrowseRecipesQuery(Recipes, Tags, expansionSvc, fulfillmentSvc, costingSvc, tenant);
+            Query = new BrowseRecipesQuery(Recipes, Tags, expansionSvc, fulfillmentSvc, costingSvc, tenant, queryClock ?? Clock);
         }
 
         /// <summary>
@@ -533,5 +539,90 @@ public sealed class BrowseRecipesQueryTests
         Assert.Equal(1, tampered.TotalIngredientCount);
         Assert.Equal(1, tampered.MissingCount);
         Assert.False(tampered.FullyCookable);
+    }
+
+    // ── "today" regression pins (plantry-lgbu AC5) ──────────────────────────────
+    //
+    // BrowseRecipesQuery.cs previously read `DateOnly.FromDateTime(DateTime.UtcNow)` — the real
+    // ambient wall clock, ignoring dependency injection entirely — instead of the household's
+    // server-local "today" via the injected IClock. Two distinct failure modes, two distinct tests:
+    //   1. The clock is read from IClock at all, not the real ambient wall clock.
+    //   2. The date is the server-local calendar day of that instant, not its UTC calendar day.
+    // These need separate constructions: (1) is proven by pinning the fixture's clock far from the
+    // real "now" (any regression to ambient DateTime.UtcNow then computes a wildly different date,
+    // regardless of when/where the test runs); (2) is proven by placing a stock expiry exactly one
+    // day past the "expiring soon" horizon as measured from the LOCAL day — a regression to the UTC
+    // calendar day of the SAME injected instant shifts the count by exactly one day and flips the
+    // flag, but this only exists as a distinguishable case on a server whose local offset is
+    // genuinely non-zero (BrowseRecipesQuery.cs's documented west-of-UTC bug), so (2) is skipped
+    // (a documented, deliberate no-op — not a flake) on a machine running true UTC as its local zone.
+
+    private sealed class FixedIClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = now;
+    }
+
+    [Fact]
+    public async Task Today_Is_Read_From_The_Injected_Clock_Not_The_Real_Ambient_Wall_Clock()
+    {
+        // Fixed far in the future — nowhere near whatever the real wall-clock date happens to be
+        // when this test executes, on any machine, at any time.
+        var fixedClock = new FixedIClock(new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero));
+        var fixedLocalToday = DateOnly.FromDateTime(fixedClock.UtcNow.LocalDateTime);
+
+        var h = new Harness(fixedClock);
+        var unit = Guid.CreateVersion7();
+        var product = h.Catalog.AddTrackedLeaf(unit, "Milk");
+        // Expires exactly on the fixed clock's local "today" — inside the 7-day horizon only if
+        // "today" is actually read from the fixed clock. The real ambient clock's actual "today" is
+        // over a thousand days away from this date, so a regression to ambient DateTime.UtcNow
+        // computes a "today" nowhere near this expiry and the flag would not fire.
+        h.Stock.Add(product.Id, 500m, unit, fixedLocalToday);
+        h.AddRecipe("Milk toast", productId: product.Id, unitId: unit);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter());
+
+        Assert.True(result.Rows[0].HasIngredientExpiringSoon);
+    }
+
+    [Fact]
+    public async Task Today_Uses_The_Server_Local_Calendar_Day_Not_The_Utc_Calendar_Day_Of_The_Same_Instant()
+    {
+        // Anchor at a fixed local wall-clock time (23:00) on an arbitrary fixed date, late enough in
+        // the local day that — on a server whose local offset is negative (west of UTC) — the UTC
+        // calendar day has already rolled over to "tomorrow" while the local calendar day is still
+        // "today". This is exactly BrowseRecipesQuery.cs's documented failure mode. The offset is
+        // read from the real TimeZoneInfo.Local so the construction is self-consistent on whichever
+        // machine runs it.
+        var anchorLocal = new DateTime(2031, 6, 15, 23, 0, 0, DateTimeKind.Unspecified);
+        var localOffset = TimeZoneInfo.Local.GetUtcOffset(anchorLocal);
+
+        if (localOffset >= TimeSpan.Zero)
+        {
+            // No "UTC already tomorrow, local still today" instant exists to construct on a server
+            // at UTC or east of it — deliberate no-op here (the DI regression is still covered by
+            // Today_Is_Read_From_The_Injected_Clock_Not_The_Real_Ambient_Wall_Clock above).
+            return;
+        }
+
+        var utcInstant = new DateTimeOffset(anchorLocal, localOffset);
+        var localDay = DateOnly.FromDateTime(anchorLocal);
+
+        // Sanity: this instant really does read as "tomorrow" in UTC.
+        Assert.Equal(localDay.AddDays(1), DateOnly.FromDateTime(utcInstant.UtcDateTime));
+
+        var fixedClock = new FixedIClock(utcInstant);
+        var h = new Harness(fixedClock);
+        var unit = Guid.CreateVersion7();
+        var product = h.Catalog.AddTrackedLeaf(unit, "Milk");
+        // One day past the 7-day horizon measured from the LOCAL day (8 > 7 → not flagged). Measured
+        // from the UTC calendar day of this same instant it would be exactly 7 days out (7 <= 7 →
+        // wrongly flagged) — the flip that would expose a LocalDateTime → UtcDateTime regression.
+        h.Stock.Add(product.Id, 500m, unit, localDay.AddDays(8));
+        h.AddRecipe("Milk toast", productId: product.Id, unitId: unit);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter());
+
+        Assert.False(result.Rows[0].HasIngredientExpiringSoon);
     }
 }

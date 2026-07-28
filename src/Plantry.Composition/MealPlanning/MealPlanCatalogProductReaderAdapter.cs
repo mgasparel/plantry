@@ -12,6 +12,17 @@ namespace Plantry.Web.MealPlanning;
 /// </summary>
 public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : IMealPlanCatalogProductReader
 {
+    /// <summary>
+    /// Memoised household unit codes (plantry-jefp), populated on first use by
+    /// <see cref="GetUnitCodesByIdAsync"/>. This adapter is registered scoped over a scoped
+    /// <see cref="CatalogDbContext"/> (one instance per request), and Postgres RLS pins
+    /// <c>app.household_id</c> for the lifetime of that scope's connection — so the household
+    /// cannot change while this field is populated. This field MUST stay a private instance
+    /// field: never <c>static</c>, never a singleton, never <c>IMemoryCache</c> — any of those
+    /// would leak one household's unit codes into another household's request.
+    /// </summary>
+    private IReadOnlyDictionary<UnitId, string>? _unitCodes;
+
     public async Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
     {
         // Compare the strongly-typed key, not p.Id.Value: EF can't translate a .Value access on a
@@ -45,6 +56,11 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
             .OrderBy(p => p.Name)
             .Take(maxResults)
             .ToListAsync(ct);
+
+        // Zero-match short-circuit (plantry-jefp): nothing to project, so skip the unit-code
+        // load entirely — mirrors the productIds.Count == 0 guard on ResolveDefaultUnitCodesAsync
+        // below.
+        if (products.Count == 0) return new List<MealPlanProductReadModel>();
 
         // Unit codes (plantry-ri26): dictionary lookup rather than a join, mirroring
         // ProductQueryService's own unitsById pattern — sidesteps the converted-key EF-translation
@@ -102,10 +118,16 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
     /// Household unit codes keyed by <see cref="UnitId"/>. A household's unit set is small
     /// (dozens at most), so loading it whole and joining in memory avoids the converted-key
     /// EF-translation caveat noted on <see cref="ExistsAsync"/> above.
+    ///
+    /// Memoised (plantry-jefp) in <see cref="_unitCodes"/> for the lifetime of this adapter
+    /// instance — see that field's doc comment for why that is safe under RLS + scoped DI and
+    /// must never become shared across requests/households.
     /// </summary>
     private async Task<IReadOnlyDictionary<UnitId, string>> GetUnitCodesByIdAsync(CancellationToken ct)
     {
+        if (_unitCodes is not null) return _unitCodes;
+
         var units = await db.Units.AsNoTracking().ToListAsync(ct);
-        return units.ToDictionary(u => u.Id, u => u.Code);
+        return _unitCodes ??= units.ToDictionary(u => u.Id, u => u.Code);
     }
 }

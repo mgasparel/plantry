@@ -1081,6 +1081,29 @@ public sealed class IndexModel(
                 ? await cookStatusReader.GetStatusesAsync(allPlannedDishIds, ct)
                 : new Dictionary<Guid, DishCookStatus>();
 
+            // Product dish name/unit resolution (plantry-vj6z): one batched pair of catalogReader
+            // calls for every product dish in the whole week, up front — never per-meal. Recipe
+            // names come from the in-memory bag (no DB call); product dishes are rare and not on
+            // the O(meals×dishes×ingredients) hot path.
+            var allProductDishIds = loadedPlan.PlannedMeals
+                .SelectMany(m => m.PlannedDishes)
+                .Where(d => d.ProductId.HasValue)
+                .Select(d => d.ProductId!.Value)
+                .Distinct()
+                .ToList();
+            IReadOnlyDictionary<Guid, string> productNames =
+                allProductDishIds.Count > 0
+                    ? await catalogReader.ResolveNamesAsync(allProductDishIds, ct)
+                    : new Dictionary<Guid, string>();
+
+            // Product dish unit codes (plantry-ri26), batched alongside productNames above —
+            // never per-dish inside the dishVms projection below (same O(meals×dishes) hot-path
+            // constraint as the name resolution it sits next to).
+            IReadOnlyDictionary<Guid, string> productUnitCodes =
+                allProductDishIds.Count > 0
+                    ? await catalogReader.ResolveDefaultUnitCodesAsync(allProductDishIds, ct)
+                    : new Dictionary<Guid, string>();
+
             foreach (var meal in loadedPlan.PlannedMeals.OrderBy(m => m.Ordinal))
             {
                 var key = CellKey(meal.Date, meal.MealSlotId);
@@ -1089,29 +1112,6 @@ public sealed class IndexModel(
                     list = [];
                     MealsByCell[key] = list;
                 }
-
-                // Resolve dish names in ordinal order.
-                // Recipe names come from the in-memory bag (no DB call).
-                // Product dish names are batch-resolved via catalogReader (product dishes are
-                // rare and not on the O(meals×dishes×ingredients) hot path).
-                var productDishIds = meal.PlannedDishes
-                    .Where(d => d.ProductId.HasValue)
-                    .Select(d => d.ProductId!.Value)
-                    .Distinct()
-                    .ToList();
-
-                IReadOnlyDictionary<Guid, string> productNames =
-                    productDishIds.Count > 0
-                        ? await catalogReader.ResolveNamesAsync(productDishIds, ct)
-                        : new Dictionary<Guid, string>();
-
-                // Product dish unit codes (plantry-ri26), batched alongside productNames above —
-                // never per-dish inside the dishVms projection below (same O(meals×dishes) hot-path
-                // constraint as the name resolution it sits next to).
-                IReadOnlyDictionary<Guid, string> productUnitCodes =
-                    productDishIds.Count > 0
-                        ? await catalogReader.ResolveDefaultUnitCodesAsync(productDishIds, ct)
-                        : new Dictionary<Guid, string>();
 
                 // Cook strip per-dish data (plantry-0eut): identity, kind, servings, and derived
                 // done state, sharing the same name resolution as dishNames below in one pass.

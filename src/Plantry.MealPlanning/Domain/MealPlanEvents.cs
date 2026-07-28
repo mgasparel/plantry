@@ -7,16 +7,17 @@ namespace Plantry.MealPlanning.Domain;
 /// </summary>
 public sealed class MealPlanned : IDomainEvent
 {
-    public MealPlanned(MealPlanId mealPlanId, PlannedMealId plannedMealId, DateOnly date, MealSlotId slotId)
+    public MealPlanned(MealPlanId mealPlanId, PlannedMealId plannedMealId, DateOnly date, MealSlotId slotId, DateTimeOffset occurredAt)
     {
         MealPlanId = mealPlanId;
         PlannedMealId = plannedMealId;
         Date = date;
         SlotId = slotId;
+        OccurredAt = occurredAt;
     }
 
     public Guid EventId { get; } = Guid.CreateVersion7();
-    public DateTimeOffset OccurredAt { get; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset OccurredAt { get; }
     public MealPlanId MealPlanId { get; }
     public PlannedMealId PlannedMealId { get; }
     public DateOnly Date { get; }
@@ -33,6 +34,7 @@ public sealed class MealMoved : IDomainEvent
         PlannedMealId movedMealId,
         DateOnly fromDate, MealSlotId fromSlotId,
         DateOnly toDate, MealSlotId toSlotId,
+        DateTimeOffset occurredAt,
         PlannedMealId? swappedMealId = null)
     {
         MealPlanId = mealPlanId;
@@ -41,11 +43,12 @@ public sealed class MealMoved : IDomainEvent
         FromSlotId = fromSlotId;
         ToDate = toDate;
         ToSlotId = toSlotId;
+        OccurredAt = occurredAt;
         SwappedMealId = swappedMealId;
     }
 
     public Guid EventId { get; } = Guid.CreateVersion7();
-    public DateTimeOffset OccurredAt { get; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset OccurredAt { get; }
     public MealPlanId MealPlanId { get; }
     public PlannedMealId MovedMealId { get; }
     public DateOnly FromDate { get; }

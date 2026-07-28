@@ -78,7 +78,7 @@ public sealed class FieldTagHelper(IHtmlGenerator htmlGenerator) : TagHelper
     /// <summary>
     /// Builds the label element, optionally wrapping label text and an inline popover hint
     /// trigger. When <see cref="Hint"/> is null, produces the same simple label as before.
-    /// When set, the label content becomes a <c>.field-hint</c> flex row: label text +
+    /// When set, the label content becomes a <c>.label-hint</c> flex row: label text +
     /// a <c>.popover</c> info trigger with <c>aria-describedby</c> pointing to the panel.
     /// </summary>
     private string BuildLabelHtml(string labelText, string inputId)
@@ -94,7 +94,7 @@ public sealed class FieldTagHelper(IHtmlGenerator htmlGenerator) : TagHelper
         }
 
         // Unique id for the popover panel — thread-safe across concurrent Razor compilations.
-        var popoverId = $"field-hint-{Interlocked.Increment(ref _hintCounter)}";
+        var popoverId = $"label-hint-{Interlocked.Increment(ref _hintCounter)}";
         var encodedHint = e.Encode(Hint);
 
         // SVG info icon: circled-i via the sprite symbol.
@@ -109,7 +109,7 @@ public sealed class FieldTagHelper(IHtmlGenerator htmlGenerator) : TagHelper
         sb.Append("</span>");
         var popoverHtml = sb.ToString();
 
-        var labelClass = Stacked ? "form-grid__field__label field-hint" : "field-row__label field-hint";
+        var labelClass = Stacked ? "form-grid__field__label label-hint" : "field-row__label label-hint";
         return $"""<label class="{labelClass}" for="{inputId}">{encodedLabel}{popoverHtml}</label>""";
     }
 }

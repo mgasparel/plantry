@@ -1,4 +1,5 @@
 using Plantry.Recipes.Domain;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Recipes.Application;
@@ -33,7 +34,8 @@ public sealed class BrowseRecipesQuery(
     RecipeExpansionService expansion,
     FulfillmentService fulfillment,
     CostingService costing,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    IClock clock)
 {
     /// <summary>
     /// Executes the browse query. Returns <see cref="BrowseRecipesResult"/> with the full tag list
@@ -74,7 +76,7 @@ public sealed class BrowseRecipesQuery(
         // InvalidOperationException ("A second operation was started on this context instance
         // before a previous operation completed"). FulfillmentService already documents this
         // constraint at FulfillmentService.cs:51-53 and uses sequential awaits for the same reason.
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(clock.UtcNow.LocalDateTime);
         var computed = new List<RecipeBrowseRow>(allRecipes.Count);
         foreach (var r in allRecipes)
         {

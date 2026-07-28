@@ -376,22 +376,6 @@
 
 </div>@* /recipe-detail *@
 
-@* ── Page-specific top-bar styling; composes plenish.css tokens. The inclusion roll-up row grammar
-      (.rd-sub-fold / .rollup-chip / .rd-ing-row--sub) lives in plenish.css alongside the rest of the
-      shared .rd-ing-* row grammar it extends (plantry-4037) — it is not page-specific. ── *@
-<style>
-    /* Back-link row hosting the entity-level .card__head-actions slot (plantry-jby4). Flex so the
-       slot's margin-left:auto right-aligns Archive; owns the row's bottom gap (.rd-back's own is
-       zeroed here) so the pill and button stay vertically centred. */
-    .rd-topbar {
-        display: flex;
-        align-items: center;
-        gap: var(--space-3);
-        margin-bottom: var(--space-4);
-    }
-    .rd-topbar .rd-back { margin-bottom: 0; }
-</style>
-
 @section Scripts {
     @* Bridge the canonical amount formatter onto window.IngredientAmount so the Alpine fmt() renders
        servings-scaled quantities with the same trailing-zero rule as C# IngredientAmount.Format

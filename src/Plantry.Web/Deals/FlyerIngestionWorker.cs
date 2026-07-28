@@ -24,7 +24,7 @@ namespace Plantry.Web.Deals;
 /// </para>
 /// </summary>
 public sealed class FlyerIngestionWorker(
-    FlyerIngestionCycle cycle,
+    IFlyerIngestionCycle cycle,
     IOptions<FlyerIngestionOptions> options,
     ILogger<FlyerIngestionWorker> logger) : BackgroundService
 {

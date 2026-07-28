@@ -10,6 +10,20 @@ using Plantry.SharedKernel.Tenancy;
 namespace Plantry.Web.Deals;
 
 /// <summary>
+/// The subset of <see cref="FlyerIngestionCycle"/> that <see cref="FlyerIngestionWorker"/> depends on —
+/// extracted purely as a test seam so the worker's boot orchestration (skip-when-disabled,
+/// catch-and-continue on a throwing cycle) can be exercised against a fake without a live DI container.
+/// <see cref="FlyerIngestionCycle"/> is still registered and resolved as itself everywhere else
+/// (e.g. the dev-only manual endpoint in Program.cs) — this interface changes no runtime behavior.
+/// </summary>
+public interface IFlyerIngestionCycle
+{
+    Task RunAsync(CancellationToken ct = default);
+
+    Task<DateTimeOffset?> GetLastPullAcrossHouseholdsAsync(CancellationToken ct = default);
+}
+
+/// <summary>
 /// Drives one full ingestion sweep (P5-6 / DJ2), reproducing <c>RlsMiddleware</c>'s tenancy arming with
 /// <b>no HTTP request</b> — the security-critical heart of the slice. Lives in Plantry.Web (the
 /// composition root) because it must open per-household DI scopes and arm every bounded-context DbContext
@@ -23,6 +37,7 @@ namespace Plantry.Web.Deals;
 /// </para>
 /// </summary>
 public sealed class FlyerIngestionCycle(IServiceScopeFactory scopeFactory, ILogger<FlyerIngestionCycle> logger)
+    : IFlyerIngestionCycle
 {
     /// <summary>Sweeps every household, isolating a per-household failure so one bad household never aborts the cycle.</summary>
     public async Task RunAsync(CancellationToken ct = default)

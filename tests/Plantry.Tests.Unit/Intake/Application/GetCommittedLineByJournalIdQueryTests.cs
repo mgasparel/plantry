@@ -39,7 +39,7 @@ public sealed class GetCommittedLineByJournalIdQueryTests
         line.MarkCommitted(stockEntryId, Guid.CreateVersion7());
 
         var result = await new GetCommittedLineByJournalIdQuery(
-            stockEntryId, RepoWith(session), new FakeTenantContext(_householdId)).ExecuteAsync();
+            stockEntryId, RepoWith(session), new FakeTenantContext(_householdId), Clock).ExecuteAsync();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(line.Id.Value, result.Value.ImportLineId);
@@ -63,7 +63,7 @@ public sealed class GetCommittedLineByJournalIdQueryTests
         line.MarkCommitted(stockEntryId, null, createdProductId);
 
         var result = await new GetCommittedLineByJournalIdQuery(
-            stockEntryId, RepoWith(session), new FakeTenantContext(_householdId)).ExecuteAsync();
+            stockEntryId, RepoWith(session), new FakeTenantContext(_householdId), Clock).ExecuteAsync();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(createdProductId, result.Value.ProductId);
@@ -82,7 +82,7 @@ public sealed class GetCommittedLineByJournalIdQueryTests
         line.MarkAmended(3m, amendedAt);
 
         var result = await new GetCommittedLineByJournalIdQuery(
-            stockEntryId, RepoWith(session), new FakeTenantContext(_householdId)).ExecuteAsync();
+            stockEntryId, RepoWith(session), new FakeTenantContext(_householdId), Clock).ExecuteAsync();
 
         Assert.True(result.IsSuccess);
         Assert.Equal(3m, result.Value.AmendedQuantity);
@@ -95,7 +95,7 @@ public sealed class GetCommittedLineByJournalIdQueryTests
         var session = ImportSession.Start(HouseholdId.From(_householdId), ImportSourceType.Receipt, _userId, Clock);
 
         var result = await new GetCommittedLineByJournalIdQuery(
-            Guid.CreateVersion7(), RepoWith(session), new FakeTenantContext(_householdId)).ExecuteAsync();
+            Guid.CreateVersion7(), RepoWith(session), new FakeTenantContext(_householdId), Clock).ExecuteAsync();
 
         Assert.True(result.IsFailure);
         Assert.Equal(Error.NotFound.Code, result.Error.Code);
@@ -113,7 +113,7 @@ public sealed class GetCommittedLineByJournalIdQueryTests
 
         var otherHousehold = Guid.NewGuid();
         var result = await new GetCommittedLineByJournalIdQuery(
-            stockEntryId, RepoWith(session), new FakeTenantContext(otherHousehold)).ExecuteAsync();
+            stockEntryId, RepoWith(session), new FakeTenantContext(otherHousehold), Clock).ExecuteAsync();
 
         Assert.True(result.IsFailure);
         Assert.Equal(Error.NotFound.Code, result.Error.Code);
@@ -125,7 +125,7 @@ public sealed class GetCommittedLineByJournalIdQueryTests
         var session = ImportSession.Start(HouseholdId.From(_householdId), ImportSourceType.Receipt, _userId, Clock);
 
         var result = await new GetCommittedLineByJournalIdQuery(
-            Guid.CreateVersion7(), RepoWith(session), new FakeTenantContext(null)).ExecuteAsync();
+            Guid.CreateVersion7(), RepoWith(session), new FakeTenantContext(null), Clock).ExecuteAsync();
 
         Assert.True(result.IsFailure);
         Assert.Equal(Error.Unauthorized.Code, result.Error.Code);
