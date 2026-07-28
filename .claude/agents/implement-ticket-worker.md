@@ -329,6 +329,12 @@ above):
 > genuinely unsettled infra shape is a contested-decision naming the actual contest) and give
 > a concrete recommendation — this text becomes a tracked bead, so it must be actionable on
 > its own. A DEFER justified only by "this is a lot of work" is invalid; re-classify it as FIX.
+> Before writing the recommendation, run the tree-verification checks in
+> `.claude/review-criteria.md` under "Verifying a DEFER recommendation" — a recommendation
+> is a guess dressed up as a spec until it's checked against the tree it would land in. If a
+> check applies but can't be run in the time budget, don't skip it silently: append
+> `[recommendation-unverified]` to the DEFER line (format below) instead of writing the
+> recommendation as though it were verified.
 >
 > **Return exactly this format:**
 > ```
@@ -339,7 +345,10 @@ above):
 > (or "none")
 >
 > DEFER FINDINGS:
-> <file>:<line> — <gate N> — <what is wrong> — WHY DEFER: <boundary trigger> — RECOMMEND: <concrete, actionable recommendation>
+> <file>:<line> — <gate N> — <what is wrong> — WHY DEFER: <boundary trigger> — RECOMMEND: <concrete, actionable recommendation> [recommendation-unverified]
+> (the trailing `[recommendation-unverified]` tag is optional — include it only when a
+> tree-verification check applied but couldn't be run; omit it when the recommendation was
+> verified)
 > (or "none")
 >
 > NOTE FINDINGS:
@@ -418,9 +427,15 @@ DEFER FINDINGS (verbatim from this pass's critic):
       critic's gate-based floor (gates 1–5 → P1, gates 6–8 → P2 unless the arbiter says
       higher). The bead description must be self-contained: the critic's finding verbatim
       PLUS the arbiter's ruling justification and recurrence KEY — someone working the
-      bead months later has no worktree and no report to consult:
+      bead months later has no worktree and no report to consult. If the finding carries
+      the `[recommendation-unverified]` tag (see the critic template's output format
+      above), append `recommendation-unverified` as a second label so whoever works the
+      bead knows to re-derive the recommendation from the tree rather than implement it
+      verbatim — otherwise use `--labels code-review` alone:
       ```bash
-      bd create --title="<arbiter's title>" --description="<arbiter's bead-ready text: finding verbatim (file:line + WHY DEFER + RECOMMEND) + KEY + the arbiter's ruling justification>" --type=task --priority=<arbiter's priority> --labels code-review
+      # --labels: `code-review` alone, or `code-review,recommendation-unverified` when the
+      # finding carried the [recommendation-unverified] tag
+      bd create --title="<arbiter's title>" --description="<arbiter's bead-ready text: finding verbatim (file:line + WHY DEFER + RECOMMEND) + KEY + the arbiter's ruling justification>" --type=task --priority=<arbiter's priority> --labels <code-review | code-review,recommendation-unverified>
       ```
     - **ABSORB `<bead-id>`** — `bd comment <bead-id> "<arbiter's comment text>"`; file
       nothing new. If the arbiter recommended a priority bump, apply it
