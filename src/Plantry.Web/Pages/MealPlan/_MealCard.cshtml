@@ -168,7 +168,7 @@
                         var verb = isProduct ? "Eaten" : "Cooked";
                         <div class="mc-cook-done">
                             <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-                            @verb · @dish.Servings@(isProduct ? "" : " srv")
+                            @verb · @dish.Servings@(isProduct ? " " + dish.UnitCode : " srv")
                             @if (isProduct && meal.IsToday)
                             {
                                 <button class="undo" type="button"
@@ -194,7 +194,7 @@
                                 hx-target="#@cellId" hx-swap="outerHTML">
                             <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
                             <span class="act-name">@eatLabel</span>
-                            <span class="act-srv">@dish.Servings</span>
+                            <span class="act-srv">@dish.Servings @dish.UnitCode</span>
                         </button>
                     }
                     else

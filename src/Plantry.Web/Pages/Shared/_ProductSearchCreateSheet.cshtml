@@ -557,9 +557,14 @@
             @* :disabled (plantry-q9zr.6) is emitted only when the consumer opts into RequireSelection —
                the search-view Add stays disabled until a product is picked. Razor omits the attribute
                entirely when the expression is null, so other consumers render byte-identical. *@
+            @* Alpine-labelled submit button (plantry-5c5i): the sheet always starts with editingIdx ===
+               null (add mode, per the host contract above), so "Add" is the correct server-rendered
+               fallback — content the button ships with before Alpine hydrates, overwritten by
+               x-text once confirmLabel-equivalent logic evaluates. Mirrors _ReviewStep1.cshtml's
+               render-then-let-Alpine-overwrite pattern. *@
             <button type="button" class="btn btn--primary" @@click="saveSheet()"
                     :disabled="@(Model.RequireSelection ? "!draft.productId" : null)"
-                    x-text="editingIdx === null ? 'Add' : 'Save'"></button>
+                    x-text="editingIdx === null ? 'Add' : 'Save'">Add</button>
             <button type="button" class="btn btn--ghost" @@click="closeSheet()">Cancel</button>
         </div>
         <div class="sheet__actions" x-show="sheetView === 'create'">

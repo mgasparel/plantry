@@ -1993,7 +1993,7 @@ new ProductSearchCreateSheetViewModel
         var demoCfgJson = System.Text.Json.JsonSerializer.Serialize(demoCfg);
     }
 
-    <div style="max-width: 340px" x-data="planTune(@Html.Raw(demoCfgJson))">
+    <div style="max-width: 340px" x-data="planTune(@demoCfgJson)">
 
         <div class="tune-sect-label">
             Allocate 100%

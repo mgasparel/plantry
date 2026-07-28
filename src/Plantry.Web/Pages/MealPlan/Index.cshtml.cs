@@ -667,6 +667,25 @@ public sealed class IndexModel(
             {
                 var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
                 var dishes = new List<EditorDishVm>();
+
+                // Batch-resolve product dish names/unit codes up front — never per-dish inside the
+                // loop below (plantry-ri26 critic pass 1: an editor's dish count is small, but the
+                // per-dish call still costs 2 round-trips × N products where 2 total suffice).
+                // Mirrors the week-load loop's own batching at :1080-1097.
+                var productDishIds = meal.PlannedDishes
+                    .Where(d => d.ProductId.HasValue)
+                    .Select(d => d.ProductId!.Value)
+                    .Distinct()
+                    .ToList();
+                IReadOnlyDictionary<Guid, string> productNames =
+                    productDishIds.Count > 0
+                        ? await catalogReader.ResolveNamesAsync(productDishIds, ct)
+                        : new Dictionary<Guid, string>();
+                IReadOnlyDictionary<Guid, string> productUnitCodes =
+                    productDishIds.Count > 0
+                        ? await catalogReader.ResolveDefaultUnitCodesAsync(productDishIds, ct)
+                        : new Dictionary<Guid, string>();
+
                 foreach (var d in meal.PlannedDishes.OrderBy(d => d.Ordinal))
                 {
                     if (d.RecipeId.HasValue)
@@ -679,9 +698,9 @@ public sealed class IndexModel(
                     }
                     else if (d.ProductId.HasValue)
                     {
-                        var names = await catalogReader.ResolveNamesAsync([d.ProductId.Value], ct);
                         dishes.Add(new EditorDishVm(DishKind.Product, d.ProductId.Value,
-                            names.GetValueOrDefault(d.ProductId.Value, "Unknown product"), d.Servings, d.Ordinal));
+                            productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product"), d.Servings, d.Ordinal,
+                            UnitCode: productUnitCodes.GetValueOrDefault(d.ProductId.Value, "?")));
                     }
                 }
 
@@ -741,7 +760,8 @@ public sealed class IndexModel(
                 d.Servings,
                 d.FulfillmentPercent,
                 d.CostPerServing,
-                d.HasPhoto))
+                d.HasPhoto,
+                d.UnitCode))
             .ToList();
 
         var payload = new MealEditorHydrationVm(
@@ -939,6 +959,7 @@ public sealed class IndexModel(
                 itemId = p.ProductId.ToString("D"),
                 name = p.Name,
                 defaultServings = 1,
+                unitCode = p.UnitCode,
                 fulfillmentPercent = (object?)null,
                 costPerServing = (object?)null,
                 hasPhoto = false,
@@ -1084,6 +1105,14 @@ public sealed class IndexModel(
                         ? await catalogReader.ResolveNamesAsync(productDishIds, ct)
                         : new Dictionary<Guid, string>();
 
+                // Product dish unit codes (plantry-ri26), batched alongside productNames above —
+                // never per-dish inside the dishVms projection below (same O(meals×dishes) hot-path
+                // constraint as the name resolution it sits next to).
+                IReadOnlyDictionary<Guid, string> productUnitCodes =
+                    productDishIds.Count > 0
+                        ? await catalogReader.ResolveDefaultUnitCodesAsync(productDishIds, ct)
+                        : new Dictionary<Guid, string>();
+
                 // Cook strip per-dish data (plantry-0eut): identity, kind, servings, and derived
                 // done state, sharing the same name resolution as dishNames below in one pass.
                 var dishVms = meal.PlannedDishes
@@ -1094,6 +1123,7 @@ public sealed class IndexModel(
                         DishKind kind;
                         Guid itemId;
                         bool hasPhoto;
+                        string? unitCode = null;
                         if (d.RecipeId.HasValue)
                         {
                             name = enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
@@ -1107,6 +1137,7 @@ public sealed class IndexModel(
                             kind = DishKind.Product;
                             itemId = d.ProductId.Value;
                             hasPhoto = false; // product-dish photos are out of scope (plantry-tyvg)
+                            unitCode = productUnitCodes.GetValueOrDefault(d.ProductId.Value, "?");
                         }
                         else
                         {
@@ -1117,7 +1148,7 @@ public sealed class IndexModel(
                         }
 
                         var status = cookStatusByDish.GetValueOrDefault(d.Id.Value);
-                        return new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto);
+                        return new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode);
                     })
                     .ToList();
                 var dishNames = dishVms.Select(v => v.Name).ToList();
@@ -1766,7 +1797,12 @@ public sealed class IndexModel(
     /// </param>
     public sealed record MealCardDishVm(
         Guid DishId, DishKind Kind, Guid ItemId, string Name, int Servings, DateTimeOffset? CookedAt,
-        bool HasPhoto = false);
+        bool HasPhoto = false,
+        /// <summary>
+        /// The product's default unit's display code — null for a recipe dish, which keeps
+        /// rendering "servings" (plantry-ri26). "?" when a product dish's unit could not be resolved.
+        /// </summary>
+        string? UnitCode = null);
 
     public sealed record MealEditorVm(
         Guid? MealId,
@@ -1789,7 +1825,11 @@ public sealed class IndexModel(
 
     public sealed record EditorDishVm(
         DishKind Kind, Guid ItemId, string Name, int Servings, int Ordinal,
-        int? FulfillmentPercent = null, decimal? CostPerServing = null, bool HasPhoto = false);
+        int? FulfillmentPercent = null, decimal? CostPerServing = null, bool HasPhoto = false,
+        /// <summary>
+        /// The product's default unit's display code — null for a recipe dish (plantry-ri26).
+        /// </summary>
+        string? UnitCode = null);
 
     public sealed record CellFragmentVm(
         DateOnly Date,

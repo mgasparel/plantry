@@ -100,6 +100,24 @@ public sealed class RecipeEditorSnapshotTests(RecipeEditorFragmentFactory factor
     }
 
     /// <summary>
+    /// plantry-5c5i: the ingredient-add sheet's Alpine-labelled submit button
+    /// (<c>_ProductSearchCreateSheet.cshtml</c>, <c>x-text="editingIdx === null ? 'Add' : 'Save'"</c>)
+    /// must ship with non-empty server-rendered content, not rely solely on Alpine hydration to give
+    /// it an accessible name. Content-based (TextContent), not just presence of the x-text attribute —
+    /// a button can carry x-text and still render empty if no fallback child text is emitted.
+    /// </summary>
+    [Fact]
+    public async Task Editor_create_ProductSearchCreateSheet_submit_button_has_non_empty_fallback_text()
+    {
+        var html = await GetCreatePageAsync();
+        var doc = Parser.ParseDocument(html);
+        var button = doc.QuerySelector("[x-text=\"editingIdx === null ? 'Add' : 'Save'\"]");
+        Assert.NotNull(button);
+        Assert.False(string.IsNullOrWhiteSpace(button!.TextContent), "Submit button has no server-rendered fallback text.");
+        Assert.Equal("Add", button.TextContent.Trim());
+    }
+
+    /// <summary>
     /// Unauthenticated request to the create page is challenged (redirect or 401).
     /// The route "/Recipes/New" is the registered create alias (see AddPageRoute in Program.cs).
     /// </summary>

@@ -1,4 +1,5 @@
 using Plantry.MealPlanning.Application;
+using Plantry.SharedKernel.Domain;
 
 namespace Plantry.MealPlanning.Domain;
 
@@ -21,7 +22,8 @@ public sealed class PlanCostingService(
     IRecipeReadModel recipeReader,
     IMealPlanPriceReader priceReader,
     IMealPlanCatalogProductReader catalogReader,
-    IMealPlanUnitConverter unitConverter)
+    IMealPlanUnitConverter unitConverter,
+    IClock clock)
 {
     /// <summary>
     /// Computes the rolled-up cost for a single <see cref="PlannedMeal"/>.
@@ -74,7 +76,7 @@ public sealed class PlanCostingService(
         {
             // Borrow cost from Recipes read model — cost is already scaled to the requested servings.
             var enrichment = await recipeReader.GetEnrichmentAsync(
-                dish.RecipeId.Value, dish.Servings, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+                dish.RecipeId.Value, dish.Servings, DateOnly.FromDateTime(clock.UtcNow.UtcDateTime), ct);
 
             if (enrichment?.TotalCost is null)
                 return new DishCost(null, false);

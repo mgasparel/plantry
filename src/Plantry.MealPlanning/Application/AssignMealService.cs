@@ -151,7 +151,7 @@ public sealed class AssignMealService(
 
     // ── helpers ──────────────────────────────────────────────────────────────────
 
-    private static PlannedMeal CreateTempMeal(
+    private PlannedMeal CreateTempMeal(
         MealPlanId planId,
         HouseholdId householdId,
         DateOnly date,
@@ -161,6 +161,6 @@ public sealed class AssignMealService(
         // We need a PlannedMeal object to pass to the resolver. Use a note-based one
         // as a thin shell — only the AttendeesOverride matters for the resolver.
         return PlannedMeal.CreateWithNote(householdId, planId, date, slotId, "temp", attendeesOverride, "manual",
-            Guid.Empty, DateTimeOffset.UtcNow);
+            Guid.Empty, clock.UtcNow);
     }
 }

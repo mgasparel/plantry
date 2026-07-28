@@ -1280,7 +1280,7 @@
 							</div></template>
 					</div></template>
 				<div class="sheet__actions" x-show="sheetView !== 'create'">
-					<button type="button" class="btn btn--primary" @click="saveSheet()" x-text="editingIdx === null ? 'Add' : 'Save'"></button>
+					<button type="button" class="btn btn--primary" @click="saveSheet()" x-text="editingIdx === null ? 'Add' : 'Save'">Add</button>
 					<button type="button" class="btn btn--ghost" @click="closeSheet()">Cancel</button>
 				</div>
 				<div class="sheet__actions" x-show="sheetView === 'create'">

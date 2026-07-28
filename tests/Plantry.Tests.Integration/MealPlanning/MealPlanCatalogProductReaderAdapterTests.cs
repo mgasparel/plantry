@@ -113,6 +113,47 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         Assert.Equal("Milk", names[parentId.Value]);
     }
 
+    [Fact(DisplayName = "SearchAsync and ResolveDefaultUnitCodesAsync resolve each product's default unit CODE (plantry-ri26)")]
+    public async Task UnitCode_Resolution_Matches_Each_Products_Default_Unit()
+    {
+        UnitId poundsId;
+        ProductId flourId, sugarId;
+        await using (var setup = NewCatalogDb())
+        {
+            var pounds = Plantry.Catalog.Domain.Unit.Create(_household, "lb", "pounds", Dimension.Mass, 453.592m, isBase: false);
+            await setup.Units.AddAsync(pounds);
+            await setup.SaveChangesAsync();
+            poundsId = pounds.Id;
+
+            // Flour defaults to the fixture's grams unit ("g"); Sugar defaults to pounds ("lb") — two
+            // distinct products with two distinct default units, so a lookup that silently returned
+            // the same code for both (e.g. always the first unit found) would be caught.
+            var flour = Product.Create(_household, "Flour", _gramsId, Clock);
+            var sugar = Product.Create(_household, "Sugar", poundsId, Clock);
+            await setup.Products.AddRangeAsync(flour, sugar);
+            await setup.SaveChangesAsync();
+
+            flourId = flour.Id;
+            sugarId = sugar.Id;
+        }
+
+        await using var read = NewCatalogDb();
+        var reader = new MealPlanCatalogProductReaderAdapter(read);
+
+        // SearchAsync (the dish-search hop) carries each hit's own unit code.
+        var searchResults = await reader.SearchAsync("");
+        Assert.Contains(searchResults, p => p.ProductId == flourId.Value && p.UnitCode == "g");
+        Assert.Contains(searchResults, p => p.ProductId == sugarId.Value && p.UnitCode == "lb");
+
+        // ResolveDefaultUnitCodesAsync (the editor-hydration / week-load hop) batch-resolves the
+        // same codes by id, and simply omits an unknown id rather than throwing.
+        var unknownId = Guid.NewGuid();
+        var resolved = await reader.ResolveDefaultUnitCodesAsync([flourId.Value, sugarId.Value, unknownId]);
+        Assert.Equal("g", resolved[flourId.Value]);
+        Assert.Equal("lb", resolved[sugarId.Value]);
+        Assert.False(resolved.ContainsKey(unknownId));
+    }
+
     private CatalogDbContext NewCatalogDb()
     {
         var ctx = new CatalogDbContext(

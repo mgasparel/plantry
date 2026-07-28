@@ -13,7 +13,7 @@ namespace Plantry.Tests.Unit.MealPlanning.Domain;
 public sealed class PlanCostingServiceTests
 {
     private static readonly HouseholdId HouseholdId = HouseholdId.New();
-    private static readonly IClock Clock = SystemClock.Instance;
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 6, 9, 12, 0, 0, TimeSpan.Zero));
     private static readonly DateOnly Monday = new(2026, 6, 9);
     private static readonly MealSlotId SlotA = MealSlotId.New();
     private static readonly Guid UserId = Guid.NewGuid();
@@ -288,24 +288,51 @@ public sealed class PlanCostingServiceTests
         Assert.Equal(MealCost.None, result);
     }
 
+    // ── As-of date wiring — IClock, not DateTime.UtcNow (plantry-5nxt) ────────
+
+    [Fact]
+    public async Task RollUpMealAsync_PassesInjectedClockDate_AsOfDateToRecipeReader()
+    {
+        var recipeId = Guid.NewGuid();
+        var pinnedNow = new DateTimeOffset(2027, 3, 15, 10, 0, 0, TimeSpan.Zero);
+        var fixedClock = new FixedClock(pinnedNow);
+        var enrichment = new RecipeDishEnrichment(100, 6.00m, false, false);
+        var reader = new FakePriceEnrichmentReader(recipeId, enrichment);
+
+        var svc = BuildService(recipeReader: reader, clock: fixedClock);
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, recipeId, 2)], null, "manual", UserId, Clock);
+
+        await svc.RollUpMealAsync(plan.PlannedMeals[0]);
+
+        Assert.Equal(DateOnly.FromDateTime(pinnedNow.UtcDateTime), reader.LastAsOfDate);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private static PlanCostingService BuildService(
         IRecipeReadModel? recipeReader = null,
         IMealPlanPriceReader? priceReader = null,
         IMealPlanCatalogProductReader? catalogReader = null,
-        IMealPlanUnitConverter? unitConverter = null)
+        IMealPlanUnitConverter? unitConverter = null,
+        IClock? clock = null)
         => new(
             recipeReader ?? new FakePriceEnrichmentReader(Guid.Empty, null),
             priceReader ?? new FakePriceReader(null),
             catalogReader ?? new FakeMealPlanCatalogProductReader(new Dictionary<Guid, Guid>()),
-            unitConverter ?? new FakeMealPlanUnitConverter((_, _) => null));
+            unitConverter ?? new FakeMealPlanUnitConverter((_, _) => null),
+            clock ?? Clock);
 }
 
 // ── test doubles ──────────────────────────────────────────────────────────────
 
+/// <summary>Also records the <c>today</c> as-of date passed to the last <see cref="GetEnrichmentAsync"/>
+/// call via <see cref="LastAsOfDate"/>, so tests can assert PlanCostingService wires the injected
+/// IClock through end-to-end (plantry-5nxt) rather than reading DateTime.UtcNow directly.</summary>
 internal sealed class FakePriceEnrichmentReader(Guid recipeId, RecipeDishEnrichment? enrichment) : IRecipeReadModel
 {
+    public DateOnly? LastAsOfDate { get; private set; }
+
     public Task<RecipeReadModel?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => Task.FromResult<RecipeReadModel?>(null);
 
@@ -313,13 +340,23 @@ internal sealed class FakePriceEnrichmentReader(Guid recipeId, RecipeDishEnrichm
         => Task.FromResult<IReadOnlyList<RecipeReadModel>>([]);
 
     public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid id, int servings, DateOnly today, CancellationToken ct = default)
-        => Task.FromResult(id == recipeId ? enrichment : null);
+    {
+        LastAsOfDate = today;
+        return Task.FromResult(id == recipeId ? enrichment : null);
+    }
 
     public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
 
     public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
         => Task.FromResult(true);
+}
+
+/// <summary>Pinned clock so tests can assert the exact as-of date PlanCostingService wires through
+/// to Recipes' read model, independent of wall-clock time (plantry-5nxt).</summary>
+internal sealed class FixedClock(DateTimeOffset now) : IClock
+{
+    public DateTimeOffset UtcNow => now;
 }
 
 internal sealed class FakeMultiPriceEnrichmentReader(

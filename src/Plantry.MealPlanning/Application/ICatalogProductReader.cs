@@ -47,7 +47,26 @@ public interface IMealPlanCatalogProductReader
     /// </summary>
     Task<Guid?> FindDefaultUnitIdAsync(Guid productId, CancellationToken ct = default)
         => Task.FromResult<Guid?>(null);
+
+    /// <summary>
+    /// Resolves each product's default unit CODE (e.g. "ea", "lb") by ID in a single round-trip —
+    /// the display label for a product-dish quantity (plantry-ri26: product dishes were always
+    /// labelled "servings" regardless of the product's configured unit). Distinct from
+    /// <see cref="FindDefaultUnitIdAsync"/>, which returns the unit's ID for cost-conversion, not a
+    /// display label. Ids absent from the catalog, or whose default unit cannot be resolved, are
+    /// simply omitted from the result; callers should fall back to a neutral placeholder ("?").
+    /// Default implementation returns an empty dictionary so existing implementers/test doubles
+    /// compile unchanged; the production adapter overrides it.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, string>> ResolveDefaultUnitCodesAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 }
 
 /// <summary>Display facts for a catalog product in the meal editor.</summary>
-public sealed record MealPlanProductReadModel(Guid ProductId, string Name);
+/// <param name="UnitCode">
+/// The product's default unit's display code (e.g. "ea", "lb") — plantry-ri26. Defaults to "?" so
+/// existing positional construction sites (only the adapter's SearchAsync today) keep compiling;
+/// the adapter always supplies a resolved code or the same "?" placeholder.
+/// </param>
+public sealed record MealPlanProductReadModel(Guid ProductId, string Name, string UnitCode = "?");
