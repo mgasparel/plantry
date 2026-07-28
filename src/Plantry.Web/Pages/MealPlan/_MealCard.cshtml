@@ -16,6 +16,14 @@
     var allDishesDone = showStrip && cookDishes.Count > 0 && cookDishes.All(d => d.CookedAt.HasValue);
     var cellId = $"cell-{Model.SlotId.Value:N}-{Model.DateIso}";
 
+    // Per-card accessible-name context (plantry-rhxv): a week grid renders up to 21 cards, and both
+    // the hidden open-details button and the edit pencil previously shared one static label across
+    // every card ("Open meal details" / "Edit meal") — indistinguishable to a screen-reader user
+    // tabbing the grid. Day name + date + slot is stable and unique per card; deliberately NOT dish
+    // names/note text (spec:ready notes on plantry-rhxv) — those can be long, absent, or plural.
+    var cardDate = DateOnly.ParseExact(Model.DateIso, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    var cardContext = $"{cardDate:dddd} {cardDate:MMM d}, {Model.SlotLabel}";
+
     // plantry-ely3: click-anywhere-opens-editor. Shared with the pencil's own onclick so both
     // paths call the identical island bridge signature. The card-level handler guards against
     // double-invocation (and against hijacking nested actions — Cook link, Eat/Undo, pencil) by
@@ -34,7 +42,7 @@
        cook-strip actions, Cook link), all of which it did. This hidden button is the sole
        keyboard/AT entry point; mouse users keep click-anywhere via the div's onclick above. Native
        <button> semantics mean no onkeydown handler is needed (Enter/Space are built in). *@
-    <button class="mc-open-details sr-only" type="button" onclick="@openEditorCall" aria-label="Open meal details">
+    <button class="mc-open-details sr-only" type="button" onclick="@openEditorCall" aria-label="Open meal details — @cardContext">
         Open meal details
     </button>
 
@@ -43,7 +51,7 @@
        discoverable affordance and explicit keyboard/focus target. *@
     <button class="mc-edit"
             onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@Model.DateIso', '@Model.SlotId.Value', '@meal.MealId.ToString("D")')"
-            aria-label="Edit meal">
+            aria-label="Edit meal — @cardContext">
         <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
     </button>
 

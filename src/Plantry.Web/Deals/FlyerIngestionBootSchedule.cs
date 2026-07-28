@@ -3,9 +3,10 @@ namespace Plantry.Web.Deals;
 /// <summary>
 /// Pure boot due-check for <see cref="FlyerIngestionWorker"/> (plantry-rb36). Extracted as a static,
 /// clock-parameterized function — no DI, no <c>IClock</c> — so the decision is unit-testable without a
-/// host, a database, or the singleton/captive-dependency dance <c>IClock</c> (Scoped) would otherwise force
-/// on a Singleton-hosted worker (see <see cref="FlyerIngestionWorker"/>'s use of
-/// <c>SystemClock.Instance</c>, mirroring <c>TidyUpBadgeCache</c>'s same workaround in <c>Program.cs</c>).
+/// host or a database. <see cref="FlyerIngestionWorker"/> supplies <paramref name="now"/> — see
+/// <c>ComputeInitialDelay</c> below — from its injected singleton <see cref="TimeProvider"/> (plantry-hdry),
+/// which sidesteps the Scoped-<c>IClock</c> captive-dependency problem a Singleton-hosted worker would
+/// otherwise hit without needing any special-case workaround.
 /// </summary>
 internal static class FlyerIngestionBootSchedule
 {

@@ -6,9 +6,13 @@ namespace Plantry.Web.Inventory;
 /// <summary>
 /// Composition-root adapter for <see cref="IHouseholdExpiryDefaultsReader"/> — delegates to Identity's
 /// <see cref="IHouseholdExpiryDefaults"/>, the single source of truth for the per-household freeze/thaw
-/// expiry defaults (plantry-hh1f). Lives in Plantry.Composition, the composition root that references
-/// both contexts, so the Catalog project stays <c>→ SharedKernel only</c> and never takes a hard
-/// dependency on Identity (ADR-002, Gate 2) — mirroring <c>AiAssistanceGateReaderAdapter</c>.
+/// expiry defaults (plantry-hh1f), through the per-request <see cref="HouseholdExpiryDefaultsAccessor"/>
+/// (plantry-hw39) rather than calling <see cref="IHouseholdExpiryDefaults.GetAsync"/> directly — this
+/// port's only consumer, <see cref="CatalogReadFacade"/>, is called per-product in a loop by
+/// <c>InventoryStockReaderAdapter</c>, so reading straight through would issue one <c>households</c>
+/// SELECT per product instead of one per request. Lives in Plantry.Composition, the composition root
+/// that references both contexts, so the Catalog project stays <c>→ SharedKernel only</c> and never
+/// takes a hard dependency on Identity (ADR-002, Gate 2) — mirroring <c>AiAssistanceGateReaderAdapter</c>.
 ///
 /// <para>Namespaced <c>Plantry.Web.Inventory</c> rather than the more conventional
 /// <c>Plantry.Web.Catalog</c> (folder = the port-owning context, MealPlanning/Recipes-adapter
@@ -20,9 +24,9 @@ namespace Plantry.Web.Inventory;
 /// this port's only consumer today, already lives in this namespace, so this is also where the
 /// adapter is used.</para>
 /// </summary>
-public sealed class HouseholdExpiryDefaultsReaderAdapter(IHouseholdExpiryDefaults defaults)
+public sealed class HouseholdExpiryDefaultsReaderAdapter(HouseholdExpiryDefaultsAccessor defaults)
     : IHouseholdExpiryDefaultsReader
 {
-    public Task<(int AfterFreezing, int AfterThawing)> GetDefaultsAsync(CancellationToken ct = default) =>
-        defaults.GetAsync(ct);
+    public async Task<(int AfterFreezing, int AfterThawing)> GetDefaultsAsync(CancellationToken ct = default) =>
+        await defaults.GetAsync(ct);
 }

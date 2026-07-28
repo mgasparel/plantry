@@ -47,12 +47,20 @@ public sealed class PlantryIdentityDbContext(DbContextOptions<PlantryIdentityDbC
                 .HasDefaultValue("USD");
             // Household-wide freeze/thaw expiry defaults (plantry-hh1f). Store defaults 90/3 backfill
             // pre-existing households in one shot; new households insert with the aggregate default.
+            // HasSentinel(-1) (plantry-hw39, absorbing plantry-bjal): without it, EF treats the CLR
+            // default 0 as "not set, use the column default" and omits the column from the generated
+            // INSERT, silently coercing a deliberate 0 to 90/3 on create. -1 is never a valid day-count
+            // (HouseholdExpiryDefaultsService.MinDays is 0) so it can safely serve as the "not set"
+            // marker instead — model-only, no migration needed (it changes which values EF treats as
+            // "unset" for the INSERT, not the column's DDL shape or default).
             b.Property(h => h.DefaultDueDaysAfterFreezing)
                 .HasColumnName("default_due_days_after_freezing")
-                .HasDefaultValue(90);
+                .HasDefaultValue(90)
+                .HasSentinel(-1);
             b.Property(h => h.DefaultDueDaysAfterThawing)
                 .HasColumnName("default_due_days_after_thawing")
-                .HasDefaultValue(3);
+                .HasDefaultValue(3)
+                .HasSentinel(-1);
             b.Property(h => h.CreatedAt).HasColumnName("created_at");
 
             // App-layer half of the defense-in-depth pair (the Postgres RLS policy is the other).

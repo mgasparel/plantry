@@ -1944,6 +1944,12 @@ public sealed class IndexModel(
         string DisplayCurrency = "USD");
     public sealed record MealCardVm(
         MealCellVm Meal, string DateIso, MealSlotId SlotId, List<HouseholdMember> Members,
+        /// <summary>
+        /// Slot label ("Breakfast"/"Lunch"/"Dinner"/custom) used to contextualise the card's
+        /// per-card accessible names (plantry-rhxv) — otherwise every card in a week grid announces
+        /// the identical "Open meal details"/"Edit meal" name to a screen-reader user.
+        /// </summary>
+        string SlotLabel,
         /// <summary>Household display currency for the per-meal cost figure (plantry-2x6e.2).</summary>
         string DisplayCurrency = "USD");
     /// <summary>

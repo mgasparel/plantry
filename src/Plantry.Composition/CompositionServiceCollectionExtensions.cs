@@ -55,6 +55,12 @@ public static class CompositionServiceCollectionExtensions
 
         // Catalog → Identity ACL (plantry-hh1f): ExpiryDefaultResolver's freeze/thaw fallback reads the
         // household-wide defaults through this port instead of Catalog depending on Identity directly.
+        // HouseholdExpiryDefaultsAccessor is the per-request cache the adapter reads through instead of
+        // calling IHouseholdExpiryDefaults.GetAsync directly (plantry-hw39, absorbing plantry-rsy1) — its
+        // Scoped lifetime is tenant-load-bearing (one household's defaults per request, never leaked
+        // across households), so it must be registered here where CompositionRegistrationLifetimeTests
+        // can sweep it, not in the host.
+        services.AddScoped<HouseholdExpiryDefaultsAccessor>();
         services.AddScoped<IHouseholdExpiryDefaultsReader, HouseholdExpiryDefaultsReaderAdapter>();
 
         // Pricing unit-price calculation ACL.

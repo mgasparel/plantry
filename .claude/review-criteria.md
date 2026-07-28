@@ -364,7 +364,7 @@ a mechanical next step.
 | Tier | Meaning | What the runner does |
 |------|---------|----------------------|
 | **FIX** | Must be resolved before this change merges. Covers both hard correctness/security/tenancy defects **and** cheap, safe, already-decided quality wins. | Fix it in-loop, then re-run the full gate (build → test → critic). |
-| **DEFER** | A real issue, but resolving it is genuinely *open* — see the boundary below. | In the autonomous pipeline: hand the batch of DEFERs to the **fable-arbiter** (`.claude/agents/fable-arbiter.md`), which rules each one FIX-IN-CASE / FILE / ABSORB / DROP — a bead is filed only on a FILE ruling. Outside the pipeline (standalone review): file the `bd` issue directly. Never silently dropped either way. |
+| **DEFER** | A real issue, but resolving it is genuinely *open* — see the boundary below. Its recommendation must be tree-verified before it's written as bead-ready text — see "Verifying a DEFER recommendation" below. | In the autonomous pipeline: hand the batch of DEFERs to the **fable-arbiter** (`.claude/agents/fable-arbiter.md`), which rules each one FIX-IN-CASE / FILE / ABSORB / DROP — a bead is filed only on a FILE ruling. Outside the pipeline (standalone review): file the `bd` issue directly. Never silently dropped either way. |
 | **NOTE** | Informational; **no recommended action** (e.g. a pre-existing transitive-dependency warning). A finding with a next step is FIX or DEFER — see *Guardrails on NOTE*. | Record in the report only. |
 
 ### The FIX vs DEFER boundary
@@ -417,6 +417,68 @@ is genuinely unsettled *and* consequential is a DEFER.
 **Tie-breaker: when torn between FIX and DEFER, DEFER.** A wrong auto-fix is expensive and can ship
 silently; a bead is cheap and reversible — and in the pipeline the arbiter audits every DEFER
 anyway, so erring toward DEFER costs one ruling, not one wasted case.
+
+### Verifying a DEFER recommendation
+
+Every reviewer that can produce a DEFER — the interactive `/plantry-code-review` skill,
+`plantry-preflight` Stage 3, and the autonomous pipeline's inline critic template in
+`.claude/agents/implement-ticket-worker.md` — is bound by this check. It lives here, in the
+canonical DEFER definition, so every consumer inherits it rather than each reviewer carrying
+its own copy.
+
+A reviewer sees only the diff under review — but a DEFER's *recommendation* often describes
+work in code the diff never touched. Filed verbatim, an unverified recommendation is a guess
+dressed up as a spec: it gets filed as a bead and worked as though it were scoped. Four beads
+that motivated this requirement each shipped a recommendation pointing the opposite direction
+from its own (correct) finding once someone looked one level out of the diff.
+
+Before writing a DEFER's recommendation as bead-ready text, run whichever of these checks apply
+to it:
+
+1. **Names a project/folder/file that will host the new work** — confirm it exists and can
+   actually do the job (has the right references, can see the source it needs to check,
+   matches its established purpose). Don't recommend a `.cshtml`-parsing test in a project whose
+   assembly never references `Plantry.Web`.
+2. **Proposes a new guard/check** — run it mentally or literally against the current tree and
+   state the finding count in the recommendation. A guard that would fail on arrival must say so
+   and propose a baseline instead of being filed as though the tree is already clean.
+3. **Proposes a rename or a new naming convention** — grep the existing family first and state
+   in the recommendation which side is already conforming. Don't recommend renaming the
+   compliant member of a pattern.
+4. **Cites a count or enumeration** ("~18 factories", "6 call sites") — derive the number from
+   the tree and state the command used. An eyeballed count is not evidence.
+5. **Calls something an unsettled design fork** — confirm the code does not already implement
+   one side of it. A trade the codebase has already made is a fact to cite (see "Resolve
+   apparent design forks against the codebase first" above), not a fork left open to defer.
+
+**Escape hatch — `recommendation-unverified`.** When a check above applies but can't be run
+within the review's time budget, don't skip it silently — tag the finding
+`recommendation-unverified` in its DEFER line. This changes what the filed bead *is*: a bead
+tagged `recommendation-unverified` is a **lead** ("this is worth someone looking at"), not a
+**spec** ("here is the fix"). Carry the tag into the bead as a label so whoever eventually works
+it knows to re-derive the recommendation from the tree rather than implement it verbatim. In the
+autonomous pipeline, the critic marks the tag with a `[recommendation-unverified]` suffix on the
+DEFER line (see the critic template's output format in
+`.claude/agents/implement-ticket-worker.md`), and the arbiter treats any so-tagged finding as a
+lead, never a FIX-IN-CASE spec.
+
+Tree verification is a property of the *recommendation*, not of the filing mechanics — a wrong
+recommendation is wrong the moment it's written, regardless of what downstream process later
+turns it into a bead. Checking it inside the review pass that already has the diff and the tree
+open catches the error at its source, with the least duplicated context; a separate verification
+step inserted between review and `bd create` would run after the reviewer had already committed
+to a wrong finding, and would need to reconstruct — from scratch, in a different process —
+context the review pass already has for free. The added cost (tree-reading in a pass that's
+deliberately diff-scoped) is bounded: it only fires per-DEFER, and only for the finding shapes
+the five checks above name, not for every finding.
+
+Sanity-checked against the four filed beads that motivated this requirement: checks 1 and 2
+would have caught a recommendation naming a phantom project reference and a proposed guard
+that failed on arrival with 44 unmatched tokens; check 3 would have caught an inverted
+rename (the recommendation targeted the already-conforming member of the pattern); check 5
+would have caught an "unsettled fork" that `docker-compose.prod.yml` already resolves;
+check 4 would have caught an ungrounded factory count, and check 5 an extension-method
+recommendation contradicting the house convention already in `Infrastructure/`.
 
 ### Spec scope locks
 

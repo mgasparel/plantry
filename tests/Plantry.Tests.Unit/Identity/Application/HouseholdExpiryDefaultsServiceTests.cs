@@ -67,103 +67,89 @@ public sealed class HouseholdExpiryDefaultsServiceTests
         Assert.Equal((45, 5), await Service(repo, _household).GetAsync());
     }
 
-    // ── Write (SetAfterFreezingAsync / SetAfterThawingAsync) ─────────────────
+    // ── Write (SetAllAsync, plantry-hw39) ─────────────────────────────────────
 
-    [Fact(DisplayName = "SetAfterFreezingAsync persists a new value and the read source reflects it")]
-    public async Task SetAfterFreezing_Persists_And_ReadsBack()
+    [Fact(DisplayName = "SetAllAsync persists both fields in one load/mutate/save and returns the persisted tuple")]
+    public async Task SetAll_Persists_Both_In_One_SaveChanges_Call()
     {
         var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
         var service = Service(repo, _household);
 
-        var result = await service.SetAfterFreezingAsync(120);
+        var result = await service.SetAllAsync(120, 7);
 
         Assert.True(result.IsSuccess);
+        Assert.Equal((120, 7), result.Value);
         Assert.Equal(1, repo.SaveChangesCalls);
-        Assert.Equal((120, 3), await service.GetAsync());
+        Assert.Equal((120, 7), await service.GetAsync());
     }
 
-    [Fact(DisplayName = "SetAfterThawingAsync persists a new value and the read source reflects it")]
-    public async Task SetAfterThawing_Persists_And_ReadsBack()
-    {
-        var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
-        var service = Service(repo, _household);
-
-        var result = await service.SetAfterThawingAsync(7);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(1, repo.SaveChangesCalls);
-        Assert.Equal((90, 7), await service.GetAsync());
-    }
-
-    [Fact(DisplayName = "SetAfterFreezingAsync returns Unauthorized when there is no household in context")]
-    public async Task SetAfterFreezing_Requires_Household()
+    [Fact(DisplayName = "SetAllAsync returns Unauthorized when there is no household in context, and writes nothing")]
+    public async Task SetAll_Requires_Household()
     {
         var repo = new FakeHouseholdRepository();
-        var result = await Service(repo, household: null).SetAfterFreezingAsync(120);
+        var result = await Service(repo, household: null).SetAllAsync(120, 7);
 
         Assert.True(result.IsFailure);
         Assert.Equal(Error.Unauthorized, result.Error);
         Assert.Equal(0, repo.SaveChangesCalls);
     }
 
-    [Fact(DisplayName = "SetAfterThawingAsync returns NotFound when the household row is missing")]
-    public async Task SetAfterThawing_NotFound_When_Row_Missing()
+    [Fact(DisplayName = "SetAllAsync returns NotFound when the household row is missing, and writes nothing")]
+    public async Task SetAll_NotFound_When_Row_Missing()
     {
         var repo = new FakeHouseholdRepository();
-        var result = await Service(repo, _household).SetAfterThawingAsync(7);
+        var result = await Service(repo, _household).SetAllAsync(120, 7);
 
         Assert.True(result.IsFailure);
         Assert.Equal(Error.NotFound, result.Error);
         Assert.Equal(0, repo.SaveChangesCalls);
     }
 
-    [Fact(DisplayName = "SetAfterFreezingAsync rejects a negative value with Error.Custom, without reaching the aggregate")]
-    public async Task SetAfterFreezing_Rejects_Negative()
+    [Fact(DisplayName = "SetAllAsync rejects when EITHER value is out of range, validated before the household is loaded — writes nothing")]
+    public async Task SetAll_Rejects_When_Either_Value_OutOfRange()
     {
         var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
         var service = Service(repo, _household);
 
-        var result = await service.SetAfterFreezingAsync(-1);
+        var freezingOutOfRange = await service.SetAllAsync(HouseholdExpiryDefaultsService.MaxDays + 1, 7);
+        Assert.True(freezingOutOfRange.IsFailure);
+        Assert.Equal("Identity.InvalidExpiryDefaultDays", freezingOutOfRange.Error.Code);
 
-        Assert.True(result.IsFailure);
-        Assert.Equal("Identity.InvalidExpiryDefaultDays", result.Error.Code);
+        var thawingOutOfRange = await service.SetAllAsync(120, -1);
+        Assert.True(thawingOutOfRange.IsFailure);
+        Assert.Equal("Identity.InvalidExpiryDefaultDays", thawingOutOfRange.Error.Code);
+
+        var freezingBelowMin = await service.SetAllAsync(-1, 7);
+        Assert.True(freezingBelowMin.IsFailure);
+        Assert.Equal("Identity.InvalidExpiryDefaultDays", freezingBelowMin.Error.Code);
+
+        var thawingAboveMax = await service.SetAllAsync(120, HouseholdExpiryDefaultsService.MaxDays + 1);
+        Assert.True(thawingAboveMax.IsFailure);
+        Assert.Equal("Identity.InvalidExpiryDefaultDays", thawingAboveMax.Error.Code);
+
         Assert.Equal(0, repo.SaveChangesCalls);
+        // Neither field changed — a rejected combined write must not partially apply.
+        Assert.Equal((90, 3), await service.GetAsync());
     }
 
-    [Fact(DisplayName = "SetAfterFreezingAsync rejects a value above the maximum with Error.Custom")]
-    public async Task SetAfterFreezing_Rejects_AboveMax()
+    [Fact(DisplayName = "SetAllAsync accepts the boundary values Min (0) and Max (3650) for both fields")]
+    public async Task SetAll_Accepts_Boundaries()
     {
         var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
         var service = Service(repo, _household);
 
-        var result = await service.SetAfterFreezingAsync(HouseholdExpiryDefaultsService.MaxDays + 1);
+        var result = await service.SetAllAsync(
+            HouseholdExpiryDefaultsService.MinDays, HouseholdExpiryDefaultsService.MaxDays);
 
-        Assert.True(result.IsFailure);
-        Assert.Equal("Identity.InvalidExpiryDefaultDays", result.Error.Code);
-        Assert.Equal(0, repo.SaveChangesCalls);
-    }
+        Assert.True(result.IsSuccess);
+        Assert.Equal((HouseholdExpiryDefaultsService.MinDays, HouseholdExpiryDefaultsService.MaxDays), result.Value);
+        Assert.Equal(1, repo.SaveChangesCalls);
 
-    [Fact(DisplayName = "SetAfterThawingAsync rejects a value above the maximum with Error.Custom")]
-    public async Task SetAfterThawing_Rejects_AboveMax()
-    {
-        var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
-        var service = Service(repo, _household);
+        var mirrored = await service.SetAllAsync(
+            HouseholdExpiryDefaultsService.MaxDays, HouseholdExpiryDefaultsService.MinDays);
 
-        var result = await service.SetAfterThawingAsync(HouseholdExpiryDefaultsService.MaxDays + 1);
-
-        Assert.True(result.IsFailure);
-        Assert.Equal("Identity.InvalidExpiryDefaultDays", result.Error.Code);
-        Assert.Equal(0, repo.SaveChangesCalls);
-    }
-
-    [Fact(DisplayName = "SetAfterFreezingAsync accepts the boundary values Min (0) and Max (3650)")]
-    public async Task SetAfterFreezing_Accepts_Boundaries()
-    {
-        var repo = new FakeHouseholdRepository(HouseholdId.From(_household), SeededHousehold());
-        var service = Service(repo, _household);
-
-        Assert.True((await service.SetAfterFreezingAsync(HouseholdExpiryDefaultsService.MinDays)).IsSuccess);
-        Assert.True((await service.SetAfterFreezingAsync(HouseholdExpiryDefaultsService.MaxDays)).IsSuccess);
+        Assert.True(mirrored.IsSuccess);
+        Assert.Equal((HouseholdExpiryDefaultsService.MaxDays, HouseholdExpiryDefaultsService.MinDays), mirrored.Value);
         Assert.Equal(2, repo.SaveChangesCalls);
     }
 
