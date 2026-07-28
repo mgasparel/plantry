@@ -15,7 +15,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { lvl, money, dishMeta } from "../meal-planner-logic.js";
+import { lvl, money, dishMeta, dishUnitLabel } from "../meal-planner-logic.js";
 
 // ── test helpers ─────────────────────────────────────────────────────────────
 
@@ -181,5 +181,42 @@ describe("dishMeta", () => {
   it("falls back to '$' for the cost portion when no symbol is passed", () => {
     const d = dish({ fulfillment: 75, costPerServing: 3.50, servings: 2 });
     assert.equal(dishMeta(d), "75% in pantry · $7.00");
+  });
+});
+
+// ── dishUnitLabel ────────────────────────────────────────────────────────────
+// plantry-ri26: a product dish's quantity was always labelled "servings" regardless of the
+// product's actually configured unit. dishUnitLabel is the extracted pure transform behind the
+// dish-draft stepper's small unit label.
+
+describe("dishUnitLabel", () => {
+  it("returns 'serv' for a recipe dish", () => {
+    const d = dish({ kind: "recipe" });
+    assert.equal(dishUnitLabel(d), "serv");
+  });
+
+  it("returns 'serv' for a recipe dish even when unitCode is set (recipe quantities never use it)", () => {
+    const d = dish({ kind: "recipe", unitCode: "ea" });
+    assert.equal(dishUnitLabel(d), "serv");
+  });
+
+  it("returns the product's unit code for a product dish", () => {
+    const d = dish({ kind: "product", unitCode: "ea" });
+    assert.equal(dishUnitLabel(d), "ea");
+  });
+
+  it("returns '?' (not an empty string) for a product dish with a null unitCode", () => {
+    const d = dish({ kind: "product", unitCode: null });
+    assert.equal(dishUnitLabel(d), "?");
+  });
+
+  it("returns '?' for a product dish with an undefined unitCode", () => {
+    const d = dish({ kind: "product" });
+    assert.equal(dishUnitLabel(d), "?");
+  });
+
+  it("returns '?' for a product dish with an empty-string unitCode", () => {
+    const d = dish({ kind: "product", unitCode: "" });
+    assert.equal(dishUnitLabel(d), "?");
   });
 });

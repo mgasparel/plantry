@@ -45,6 +45,7 @@
  * @property {number|null} fulfillment       per-dish fulfillment % from server (display-only)
  * @property {number|null} costPerServing    per-dish cost from server (display-only)
  * @property {boolean} hasPhoto
+ * @property {string|null} unitCode          product's default unit code (null for recipe dishes, plantry-ri26)
  */
 
 // ── lvl ───────────────────────────────────────────────────────────────────────
@@ -107,4 +108,24 @@ export function dishMeta(d, symbol = "$") {
   let s = d.fulfillment + "% in pantry";
   if (d.costPerServing !== null) s += " · " + money(d.costPerServing * (d.servings || 1), symbol);
   return s;
+}
+
+// ── dishUnitLabel ────────────────────────────────────────────────────────────
+
+/**
+ * The small quantity-unit label shown next to a dish's servings stepper/count
+ * (plantry-ri26: product dishes were always labelled "servings" regardless of the
+ * product's actually configured unit).
+ *
+ * Format:
+ *   - recipe dish → "serv" (unchanged — recipe quantities are always servings)
+ *   - product dish → the product's default unit code (e.g. "ea", "lb")
+ *   - product dish with no resolvable unitCode → "?" (never a bare/empty label —
+ *     a missing unit must stay visibly a gap, not silently disappear)
+ *
+ * @param {DishDraft} d
+ * @returns {string}
+ */
+export function dishUnitLabel(d) {
+  return d.kind === "product" ? (d.unitCode || "?") : "serv";
 }

@@ -46,7 +46,15 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
             .Take(maxResults)
             .ToListAsync(ct);
 
-        return products.Select(p => new MealPlanProductReadModel(p.Id.Value, p.Name)).ToList();
+        // Unit codes (plantry-ri26): dictionary lookup rather than a join, mirroring
+        // ProductQueryService's own unitsById pattern — sidesteps the converted-key EF-translation
+        // caveat called out on ExistsAsync above, and a household's unit set is small.
+        var unitCodes = await GetUnitCodesByIdAsync(ct);
+
+        return products
+            .Select(p => new MealPlanProductReadModel(
+                p.Id.Value, p.Name, unitCodes.GetValueOrDefault(p.DefaultUnitId, "?")))
+            .ToList();
     }
 
     public async Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(
@@ -70,5 +78,34 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
         var product = await db.Products.AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == pid && p.ArchivedAt == null, ct);
         return product?.DefaultUnitId.Value;
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, string>> ResolveDefaultUnitCodesAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        if (productIds.Count == 0) return new Dictionary<Guid, string>();
+
+        // Match on the strongly-typed key (same translation constraint as ExistsAsync).
+        var ids = productIds.Select(ProductId.From).ToHashSet();
+        var products = await db.Products.AsNoTracking()
+            .Where(p => ids.Contains(p.Id) && p.ArchivedAt == null)
+            .ToListAsync(ct);
+        if (products.Count == 0) return new Dictionary<Guid, string>();
+
+        var unitCodes = await GetUnitCodesByIdAsync(ct);
+        return products.ToDictionary(
+            p => p.Id.Value,
+            p => unitCodes.GetValueOrDefault(p.DefaultUnitId, "?"));
+    }
+
+    /// <summary>
+    /// Household unit codes keyed by <see cref="UnitId"/>. A household's unit set is small
+    /// (dozens at most), so loading it whole and joining in memory avoids the converted-key
+    /// EF-translation caveat noted on <see cref="ExistsAsync"/> above.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<UnitId, string>> GetUnitCodesByIdAsync(CancellationToken ct)
+    {
+        var units = await db.Units.AsNoTracking().ToListAsync(ct);
+        return units.ToDictionary(u => u.Id, u => u.Code);
     }
 }

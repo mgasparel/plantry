@@ -50,7 +50,7 @@
 
 import { render, html, signal, computed, effect, useSignal, useComputed, useRef } from "./runtime.js?v=1";
 import { readAntiforgeryToken, postJson } from "./helpers.js";
-import { lvl, money, dishMeta } from "./meal-planner-logic.js?v=1";
+import { lvl, money, dishMeta, dishUnitLabel } from "./meal-planner-logic.js?v=2";
 
 // ── Type documentation ────────────────────────────────────────────────────────
 
@@ -63,6 +63,7 @@ import { lvl, money, dishMeta } from "./meal-planner-logic.js?v=1";
  * @property {number|null} fulfillment       per-dish fulfillment % from server (display-only)
  * @property {number|null} costPerServing    per-dish cost from server (display-only)
  * @property {boolean} hasPhoto
+ * @property {string|null} unitCode          product's default unit code (null for recipe dishes, plantry-ri26)
  */
 
 /**
@@ -113,6 +114,7 @@ import { lvl, money, dishMeta } from "./meal-planner-logic.js?v=1";
  * @property {number|null} costPerServing
  * @property {boolean} hasPhoto
  * @property {string|null} photoUrl
+ * @property {string|null} unitCode          product's default unit code, product hits only (plantry-ri26)
  */
 
 /**
@@ -238,6 +240,7 @@ function DishSearch({ slotIdStr, searchJsonUrl, currencySymbol, onAdd }) {
       fulfillment: r.fulfillmentPercent,
       costPerServing: r.costPerServing,
       hasPhoto: r.hasPhoto,
+      unitCode: r.unitCode ?? null,
     });
     query.value = "";
     results.value = [];
@@ -557,7 +560,7 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                     </div>
                     <div class="serv-step">
                       <button type="button" onClick=${() => decServings(d)} aria-label="Fewer">−</button>
-                      <span class="sv"><span>${d.servings}</span><small>serv</small></span>
+                      <span class="sv"><span>${d.servings}</span><small>${dishUnitLabel(d)}</small></span>
                       <button type="button" onClick=${() => incServings(d)} aria-label="More">+</button>
                     </div>
                     <button type="button" class="edd-del" onClick=${() => removeDish(idx)} aria-label="Remove dish">

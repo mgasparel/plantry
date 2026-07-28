@@ -67,7 +67,13 @@ public sealed record EditorDishHydrationVm(
     int Servings,
     int? Fulfillment,
     decimal? CostPerServing,
-    bool HasPhoto);
+    bool HasPhoto,
+    /// <summary>
+    /// The product's default unit's display code (e.g. "ea", "lb") — null for a recipe dish, which
+    /// keeps rendering its "servings" label (plantry-ri26). "?" when a product dish's unit could
+    /// not be resolved.
+    /// </summary>
+    string? UnitCode = null);
 
 /// <summary>The exact serializer options the Meal Planner page emits hydration with. Shared so the
 /// consumer-contract test (plantry-eoj5 Phase B) pins the same camelCase / always-emit policy
