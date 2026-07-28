@@ -7497,3 +7497,20 @@ input.ing-section__name:focus {
 /* ── Pages/Dev/Index.cshtml — tag editor demo (moved, plantry-bc2c) ────────── */
 .recipe-tag-editor:focus-within { border-color: var(--color-accent); }
 .tag-picker-option:hover { background: var(--color-surface-2) !important; }
+
+/* ── Utilities (last in file: a utility must win every equal-specificity tie) ──
+   .sr-only — visually hides content while keeping it in the accessibility
+   tree (clip/1px form, not display:none or visibility:hidden, both of which
+   remove the element from assistive tech entirely). Placed at EOF so no
+   earlier-defined component rule of equal specificity (e.g. .data-grid__caption)
+   can win a tie on source order — plantry-m375. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
