@@ -154,10 +154,66 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         Assert.False(resolved.ContainsKey(unknownId));
     }
 
-    private CatalogDbContext NewCatalogDb()
+    [Fact(DisplayName = "ResolveDefaultUnitCodesAsync issues exactly one units query, memoised for the adapter's lifetime, per-instance not shared (plantry-jefp AC1-3)")]
+    public async Task GetUnitCodesByIdAsync_Is_Memoised_Per_Adapter_Instance()
     {
-        var ctx = new CatalogDbContext(
-            new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options);
+        ProductId flourId;
+        await using (var setup = NewCatalogDb())
+        {
+            var flour = Product.Create(_household, "Flour", _gramsId, Clock);
+            await setup.Products.AddAsync(flour);
+            await setup.SaveChangesAsync();
+            flourId = flour.Id;
+        }
+
+        var counter = new QueryCountingInterceptor();
+        await using var read = NewCatalogDb(counter);
+        var reader = new MealPlanCatalogProductReaderAdapter(read);
+
+        // AC1 — baseline: one call yields exactly one units query. This is the guard against a
+        // wrong CountMatching fragment silently making AC2 pass vacuously (a 0-vs-0 comparison
+        // would never fail).
+        await reader.ResolveDefaultUnitCodesAsync([flourId.Value]);
+        Assert.Equal(1, counter.CountMatching("units"));
+
+        // AC2 — memoised: a second call on the SAME adapter instance leaves the count at 1.
+        await reader.ResolveDefaultUnitCodesAsync([flourId.Value]);
+        Assert.Equal(1, counter.CountMatching("units"));
+
+        // AC3 — per-scope, not static: a NEW adapter instance over a NEW context takes the count
+        // to 2. Regression guard against the cache becoming static/shared.
+        await using var read2 = NewCatalogDb(counter);
+        var reader2 = new MealPlanCatalogProductReaderAdapter(read2);
+        await reader2.ResolveDefaultUnitCodesAsync([flourId.Value]);
+        Assert.Equal(2, counter.CountMatching("units"));
+    }
+
+    [Fact(DisplayName = "SearchAsync short-circuits the units query when the name filter matches zero products (plantry-jefp AC4)")]
+    public async Task SearchAsync_ZeroMatches_Skips_UnitCodes_Query()
+    {
+        await using (var setup = NewCatalogDb())
+        {
+            var flour = Product.Create(_household, "Flour", _gramsId, Clock);
+            await setup.Products.AddAsync(flour);
+            await setup.SaveChangesAsync();
+        }
+
+        var counter = new QueryCountingInterceptor();
+        await using var read = NewCatalogDb(counter);
+        var reader = new MealPlanCatalogProductReaderAdapter(read);
+
+        var results = await reader.SearchAsync("no-such-product-name-zzz");
+
+        Assert.Empty(results);
+        Assert.Equal(0, counter.CountMatching("units"));
+    }
+
+    private CatalogDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
+    {
+        var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString);
+        if (counter is not null) builder.AddInterceptors(counter);
+
+        var ctx = new CatalogDbContext(builder.Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }
