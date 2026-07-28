@@ -146,8 +146,51 @@ public sealed class MealCardCookStripTests
         // of duplicating a per-component clip-rect rule.
         var hiddenBtnMatch = System.Text.RegularExpressions.Regex.Match(html, "<button class=\"mc-open-details sr-only\"[^>]*>");
         Assert.True(hiddenBtnMatch.Success, "No .mc-open-details.sr-only button found in the rendered page.");
-        Assert.Contains("aria-label=\"Open meal details\"", hiddenBtnMatch.Value);
+        // plantry-rhxv: the accessible name is contextualised with day + date + slot (the first
+        // meal-card in DOM order is the Breakfast card, per the slot-band-then-day iteration order
+        // in _WeekGrid.cshtml) so a week grid's 21 cards no longer announce an identical name.
+        Assert.Contains($"aria-label=\"Open meal details — {factory.Repo.ThisWeekMonday:dddd} {factory.Repo.ThisWeekMonday:MMM d}, Breakfast\"", hiddenBtnMatch.Value);
         Assert.Contains("onclick=\"window.__mealPlannerIsland &amp;&amp; window.__mealPlannerIsland.openEditor(&#x27;", hiddenBtnMatch.Value);
+    }
+
+    [Fact(DisplayName = "GET /MealPlan: card-level accessible names are contextualised and vary per card (plantry-rhxv)")]
+    public async Task Card_AccessibleNames_Vary_Per_Card()
+    {
+        await using var factory = new MealCardCookStripFactory();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, CookStripFixture.HouseholdId.ToString());
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        // Breakfast, Lunch, and Dinner all fall on the same day (ThisWeekMonday) but different
+        // slots — the day+date component alone would collide across these three cards, so the
+        // slot qualifier is what proves the names are actually distinguishable, not merely present.
+        var dayDate = $"{factory.Repo.ThisWeekMonday:dddd} {factory.Repo.ThisWeekMonday:MMM d}";
+        var breakfastOpenLabel = $"aria-label=\"Open meal details — {dayDate}, Breakfast\"";
+        var lunchOpenLabel = $"aria-label=\"Open meal details — {dayDate}, Lunch\"";
+        var breakfastEditLabel = $"aria-label=\"Edit meal — {dayDate}, Breakfast\"";
+        var lunchEditLabel = $"aria-label=\"Edit meal — {dayDate}, Lunch\"";
+
+        Assert.Contains(breakfastOpenLabel, html);
+        Assert.Contains(lunchOpenLabel, html);
+        Assert.Contains(breakfastEditLabel, html);
+        Assert.Contains(lunchEditLabel, html);
+
+        // Every rendered .mc-open-details / .mc-edit label must be unique across the whole grid —
+        // this is the assertion that actually proves per-card variance (plantry-rhxv). AngleSharp
+        // DOM parsing, not hand-rolled regex, mirrors the established pattern in this project (e.g.
+        // MealCardEnrichmentTests.cs) and avoids an unbounded-match false pass.
+        var doc = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
+        var openLabels = doc.QuerySelectorAll("button.mc-open-details")
+            .Select(e => e.GetAttribute("aria-label")).ToList();
+        var editLabels = doc.QuerySelectorAll("button.mc-edit")
+            .Select(e => e.GetAttribute("aria-label")).ToList();
+        Assert.Equal(3, openLabels.Count);   // Breakfast + Lunch + Dinner note card
+        Assert.Equal(3, editLabels.Count);   // same three cards — .mc-edit renders before the isNote branch
+        Assert.Equal(openLabels.Count, openLabels.Distinct().Count());
+        Assert.Equal(editLabels.Count, editLabels.Distinct().Count());
     }
 }
 
