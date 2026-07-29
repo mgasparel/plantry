@@ -247,10 +247,12 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
 
         // The Alpine seed JSON (x-data) must carry the lot's current quantity as both the counted
         // amount and the original baseline — a lot input pre-filled with the on-hand qty, not 0.
-        Assert.Contains("\"amount\":300,\"original\":300", html);  // lot A
-        Assert.Contains("\"amount\":200,\"original\":200", html);  // lot B
+        // plantry-qrg7: the seed JSON is now spliced without Html.Raw (canonical safe form), so Razor
+        // HTML-encodes the attribute's quotes as &quot; — the browser decodes them before Alpine reads it.
+        Assert.Contains("&quot;amount&quot;:300,&quot;original&quot;:300", html);  // lot A
+        Assert.Contains("&quot;amount&quot;:200,&quot;original&quot;:200", html);  // lot B
         // Regression guard for the reported bug: no lot may seed amount 0 against a live quantity.
-        Assert.DoesNotContain("\"amount\":0,\"original\":300", html);
+        Assert.DoesNotContain("&quot;amount&quot;:0,&quot;original&quot;:300", html);
         // The input is now labelled as a counted quantity, not a reduction.
         Assert.Contains("Counted quantity for this lot", html);
         Assert.DoesNotContain("Amount to reduce for this lot", html);
