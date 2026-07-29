@@ -78,15 +78,24 @@
     {
         @* Recipe photo (plantry-tyvg): the primary recipe dish — the first Recipe-kind dish in
            ordinal order, mirroring Today's "primary recipe" convention (Today/Index.cshtml.cs) —
-           renders its stored photo via the Recipes photo endpoint when it has one. Every other
-           case (no dishes, product/note meals, a primary recipe with no photo) falls back to the
-           gradient placeholder so the tile never shows a broken-image icon. *@
-        var primaryDish = cookDishes.FirstOrDefault(d => d.Kind == Plantry.MealPlanning.Domain.DishKind.Recipe);
+           renders its stored photo via the Recipes photo endpoint when it has one. When the meal has
+           NO Recipe-kind dish at all, the first Product-kind dish stands in instead (plantry-f4dt) —
+           its inherited photo (PhotoRecipeId, sole photo-bearing producer-recipe) renders through the
+           same endpoint. Every other case (no dishes, note meals, a primary dish with no [inherited]
+           photo) falls back to the gradient placeholder so the tile never shows a broken-image icon.
+           Deliberately no precedence logic beyond "first recipe dish wins if one exists" — a meal
+           with both a photo-less recipe dish and a photo-resolvable product dish still shows the
+           placeholder (spec:ready, plantry-f4dt behavior rule 1). *@
+        var primaryDish = cookDishes.FirstOrDefault(d => d.Kind == Plantry.MealPlanning.Domain.DishKind.Recipe)
+            ?? cookDishes.FirstOrDefault(d => d.Kind == Plantry.MealPlanning.Domain.DishKind.Product);
         var showPhoto = primaryDish is not null && primaryDish.HasPhoto;
+        var photoRecipeId = primaryDish is null
+            ? (Guid?)null
+            : primaryDish.Kind == Plantry.MealPlanning.Domain.DishKind.Recipe ? primaryDish.ItemId : primaryDish.PhotoRecipeId;
         <div class="mc-photo">
             @if (showPhoto)
             {
-                <img class="mc-photo-img" src="/Recipes/@primaryDish!.ItemId?handler=Photo" alt="@primaryDish.Name" loading="lazy" />
+                <img class="mc-photo-img" src="/Recipes/@photoRecipeId?handler=Photo" alt="@primaryDish!.Name" loading="lazy" />
             }
             else
             {

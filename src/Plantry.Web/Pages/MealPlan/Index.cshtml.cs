@@ -1169,6 +1169,16 @@ public sealed class IndexModel(
                     ? await catalogReader.ResolveDefaultUnitCodesAsync(allProductDishIds, ct)
                     : new Dictionary<Guid, string>();
 
+            // Product-dish photo inheritance (plantry-f4dt), batched alongside productNames/
+            // productUnitCodes above — same O(meals×dishes) hot-path constraint. Maps a product id
+            // to the id of its sole photo-bearing producer-recipe; a product absent from the
+            // dictionary (zero/many producer-recipes, or its sole producer has no photo) falls
+            // through to the gradient placeholder in the dish-building loop below.
+            IReadOnlyDictionary<Guid, Guid> soleYieldPhotoRecipeIds =
+                allProductDishIds.Count > 0
+                    ? await recipeReader.FindSoleYieldPhotoRecipeIdsAsync(allProductDishIds, ct)
+                    : new Dictionary<Guid, Guid>();
+
             // plantry-yuy3: on-hand cache for the Eat auto-trigger check below, memoized per
             // LoadWeekAsync CALL (not request-scoped) — a product referenced by more than one pending
             // dish in the same call is only queried once. Deliberately NOT hoisted to a request-scoped
@@ -1216,6 +1226,7 @@ public sealed class IndexModel(
                     Guid itemId;
                     bool hasPhoto;
                     string? unitCode = null;
+                    Guid? photoRecipeId = null;
                     if (d.RecipeId.HasValue)
                     {
                         name = enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
@@ -1228,8 +1239,12 @@ public sealed class IndexModel(
                         name = productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product");
                         kind = DishKind.Product;
                         itemId = d.ProductId.Value;
-                        hasPhoto = false; // product-dish photos are out of scope (plantry-tyvg)
                         unitCode = productUnitCodes.GetValueOrDefault(d.ProductId.Value, "?");
+                        // plantry-f4dt: a product-dish photo is inherited from its sole photo-bearing
+                        // producer-recipe (see soleYieldPhotoRecipeIds above); absent → no photo,
+                        // same gradient-placeholder fallback as before (plantry-tyvg).
+                        photoRecipeId = soleYieldPhotoRecipeIds.TryGetValue(d.ProductId.Value, out var pr) ? pr : null;
+                        hasPhoto = photoRecipeId is not null;
                     }
                     else
                     {
@@ -1251,7 +1266,7 @@ public sealed class IndexModel(
                         needsEatConfirm = stock is not null && UseUpZone.IsInUseUpZone(stock.AvailableQuantity, d.Servings);
                     }
 
-                    dishVms.Add(new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode, needsEatConfirm));
+                    dishVms.Add(new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode, needsEatConfirm, photoRecipeId));
                 }
                 var dishNames = dishVms.Select(v => v.Name).ToList();
 
@@ -1897,9 +1912,10 @@ public sealed class IndexModel(
     /// product dish's latest net-consuming Inventory journal movement's OccurredAt.
     /// </summary>
     /// <param name="HasPhoto">
-    /// True when this is a recipe dish with a stored photo (plantry-tyvg) — always false for product
-    /// dishes (out of scope) and for recipes not carrying a photo. Gates the real <c>&lt;img&gt;</c>
-    /// on the meal tile vs. the gradient placeholder.
+    /// True when this dish resolves a renderable photo — a recipe dish with a stored photo
+    /// (plantry-tyvg), or (plantry-f4dt) a product dish whose <see cref="PhotoRecipeId"/> is set.
+    /// False for recipes with no photo and for product dishes with no inherited photo. Gates the
+    /// real <c>&lt;img&gt;</c> on the meal tile vs. the gradient placeholder.
     /// </param>
     public sealed record MealCardDishVm(
         Guid DishId, DishKind Kind, Guid ItemId, string Name, int Servings, DateTimeOffset? CookedAt,
@@ -1917,7 +1933,17 @@ public sealed class IndexModel(
         /// the Eat button itself posts to: true wires it to <c>OnGetEatSheetAsync</c> (opens the confirm
         /// sheet) instead of <c>OnPostEatAsync</c> (direct one-tap consume) — see _MealCard.cshtml.
         /// </summary>
-        bool NeedsEatConfirm = false);
+        bool NeedsEatConfirm = false,
+        /// <summary>
+        /// plantry-f4dt: for a product dish (<see cref="DishKind.Product"/>) whose product is the sole
+        /// declared cook-yield of a recipe that has a stored photo, the id of that recipe — the meal
+        /// card resolves its photo via the same <c>/Recipes/{id}?handler=Photo</c> endpoint a recipe
+        /// dish uses, never a duplicated copy. Null for a recipe dish (use <see cref="ItemId"/>
+        /// instead) and for a product dish with zero/multiple producer-recipes or a photo-less sole
+        /// producer. Distinct from <see cref="ItemId"/>, which stays the product id for a product
+        /// dish (consumed elsewhere, e.g. the Eat handler's <c>hit.Dish.ItemId</c>).
+        /// </summary>
+        Guid? PhotoRecipeId = null);
 
     /// <summary>
     /// View model for the Eat confirm sheet (plantry-yuy3, _EatSheet.cshtml) — the product-dish

@@ -50,6 +50,9 @@ public sealed class MealPlanProductResolutionBatchingTests
         // of the three meals (Breakfast, Lunch, Dinner) contain product dishes.
         Assert.Equal(1, factory.CatalogReader.ResolveNamesCallCount);
         Assert.Equal(1, factory.CatalogReader.ResolveUnitCodesCallCount);
+        // plantry-f4dt: the product-dish photo-inheritance lookup sits in the exact same batched
+        // spot as the two calls above — must not regress to a per-meal round trip either.
+        Assert.Equal(1, factory.RecipeReader.FindSoleYieldPhotoCallCount);
 
         // AC3: Flour is planned in BOTH Breakfast and Lunch — the Distinct() union that feeds the
         // single batch call must not drop either occurrence's rendering. A single Assert.Contains
@@ -79,6 +82,9 @@ public sealed class MealPlanProductResolutionBatchingTests
         // AC4: no product dishes anywhere in the week -> zero product-resolution round trips.
         Assert.Equal(0, factory.CatalogReader.ResolveNamesCallCount);
         Assert.Equal(0, factory.CatalogReader.ResolveUnitCodesCallCount);
+        // plantry-f4dt: the `allProductDishIds.Count > 0` guard at Index.cshtml.cs:1177 must skip
+        // the photo-inheritance lookup too when there are zero product dishes.
+        Assert.Equal(0, factory.RecipeReader.FindSoleYieldPhotoCallCount);
     }
 }
 
@@ -115,6 +121,7 @@ internal static class ProductBatchingFixture
 public sealed class ProductBatchingFactory : WebApplicationFactory<Program>
 {
     public CountingCatalogProductReader CatalogReader { get; } = new();
+    public CountingYieldPhotoRecipeReader RecipeReader { get; } = new();
     public ProductBatchingMealPlanRepo Repo { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -146,7 +153,7 @@ public sealed class ProductBatchingFactory : WebApplicationFactory<Program>
             services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
 
             services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([]));
+            services.AddSingleton<IRecipeReadModel>(RecipeReader);
 
             services.RemoveAll<IMealPlanWeekReadModel>();
             services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
@@ -217,6 +224,7 @@ public sealed class ProductBatchingFactory : WebApplicationFactory<Program>
 public sealed class RecipeOnlyBatchingFactory : WebApplicationFactory<Program>
 {
     public CountingCatalogProductReader CatalogReader { get; } = new();
+    public CountingYieldPhotoRecipeReader RecipeReader { get; } = new();
     public RecipeOnlyMealPlanRepo Repo { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -248,7 +256,7 @@ public sealed class RecipeOnlyBatchingFactory : WebApplicationFactory<Program>
             services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
 
             services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([]));
+            services.AddSingleton<IRecipeReadModel>(RecipeReader);
 
             services.RemoveAll<IMealPlanWeekReadModel>();
             services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
@@ -433,4 +441,40 @@ public sealed class CountingCatalogProductReader : IMealPlanCatalogProductReader
         id == ProductBatchingFixture.FlourProductId ? "ea"
         : id == ProductBatchingFixture.SugarProductId ? "g"
         : "?";
+}
+
+// ── Recipe reader stub ───────────────────────────────────────────────────────
+
+/// <summary>
+/// <see cref="IRecipeReadModel"/> stub for the plantry-f4dt photo-inheritance batching regression:
+/// every method other than <see cref="FindSoleYieldPhotoRecipeIdsAsync"/> returns "no data" (this
+/// suite's plans carry no ghost dishes or unfulfillability checks that would need them — same
+/// shape as <c>YieldPhotoRecipeReader</c> in MealCardProductPhotoTests.cs), and the photo lookup
+/// counts its own calls so AC1/AC4 can assert the batching directly rather than infer it.
+/// </summary>
+public sealed class CountingYieldPhotoRecipeReader : IRecipeReadModel
+{
+    public int FindSoleYieldPhotoCallCount { get; private set; }
+
+    public Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default) =>
+        Task.FromResult<RecipeReadModel?>(null);
+
+    public Task<IReadOnlyList<RecipeReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeReadModel>>([]);
+
+    public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid recipeId, int servings, DateOnly today, CancellationToken ct = default) =>
+        Task.FromResult<RecipeDishEnrichment?>(null);
+
+    public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default) =>
+        Task.FromResult(false);
+
+    public Task<IReadOnlyDictionary<Guid, Guid>> FindSoleYieldPhotoRecipeIdsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+    {
+        FindSoleYieldPhotoCallCount++;
+        return Task.FromResult<IReadOnlyDictionary<Guid, Guid>>(new Dictionary<Guid, Guid>());
+    }
 }

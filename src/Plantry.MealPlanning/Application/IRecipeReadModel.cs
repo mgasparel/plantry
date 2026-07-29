@@ -51,6 +51,25 @@ public interface IRecipeReadModel
     /// Returns <see langword="false"/> when no non-archived recipe carries the tag.
     /// </summary>
     Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batched lookup for the meal-plan card's product-dish photo inheritance (plantry-f4dt): for each
+    /// product id, resolves the id of the recipe to borrow a photo from — a product-dish tile shows a
+    /// recipe's photo (soft, never duplicated — resolved live on every call) only when EXACTLY ONE
+    /// non-archived recipe declares that product as its cook yield (<see cref="RecipeReadModel"/>'s
+    /// <c>YieldProductId</c> concept, "Made by" on Product Detail — recipe-composition.md §9) AND that
+    /// recipe has a stored photo. A product id is OMITTED from the returned dictionary — never mapped
+    /// to a default/sentinel — when it has zero producer-recipes, more than one (genuinely ambiguous:
+    /// a household can point a second <c>AuthorRecipe</c> yield at an existing product), or exactly one
+    /// producer-recipe with no photo; the caller's <c>GetValueOrDefault</c> then falls through to the
+    /// existing gradient placeholder in all three cases without needing to distinguish them.
+    /// Default implementation returns an empty dictionary (no photo inheritance) so existing
+    /// <see cref="IRecipeReadModel"/> test doubles do not need to implement this to keep compiling —
+    /// override in any double that specifically exercises product-dish photo inheritance.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, Guid>> FindSoleYieldPhotoRecipeIdsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, Guid>>(new Dictionary<Guid, Guid>());
 }
 
 /// <summary>Display facts for a recipe in the meal editor.</summary>
