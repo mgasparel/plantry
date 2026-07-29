@@ -11,7 +11,7 @@ namespace Plantry.Web.Inventory;
 /// </summary>
 public sealed class CatalogReadFacade(
     IProductRepository products,
-    IUnitRepository units,
+    UnitCodesAccessor unitCodes,
     ICategoryRepository categories,
     ILocationRepository locations,
     IHouseholdExpiryDefaultsReader expiryDefaults) : ICatalogReadFacade
@@ -21,13 +21,13 @@ public sealed class CatalogReadFacade(
         var product = await products.FindAsync(ProductId.From(productId), ct);
         if (product is null) return null;
 
-        var unitsById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value);
+        var unitCodesById = await unitCodes.GetCodesAsync(ct);
         (string? name, int? hue) categoryInfo = product.CategoryId is { } categoryId
             ? await categories.FindAsync(categoryId, ct) is { } cat ? (cat.Name, cat.Hue) : (null, null)
             : (null, null);
         var defaults = await expiryDefaults.GetDefaultsAsync(ct);
 
-        return ToInfo(product, unitsById, categoryInfo.name, categoryInfo.hue, defaults);
+        return ToInfo(product, unitCodesById, categoryInfo.name, categoryInfo.hue, defaults);
     }
 
     public async Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default) =>
@@ -38,10 +38,10 @@ public sealed class CatalogReadFacade(
 
     private async Task<IReadOnlyList<CatalogProductInfo>> ProjectAsync(List<Product> source, CancellationToken ct)
     {
-        var unitsById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value);
+        var unitCodesById = await unitCodes.GetCodesAsync(ct);
         var categoriesById = (await categories.ListAsync(ct)).ToDictionary(c => c.Id);
         // Resolved once per call (household reference data, not per-product) — mirrors the single
-        // unitsById/categoriesById batch above rather than an N+1 per product.
+        // unitCodesById/categoriesById batch above rather than an N+1 per product.
         var defaults = await expiryDefaults.GetDefaultsAsync(ct);
 
         return source
@@ -50,13 +50,13 @@ public sealed class CatalogReadFacade(
                 var (catName, catHue) = p.CategoryId is { } cid && categoriesById.TryGetValue(cid, out var cat)
                     ? (cat.Name, cat.Hue)
                     : ((string?)null, (int?)null);
-                return ToInfo(p, unitsById, catName, catHue, defaults);
+                return ToInfo(p, unitCodesById, catName, catHue, defaults);
             })
             .ToList();
     }
 
     public async Task<IReadOnlyDictionary<Guid, string>> GetUnitCodesAsync(CancellationToken ct = default) =>
-        (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
+        await unitCodes.GetCodesAsync(ct);
 
     public async Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) =>
         (await locations.ListAsync(ct)).ToDictionary(l => l.Id.Value, l => l.Name);
@@ -65,14 +65,14 @@ public sealed class CatalogReadFacade(
         (await locations.ListAsync(ct)).ToDictionary(l => l.Id.Value, l => l.IsFrozen);
 
     private static CatalogProductInfo ToInfo(
-        Product p, Dictionary<Guid, Unit> unitsById, string? categoryName, int? categoryHue,
+        Product p, IReadOnlyDictionary<Guid, string> unitCodesById, string? categoryName, int? categoryHue,
         (int AfterFreezing, int AfterThawing) householdDefaults) =>
         new(
             p.Id.Value,
             p.Name,
             categoryName,
             p.DefaultUnitId.Value,
-            unitsById.TryGetValue(p.DefaultUnitId.Value, out var unit) ? unit.Code : "?",
+            unitCodesById.TryGetValue(p.DefaultUnitId.Value, out var code) ? code : "?",
             p.CanHoldStock,
             p.IsVariant,
             CategoryHue: categoryHue,

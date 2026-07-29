@@ -119,7 +119,7 @@ public sealed class ArchivedProductVisibilityTests(PostgresFixture db) : IAsyncL
         var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catalogDb);
         var categoryRepo = new CatalogCategoryRepository(catalogDb);
         var locationRepo = new CatalogLocationRepository(catalogDb);
-        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
+        var catalog = new CatalogReadFacade(productRepo, new UnitCodesAccessor(unitRepo), categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
         var stocks = new ProductStockRepository(NewInventoryDb());
         var tenant = new TestTenant(_household.Value);
