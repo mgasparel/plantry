@@ -8,7 +8,6 @@ using Plantry.Identity.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.Tests.Web.Infrastructure;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -98,7 +97,7 @@ public sealed class BudgetCurrencyStampTests
 
     // ── factory ──────────────────────────────────────────────────────────────
 
-    private sealed class CurrencyStampFactory(string currency) : WeekGridFragmentFactory
+    private sealed class CurrencyStampFactory(string currency) : MealPlanFragmentFactory
     {
         public CapturingPlanningSettingsRepo SettingsRepo { get; } = new();
         public CapturingWeekOverrideRepo OverrideRepo { get; } = new();

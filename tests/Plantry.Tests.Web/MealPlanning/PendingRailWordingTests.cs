@@ -1,5 +1,4 @@
 using AngleSharp.Html.Parser;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,7 +7,6 @@ using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.Tests.Web.Infrastructure;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -30,7 +28,7 @@ namespace Plantry.Tests.Web.MealPlanning;
 ///   1. Chip renders projected span (x-show costMode==='projected', labeled "incl. suggestions")
 ///      AND confirmed span when PendingCount > 0.
 ///   2. Chip is clickable (has @click toggling costMode) when PendingCount > 0.
-///   3. Chip is NOT clickable / single figure when PendingCount == 0 (WeekGridFragmentFactory).
+///   3. Chip is NOT clickable / single figure when PendingCount == 0 (MealPlanFragmentFactory).
 ///   4. Rail callout projected-mode body contains the CONFIRMED figure + "Tap the weekly cost".
 ///   5. Rail callout confirmed-mode body contains the PROJECTED figure + "Tap the weekly cost".
 ///   6. Old b4h strings are GONE.
@@ -102,7 +100,7 @@ public sealed class PendingRailWordingTests(GhostCellFactory factory)
     [Fact(DisplayName = "plantry-5lp: chip is a single unlabeled figure with no toggle when PendingCount == 0")]
     public async Task Chip_NoPending_SingleFigure()
     {
-        await using var emptyFactory = new WeekGridFragmentFactory();
+        await using var emptyFactory = new MealPlanFragmentFactory();
         var emptyClient = emptyFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         emptyClient.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, WeekGridFixture.HouseholdId.ToString());
 
@@ -186,8 +184,8 @@ public sealed class PendingRailWordingTests(GhostCellFactory factory)
     [Fact(DisplayName = "plantry-b4h: rail callout is only shown when there are pending proposals")]
     public async Task Rail_NoPendingCallout_WhenNoPendingProposals()
     {
-        // Use the base WeekGridFragmentFactory — NullPendingProposalStore, no proposals staged.
-        await using var emptyFactory = new WeekGridFragmentFactory();
+        // Use the base MealPlanFragmentFactory — NullPendingProposalStore, no proposals staged.
+        await using var emptyFactory = new MealPlanFragmentFactory();
         var emptyClient = emptyFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         emptyClient.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, WeekGridFixture.HouseholdId.ToString());
 
@@ -276,11 +274,11 @@ public sealed class PendingRailWordingCollection : ICollectionFixture<GhostCellF
 
 /// <summary>
 /// WAF factory that combines pending proposals (mirroring GhostCellFactory setup) with a seeded
-/// budget target for the gx34 inline-budget + tint tests. Extends WeekGridFragmentFactory (which
+/// budget target for the gx34 inline-budget + tint tests. Extends MealPlanFragmentFactory (which
 /// is not sealed) and overrides both the pending store and the planning settings repo.
 /// GhostCellFactory is sealed so this factory reproduces its essential registrations inline.
 /// </summary>
-public sealed class BudgetAndGhostFactory : WeekGridFragmentFactory
+public sealed class BudgetAndGhostFactory : MealPlanFragmentFactory
 {
     private readonly decimal _budgetDecimal;
 

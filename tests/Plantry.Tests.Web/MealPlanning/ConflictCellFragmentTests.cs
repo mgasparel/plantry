@@ -1,19 +1,8 @@
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
-using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.Preferences;
-using Plantry.Web.MealPlanning;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -108,129 +97,40 @@ public sealed class ConflictCellCollection : ICollectionFixture<ConflictCellFact
 /// WAF factory that seeds two attendees with mutually exclusive Required stances and a
 /// candidate pool where no recipe satisfies both — every cell is irreconcilable (C6).
 /// </summary>
-public sealed class ConflictCellFactory : WebApplicationFactory<Program>
+public sealed class ConflictCellFactory : MealPlanFragmentFactory
 {
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    // Slot config: both Alice and Bob are default attendees on every slot.
+    protected override IMealSlotConfigRepository SlotConfigRepo
     {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
+        get
         {
-            services.AddFakeDisplayCurrency();
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
-
-            // Stub UserManager
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000aa" }));
-
-            // Slot config: both Alice and Bob are default attendees on every slot.
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ =>
-            {
-                var hh = Plantry.SharedKernel.HouseholdId.From(WeekGridFixture.HouseholdId);
-                var clock = new FixedClock(MealPlanningTestClock.Instant);
-                var config = MealSlotConfig.CreateWithDefaults(hh, clock);
-                foreach (var slot in config.Slots.Where(s => s.IsActive))
-                    config.SetDefaultAttendees(slot.Id, [ConflictCellFixture.AliceId, ConflictCellFixture.BobId], clock);
-                return new FakeSlotRepo(config);
-            });
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(
-                new FakeMemberReader([
-                    new HouseholdMember(ConflictCellFixture.AliceId, "Alice", "A"),
-                    new HouseholdMember(ConflictCellFixture.BobId, "Bob", "B"),
-                ]));
-
-            // Preferences: Alice requires VeganTag, Bob requires MeatTag.
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(
-                new ConflictPrefsRepo(ConflictCellFixture.BuildAlicePref(), ConflictCellFixture.BuildBobPref()));
-
-            // Recipes: one vegan (only VeganTag) + one meat (only MeatTag). No recipe covers both.
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([
-                new RecipeReadModel(ConflictCellFixture.VeganRecipeId, "Vegan Stir-Fry", [ConflictCellFixture.VeganTag], 2),
-                new RecipeReadModel(ConflictCellFixture.MeatRecipeId, "Beef Stew", [ConflictCellFixture.MeatTag], 4),
-            ]));
-
-            // Tag reader: stub so UnfulfillabilityDetector resolves tag names.
-            // Both VeganTag and MeatTag have recipes (so no cell is Unfulfillable — only HardConflict).
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddScoped<IMealPlanRepository>(_ => new FakeMealPlanRepo());
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeProductReader([]));
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
-
-            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            // Planner: NullMealPlanner — never called because all cells conflict.
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(
-                new ConflictPrefsRepo(ConflictCellFixture.BuildAlicePref(), ConflictCellFixture.BuildBobPref()));
-
-            // P3-5: stub expiring-stock reader; re-register insights service
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            // plantry-so5.3: stub planning settings repos
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            // Pin IClock to the same instant ConflictCellFixture.WeekStart derives from (plantry-1w87),
-            // so the SUT and the fixture never race two independent reads of the real system clock.
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
-        });
+            var hh = Plantry.SharedKernel.HouseholdId.From(WeekGridFixture.HouseholdId);
+            var clock = new FixedClock(MealPlanningTestClock.Instant);
+            var config = MealSlotConfig.CreateWithDefaults(hh, clock);
+            foreach (var slot in config.Slots.Where(s => s.IsActive))
+                config.SetDefaultAttendees(slot.Id, [ConflictCellFixture.AliceId, ConflictCellFixture.BobId], clock);
+            return new FakeSlotRepo(config);
+        }
     }
+
+    protected override IHouseholdMemberReader MemberReader => new FakeMemberReader([
+        new HouseholdMember(ConflictCellFixture.AliceId, "Alice", "A"),
+        new HouseholdMember(ConflictCellFixture.BobId, "Bob", "B"),
+    ]);
+
+    // Preferences: Alice requires VeganTag, Bob requires MeatTag.
+    protected override IUserPreferenceRepository PreferenceRepo =>
+        new ConflictPrefsRepo(ConflictCellFixture.BuildAlicePref(), ConflictCellFixture.BuildBobPref());
+
+    // Recipes: one vegan (only VeganTag) + one meat (only MeatTag). No recipe covers both.
+    protected override IRecipeReadModel RecipeReadModel => new FakeRecipeReader([
+        new RecipeReadModel(ConflictCellFixture.VeganRecipeId, "Vegan Stir-Fry", [ConflictCellFixture.VeganTag], 2),
+        new RecipeReadModel(ConflictCellFixture.MeatRecipeId, "Beef Stew", [ConflictCellFixture.MeatTag], 4),
+    ]);
+
+    // Tag reader stays the base default (NullTagReader): both VeganTag and MeatTag have recipes, so
+    // no cell is Unfulfillable — only HardConflict — and UnfulfillabilityDetector never needs a name.
+    // Planner stays NullMealPlanner (base default) — never called because all cells conflict.
 }
 
 // ── ConflictCellFixture ───────────────────────────────────────────────────────

@@ -11,10 +11,8 @@ using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.Preferences;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -343,11 +341,11 @@ internal static class MealEditorFixture
 }
 
 /// <summary>
-/// Factory for meal editor OOB contract tests. Extends WeekGridFragmentFactory with:
+/// Factory for meal editor OOB contract tests. Extends MealPlanFragmentFactory with:
 ///   - A real UserManager stub (POST handlers call GetCurrentUserIdAsync)
 ///   - A seeded plan repo that has one meal so POST ClearJson has something to remove
 /// </summary>
-public sealed class MealEditorOobContractFactory : WeekGridFragmentFactory
+public sealed class MealEditorOobContractFactory : MealPlanFragmentFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -409,7 +407,7 @@ internal sealed class SeededMealEditorRepo : IMealPlanRepository
 /// Seeds a plan with a recipe dish meal and stubs the recipe reader to return enrichment data
 /// (so fulfillmentService.RollUpMealAsync returns a non-zero percent on the GET EditorJson open).
 /// </summary>
-public sealed class ExistingDishMealEditorFactory : WeekGridFragmentFactory
+public sealed class ExistingDishMealEditorFactory : MealPlanFragmentFactory
 {
     private static readonly Guid _recipeId = Guid.Parse("aaaaaaaa-bbbb-0000-0000-000000000001");
 

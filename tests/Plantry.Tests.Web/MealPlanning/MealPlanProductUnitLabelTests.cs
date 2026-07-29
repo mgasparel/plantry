@@ -1,20 +1,10 @@
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.Preferences;
-using Plantry.Web.MealPlanning;
 using System.Text.Json;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -143,109 +133,26 @@ internal static class ProductUnitLabelFixture
 /// <c>MealCardCookStripFactory</c>'s service wiring (WeekGridFragmentTests.cs /
 /// MealCardCookStripTests.cs) — this suite differs only in the plan repo and catalog reader.
 /// </summary>
-public sealed class ProductUnitLabelFactory : WebApplicationFactory<Program>
+public sealed class ProductUnitLabelFactory : MealPlanFragmentFactory
 {
     public ProductUnitLabelMealPlanRepo Repo { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
+    protected override string FakeUserId => "00000000-0000-0000-0000-0000000000dd";
+    protected override IMealPlanRepository MealPlanRepo => Repo;
+    protected override IMealSlotConfigRepository SlotConfigRepo => new FakeSlotRepo(ProductUnitLabelFixture.SlotConfig);
+    protected override IHouseholdMemberReader MemberReader => new FakeMemberReader([]);
+    protected override IRecipeReadModel RecipeReadModel => new FakeRecipeReader([]);
+
+    // The port under test: resolves the one product's unit code to "ea" everywhere
+    // (SearchAsync, ResolveDefaultUnitCodesAsync) — plantry-ri26.
+    protected override IMealPlanCatalogProductReader CatalogProductReader => new StubUnitCodeCatalogProductReader();
+
+    protected override IMealPlanCookStatusReader CookStatusReader => new FixedCookStatusReader(
+        new Dictionary<Guid, DishCookStatus>
         {
-            services.AddFakeDisplayCurrency("USD");
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
-
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000dd" }));
-
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddSingleton<IMealPlanRepository>(Repo);
-
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(ProductUnitLabelFixture.SlotConfig));
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
-
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([]));
-
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            // The port under test: resolves the one product's unit code to "ea" everywhere
-            // (SearchAsync, ResolveDefaultUnitCodesAsync) — plantry-ri26.
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(new StubUnitCodeCatalogProductReader());
-
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(new FixedCookStatusReader(
-                new Dictionary<Guid, DishCookStatus>
-                {
-                    [Repo.DoneRecipeDishId] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-30)),
-                    [Repo.DoneProductDishId] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-20)),
-                }));
-
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
-
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            // Pin IClock to the same instant the fixture derives "today" from (plantry-1w87 pattern),
-            // so the SUT and the fixture never race two independent reads of the real system clock.
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
+            [Repo.DoneRecipeDishId] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-30)),
+            [Repo.DoneProductDishId] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-20)),
         });
-    }
 }
 
 // ── Plan repo ─────────────────────────────────────────────────────────────────

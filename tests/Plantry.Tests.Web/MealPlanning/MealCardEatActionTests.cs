@@ -1,20 +1,9 @@
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.MealPlanning;
-using Plantry.Tests.Web.Preferences;
-using Plantry.Web.MealPlanning;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -147,118 +136,36 @@ public sealed class MealCardEatActionTests
 /// SHEET tests (<c>MealCardEatSheetTests</c>) drive the on-hand-aware auto-trigger check and get a
 /// resolvable product name/unit code, without a second near-duplicate factory — critic pass 1
 /// (reuse-first): the two factories differed by exactly these two registrations.</summary>
-public sealed class EatActionFactory(decimal? onHand = null, bool stubUnitCodes = false) : WebApplicationFactory<Program>
+public sealed class EatActionFactory(decimal? onHand = null, bool stubUnitCodes = false) : MealPlanFragmentFactory
 {
     private static readonly Guid EachUnitId = Guid.Parse("eeeeeeee-0000-0000-0000-00000000000e");
 
     public EatActionMealPlanRepo Repo { get; } = new();
     public SpyEatWriter Writer { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
-        {
-            services.AddFakeDisplayCurrency("USD");
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+    protected override string FakeUserId => "00000000-0000-0000-0000-0000000000cc";
+    protected override IMealPlanRepository MealPlanRepo => Repo;
+    protected override IMealSlotConfigRepository SlotConfigRepo => new FakeSlotRepo(EatActionFixture.SlotConfig);
+    protected override IHouseholdMemberReader MemberReader => new FakeMemberReader([]);
+    protected override IRecipeReadModel RecipeReadModel => new FakeRecipeReader([]);
 
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000cc" }));
+    // Reuses the plantry-ri26 stub (MealPlanProductUnitLabelTests.cs) when a sheet test needs a
+    // resolvable product name/unit code ("Flour"/"ea") instead of the "Unknown product"/"?"
+    // fallback FakeCatalogProductReaderW leaves unresolved — the plain Eat/Undo tests don't
+    // care, so they keep the original default.
+    protected override IMealPlanCatalogProductReader CatalogProductReader =>
+        stubUnitCodes ? new StubUnitCodeCatalogProductReader() : new FakeCatalogProductReaderW(existsResult: true);
 
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddSingleton<IMealPlanRepository>(Repo);
+    // The port under test's handler wiring: a spy that both records calls AND drives the
+    // cook-status reader, so a POST's effect is immediately visible in the next fragment render.
+    protected override IMealPlanEatWriter? EatWriter => Writer;
+    protected override IMealPlanCookStatusReader CookStatusReader => Writer;
 
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(EatActionFixture.SlotConfig));
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
-
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([]));
-
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            // Reuses the plantry-ri26 stub (MealPlanProductUnitLabelTests.cs) when a sheet test needs a
-            // resolvable product name/unit code ("Flour"/"ea") instead of the "Unknown product"/"?"
-            // fallback FakeCatalogProductReaderW leaves unresolved — the plain Eat/Undo tests don't
-            // care, so they keep the original default.
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(
-                stubUnitCodes ? new StubUnitCodeCatalogProductReader() : new FakeCatalogProductReaderW(existsResult: true));
-
-            // The port under test's handler wiring: a spy that both records calls AND drives the
-            // cook-status reader, so a POST's effect is immediately visible in the next fragment render.
-            services.RemoveAll<IMealPlanEatWriter>();
-            services.AddSingleton<IMealPlanEatWriter>(Writer);
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(Writer);
-
-            // Configurable on-hand (plantry-yuy3): null (default) reports no stock record for every
-            // product, exactly as before; a sheet test passing onHand drives the Eat auto-trigger check
-            // (UseUpZone.IsInUseUpZone) into or out of the sliver zone.
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(
-                onHand is { } oh ? new SingleProductStockReader(Repo.ProductId, oh, EachUnitId) : new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
-
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            // Pin IClock to the same instant the fixture below derives "today" from (plantry-1w87), so the
-            // SUT and the fixture never race two independent reads of the real system clock.
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
-        });
-    }
+    // Configurable on-hand (plantry-yuy3): null (default) reports no stock record for every
+    // product, exactly as before; a sheet test passing onHand drives the Eat auto-trigger check
+    // (UseUpZone.IsInUseUpZone) into or out of the sliver zone.
+    protected override IMealPlanStockReader StockReader =>
+        onHand is { } oh ? new SingleProductStockReader(Repo.ProductId, oh, EachUnitId) : new NullStockReader();
 }
 
 internal static class EatActionFixture

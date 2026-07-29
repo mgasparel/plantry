@@ -1,20 +1,10 @@
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.MealPlanning;
-using Plantry.Tests.Web.Preferences;
 using Plantry.Web.MealPlanning;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -169,7 +159,7 @@ public sealed class MealCardEnrichmentCollection : ICollectionFixture<MealCardEn
 /// WAF factory that wires a meal plan containing a recipe dish with a known enrichment.
 /// Uses <see cref="EnrichmentRecipeReader"/> to return a fixed <see cref="RecipeDishEnrichment"/>.
 /// </summary>
-public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
+public sealed class MealCardEnrichmentFactory : MealPlanFragmentFactory
 {
     private readonly bool _useExpiring;
     private readonly int _fulfillmentPct;
@@ -196,112 +186,27 @@ public sealed class MealCardEnrichmentFactory : WebApplicationFactory<Program>
         _hasPhoto = hasPhoto;
     }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
-        {
-            services.AddFakeDisplayCurrency(_displayCurrency);
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+    protected override string DisplayCurrency => _displayCurrency;
 
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000aa" }));
+    // Meal plan repo: returns a plan with one recipe dish.
+    protected override IMealPlanRepository MealPlanRepo => new EnrichmentMealPlanRepo(EnrichmentFixture.RecipeId);
 
-            // Meal plan repo: returns a plan with one recipe dish
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddScoped<IMealPlanRepository>(_ =>
-                new EnrichmentMealPlanRepo(EnrichmentFixture.RecipeId));
+    protected override IMealSlotConfigRepository SlotConfigRepo => new FakeSlotRepo(EnrichmentFixture.SlotConfig);
+    protected override IHouseholdMemberReader MemberReader => new FakeMemberReader([]);
 
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ =>
-                new FakeSlotRepo(EnrichmentFixture.SlotConfig));
+    // Recipe reader: returns enrichment data for the recipe, plus the recipe display info.
+    protected override IRecipeReadModel RecipeReadModel => new EnrichmentRecipeReader(
+        EnrichmentFixture.RecipeId,
+        new RecipeDishEnrichment(_fulfillmentPct, _totalCost, false, _useExpiring));
 
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
+    // ADR-021 week read model: a bag pre-populated with recipe/stock/price data that makes the pure
+    // FulfillmentService.Compute / CostingService.Compute overloads produce exactly
+    // (_fulfillmentPct, _totalCost, _useExpiring) without touching the DB.
+    protected override IMealPlanWeekReadModel WeekReadModel =>
+        new FakeEnrichmentWeekReadModel(_useExpiring, _fulfillmentPct, _totalCost, _hasPhoto);
 
-            // Recipe reader: returns enrichment data for the recipe, plus the recipe display info
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new EnrichmentRecipeReader(
-                EnrichmentFixture.RecipeId,
-                new RecipeDishEnrichment(_fulfillmentPct, _totalCost, false, _useExpiring)));
-
-            // ADR-021 week read model: provide a bag pre-populated with recipe/stock/price data
-            // that makes the pure FulfillmentService.Compute / CostingService.Compute overloads
-            // produce exactly (_fulfillmentPct, _totalCost, _useExpiring) without touching the DB.
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(
-                new FakeEnrichmentWeekReadModel(_useExpiring, _fulfillmentPct, _totalCost, _hasPhoto));
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeCatalogProductReaderW(existsResult: true));
-
-            // P3-4 port interfaces — stock/price readers return null (no product dishes in this test)
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            // P3-6a: stub AI planner + proposal store
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
-
-            // so5.5: stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            // P3-5: stub expiring-stock reader; re-register insights service
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            // plantry-so5.3: stub planning settings repos
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            // Pin IClock to the same instant EnrichmentMealPlanRepo derives "today" from (plantry-1w87), so
-            // the SUT and the fixture never race two independent reads of the real system clock.
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
-        });
-    }
+    protected override IMealPlanCatalogProductReader CatalogProductReader =>
+        new FakeCatalogProductReaderW(existsResult: true);
 }
 
 // ── Enrichment test doubles ───────────────────────────────────────────────────

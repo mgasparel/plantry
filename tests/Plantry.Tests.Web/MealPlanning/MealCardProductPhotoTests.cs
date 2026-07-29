@@ -1,19 +1,9 @@
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.Preferences;
-using Plantry.Web.MealPlanning;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -156,105 +146,23 @@ internal static class ProductPhotoFixture
 /// <see cref="ProductPhotoFixture.PhotoInheritingProductId"/> to <see cref="ProductPhotoFixture.SoleProducerRecipeId"/>
 /// and nothing else. Mirrors <c>ProductUnitLabelFactory</c>'s (plantry-ri26) service wiring.
 /// </summary>
-public sealed class MealCardProductPhotoFactory : WebApplicationFactory<Program>
+public sealed class MealCardProductPhotoFactory : MealPlanFragmentFactory
 {
     public ProductPhotoMealPlanRepo Repo { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
+    protected override string FakeUserId => "00000000-0000-0000-0000-0000000000ee";
+    protected override IMealPlanRepository MealPlanRepo => Repo;
+    protected override IMealSlotConfigRepository SlotConfigRepo => new FakeSlotRepo(ProductPhotoFixture.SlotConfig);
+    protected override IHouseholdMemberReader MemberReader => new FakeMemberReader([]);
+
+    // The port under test: resolves ONLY PhotoInheritingProductId → SoleProducerRecipeId.
+    protected override IRecipeReadModel RecipeReadModel => new YieldPhotoRecipeReader(
+        new Dictionary<Guid, Guid>
         {
-            services.AddFakeDisplayCurrency("USD");
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
-
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000ee" }));
-
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddSingleton<IMealPlanRepository>(Repo);
-
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(ProductPhotoFixture.SlotConfig));
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
-
-            // The port under test: resolves ONLY PhotoInheritingProductId → SoleProducerRecipeId.
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new YieldPhotoRecipeReader(
-                new Dictionary<Guid, Guid>
-                {
-                    [ProductPhotoFixture.PhotoInheritingProductId] = ProductPhotoFixture.SoleProducerRecipeId,
-                }));
-
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(new ProductPhotoCatalogReader());
-
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
-
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
-
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
+            [ProductPhotoFixture.PhotoInheritingProductId] = ProductPhotoFixture.SoleProducerRecipeId,
         });
-    }
+
+    protected override IMealPlanCatalogProductReader CatalogProductReader => new ProductPhotoCatalogReader();
 }
 
 // ── Plan repo ─────────────────────────────────────────────────────────────────

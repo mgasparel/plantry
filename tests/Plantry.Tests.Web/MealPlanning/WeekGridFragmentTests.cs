@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -15,7 +14,6 @@ using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.Preferences;
 using Plantry.Web.MealPlanning;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -23,11 +21,11 @@ namespace Plantry.Tests.Web.MealPlanning;
 /// L4 fragment tests for the /MealPlan week grid page (P3-3).
 /// Uses the WAF harness with fake services — no Postgres touched.
 /// </summary>
-public sealed class WeekGridFragmentTests : IClassFixture<WeekGridFragmentFactory>
+public sealed class WeekGridFragmentTests : IClassFixture<MealPlanFragmentFactory>
 {
-    private readonly WeekGridFragmentFactory _factory;
+    private readonly MealPlanFragmentFactory _factory;
 
-    public WeekGridFragmentTests(WeekGridFragmentFactory factory) => _factory = factory;
+    public WeekGridFragmentTests(MealPlanFragmentFactory factory) => _factory = factory;
 
     private HttpClient CreateClient() =>
         _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -275,102 +273,15 @@ public sealed class DishServingsAlignmentTests(DishServingsFactory factory)
 [CollectionDefinition(nameof(DishServingsCollection))]
 public sealed class DishServingsCollection : ICollectionFixture<DishServingsFactory> { }
 
-public sealed class DishServingsFactory : WebApplicationFactory<Program>
+public sealed class DishServingsFactory : MealPlanFragmentFactory
 {
     public CapturingMealPlanRepo CapturingRepo { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
-        {
-            services.AddFakeDisplayCurrency();
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+    protected override IMealPlanRepository MealPlanRepo => CapturingRepo;
 
-            // Stub out UserManager so GetCurrentUserIdAsync doesn't hit a real Identity DB
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000aa" }));
-
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddScoped<IMealPlanRepository>(_ => CapturingRepo);
-
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(WeekGridFixture.SharedConfig));
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader(WeekGridFixture.Members));
-
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader(WeekGridFixture.Recipes));
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            // Use a product reader that reports all products as existing (for AssignDishesAsync catalog check).
-            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeCatalogProductReaderW(existsResult: true));
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            // Stub the P3-4 port interfaces so PlanFulfillmentService / PlanCostingService
-            // / ShopForWeekService resolve without real Inventory/Pricing/Shopping infrastructure.
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
-
-            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            // P3-6a: stub AI planner + proposal store
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            // P3-5: stub expiring-stock reader; re-register insights service
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            // plantry-so5.3: stub planning settings repos
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            // Pin IClock so the SUT never races an independent live-clock read (plantry-1w87).
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
-        });
-    }
+    // Reports all products as existing (for AssignDishesAsync's catalog check).
+    protected override IMealPlanCatalogProductReader CatalogProductReader =>
+        new FakeCatalogProductReaderW(existsResult: true);
 }
 
 public sealed class CapturingMealPlanRepo : IMealPlanRepository
@@ -430,121 +341,15 @@ public static class WeekGridFixture
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
-
-public class WeekGridFragmentFactory : WebApplicationFactory<Program>
-{
-    /// <summary>Override to true to return no slots from the fake repo (tests empty state).</summary>
-    protected virtual bool NoSlots => false;
-
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-
-        builder.ConfigureTestServices(services =>
-        {
-            // Household display currency: the SetPlanningSettings POST stamps the budget Money with it and the
-            // page's cost figures render through MoneyDisplay with it; stub so the DB-backed service isn't hit.
-            services.AddFakeDisplayCurrency();
-            services.AddFakeExpiringSoonHorizon();
-            // Auth: header-driven test scheme
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
-
-            // Replace MealPlan repository
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddScoped<IMealPlanRepository>(_ => new FakeMealPlanRepo());
-
-            // Replace slot config repo (use shared config for stable slot IDs)
-            var config = NoSlots ? null : WeekGridFixture.SharedConfig;
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(config));
-
-            // Replace household member reader
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader(WeekGridFixture.Members));
-
-            // Replace recipe and catalog readers
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader(WeekGridFixture.Recipes));
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeProductReader(WeekGridFixture.Products));
-
-            // Re-register services that depend on the fakes
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            // Stub the P3-4 port interfaces so PlanFulfillmentService / PlanCostingService
-            // / ShopForWeekService resolve without real Inventory/Pricing/Shopping infrastructure.
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
-
-            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            // P3-6a: stub AI planner, proposal store, and application services
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            // Stub UserPreferences (needed by AcceptProposalService / GeneratePlanService)
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
-
-            // Stub ITagReader (needed by GeneratePlanService for unfulfillable tag name resolution)
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            // P3-5: stub expiring-stock reader; re-register insights service
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            // plantry-so5.3: stub planning settings repos so WAF tests don't need Postgres
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            // Pin IClock so the SUT never races an independent live-clock read (plantry-1w87). Inherited
-            // by WeekGridNoSlotsFragmentFactory and MultiMealCellFragmentFactory via base.ConfigureWebHost.
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
-        });
-    }
-}
+//
+// The shared base factory formerly declared here (WeekGridFragmentFactory) has been promoted and
+// renamed to Plantry.Tests.Web.Infrastructure.MealPlanFragmentFactory (plantry-sl2e) — converging
+// this folder's 21 direct WebApplicationFactory<Program> subclasses onto the same
+// base-class-with-protected-virtual-hooks convention the other Infrastructure/ factories already use.
+// The variants below now derive from that promoted base directly.
 
 /// <summary>No-slots variant: overrides NoSlots to return null config (empty state test).</summary>
-public sealed class WeekGridNoSlotsFragmentFactory : WeekGridFragmentFactory
+public sealed class WeekGridNoSlotsFragmentFactory : MealPlanFragmentFactory
 {
     protected override bool NoSlots => true;
 }
@@ -554,7 +359,7 @@ public sealed class WeekGridNoSlotsFragmentFactory : WeekGridFragmentFactory
 /// (Monday of the current ISO week, first active slot). Used to verify that
 /// the week grid renders two meal-card elements and an add-meal button.
 /// </summary>
-public sealed class MultiMealCellFragmentFactory : WeekGridFragmentFactory
+public sealed class MultiMealCellFragmentFactory : MealPlanFragmentFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -758,106 +563,13 @@ public sealed class HardStanceWarningCollection : ICollectionFixture<HardStanceW
 /// Factory that wires a recipe with a dietary tag and a UserPreference with Restricted stance
 /// so that AssignDishesAsync returns a non-null HardStanceWarning.
 /// </summary>
-public sealed class HardStanceWarningFactory : WebApplicationFactory<Program>
+public sealed class HardStanceWarningFactory : MealPlanFragmentFactory
 {
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
-        {
-            services.AddFakeDisplayCurrency();
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+    // Recipe reader: returns a recipe that carries the restricted dietary tag.
+    protected override IRecipeReadModel RecipeReadModel => new FakeRecipeReader(HardStanceWarningFixture.Recipes);
 
-            // Stub out UserManager so GetCurrentUserIdAsync doesn't hit a real Identity DB
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000aa" }));
-
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddScoped<IMealPlanRepository>(_ => new FakeMealPlanRepo());
-
-            // Use the shared slot config (stable slot IDs)
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(WeekGridFixture.SharedConfig));
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader(WeekGridFixture.Members));
-
-            // Recipe reader: returns a recipe that carries the restricted dietary tag
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader(HardStanceWarningFixture.Recipes));
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeProductReader([]));
-
-            // User preference repo: returns a Restricted stance on the dietary tag for the attendee
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(HardStanceWarningFixture.PreferenceRepo);
-
-            // Re-register services (real)
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            // Stub the P3-4 port interfaces so PlanFulfillmentService / PlanCostingService
-            // / ShopForWeekService resolve without real Inventory/Pricing/Shopping infrastructure.
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
-
-            // ADR-021 week read model: return empty bag — no DB connection in WAF tests.
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            // P3-6a: stub AI planner + proposal store
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            // P3-5: stub expiring-stock reader; re-register insights service
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            // plantry-so5.3: stub planning settings repos
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            // Pin IClock so the SUT never races an independent live-clock read (plantry-1w87).
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
-        });
-    }
+    // User preference repo: returns a Restricted stance on the dietary tag for the attendee.
+    protected override IUserPreferenceRepository PreferenceRepo => HardStanceWarningFixture.PreferenceRepo;
 }
 
 /// <summary>

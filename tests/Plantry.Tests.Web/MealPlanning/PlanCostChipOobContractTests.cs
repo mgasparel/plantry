@@ -5,13 +5,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Infrastructure;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
-using Plantry.SharedKernel;
-using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.Preferences;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -183,11 +178,11 @@ public sealed class PlanCostChipOobContractTests(PlanCostChipOobFactory factory)
 public sealed class PlanCostChipOobCollection : ICollectionFixture<PlanCostChipOobFactory> { }
 
 /// <summary>
-/// WAF factory for PlanCostChipOobContractTests. Extends WeekGridFragmentFactory with a
+/// WAF factory for PlanCostChipOobContractTests. Extends MealPlanFragmentFactory with a
 /// stubbed UserManager so the POST handlers (Generate/AcceptAll/Discard) can resolve the
 /// current user without touching the real Identity Postgres DB.
 /// </summary>
-public sealed class PlanCostChipOobFactory : WeekGridFragmentFactory
+public sealed class PlanCostChipOobFactory : MealPlanFragmentFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
