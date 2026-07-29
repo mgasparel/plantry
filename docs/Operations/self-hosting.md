@@ -212,6 +212,42 @@ a single-household VPS.  If you outgrow it, switch to
 [SigNoz](https://signoz.io/) or [Uptrace](https://uptrace.dev/) (both
 ClickHouse-backed, production-grade, heavier) and switch to Option B below.
 
+**Post-deploy verification — `lgtm` health status:**
+
+The `lgtm` healthcheck probes Grafana, Loki, and the OTel collector's OTLP
+receiver, but it is a **detection signal only** — it does not gate
+`plantry-web`'s startup (`depends_on: condition: service_started`, not
+`service_healthy`; see ADR-016). Plain Compose takes no action on an unhealthy
+container beyond reporting status, so checking it is a manual step, not
+something the stack enforces for you. All commands below assume the same
+overlay flags as the start command above — either repeat
+`-f docker-compose.yml -f docker-compose.observability.yml` on each, or
+`export COMPOSE_FILE=docker-compose.yml:docker-compose.observability.yml` once
+per shell session so a bare `docker compose` picks up both files:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml ps lgtm
+```
+
+- **`healthy`** — Grafana, Loki, and the OTLP receiver are all responding.
+  Nothing to do.
+- **`unhealthy`** — one of the three has stopped responding (most likely
+  Loki, per `plantry-e4z0`). This means: **telemetry is degraded — new
+  traces/metrics/logs may not be captured — but the application itself is
+  unaffected.** `plantry-web` keeps serving regardless (the OTLP exporter
+  buffers and retries). Check
+  `docker compose -f docker-compose.yml -f docker-compose.observability.yml logs lgtm`
+  for which daemon died, and restart the container
+  (`docker compose -f docker-compose.yml -f docker-compose.observability.yml restart lgtm`)
+  to recover it. An `unhealthy` `lgtm` is *not* a household-facing incident —
+  verify the app is still up (`curl -fsS http://localhost:${HTTP_PORT:-8080}/alive`,
+  or `curl -fsS https://${DOMAIN}/alive` if you run the `docker-compose.caddy.yml`
+  TLS overlay) and treat the sidecar restart as routine maintenance, not an
+  emergency.
+- Tempo, Pyroscope, and Prometheus are **not** probed and their failure will
+  not surface as `unhealthy` — this is a deliberate scope limit, not an
+  oversight (see the healthcheck comment in the compose file).
+
 ### Option B — SaaS OTLP endpoint
 
 If you have a Grafana Cloud, Honeycomb, or similar account, skip

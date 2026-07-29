@@ -141,9 +141,18 @@ A "sweep" child (dead-code removal, final cleanup, doc update) that runs against
 on the epic branch. File it as a follow-up issue after the epic PR merges, either
 manually or via `bd create` in the post-merge batch-close step:
 
+Never pass the description inline via `--description` on PowerShell (code/CLAUDE.md's bd
+CLI guardrail) — write it to a scratch file first, then pass via `--body-file`. Here and
+throughout this file, `<scratchpad>/<name>.md` means a path in the session scratchpad
+**outside** any git worktree — never inside `../worktrees/<issue-id>` or
+`../worktrees/<epic-id>`, since a stray file left in either tree risks being picked up
+by a later commit, push, or merge of that branch:
+
 ```bash
 # After confirming MERGED (Step 5-5), before closing children:
-bd create --title="<sweep task>" --description="Follow-up sweep after epic <epic-id> merged to main." \
+# write "Follow-up sweep after epic <epic-id> merged to main." to
+# <scratchpad>/sweep-description.md
+bd create --title="<sweep task>" --body-file "<scratchpad>/sweep-description.md" \
   --type=task --priority=<p>
 ```
 
@@ -278,10 +287,15 @@ process beat you), try the next ready issue.
     will be `epic/<that-id>`); the title is just a human-readable dated label — do NOT
     key on it. The date stamp is "when opened," not a unique slot, so multiple rollups
     can share a date without conflict (different bead ids, and only one is ever open
-    unsealed at a time):
+    unsealed at a time). Never pass the description inline via `--description` on
+    PowerShell (code/CLAUDE.md's bd CLI guardrail) — write it to a scratch file first,
+    then pass via `--body-file`:
     ```bash
+    # write "Rolling catch-all batch of loose one-offs (bugfixes/chores). Ships as one
+    # PR when sealed (label 'sealed' or ROLLUP_MAX_CHILDREN children), after which a
+    # fresh rollup opens for subsequent one-offs." to <scratchpad>/rollup-description.md
     bd create --type epic --labels rollup --title "rollup (opened $(date -u +%Y-%m-%d))" \
-      --description "Rolling catch-all batch of loose one-offs (bugfixes/chores). Ships as one PR when sealed (label 'sealed' or ROLLUP_MAX_CHILDREN children), after which a fresh rollup opens for subsequent one-offs." --priority 2
+      --body-file "<scratchpad>/rollup-description.md" --priority 2
     ```
   Attach the issue and set `epic-id` to the rollup:
   ```bash
@@ -375,10 +389,15 @@ What happens next depends on the park reason:
     arbiter-confirmed).
   - **RETRY-ESCALATED** → post the COMMENT, then un-park the bead and clear the parked
     attempt so the retry starts genuinely clean — the arbiter has already read it:
+    `--notes` has no file variant, so never pass it inline on PowerShell — build it via a
+    Bash single-quoted heredoc (code/CLAUDE.md's bd CLI guardrail):
     ```bash
     bd update <issue-id> --status in_progress
     bd update <issue-id> --remove-label needs-human
-    bd update <issue-id> --notes "Un-parked <timestamp>: arbiter ruled RETRY-ESCALATED on <reason-string>."
+    bd update <issue-id> --notes "$(cat <<'EOF'
+Un-parked <timestamp>: arbiter ruled RETRY-ESCALATED on <reason-string>.
+EOF
+)"
     git worktree remove ../worktrees/<issue-id> --force
     git branch -m issue/<issue-id> issue/<issue-id>-parked-1   # rename, don't delete — the parked HEAD stays recoverable
     ```
@@ -394,10 +413,15 @@ What happens next depends on the park reason:
   - **OVERRIDE** → the arbiter has proven the final critic's blocking finding wrong (its
     ruling contains the enumeration + verification evidence). Post the COMMENT with that
     evidence, un-park the bead:
+    `--notes` has no file variant, so never pass it inline on PowerShell — build it via a
+    Bash single-quoted heredoc (code/CLAUDE.md's bd CLI guardrail):
     ```bash
     bd update <issue-id> --status in_progress
     bd update <issue-id> --remove-label needs-human
-    bd update <issue-id> --notes "Un-parked <timestamp>: arbiter ruled OVERRIDE on <reason-string>; evidence in comments."
+    bd update <issue-id> --notes "$(cat <<'EOF'
+Un-parked <timestamp>: arbiter ruled OVERRIDE on <reason-string>; evidence in comments.
+EOF
+)"
     ```
     and resume the worker: `SendMessage(to=worker, "ARBITER OVERRIDE — the final verdict
     is treated as PASS. Proceed from Step 5 (squash, commit, completion comment, verdict).
@@ -469,11 +493,21 @@ Operate in the epic worktree `../worktrees/<epic-id>`.
    git fetch origin main --quiet
    git -C ../worktrees/<epic-id> rebase origin/main
    ```
-   - Conflict → abort (`git -C ../worktrees/<epic-id> rebase --abort`), park the **epic**:
+   - Conflict → abort (`git -C ../worktrees/<epic-id> rebase --abort`), park the **epic**.
+     Neither flag takes free text inline on PowerShell (code/CLAUDE.md's bd CLI
+     guardrail): `--notes` has no file variant, so build it via a Bash single-quoted
+     heredoc; `bd comment` does have a file variant, so write the detail to a scratch
+     file first:
      ```bash
      bd update <epic-id> --status blocked --add-label needs-human
-     bd update <epic-id> --notes "Auto-parked <ts>: epic-rebase-conflict on flush. Branch epic/<epic-id> + worktree preserved."
-     bd comment <epic-id> "Flush blocked: epic/<epic-id> conflicts with origin/main on rebase. A human must rebase. Children remain staged; nothing closed."
+     bd update <epic-id> --notes "$(cat <<'EOF'
+Auto-parked <ts>: epic-rebase-conflict on flush. Branch epic/<epic-id> + worktree preserved.
+EOF
+)"
+     # write "Flush blocked: epic/<epic-id> conflicts with origin/main on rebase. A human
+     # must rebase. Children remain staged; nothing closed." to
+     # <scratchpad>/flush-blocked.md, then:
+     bd comment <epic-id> --file <scratchpad>/flush-blocked.md
      ```
      Log `PARKED: <epic-id> — epic-rebase-conflict` and return to Step 1.
    - Clean → force-push the rebased branch: `git -C ../worktrees/<epic-id> push --force-with-lease`.
@@ -501,8 +535,13 @@ Operate in the epic worktree `../worktrees/<epic-id>`.
        If `gh pr merge` fails: already-merged → continue to step 4; else park `merge-failed:<err>`.
      - **`merge_authorized == false`** → do **not** arm. The epic is built, rebased, and
        its PR is open — hand back to the human here:
+       `--notes` has no file variant, so never pass it inline on PowerShell — build it via
+       a Bash single-quoted heredoc (code/CLAUDE.md's bd CLI guardrail):
        ```bash
-       bd update <epic-id> --notes "Flush ready <ts>: epic PR #<pr-number> open, un-armed (run not authorized to merge without review). Children staged; nothing closed."
+       bd update <epic-id> --notes "$(cat <<'EOF'
+Flush ready <ts>: epic PR #<pr-number> open, un-armed (run not authorized to merge without review). Children staged; nothing closed.
+EOF
+)"
        ```
        Log `HANDOFF: epic <epic-id> — PR #<pr-number> open for human review (not auto-merged)`,
        relay the PR URL to the human, and return to Step 1. **Do not `bd close` anything**
@@ -530,15 +569,23 @@ Operate in the epic worktree `../worktrees/<epic-id>`.
 
    Timeout (30 min) → park the epic `merge-timeout` (branch + worktree preserved, auto-merge armed); return to Step 1.
 
-5. **Batch-close on confirmed merge:**
+5. **Batch-close on confirmed merge:** `--notes` has no file variant, so never pass it
+   inline on PowerShell — build it via a Bash single-quoted heredoc (code/CLAUDE.md's bd
+   CLI guardrail):
    ```bash
    # Close every child of the epic, then the epic.
    for child in <all child ids from bd show <epic-id>>; do
-     bd update "$child" --notes "Merged to main in epic PR #<pr-number> (epic <epic-id>)."
+     bd update "$child" --notes "$(cat <<'EOF'
+Merged to main in epic PR #<pr-number> (epic <epic-id>).
+EOF
+)"
      bd update "$child" --remove-label staged
      bd close "$child"
    done
-   bd update <epic-id> --notes "Shipped via epic PR #<pr-number>. <n> children landed on main."
+   bd update <epic-id> --notes "$(cat <<'EOF'
+Shipped via epic PR #<pr-number>. <n> children landed on main.
+EOF
+)"
    bd close <epic-id>
    ```
 
@@ -582,11 +629,20 @@ Multiple classes → prefer the higher severity (code/test > env/config > flaky)
   return to Step 5's poll loop.
 - already `true` → reclassify as code/test → Step 6-5.
 
-**Step 6-4 — Park for env/config:**
+**Step 6-4 — Park for env/config:** neither flag takes free text inline on PowerShell
+(code/CLAUDE.md's bd CLI guardrail): `--notes` has no file variant, so build it via a
+Bash single-quoted heredoc; `bd comment` does have a file variant, so write the log
+excerpt to a scratch file first.
 ```bash
 bd update <epic-id> --status blocked --add-label needs-human
-bd update <epic-id> --notes "Auto-parked <ts>: ci-failed (env/config) on epic PR #<pr-number>. Run: <run-id>."
-bd comment <epic-id> "CI reconcile: epic PR #<pr-number> failed with env/config error (run <run-id>) — not a code fix. Log excerpt: <first 20 lines>. epic/<epic-id> + worktree preserved; children remain staged."
+bd update <epic-id> --notes "$(cat <<'EOF'
+Auto-parked <ts>: ci-failed (env/config) on epic PR #<pr-number>. Run: <run-id>.
+EOF
+)"
+# write "CI reconcile: epic PR #<pr-number> failed with env/config error (run <run-id>)
+# — not a code fix. Log excerpt: <first 20 lines>. epic/<epic-id> + worktree preserved;
+# children remain staged." to <scratchpad>/ci-reconcile-envconfig.md, then:
+bd comment <epic-id> --file <scratchpad>/ci-reconcile-envconfig.md
 ```
 Log `PARKED: epic <epic-id> — ci-failed (env/config)`; return to Step 1.
 
@@ -603,11 +659,20 @@ The worker operates on `epic/<epic-id>` / `../worktrees/<epic-id>` and returns:
   once (set it true) and return to the poll loop; else Step 6-6.
 - `PARKED` — worker already parked the epic; log and return to Step 1.
 
-**Step 6-6 — Park for exhausted attempts:**
+**Step 6-6 — Park for exhausted attempts:** neither flag takes free text inline on
+PowerShell (code/CLAUDE.md's bd CLI guardrail): `--notes` has no file variant, so build
+it via a Bash single-quoted heredoc; `bd comment` does have a file variant, so write the
+detail to a scratch file first.
 ```bash
 bd update <epic-id> --status blocked --add-label needs-human
-bd update <epic-id> --notes "Auto-parked <ts>: ci-failed (exhausted after <ci_fix_attempts> attempt(s)) on epic PR #<pr-number>. Run: <run-id>."
-bd comment <epic-id> "CI reconcile: parked after <ci_fix_attempts> fix attempt(s). Last run <run-id>. epic/<epic-id> + worktree preserved; children staged."
+bd update <epic-id> --notes "$(cat <<'EOF'
+Auto-parked <ts>: ci-failed (exhausted after <ci_fix_attempts> attempt(s)) on epic PR #<pr-number>. Run: <run-id>.
+EOF
+)"
+# write "CI reconcile: parked after <ci_fix_attempts> fix attempt(s). Last run <run-id>.
+# epic/<epic-id> + worktree preserved; children staged." to
+# <scratchpad>/ci-reconcile-exhausted.md, then:
+bd comment <epic-id> --file <scratchpad>/ci-reconcile-exhausted.md
 ```
 Log `PARKED: epic <epic-id> — ci-failed (exhausted)`; return to Step 1.
 

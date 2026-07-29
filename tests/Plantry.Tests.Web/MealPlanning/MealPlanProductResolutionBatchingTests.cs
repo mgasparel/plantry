@@ -1,20 +1,10 @@
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.Preferences;
-using Plantry.Web.MealPlanning;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -50,6 +40,9 @@ public sealed class MealPlanProductResolutionBatchingTests
         // of the three meals (Breakfast, Lunch, Dinner) contain product dishes.
         Assert.Equal(1, factory.CatalogReader.ResolveNamesCallCount);
         Assert.Equal(1, factory.CatalogReader.ResolveUnitCodesCallCount);
+        // plantry-f4dt: the product-dish photo-inheritance lookup sits in the exact same batched
+        // spot as the two calls above — must not regress to a per-meal round trip either.
+        Assert.Equal(1, factory.RecipeReader.FindSoleYieldPhotoCallCount);
 
         // AC3: Flour is planned in BOTH Breakfast and Lunch — the Distinct() union that feeds the
         // single batch call must not drop either occurrence's rendering. A single Assert.Contains
@@ -79,6 +72,9 @@ public sealed class MealPlanProductResolutionBatchingTests
         // AC4: no product dishes anywhere in the week -> zero product-resolution round trips.
         Assert.Equal(0, factory.CatalogReader.ResolveNamesCallCount);
         Assert.Equal(0, factory.CatalogReader.ResolveUnitCodesCallCount);
+        // plantry-f4dt: the `allProductDishIds.Count > 0` guard at Index.cshtml.cs:1177 must skip
+        // the photo-inheritance lookup too when there are zero product dishes.
+        Assert.Equal(0, factory.RecipeReader.FindSoleYieldPhotoCallCount);
     }
 }
 
@@ -112,204 +108,42 @@ internal static class ProductBatchingFixture
 /// WAF factory wiring a plan with product dishes in all three default slots (Breakfast, Lunch,
 /// Dinner) — Flour in Breakfast and Lunch, Sugar in Dinner — plus a call-counting catalog reader.
 /// </summary>
-public sealed class ProductBatchingFactory : WebApplicationFactory<Program>
+public sealed class ProductBatchingFactory : MealPlanFragmentFactory
 {
     public CountingCatalogProductReader CatalogReader { get; } = new();
+    public CountingYieldPhotoRecipeReader RecipeReader { get; } = new();
     public ProductBatchingMealPlanRepo Repo { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
-        {
-            services.AddFakeDisplayCurrency("USD");
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+    protected override string FakeUserId => "00000000-0000-0000-0000-0000000000ee";
+    protected override IMealPlanRepository MealPlanRepo => Repo;
+    protected override IMealSlotConfigRepository SlotConfigRepo => new FakeSlotRepo(ProductBatchingFixture.SlotConfig);
+    protected override IHouseholdMemberReader MemberReader => new FakeMemberReader([]);
+    protected override IMealPlanCatalogProductReader CatalogProductReader => CatalogReader;
+    protected override IRecipeReadModel RecipeReadModel => RecipeReader;
 
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000ee" }));
-
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddSingleton<IMealPlanRepository>(Repo);
-
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(ProductBatchingFixture.SlotConfig));
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
-
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([]));
-
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(CatalogReader);
-
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(
-                new FixedCookStatusReader(new Dictionary<Guid, DishCookStatus>()));
-
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
-
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
-        });
-    }
+    protected override IMealPlanCookStatusReader CookStatusReader =>
+        new FixedCookStatusReader(new Dictionary<Guid, DishCookStatus>());
 }
 
 // ── Factory: recipe-only week (AC4) ──────────────────────────────────────────
 
 /// <summary>Same wiring as <see cref="ProductBatchingFactory"/> but the plan has zero product
 /// dishes — used to prove AC4 (no product dishes -> zero resolver calls).</summary>
-public sealed class RecipeOnlyBatchingFactory : WebApplicationFactory<Program>
+public sealed class RecipeOnlyBatchingFactory : MealPlanFragmentFactory
 {
     public CountingCatalogProductReader CatalogReader { get; } = new();
+    public CountingYieldPhotoRecipeReader RecipeReader { get; } = new();
     public RecipeOnlyMealPlanRepo Repo { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
-        {
-            services.AddFakeDisplayCurrency("USD");
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+    protected override string FakeUserId => "00000000-0000-0000-0000-0000000000ff";
+    protected override IMealPlanRepository MealPlanRepo => Repo;
+    protected override IMealSlotConfigRepository SlotConfigRepo => new FakeSlotRepo(ProductBatchingFixture.SlotConfig);
+    protected override IHouseholdMemberReader MemberReader => new FakeMemberReader([]);
+    protected override IMealPlanCatalogProductReader CatalogProductReader => CatalogReader;
+    protected override IRecipeReadModel RecipeReadModel => RecipeReader;
 
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000ff" }));
-
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddSingleton<IMealPlanRepository>(Repo);
-
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(ProductBatchingFixture.SlotConfig));
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
-
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([]));
-
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(CatalogReader);
-
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(
-                new FixedCookStatusReader(new Dictionary<Guid, DishCookStatus>()));
-
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
-
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
-        });
-    }
+    protected override IMealPlanCookStatusReader CookStatusReader =>
+        new FixedCookStatusReader(new Dictionary<Guid, DishCookStatus>());
 }
 
 // ── Plan repos ────────────────────────────────────────────────────────────────
@@ -433,4 +267,40 @@ public sealed class CountingCatalogProductReader : IMealPlanCatalogProductReader
         id == ProductBatchingFixture.FlourProductId ? "ea"
         : id == ProductBatchingFixture.SugarProductId ? "g"
         : "?";
+}
+
+// ── Recipe reader stub ───────────────────────────────────────────────────────
+
+/// <summary>
+/// <see cref="IRecipeReadModel"/> stub for the plantry-f4dt photo-inheritance batching regression:
+/// every method other than <see cref="FindSoleYieldPhotoRecipeIdsAsync"/> returns "no data" (this
+/// suite's plans carry no ghost dishes or unfulfillability checks that would need them — same
+/// shape as <c>YieldPhotoRecipeReader</c> in MealCardProductPhotoTests.cs), and the photo lookup
+/// counts its own calls so AC1/AC4 can assert the batching directly rather than infer it.
+/// </summary>
+public sealed class CountingYieldPhotoRecipeReader : IRecipeReadModel
+{
+    public int FindSoleYieldPhotoCallCount { get; private set; }
+
+    public Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default) =>
+        Task.FromResult<RecipeReadModel?>(null);
+
+    public Task<IReadOnlyList<RecipeReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeReadModel>>([]);
+
+    public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid recipeId, int servings, DateOnly today, CancellationToken ct = default) =>
+        Task.FromResult<RecipeDishEnrichment?>(null);
+
+    public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid recipeId, int servings, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
+
+    public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default) =>
+        Task.FromResult(false);
+
+    public Task<IReadOnlyDictionary<Guid, Guid>> FindSoleYieldPhotoRecipeIdsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+    {
+        FindSoleYieldPhotoCallCount++;
+        return Task.FromResult<IReadOnlyDictionary<Guid, Guid>>(new Dictionary<Guid, Guid>());
+    }
 }

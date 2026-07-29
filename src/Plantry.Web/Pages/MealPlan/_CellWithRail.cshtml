@@ -10,3 +10,11 @@
 @await Html.PartialAsync("_MealCell", Model.Cell)
 @await Html.PartialAsync("_PlanRail", Model.Rail)
 @await Html.PartialAsync("_PlanBarNav", Model.BarNav)
+@if (Model.CloseSheet)
+{
+    @* plantry-yuy3: OnPostEatConfirmAsync's form targets the cell directly (not #sheet-host, which
+       would nest the cell markup inside the sheet) — this OOB fragment is the explicit signal that
+       empties the now-stale Eat confirm sheet, mirroring (inverted) the "whole response IS the OOB
+       fragment" idiom Detail.cshtml.cs OnPostSetThresholdAsync uses for _StockDetail. *@
+    <div id="sheet-host" hx-swap-oob="true"></div>
+}

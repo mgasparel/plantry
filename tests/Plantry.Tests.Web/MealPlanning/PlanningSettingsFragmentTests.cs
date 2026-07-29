@@ -4,12 +4,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
-using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -81,8 +78,8 @@ public sealed class PlanningSettingsFragmentTests
     [Fact(DisplayName = "L4: GET /MealPlan — no budget set → page renders without over-budget callout")]
     public async Task Get_NoBudgetSet_NoOverBudgetInsight()
     {
-        // Base WeekGridFragmentFactory has NullPlanningSettingsRepo (returns null settings → null budget)
-        await using var factory = new WeekGridFragmentFactory();
+        // Base MealPlanFragmentFactory has NullPlanningSettingsRepo (returns null settings → null budget)
+        await using var factory = new MealPlanFragmentFactory();
         var client = MakeClient(factory);
 
         var resp = await client.GetAsync("/MealPlan");
@@ -113,7 +110,7 @@ public sealed class PlanningSettingsFragmentTests
         var token = tokenInput!.GetAttribute("value")!;
 
         // Derive the current Monday for the week param — pinned to the same instant the SUT's IClock
-        // resolves (plantry-1w87), since WeekGridFragmentFactory now pins IClock in its base ConfigureWebHost.
+        // resolves (plantry-1w87), since MealPlanFragmentFactory now pins IClock in its base ConfigureWebHost.
         var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
         var monday = MealPlan.NormalizeToMonday(today);
 
@@ -144,7 +141,7 @@ public sealed class PlanningSettingsFragmentTests
 /// <summary>
 /// Factory for the "budget set" test. Seeds household default budget via a seeded settings repo.
 /// </summary>
-public sealed class BudgetSetPlanningSettingsFactory : WeekGridFragmentFactory
+public sealed class BudgetSetPlanningSettingsFactory : MealPlanFragmentFactory
 {
     private readonly decimal _budgetDecimal;
     private readonly string _displayCurrency;
@@ -180,7 +177,7 @@ public sealed class BudgetSetPlanningSettingsFactory : WeekGridFragmentFactory
 /// Factory for the SetPlanningSettings POST OOB contract test.
 /// Uses mutable in-memory repos so the service can upsert the override.
 /// </summary>
-public sealed class SetPlanningSettingsFactory : WeekGridFragmentFactory
+public sealed class SetPlanningSettingsFactory : MealPlanFragmentFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

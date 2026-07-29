@@ -1,20 +1,9 @@
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.MealPlanning;
-using Plantry.Tests.Web.Preferences;
-using Plantry.Web.MealPlanning;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -187,117 +176,108 @@ public sealed class MealCardCookStripTests
             .Select(e => e.GetAttribute("aria-label")).ToList();
         var editLabels = doc.QuerySelectorAll("button.mc-edit")
             .Select(e => e.GetAttribute("aria-label")).ToList();
-        Assert.Equal(3, openLabels.Count);   // Breakfast + Lunch + Dinner note card
-        Assert.Equal(3, editLabels.Count);   // same three cards — .mc-edit renders before the isNote branch
+        // Breakfast + Lunch + Dinner note card (Monday) + the two Wednesday Breakfast multi-meal
+        // cards (plantry-0m9h) = 5 cards total.
+        Assert.Equal(5, openLabels.Count);
+        Assert.Equal(5, editLabels.Count);   // .mc-edit renders before the isNote branch, so same five cards
         Assert.Equal(openLabels.Count, openLabels.Distinct().Count());
         Assert.Equal(editLabels.Count, editLabels.Distinct().Count());
+
+        // plantry-0m9h Part 1: the two Wednesday Breakfast cards share identical day+date+slot context
+        // (same cell) — only the "(meal N of M)" ordinal suffix can distinguish them. This is the
+        // same-cell distinctness assertion the Distinct() check above proves generically; assert the
+        // exact expected wording here too so a regression that drops the suffix (making both cards
+        // collide back to the plain day+date+slot label) fails loudly and specifically.
+        var multiDayDate = $"{factory.Repo.MultiMealDate:dddd} {factory.Repo.MultiMealDate:MMM d}";
+        var multiOpenLabel1 = $"aria-label=\"Open meal details — {multiDayDate}, Breakfast (meal 1 of 2)\"";
+        var multiOpenLabel2 = $"aria-label=\"Open meal details — {multiDayDate}, Breakfast (meal 2 of 2)\"";
+        var multiEditLabel1 = $"aria-label=\"Edit meal — {multiDayDate}, Breakfast (meal 1 of 2)\"";
+        var multiEditLabel2 = $"aria-label=\"Edit meal — {multiDayDate}, Breakfast (meal 2 of 2)\"";
+        Assert.Contains(multiOpenLabel1, html);
+        Assert.Contains(multiOpenLabel2, html);
+        Assert.Contains(multiEditLabel1, html);
+        Assert.Contains(multiEditLabel2, html);
+
+        // And the single-meal Breakfast/Lunch/Dinner cards must NOT carry any ordinal suffix — the
+        // exact byte-for-byte labels asserted above (with no "(meal N of M)" suffix) already prove
+        // this via Assert.Contains; a MealCount==1 card that wrongly grew a suffix would fail those
+        // Contains assertions since the label text would no longer match verbatim. Belt-and-braces:
+        // "(meal 1 of 1)" must never appear — that wording is only valid for MealCount > 1.
+        Assert.DoesNotContain("(meal 1 of 1)", html);
+    }
+
+    [Fact(DisplayName = "GET /MealPlan: static cell-level labels (add-meal/empty-add/empty-auto) are contextualised and vary per cell (plantry-0m9h)")]
+    public async Task StaticCellLabels_Vary_Per_Cell()
+    {
+        await using var factory = new MealCardCookStripFactory();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, CookStripFixture.HouseholdId.ToString());
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        var doc = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
+
+        // .add-meal renders once per filled cell, alongside its meal card(s) — Breakfast, Lunch,
+        // Dinner (Monday) + the multi-meal Wednesday Breakfast cell = 4 filled cells, each with a
+        // distinct day+date+slot qualifier.
+        var addMealLabels = doc.QuerySelectorAll("button.add-meal")
+            .Select(e => e.GetAttribute("aria-label")).ToList();
+        Assert.Equal(4, addMealLabels.Count);
+        Assert.All(addMealLabels, l => Assert.Matches(@"^Add another meal — .+, .+$", l!));
+        Assert.Equal(addMealLabels.Count, addMealLabels.Distinct().Count());
+        // Pin the exact owner-approved wording (not just its shape) on a known filled cell —
+        // otherwise a change that keeps the regex/Distinct assertions green (e.g. dropping the day
+        // name or reordering the date parts) would slip through undetected.
+        var mondayDayDate = $"{factory.Repo.ThisWeekMonday:dddd} {factory.Repo.ThisWeekMonday:MMM d}";
+        Assert.Contains($"aria-label=\"Add another meal — {mondayDayDate}, Breakfast\"", html);
+
+        // .empty-add / .empty-auto render once per empty cell — every cell in the 3-slot × 7-day
+        // grid that isn't one of the 4 filled cells above (this fixture has no ghost/conflict cells:
+        // NullPendingProposalStore never stages a proposal and NullTagReader reports every tag
+        // fulfillable). Each must carry a distinct day+date+slot qualifier too.
+        var emptyAddLabels = doc.QuerySelectorAll("button.empty-add")
+            .Select(e => e.GetAttribute("aria-label")).ToList();
+        var emptyAutoLabels = doc.QuerySelectorAll("button.empty-auto")
+            .Select(e => e.GetAttribute("aria-label")).ToList();
+        Assert.Equal(21 - 4, emptyAddLabels.Count);
+        Assert.Equal(21 - 4, emptyAutoLabels.Count);
+        Assert.All(emptyAddLabels, l => Assert.Matches(@"^Add meal — .+, .+$", l!));
+        Assert.All(emptyAutoLabels, l => Assert.Matches(@"^Auto-fill this cell — .+, .+$", l!));
+        Assert.Equal(emptyAddLabels.Count, emptyAddLabels.Distinct().Count());
+        Assert.Equal(emptyAutoLabels.Count, emptyAutoLabels.Distinct().Count());
+
+        // Tuesday is empty in every slot (only Monday and Wednesday carry meals) — pin the exact
+        // owner-approved qualifier wording on a known-empty cell, not just its shape.
+        var emptyCellDate = factory.Repo.ThisWeekMonday.AddDays(1);
+        var emptyDayDate = $"{emptyCellDate:dddd} {emptyCellDate:MMM d}";
+        Assert.Contains($"aria-label=\"Add meal — {emptyDayDate}, Breakfast\"", html);
+        Assert.Contains($"aria-label=\"Auto-fill this cell — {emptyDayDate}, Breakfast\"", html);
     }
 }
 
 /// <summary>WAF factory wiring a fixed cook-status fake and a two-week meal plan fixture (plantry-0eut).</summary>
-public sealed class MealCardCookStripFactory : WebApplicationFactory<Program>
+public sealed class MealCardCookStripFactory : MealPlanFragmentFactory
 {
     public CookStripMealPlanRepo Repo { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureTestServices(services =>
+    protected override string FakeUserId => "00000000-0000-0000-0000-0000000000cc";
+    protected override IMealPlanRepository MealPlanRepo => Repo;
+    protected override IMealSlotConfigRepository SlotConfigRepo => new FakeSlotRepo(CookStripFixture.SlotConfig);
+    protected override IHouseholdMemberReader MemberReader => new FakeMemberReader([]);
+    protected override IRecipeReadModel RecipeReadModel => new FakeRecipeReader([]);
+    protected override IMealPlanCatalogProductReader CatalogProductReader =>
+        new FakeCatalogProductReaderW(existsResult: true);
+
+    // The port under test's rendering contract — fixed statuses keyed by the plan's REAL
+    // (repo-generated) PlannedDish ids, captured by CookStripMealPlanRepo at construction.
+    protected override IMealPlanCookStatusReader CookStatusReader => new FixedCookStatusReader(
+        new Dictionary<Guid, DishCookStatus>
         {
-            services.AddFakeDisplayCurrency("USD");
-            services.AddFakeExpiringSoonHorizon();
-            services.AddAuthentication(opts =>
-                {
-                    opts.DefaultScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
-
-            services.RemoveAll<UserManager<AppUser>>();
-            services.AddSingleton<UserManager<AppUser>>(
-                new FakeUserManager(new AppUser { Id = "00000000-0000-0000-0000-0000000000cc" }));
-
-            services.RemoveAll<IMealPlanRepository>();
-            services.AddSingleton<IMealPlanRepository>(Repo);
-
-            services.RemoveAll<IMealSlotConfigRepository>();
-            services.AddScoped<IMealSlotConfigRepository>(_ => new FakeSlotRepo(CookStripFixture.SlotConfig));
-
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeMemberReader([]));
-
-            services.RemoveAll<IRecipeReadModel>();
-            services.AddSingleton<IRecipeReadModel>(new FakeRecipeReader([]));
-
-            services.RemoveAll<IMealPlanWeekReadModel>();
-            services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
-
-            services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeCatalogProductReaderW(existsResult: true));
-
-            // The port under test's rendering contract — fixed statuses keyed by the plan's REAL
-            // (repo-generated) PlannedDish ids, captured by CookStripMealPlanRepo at construction.
-            services.RemoveAll<IMealPlanCookStatusReader>();
-            services.AddSingleton<IMealPlanCookStatusReader>(new FixedCookStatusReader(
-                new Dictionary<Guid, DishCookStatus>
-                {
-                    [Repo.DoneRecipeDishIdA] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-30)),
-                    [Repo.DoneRecipeDishIdB] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-10)),
-                }));
-
-            services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
-            services.RemoveAll<IMealPlanPriceReader>();
-            services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
-
-            services.RemoveAll<PlanFulfillmentService>();
-            services.AddScoped<PlanFulfillmentService>();
-            services.RemoveAll<PlanCostingService>();
-            services.AddScoped<PlanCostingService>();
-            services.RemoveAll<ShopForWeekService>();
-            services.AddScoped<ShopForWeekService>();
-
-            services.RemoveAll<AssignMealService>();
-            services.AddScoped<AssignMealService>();
-            services.RemoveAll<MoveMealService>();
-            services.AddScoped<MoveMealService>();
-
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton<IMealPlanner>(new NullMealPlanner());
-            services.RemoveAll<IPendingProposalStore>();
-            services.AddSingleton<IPendingProposalStore>(new NullPendingProposalStore());
-            services.RemoveAll<GeneratePlanService>();
-            services.AddScoped<GeneratePlanService>();
-            services.RemoveAll<AcceptProposalService>();
-            services.AddScoped<AcceptProposalService>();
-
-            services.RemoveAll<IUserPreferenceRepository>();
-            services.AddSingleton<IUserPreferenceRepository>(new NullPrefsRepo());
-
-            services.RemoveAll<ITagReader>();
-            services.AddSingleton<ITagReader>(new NullTagReader());
-
-            services.RemoveAll<IMealPlanExpiringStockReader>();
-            services.AddSingleton<IMealPlanExpiringStockReader>(new NullExpiringStockReader());
-            services.RemoveAll<PlanInsightsService>();
-            services.AddScoped<PlanInsightsService>();
-
-            services.RemoveAll<IHouseholdPlanningSettingsRepository>();
-            services.AddSingleton<IHouseholdPlanningSettingsRepository>(new NullPlanningSettingsRepo());
-            services.RemoveAll<IWeekPlanningOverrideRepository>();
-            services.AddSingleton<IWeekPlanningOverrideRepository>(new NullWeekOverrideRepo());
-            services.RemoveAll<SetPlanningSettingsService>();
-            services.AddScoped<SetPlanningSettingsService>();
-
-            // Pin IClock to the same instant the fixture below derives "today" from (plantry-1w87), so the
-            // SUT and the fixture never race two independent reads of the real system clock.
-            services.RemoveAll<IClock>();
-            services.AddScoped<IClock>(_ => new FixedClock(MealPlanningTestClock.Instant));
+            [Repo.DoneRecipeDishIdA] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-30)),
+            [Repo.DoneRecipeDishIdB] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-10)),
         });
-    }
 }
 
 // ── Cook-strip test doubles ────────────────────────────────────────────────────
@@ -342,6 +322,13 @@ public sealed class CookStripMealPlanRepo : IMealPlanRepository
     /// <summary>Expected <c>eatingTonight</c> value on the Breakfast Cook link — the meal's AttendeesOverride count.</summary>
     public int EatingTonightForBreakfast { get; private set; }
 
+    /// <summary>
+    /// plantry-0m9h: Wednesday of "this week" carries TWO meals in the same Breakfast slot — proves
+    /// the per-card ordinal suffix ("(meal N of M)") disambiguates two cards that would otherwise
+    /// render byte-identical day+date+slot accessible names.
+    /// </summary>
+    public DateOnly MultiMealDate { get; }
+
     public CookStripMealPlanRepo()
     {
         var hhId = SharedKernel.HouseholdId.From(CookStripFixture.HouseholdId);
@@ -375,6 +362,20 @@ public sealed class CookStripMealPlanRepo : IMealPlanRepository
         // Dinner: note meal — must never render a strip, regardless of date.
         ThisWeekPlan.AssignNote(ThisWeekMonday, CookStripFixture.DinnerSlotId, "Takeout night", null, "manual", Guid.Empty, clock);
 
+        // plantry-0m9h: Wednesday Breakfast — two dish-based meals in the SAME cell (same date+slot),
+        // appended via mealId: null so each gets its own ordinal (MP-O8 append). Their cards share
+        // byte-identical day+date+slot context; only the "(meal N of M)" ordinal suffix distinguishes
+        // them. Dated Monday+2 (strictly after "today" = ThisWeekMonday+1, a fixed Tuesday per
+        // MealPlanningTestClock.Instant) so showCookStrip stays false for both — keeps this fixture's
+        // cook-strip count (Note_Meal_Renders_No_Cook_Strip) unaffected by the new cell.
+        MultiMealDate = ThisWeekMonday.AddDays(2);
+        ThisWeekPlan.AssignMeal(MultiMealDate, CookStripFixture.BreakfastSlotId,
+            [new DishSpec(DishKind.Recipe, Guid.CreateVersion7(), 1)],
+            null, "manual", Guid.Empty, clock);
+        ThisWeekPlan.AssignMeal(MultiMealDate, CookStripFixture.BreakfastSlotId,
+            [new DishSpec(DishKind.Recipe, Guid.CreateVersion7(), 1)],
+            null, "manual", Guid.Empty, clock);
+
         FutureWeekPlan = MealPlan.Start(hhId, FutureWeekMonday, clock);
         FutureWeekPlan.AssignMeal(FutureWeekMonday, CookStripFixture.BreakfastSlotId,
             [new DishSpec(DishKind.Recipe, recipeFuture, 4)],
@@ -382,7 +383,7 @@ public sealed class CookStripMealPlanRepo : IMealPlanRepository
 
         // Capture the REAL repo-generated PlannedDish ids so the fixed cook-status fake and the
         // test assertions can key off them.
-        var breakfast = ThisWeekPlan.PlannedMeals.Single(m => m.MealSlotId == CookStripFixture.BreakfastSlotId);
+        var breakfast = ThisWeekPlan.PlannedMeals.Single(m => m.MealSlotId == CookStripFixture.BreakfastSlotId && m.Date == ThisWeekMonday);
         PendingRecipeDishId = breakfast.PlannedDishes.Single(d => d.RecipeId == PendingRecipeRecipeId).Id.Value;
         DoneRecipeDishIdA = breakfast.PlannedDishes.Single(d => d.RecipeId == recipeDoneA).Id.Value;
 

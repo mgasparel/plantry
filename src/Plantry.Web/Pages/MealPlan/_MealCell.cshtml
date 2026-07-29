@@ -18,6 +18,11 @@
     var unfulfillableCtaLabel = unfulfillableTagName is not null
         ? $"Add a {unfulfillableTagName} recipe"
         : "Add a recipe";
+    // plantry-0m9h: shared qualifier for this cell's three static accessible names (.add-meal,
+    // .empty-add, .empty-auto) — each was a single hardcoded label repeated across all 21 cells in
+    // the week grid, indistinguishable to a screen-reader user tabbing the grid. Mirrors the
+    // day+date+slot card-level pattern established by plantry-rhxv (_MealCard.cshtml cardContext).
+    var cellContext = $"{Model.Date:dddd} {Model.Date:MMM d}, {Model.SlotLabel}";
 }
 
 <div id="@cellId"
@@ -42,15 +47,15 @@
     {
         @* One card per meal — shares the _MealCard partial with the full grid so an edited
            cell keeps its photo, fulfillment, cost and attendees. *@
-        @foreach (var meal in Model.Meals)
+        @for (int i = 0; i < Model.Meals.Count; i++)
         {
             @await Html.PartialAsync("_MealCard", new Plantry.Web.Pages.MealPlan.IndexModel.MealCardVm(
-                meal, dateIso, Model.SlotId, Model.Members, Model.SlotLabel, Model.DisplayCurrency))
+                Model.Meals[i], dateIso, Model.SlotId, Model.Members, Model.SlotLabel, i + 1, Model.Meals.Count, Model.DisplayCurrency))
         }
         <button class="add-meal"
                 onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@dateIso', '@slotId', null)"
                 title="Add another meal to this slot"
-                aria-label="Add another meal">
+                aria-label="Add another meal — @cellContext">
             <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
             Add meal
         </button>
@@ -103,7 +108,7 @@
         <div class="empty-acts">
             <button class="empty-add"
                     onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@dateIso', '@slotId', null)"
-                    aria-label="Add meal">
+                    aria-label="Add meal — @cellContext">
                 <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
             </button>
             <button class="empty-auto"
@@ -112,7 +117,7 @@
                     hx-swap="outerHTML"
                     hx-indicator=".autofill-spinner"
                     title="Auto-fill this cell with an AI suggestion"
-                    aria-label="Auto-fill this cell">
+                    aria-label="Auto-fill this cell — @cellContext">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 Auto-fill
             </button>

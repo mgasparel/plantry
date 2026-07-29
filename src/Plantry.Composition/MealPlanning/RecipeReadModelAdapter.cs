@@ -144,6 +144,31 @@ public sealed class RecipeReadModelAdapter(
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<Guid, Guid>> FindSoleYieldPhotoRecipeIdsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+    {
+        if (productIds.Count == 0) return new Dictionary<Guid, Guid>();
+
+        // YieldProductId is a plain (unconverted) Guid? column (RecipesDbContext.cs:56), unlike the
+        // RecipeId/ProductId value-object keys elsewhere in this adapter — a straight HashSet<Guid>
+        // .Contains translates without the value-object EF-translation caveat those need.
+        var ids = productIds.ToHashSet();
+        var rows = await db.Recipes
+            .Where(r => r.ArchivedAt == null && r.YieldProductId != null && ids.Contains(r.YieldProductId.Value))
+            .Select(r => new { ProductId = r.YieldProductId!.Value, r.Id, HasPhoto = r.Photo != null })
+            .ToListAsync(ct);
+
+        // Group by producer product, keep only the unambiguous (exactly one producer-recipe) groups,
+        // then require that sole recipe to have a photo — collapses zero/many/no-photo to "absent".
+        return rows
+            .GroupBy(r => r.ProductId)
+            .Where(g => g.Count() == 1)
+            .Select(g => g.Single())
+            .Where(r => r.HasPhoto)
+            .ToDictionary(r => r.ProductId, r => r.Id.Value);
+    }
+
+    /// <inheritdoc />
     public async Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
     {
         // Targeted full-corpus query: does ANY non-archived recipe carry this tag?

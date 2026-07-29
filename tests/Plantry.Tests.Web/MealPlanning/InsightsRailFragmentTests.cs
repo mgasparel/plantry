@@ -12,7 +12,6 @@ using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.Preferences;
-using Xunit;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -158,7 +157,7 @@ public sealed class InsightsRailFragmentTests : IClassFixture<InsightsRailFragme
 /// WAF variant: one expiring product (so the UnusedExpiring callout fires) on top of the
 /// shared week-grid fakes, plus a stubbed UserManager for the POST Assign path.
 /// </summary>
-public sealed class InsightsRailFragmentFactory : WeekGridFragmentFactory
+public sealed class InsightsRailFragmentFactory : MealPlanFragmentFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

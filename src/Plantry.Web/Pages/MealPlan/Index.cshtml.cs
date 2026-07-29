@@ -42,6 +42,7 @@ public sealed class IndexModel(
     IMealPlanWeekReadModel weekReadModel,
     IMealPlanCookStatusReader cookStatusReader,
     IMealPlanEatWriter eatWriter,
+    IMealPlanStockReader stockReader,
     Plantry.Recipes.Domain.FulfillmentService recipesFulfillmentService,
     Plantry.Recipes.Domain.CostingService recipesCostingService,
     Plantry.Recipes.Application.IExpiringSoonHorizonReader expiringSoonHorizon,
@@ -459,6 +460,70 @@ public sealed class IndexModel(
         await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Servings, userId, ct);
 
         return await CellFragmentAsync(householdId, parsedDate, sid, ct);
+    }
+
+    // ── Eat confirm sheet GET (plantry-yuy3) ─────────────────────────────────
+    // Opens the "how much did you eat" confirm sheet — auto-triggered by the Eat button itself when
+    // MealCardDishVm.NeedsEatConfirm is true (the planned quantity would leave a use-up sliver), and
+    // always reachable via the secondary "Adjust quantity" icon button regardless of that check.
+    // Same resolution/guard as OnPostEatAsync; mirrors OnGetConsumeSheetAsync/OnGetMoveSheetAsync's
+    // shape (Pantry/Products/Detail.cshtml.cs).
+
+    public async Task<IActionResult> OnGetEatSheetAsync(
+        Guid plannedDishId, string date, Guid slotId, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+
+        var sid = MealSlotId.From(slotId);
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        var found = FindMealDish(parsedDate, sid, plannedDishId);
+        if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.ShowCookStrip)
+            return BadRequest();
+
+        var stock = await stockReader.FindStockAsync(hit.Dish.ItemId, ct);
+        var onHand = stock?.AvailableQuantity ?? 0m;
+        var cellId = $"cell-{sid.Value:N}-{parsedDate:yyyy-MM-dd}";
+
+        var vm = new EatSheetVm(
+            plannedDishId, date, slotId, cellId, week,
+            hit.Dish.Name, hit.Dish.Servings, onHand, hit.Dish.UnitCode ?? "?");
+        return Partial("_EatSheet", vm);
+    }
+
+    // ── Eat confirm sheet POST (plantry-yuy3) ────────────────────────────────
+    // Consumes the user-chosen quantity from the sheet (prefilled to the planned quantity, editable,
+    // clamped client-side to on-hand — the underlying EatAsync stays shortfall-tolerant either way, so
+    // no server-side clamp is needed; a quantity above on-hand simply consumes what's available, same
+    // as the one-tap path). Re-renders the cell + OOB rail/plan-bar (CellFragmentAsync) AND an OOB
+    // fragment that empties #sheet-host, closing the now-stale sheet.
+
+    public async Task<IActionResult> OnPostEatConfirmAsync(
+        Guid plannedDishId, string date, Guid slotId, decimal quantity, string? week = null, CancellationToken ct = default)
+    {
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return BadRequest();
+        // A zero (or negative) quantity is not a valid "eat" — critic pass 1: ProductStock.Consume
+        // rejects a non-positive amount with Inventory.InvalidConsumeAmount, and
+        // MealPlanEatWriterAdapter.EatAsync only tolerates Inventory.NoStock, so letting 0 through here
+        // would throw an unhandled 500 for a perfectly reachable UI path (the sheet's decrease control
+        // floors at 0).
+        if (quantity <= 0)
+            return BadRequest();
+
+        var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
+        var sid = MealSlotId.From(slotId);
+        await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
+
+        var found = FindMealDish(parsedDate, sid, plannedDishId);
+        if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.ShowCookStrip)
+            return BadRequest();
+
+        var userId = await GetCurrentUserIdAsync(ct);
+        await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, quantity, userId, ct);
+
+        return await CellFragmentAsync(householdId, parsedDate, sid, hardStanceWarning: null, closeSheet: true, ct);
     }
 
     // ── Undo eat POST (plantry-zcbx) ──────────────────────────────────────────
@@ -1104,6 +1169,39 @@ public sealed class IndexModel(
                     ? await catalogReader.ResolveDefaultUnitCodesAsync(allProductDishIds, ct)
                     : new Dictionary<Guid, string>();
 
+            // Product-dish photo inheritance (plantry-f4dt), batched alongside productNames/
+            // productUnitCodes above — same O(meals×dishes) hot-path constraint. Maps a product id
+            // to the id of its sole photo-bearing producer-recipe; a product absent from the
+            // dictionary (zero/many producer-recipes, or its sole producer has no photo) falls
+            // through to the gradient placeholder in the dish-building loop below.
+            IReadOnlyDictionary<Guid, Guid> soleYieldPhotoRecipeIds =
+                allProductDishIds.Count > 0
+                    ? await recipeReader.FindSoleYieldPhotoRecipeIdsAsync(allProductDishIds, ct)
+                    : new Dictionary<Guid, Guid>();
+
+            // plantry-yuy3: on-hand cache for the Eat auto-trigger check below, memoized per
+            // LoadWeekAsync CALL (not request-scoped) — a product referenced by more than one pending
+            // dish in the same call is only queried once. Deliberately NOT hoisted to a request-scoped
+            // field: CellFragmentAsync re-runs LoadWeekAsync AFTER EatAsync has already consumed stock
+            // (Eat/EatConfirm/UndoEat all reload post-write to re-render the cell), so a request-scoped
+            // cache would serve that re-render stale pre-write on-hand instead of the real post-write
+            // figure. Also a SEPARATE read from the one PlanFulfillmentService.RollUpMealAsync issues
+            // per product dish further below for the fulfillment%/cost roll-up (that service only
+            // returns a derived percent, not the raw AvailableQuantity the sliver check needs) —
+            // reusing that private figure would mean widening PlanFulfillmentService's public surface
+            // for a rare, non-hot-path dish kind, which isn't warranted here (interpretation, see
+            // bd comment on plantry-yuy3).
+            var stockCache = new Dictionary<Guid, MealPlanProductStock?>();
+            async Task<MealPlanProductStock?> GetCachedStockAsync(Guid productId)
+            {
+                if (!stockCache.TryGetValue(productId, out var cached))
+                {
+                    cached = await stockReader.FindStockAsync(productId, ct);
+                    stockCache[productId] = cached;
+                }
+                return cached;
+            }
+
             foreach (var meal in loadedPlan.PlannedMeals.OrderBy(m => m.Ordinal))
             {
                 var key = CellKey(meal.Date, meal.MealSlotId);
@@ -1113,44 +1211,63 @@ public sealed class IndexModel(
                     MealsByCell[key] = list;
                 }
 
+                // Cook strip renders only for dish-based meals dated today or earlier (plantry-0eut) —
+                // never for note meals, never for future dates (cooking ahead is out of scope). Computed
+                // here (before dishVms) so the Eat-sheet auto-trigger check below can gate on it too.
+                var showCookStrip = meal.Note is null && meal.Date <= today;
+
                 // Cook strip per-dish data (plantry-0eut): identity, kind, servings, and derived
                 // done state, sharing the same name resolution as dishNames below in one pass.
-                var dishVms = meal.PlannedDishes
-                    .OrderBy(d => d.Ordinal)
-                    .Select(d =>
+                var dishVms = new List<MealCardDishVm>();
+                foreach (var d in meal.PlannedDishes.OrderBy(d => d.Ordinal))
+                {
+                    string name;
+                    DishKind kind;
+                    Guid itemId;
+                    bool hasPhoto;
+                    string? unitCode = null;
+                    Guid? photoRecipeId = null;
+                    if (d.RecipeId.HasValue)
                     {
-                        string name;
-                        DishKind kind;
-                        Guid itemId;
-                        bool hasPhoto;
-                        string? unitCode = null;
-                        if (d.RecipeId.HasValue)
-                        {
-                            name = enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
-                            kind = DishKind.Recipe;
-                            itemId = d.RecipeId.Value;
-                            hasPhoto = enricher.GetRecipeHasPhoto(d.RecipeId.Value);
-                        }
-                        else if (d.ProductId.HasValue)
-                        {
-                            name = productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product");
-                            kind = DishKind.Product;
-                            itemId = d.ProductId.Value;
-                            hasPhoto = false; // product-dish photos are out of scope (plantry-tyvg)
-                            unitCode = productUnitCodes.GetValueOrDefault(d.ProductId.Value, "?");
-                        }
-                        else
-                        {
-                            name = "Unknown";
-                            kind = DishKind.Recipe;
-                            itemId = Guid.Empty;
-                            hasPhoto = false;
-                        }
+                        name = enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
+                        kind = DishKind.Recipe;
+                        itemId = d.RecipeId.Value;
+                        hasPhoto = enricher.GetRecipeHasPhoto(d.RecipeId.Value);
+                    }
+                    else if (d.ProductId.HasValue)
+                    {
+                        name = productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product");
+                        kind = DishKind.Product;
+                        itemId = d.ProductId.Value;
+                        unitCode = productUnitCodes.GetValueOrDefault(d.ProductId.Value, "?");
+                        // plantry-f4dt: a product-dish photo is inherited from its sole photo-bearing
+                        // producer-recipe (see soleYieldPhotoRecipeIds above); absent → no photo,
+                        // same gradient-placeholder fallback as before (plantry-tyvg).
+                        photoRecipeId = soleYieldPhotoRecipeIds.TryGetValue(d.ProductId.Value, out var pr) ? pr : null;
+                        hasPhoto = photoRecipeId is not null;
+                    }
+                    else
+                    {
+                        name = "Unknown";
+                        kind = DishKind.Recipe;
+                        itemId = Guid.Empty;
+                        hasPhoto = false;
+                    }
 
-                        var status = cookStatusByDish.GetValueOrDefault(d.Id.Value);
-                        return new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode);
-                    })
-                    .ToList();
+                    var status = cookStatusByDish.GetValueOrDefault(d.Id.Value);
+
+                    // plantry-yuy3: auto-trigger decision for the Eat confirm sheet — only a still-
+                    // pending (not yet eaten) product dish in a cook-strip-eligible meal needs the
+                    // on-hand check; recipe dishes and already-done dishes never wire the sheet at all.
+                    var needsEatConfirm = false;
+                    if (kind == DishKind.Product && showCookStrip && status is null)
+                    {
+                        var stock = await GetCachedStockAsync(itemId);
+                        needsEatConfirm = stock is not null && UseUpZone.IsInUseUpZone(stock.AvailableQuantity, d.Servings);
+                    }
+
+                    dishVms.Add(new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode, needsEatConfirm, photoRecipeId));
+                }
                 var dishNames = dishVms.Select(v => v.Name).ToList();
 
                 // Compute per-meal fulfillment and cost enrichment using the bag enricher
@@ -1254,9 +1371,8 @@ public sealed class IndexModel(
                     }
                 }
 
-                // Cook strip renders only for dish-based meals dated today or earlier (plantry-0eut) —
-                // never for note meals, never for future dates (cooking ahead is out of scope).
-                var showCookStrip = meal.Note is null && meal.Date <= today;
+                // showCookStrip was already computed above (before dishVms) so the Eat-sheet
+                // auto-trigger check could gate on it too.
 
                 // The Cook deep-link's eatingTonight param (plantry-iejb's leftover-prefill seam):
                 // attendee count for THIS meal = AttendeesOverride ?? slot default_attendees, counted
@@ -1656,7 +1772,12 @@ public sealed class IndexModel(
     private async Task<IActionResult> CellFragmentAsync(HouseholdId householdId, DateOnly date, MealSlotId slotId, CancellationToken ct)
         => await CellFragmentAsync(householdId, date, slotId, null, ct);
 
-    private async Task<IActionResult> CellFragmentAsync(HouseholdId householdId, DateOnly date, MealSlotId slotId, string? hardStanceWarning, CancellationToken ct)
+    private async Task<IActionResult> CellFragmentAsync(
+        HouseholdId householdId, DateOnly date, MealSlotId slotId, string? hardStanceWarning, CancellationToken ct)
+        => await CellFragmentAsync(householdId, date, slotId, hardStanceWarning, closeSheet: false, ct);
+
+    private async Task<IActionResult> CellFragmentAsync(
+        HouseholdId householdId, DateOnly date, MealSlotId slotId, string? hardStanceWarning, bool closeSheet, CancellationToken ct)
     {
         await LoadWeekAsync(DomainMealPlan.NormalizeToMonday(date).ToString("yyyy-MM-dd"), ct);
         var key = CellKey(date, slotId);
@@ -1690,7 +1811,7 @@ public sealed class IndexModel(
             IsHistoricalWeek: IsHistoricalWeek,
             DisplayCurrency: CurrentDisplayCurrency);
         var barNavVm = BuildPlanBarNavVm(Oob: true);
-        return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm, barNavVm));
+        return Partial("_CellWithRail", new CellWithRailVm(cellVm, railVm, barNavVm, CloseSheet: closeSheet));
     }
 
     /// <summary>
@@ -1791,9 +1912,10 @@ public sealed class IndexModel(
     /// product dish's latest net-consuming Inventory journal movement's OccurredAt.
     /// </summary>
     /// <param name="HasPhoto">
-    /// True when this is a recipe dish with a stored photo (plantry-tyvg) — always false for product
-    /// dishes (out of scope) and for recipes not carrying a photo. Gates the real <c>&lt;img&gt;</c>
-    /// on the meal tile vs. the gradient placeholder.
+    /// True when this dish resolves a renderable photo — a recipe dish with a stored photo
+    /// (plantry-tyvg), or (plantry-f4dt) a product dish whose <see cref="PhotoRecipeId"/> is set.
+    /// False for recipes with no photo and for product dishes with no inherited photo. Gates the
+    /// real <c>&lt;img&gt;</c> on the meal tile vs. the gradient placeholder.
     /// </param>
     public sealed record MealCardDishVm(
         Guid DishId, DishKind Kind, Guid ItemId, string Name, int Servings, DateTimeOffset? CookedAt,
@@ -1802,7 +1924,36 @@ public sealed class IndexModel(
         /// The product's default unit's display code — null for a recipe dish, which keeps
         /// rendering "servings" (plantry-ri26). "?" when a product dish's unit could not be resolved.
         /// </summary>
-        string? UnitCode = null);
+        string? UnitCode = null,
+        /// <summary>
+        /// True when consuming the planned quantity would leave a &lt;=10%-of-on-hand sliver
+        /// (plantry-yuy3, <see cref="Plantry.MealPlanning.Domain.UseUpZone.IsInUseUpZone"/>) — computed
+        /// once, at render time, in <c>LoadWeekAsync</c>. Always false for a recipe dish, an already-
+        /// eaten dish, or a dish outside the cook strip's today-or-earlier window. Gates which handler
+        /// the Eat button itself posts to: true wires it to <c>OnGetEatSheetAsync</c> (opens the confirm
+        /// sheet) instead of <c>OnPostEatAsync</c> (direct one-tap consume) — see _MealCard.cshtml.
+        /// </summary>
+        bool NeedsEatConfirm = false,
+        /// <summary>
+        /// plantry-f4dt: for a product dish (<see cref="DishKind.Product"/>) whose product is the sole
+        /// declared cook-yield of a recipe that has a stored photo, the id of that recipe — the meal
+        /// card resolves its photo via the same <c>/Recipes/{id}?handler=Photo</c> endpoint a recipe
+        /// dish uses, never a duplicated copy. Null for a recipe dish (use <see cref="ItemId"/>
+        /// instead) and for a product dish with zero/multiple producer-recipes or a photo-less sole
+        /// producer. Distinct from <see cref="ItemId"/>, which stays the product id for a product
+        /// dish (consumed elsewhere, e.g. the Eat handler's <c>hit.Dish.ItemId</c>).
+        /// </summary>
+        Guid? PhotoRecipeId = null);
+
+    /// <summary>
+    /// View model for the Eat confirm sheet (plantry-yuy3, _EatSheet.cshtml) — the product-dish
+    /// counterpart to Cook's "use it up" affordance. <see cref="Quantity"/> is the planned quantity,
+    /// prefilled and editable (clamped client-side to <see cref="OnHand"/>); confirming posts
+    /// <see cref="OnPostEatConfirmAsync"/> with whatever quantity the user settles on.
+    /// </summary>
+    public sealed record EatSheetVm(
+        Guid PlannedDishId, string DateIso, Guid SlotId, string CellId, string? Week,
+        string ProductName, decimal Quantity, decimal OnHand, string UnitCode);
 
     public sealed record MealEditorVm(
         Guid? MealId,
@@ -1885,7 +2036,13 @@ public sealed class IndexModel(
     /// <c>CellFragmentAsync</c>) so both the rail and the plan-bar (HasEmptyCells, budget chip)
     /// recompute on EVERY change — no per-handler wiring to forget.
     /// </summary>
-    public sealed record CellWithRailVm(CellFragmentVm Cell, PlanRailVm Rail, PlanBarNavVm BarNav);
+    /// <param name="CloseSheet">
+    /// True when the response should also emit an out-of-band <c>#sheet-host</c>-emptying fragment
+    /// (plantry-yuy3) — set only by <c>OnPostEatConfirmAsync</c>, whose form targets the meal cell
+    /// directly (not <c>#sheet-host</c>, which would nest the cell markup inside the sheet), so the
+    /// now-stale Eat confirm sheet needs its own explicit close signal. See _CellWithRail.cshtml.
+    /// </param>
+    public sealed record CellWithRailVm(CellFragmentVm Cell, PlanRailVm Rail, PlanBarNavVm BarNav, bool CloseSheet = false);
 
     /// <summary>
     /// Combines the week grid with an out-of-band plan-bar nav refresh. Returned by any handler
@@ -1950,6 +2107,15 @@ public sealed class IndexModel(
         /// the identical "Open meal details"/"Edit meal" name to a screen-reader user.
         /// </summary>
         string SlotLabel,
+        /// <summary>
+        /// 1-based position of this meal within its cell's <c>Meals</c> list (plantry-0m9h) — the
+        /// _MealCard partial appends "(meal N of M)" to the accessible-name context when
+        /// <see cref="MealCount"/> is greater than 1, disambiguating two meals sharing one
+        /// day+date+slot (which otherwise render byte-identical accessible names).
+        /// </summary>
+        int MealOrdinal,
+        /// <summary>Total meal count in this cell (plantry-0m9h) — the ordinal suffix is suppressed when this is 1.</summary>
+        int MealCount,
         /// <summary>Household display currency for the per-meal cost figure (plantry-2x6e.2).</summary>
         string DisplayCurrency = "USD");
     /// <summary>
