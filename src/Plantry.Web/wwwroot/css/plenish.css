@@ -5108,6 +5108,13 @@ button.sadd svg { width: 13px; height: 13px; }
 .mc-cook-act.eat:hover { border-color: var(--color-info); }
 .mc-cook-act .act-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-cook-act .act-srv { flex: none; font-size: 11px; font-weight: 600; color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
+/* Eat row (plantry-yuy3): the Eat button plus a compact icon-only "adjust quantity" control that
+   always opens the confirm sheet — no room in the card for a second labeled button. */
+.mc-cook-row { display: flex; align-items: stretch; gap: 5px; width: 100%; }
+.mc-cook-row .mc-cook-act { width: auto; flex: 1; min-width: 0; }
+.mc-cook-act-adjust { display: flex; align-items: center; justify-content: center; flex: none; width: 30px; border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; color: var(--color-text-muted); }
+.mc-cook-act-adjust .icon { width: 13px; height: 13px; }
+.mc-cook-act-adjust:hover { border-color: var(--color-info); color: var(--color-info); }
 /* Done row — replaces the button once the dish is cooked/eaten. Not a button; nothing to press. */
 .mc-cook-done { display: flex; align-items: center; gap: 7px; padding: 6px 9px; font-size: 12px; font-weight: 600; color: var(--color-success); }
 .mc-cook-done .icon { width: 14px; height: 14px; flex: none; }

@@ -142,9 +142,15 @@ public sealed class MealCardEatActionTests
 // ── Fixture ─────────────────────────────────────────────────────────────────────
 
 /// <summary>WAF factory wiring a spy <see cref="IMealPlanEatWriter"/> (doubling as the cook-status reader so a
-/// POST's effect is visible on the very next cell re-render) and a one-product-dish meal dated today.</summary>
-public sealed class EatActionFactory : WebApplicationFactory<Program>
+/// POST's effect is visible on the very next cell re-render) and a one-product-dish meal dated today.
+/// <paramref name="onHand"/> and <paramref name="stubUnitCodes"/> (plantry-yuy3) let the Eat CONFIRM
+/// SHEET tests (<c>MealCardEatSheetTests</c>) drive the on-hand-aware auto-trigger check and get a
+/// resolvable product name/unit code, without a second near-duplicate factory — critic pass 1
+/// (reuse-first): the two factories differed by exactly these two registrations.</summary>
+public sealed class EatActionFactory(decimal? onHand = null, bool stubUnitCodes = false) : WebApplicationFactory<Program>
 {
+    private static readonly Guid EachUnitId = Guid.Parse("eeeeeeee-0000-0000-0000-00000000000e");
+
     public EatActionMealPlanRepo Repo { get; } = new();
     public SpyEatWriter Writer { get; } = new();
 
@@ -182,8 +188,13 @@ public sealed class EatActionFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMealPlanWeekReadModel>();
             services.AddSingleton<IMealPlanWeekReadModel>(new NullWeekReadModel());
 
+            // Reuses the plantry-ri26 stub (MealPlanProductUnitLabelTests.cs) when a sheet test needs a
+            // resolvable product name/unit code ("Flour"/"ea") instead of the "Unknown product"/"?"
+            // fallback FakeCatalogProductReaderW leaves unresolved — the plain Eat/Undo tests don't
+            // care, so they keep the original default.
             services.RemoveAll<IMealPlanCatalogProductReader>();
-            services.AddSingleton<IMealPlanCatalogProductReader>(new FakeCatalogProductReaderW(existsResult: true));
+            services.AddSingleton<IMealPlanCatalogProductReader>(
+                stubUnitCodes ? new StubUnitCodeCatalogProductReader() : new FakeCatalogProductReaderW(existsResult: true));
 
             // The port under test's handler wiring: a spy that both records calls AND drives the
             // cook-status reader, so a POST's effect is immediately visible in the next fragment render.
@@ -192,8 +203,12 @@ public sealed class EatActionFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMealPlanCookStatusReader>();
             services.AddSingleton<IMealPlanCookStatusReader>(Writer);
 
+            // Configurable on-hand (plantry-yuy3): null (default) reports no stock record for every
+            // product, exactly as before; a sheet test passing onHand drives the Eat auto-trigger check
+            // (UseUpZone.IsInUseUpZone) into or out of the sliver zone.
             services.RemoveAll<IMealPlanStockReader>();
-            services.AddSingleton<IMealPlanStockReader>(new NullStockReader());
+            services.AddSingleton<IMealPlanStockReader>(
+                onHand is { } oh ? new SingleProductStockReader(Repo.ProductId, oh, EachUnitId) : new NullStockReader());
             services.RemoveAll<IMealPlanPriceReader>();
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
             services.RemoveAll<IMealPlanShoppingWriter>();

@@ -72,6 +72,11 @@
     </div>
 </div>
 
+@* Eat confirm sheet host (plantry-yuy3) — mirrors Pantry/Products/Detail.cshtml's #sheet-host.
+   Populated by OnGetEatSheetAsync; emptied either by the sheet's own close()/Cancel, or by the
+   OOB fragment OnPostEatConfirmAsync's CellFragmentAsync response carries on confirm. *@
+<div id="sheet-host"></div>
+
 @* Island hydration payload — read by meal-planner.js via readHydration('meal-planner-island-data').
    Contains endpoint URLs + household member data for the editor island.
    Emitted unconditionally: the island mounts on every MealPlan page load. *@

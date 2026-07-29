@@ -1,0 +1,54 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.EatSheetVm
+@{
+    var qtyJs = Model.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    var onHandJs = Model.OnHand.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    var onHandDisplay = Model.OnHand.ToString("0.###");
+}
+@* Eat confirm sheet (plantry-yuy3) — the product-dish counterpart to the Cook page's "use it up"
+   affordance: a quantity stepper clamped to on-hand plus a "Use it all" shortcut that snaps to the
+   full on-hand amount. Reuses the established .sheet component (see Pantry/Products/_ConsumeSheet.cshtml
+   / _MoveSheet.cshtml) rather than a full-page Cook-style navigation — a product dish is always a
+   single line, so the whole-page ingredient-list UI would be overkill. *@
+<div class="sheet"
+     x-data="{ close() { document.getElementById('sheet-host').innerHTML = '' }, qty: @qtyJs, onHand: @onHandJs, clamp(v) { const n = parseFloat(v); let q = Number.isFinite(n) ? +n.toFixed(3) : 0.001; if (this.onHand > 0) q = Math.min(q, this.onHand); return Math.max(0.001, q); } }"
+     role="dialog" aria-modal="true" aria-label="Confirm how much you ate">
+    <div class="sheet__overlay" x-on:click="close()"></div>
+    <div class="sheet__panel">
+        <header class="sheet__header">
+            <h2 class="sheet__title">How much did you eat?</h2>
+            <button type="button" class="sheet__close" aria-label="Close"
+                    x-on:click="close()">&times;</button>
+        </header>
+
+        <form class="form-stack"
+              hx-post="/MealPlan?handler=EatConfirm&amp;plannedDishId=@Model.PlannedDishId&amp;date=@Model.DateIso&amp;slotId=@Model.SlotId@(Model.Week is not null ? $"&week={Model.Week}" : "")"
+              hx-target="#@Model.CellId" hx-swap="outerHTML">
+            @Html.AntiForgeryToken()
+
+            <p class="field__hint">@Model.ProductName &middot; @onHandDisplay @Model.UnitCode on hand</p>
+
+            <div class="field field--inline">
+                <label class="field__label" for="eat-sheet-qty">Quantity</label>
+                <stepper name="quantity" input-id="eat-sheet-qty" value-bind="qty" input-handler="qty = clamp($event.target.value)"
+                         decrease-click="qty = clamp(qty - 1)"
+                         increase-click="qty = clamp(qty + 1)"
+                         increase-disabled="qty >= onHand"
+                         decrease-disabled="qty <= 0.001"
+                         decrease-label="Decrease quantity" increase-label="Increase quantity"
+                         input-label="Quantity eaten" />
+                <span class="field__hint">@Model.UnitCode</span>
+            </div>
+
+            <button type="button" class="btn btn--ghost btn--sm" x-show="qty < onHand" x-cloak
+                    x-on:click="qty = onHand">
+                Use it all
+            </button>
+
+            <div class="sheet__actions">
+                <button type="submit" class="btn btn--primary">Confirm</button>
+                <button type="button" class="btn btn--ghost"
+                        x-on:click="close()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
