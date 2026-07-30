@@ -88,7 +88,9 @@ public sealed class AmbientClockGuardTests
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-    // The forbidden, type-qualified ambient-clock shapes. Each requires the literal type name immediately
+    // The forbidden shapes — six type-qualified ambient-clock reads, two member-name machine-zone
+    // conversions, and TimeZoneInfo.Local itself (the 6/2/1 split in the class doc). Each type-qualified
+    // entry requires the literal type name immediately
     // followed by ".UtcNow" / ".Now" / ".Today" — "clock.UtcNow" and "_clock.UtcNow" contain no
     // "DateTime"/"DateTimeOffset"/"TimeProvider" substring at all, so they can never match. A word boundary
     // before the type name additionally guards against a hypothetical longer identifier ending in
@@ -121,7 +123,7 @@ public sealed class AmbientClockGuardTests
     private static bool IsOffendingLine(string line) =>
         ForbiddenPatterns.Any(p => p.IsMatch(line));
 
-    [Fact(DisplayName = "No ambient DateTime.UtcNow/Now/Today, DateTimeOffset.UtcNow/Now, or TimeProvider.System outside IClock's SystemClock")]
+    [Fact(DisplayName = "No ambient clock read (DateTime/DateTimeOffset UtcNow/Now/Today, TimeProvider.System) or machine-zone read (.LocalDateTime, .ToLocalTime(), TimeZoneInfo.Local) outside IClock's SystemClock")]
     public void DomainAndApplicationLayers_HaveNoAmbientClockReads()
     {
         var repoRoot = RepoRoot();
@@ -141,8 +143,9 @@ public sealed class AmbientClockGuardTests
 
             foreach (var file in EnumerateSourceFiles(projectRoot))
             {
-                // The sole sanctioned ambient read: SystemClock's own implementation of IClock.UtcNow, which
-                // legitimately reads the real wall clock so every other caller doesn't have to (plantry-lgbu).
+                // The sole sanctioned ambient reads: SystemClock's own IClock implementation — UtcNow's real
+                // wall-clock read (plantry-lgbu) and Zone's TimeZoneInfo.Local (plantry-l639) — which exist
+                // precisely so no other caller has to make either read.
                 if (IsSystemClockFile(file))
                     continue;
 
@@ -161,8 +164,10 @@ public sealed class AmbientClockGuardTests
             "Offending lines:\n" + string.Join("\n", offenders));
     }
 
-    // Every forbidden shape the guard exists to catch — both BCL date types' Now/UtcNow/Today members plus the
-    // ambient TimeProvider.System singleton. If a refactor weakens a pattern, one of these fails loudly.
+    // Every forbidden shape the guard exists to catch — the six type-qualified BCL forms (both date types'
+    // Now/UtcNow/Today plus the ambient TimeProvider.System singleton), the two member-name machine-zone
+    // conversions (.LocalDateTime, .ToLocalTime()), and TimeZoneInfo.Local itself. If a refactor weakens a
+    // pattern, one of these fails loudly.
     [Theory(DisplayName = "Guard flags every forbidden ambient-clock shape")]
     [InlineData(@"public DateTimeOffset OccurredAt { get; } = DateTimeOffset.UtcNow;")] // the exact plantry-lgbu bug
     [InlineData(@"var today = DateOnly.FromDateTime(DateTime.UtcNow);")]                // the exact BrowseRecipesQuery bug
@@ -194,7 +199,8 @@ public sealed class AmbientClockGuardTests
 
     /// <summary>True for <c>src/Plantry.SharedKernel/Domain/IClock.cs</c> — the sole exemption, matched by file
     /// path (mirrors how <c>MoneyFormattingGuardTests</c> exempts <c>MoneyDisplay.cs</c>). <c>SystemClock</c>
-    /// lives in this same file and is where the ambient read legitimately happens.</summary>
+    /// lives in this same file and is where the ambient reads (wall clock and machine zone) legitimately
+    /// happen.</summary>
     private static bool IsSystemClockFile(string file) =>
         Path.GetFileName(file).Equals("IClock.cs", StringComparison.OrdinalIgnoreCase)
         && Path.GetFullPath(file).Replace('\\', '/').Contains("/Plantry.SharedKernel/Domain/IClock.cs");
