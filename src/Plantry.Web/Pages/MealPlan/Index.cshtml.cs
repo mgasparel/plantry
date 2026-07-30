@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -1266,7 +1267,12 @@ public sealed class IndexModel(
                         needsEatConfirm = stock is not null && UseUpZone.IsInUseUpZone(stock.AvailableQuantity, d.Servings);
                     }
 
-                    dishVms.Add(new MealCardDishVm(d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode, needsEatConfirm, photoRecipeId));
+                    var cookedAtLocalTime = status?.At is { } cookedAt
+                        ? clock.ToLocal(cookedAt).ToString("h:mm tt", CultureInfo.InvariantCulture).ToLowerInvariant()
+                        : null;
+                    dishVms.Add(new MealCardDishVm(
+                        d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode,
+                        needsEatConfirm, photoRecipeId, cookedAtLocalTime));
                 }
                 var dishNames = dishVms.Select(v => v.Name).ToList();
 
@@ -1943,7 +1949,13 @@ public sealed class IndexModel(
         /// producer. Distinct from <see cref="ItemId"/>, which stays the product id for a product
         /// dish (consumed elsewhere, e.g. the Eat handler's <c>hit.Dish.ItemId</c>).
         /// </summary>
-        Guid? PhotoRecipeId = null);
+        Guid? PhotoRecipeId = null,
+        /// <summary>
+        /// <see cref="CookedAt"/> resolved to a clock-local "h:mm tt" display string (missing-seam:iclock-web)
+        /// — null while the dish is pending. <c>_MealCard.cshtml</c> is a DI-less partial, so this is
+        /// precomputed here (alongside <see cref="NeedsEatConfirm"/>) rather than converted in the view.
+        /// </summary>
+        string? CookedAtLocalTime = null);
 
     /// <summary>
     /// View model for the Eat confirm sheet (plantry-yuy3, _EatSheet.cshtml) — the product-dish

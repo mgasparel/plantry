@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Catalog.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
+using Plantry.SharedKernel.Domain;
 using Plantry.Shopping.Application;
 
 namespace Plantry.Web.Pages.Recipes;
@@ -28,7 +29,8 @@ public sealed class DetailsModel(
     RecipeExpansionService expansionService,
     IQuantityFormatter quantityFormatter,
     DisplayCurrencyAccessor displayCurrency,
-    ArchiveRecipe archiveRecipe) : PageModel
+    ArchiveRecipe archiveRecipe,
+    IClock clock) : PageModel
 {
     /// <summary>Household display currency (plantry-2x6e.2) — the recipe cost meta renders through MoneyDisplay with it.</summary>
     public string DisplayCurrency { get; private set; } = "USD";
@@ -158,7 +160,7 @@ public sealed class DetailsModel(
         // Compute live fulfillment and cost over the expanded view at default servings (P2-2a / P2-2b).
         // Sequential awaits required — FulfillmentService and CostingService share the scoped EF
         // DbContexts; concurrent Task.WhenAll would throw InvalidOperationException (see BrowseRecipesQuery.cs:51-53).
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = clock.ToLocalDate(clock.UtcNow);
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(
             effectiveLines, recipe.DefaultServings, recipe.DefaultServings, today, ct);
         var cost = await costingService.ComputeExpandedAsync(effectiveLines, recipe.DefaultServings, recipe.DefaultServings, ct);
@@ -258,7 +260,7 @@ public sealed class DetailsModel(
         IReadOnlyList<ExpandedLine> expandedLines = expandResult.IsSuccess ? expandResult.Value : [];
         var effectiveLines = expandedLines.AggregateByProductAndUnit();
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = clock.ToLocalDate(clock.UtcNow);
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(
             effectiveLines, recipe.DefaultServings, servings, today, ct);
         return (productLookup, unitLookup, unitStyles, effectiveLines, expandedLines, fulfillment);

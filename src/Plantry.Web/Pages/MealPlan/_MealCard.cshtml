@@ -195,7 +195,7 @@
                 @foreach (var dish in stripRows)
                 {
                     var isProduct = dish.Kind == Plantry.MealPlanning.Domain.DishKind.Product;
-                    if (dish.CookedAt is { } cookedAt)
+                    if (dish.CookedAt is not null)
                     {
                         var verb = isProduct ? "Eaten" : "Cooked";
                         <div class="mc-cook-done">
@@ -211,8 +211,7 @@
                             }
                             else
                             {
-                                var timeLabel = cookedAt.ToLocalTime().ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant();
-                                <span class="done-meta">@timeLabel</span>
+                                <span class="done-meta">@dish.CookedAtLocalTime</span>
                             }
                         </div>
                     }

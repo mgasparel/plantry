@@ -27,8 +27,8 @@ namespace Plantry.Web.Deals;
 /// the wall clock directly — a single seam, not a mix, since a due-check that read "now" ambiently while
 /// waiting on the injected clock would silently disagree with itself under a fake clock (the exact bug this
 /// fixes). Tests substitute <c>Microsoft.Extensions.Time.Testing.FakeTimeProvider</c> and advance time
-/// deterministically instead of sleeping. Production DI registers <see cref="TimeProvider.System"/> (see
-/// Program.cs).
+/// deterministically instead of sleeping. Production DI registers the real, ambient <see cref="TimeProvider"/>
+/// singleton (see Program.cs).
 /// </para>
 /// </summary>
 public sealed class FlyerIngestionWorker(
