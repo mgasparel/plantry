@@ -23,7 +23,8 @@ public sealed record IntakeMonthBlock(string Label, IReadOnlyList<IntakeHistoryR
 public sealed class HistoryModel(
     IImportSessionRepository sessions,
     ITenantContext tenant,
-    DisplayCurrencyAccessor displayCurrency) : PageModel
+    DisplayCurrencyAccessor displayCurrency,
+    IClock clock) : PageModel
 {
     public string DisplayCurrency { get; private set; } = "USD";
     public IReadOnlyList<IntakeMonthBlock> MonthBlocks { get; private set; } = [];
@@ -37,7 +38,7 @@ public sealed class HistoryModel(
         if (tenant.HouseholdId is not { } hid)
             return;
 
-        var page = await new GetIntakeHistoryQuery(sessions)
+        var page = await new GetIntakeHistoryQuery(sessions, clock)
             .ExecuteAsync(HouseholdId.From(hid), beforeCreatedAt: null, ct: ct);
         Apply(page);
     }
@@ -49,7 +50,7 @@ public sealed class HistoryModel(
         if (tenant.HouseholdId is { } hid)
         {
             var beforeCreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(before);
-            var page = await new GetIntakeHistoryQuery(sessions)
+            var page = await new GetIntakeHistoryQuery(sessions, clock)
                 .ExecuteAsync(HouseholdId.From(hid), beforeCreatedAt, ct: ct);
             Apply(page);
         }

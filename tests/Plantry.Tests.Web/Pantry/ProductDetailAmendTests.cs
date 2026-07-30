@@ -420,7 +420,7 @@ internal sealed class ProductDetailAmendFactory : WebApplicationFactory<Program>
                 throw new InvalidOperationException(commitResult.Error.Description);
             session.MarkReady(
                 "Farm Boy #12", ProductDetailAmendFixture.Clock.UtcNow,
-                new ReceiptMetadata(PurchaseDate: DateOnly.FromDateTime(ProductDetailAmendFixture.Clock.UtcNow.LocalDateTime)));
+                new ReceiptMetadata(PurchaseDate: ProductDetailAmendFixture.Clock.ToLocalDate(ProductDetailAmendFixture.Clock.UtcNow)));
 
             SessionRepo = new FakeImportSessionRepository();
             SessionRepo.Sessions.Add(session);

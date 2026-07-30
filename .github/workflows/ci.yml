@@ -47,12 +47,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     timeout-minutes: 15
-    # Non-UTC, negative-offset TZ so local-vs-UTC calendar-day tests (e.g.
-    # BrowseRecipesQueryTests.Today_Uses_The_Server_Local_Calendar_Day_...) actually
-    # exercise the regression on the gate that blocks merges, instead of silently
-    # no-op'ing on ubuntu-latest's default UTC (plantry-vgze).
-    env:
-      TZ: America/New_York
 
     steps:
       - uses: actions/checkout@v4

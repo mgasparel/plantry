@@ -95,7 +95,7 @@ internal static class TodayProductBatchingFixture
     /// <summary>Breakfast=Flour, Lunch=Sugar, Dinner=Butter — one product dish per slot.</summary>
     public static MealPlan BuildProductPlan()
     {
-        var today = DateOnly.FromDateTime(Clock.UtcNow.LocalDateTime);
+        var today = Clock.ToLocalDate(Clock.UtcNow);
         var plan = MealPlan.Start(HhId, today, Clock);
         var ordered = SlotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).ToList();
 
@@ -112,7 +112,7 @@ internal static class TodayProductBatchingFixture
     /// <summary>Single recipe dish, zero product dishes — AC's "zero calls" counterpart.</summary>
     public static MealPlan BuildRecipeOnlyPlan()
     {
-        var today = DateOnly.FromDateTime(Clock.UtcNow.LocalDateTime);
+        var today = Clock.ToLocalDate(Clock.UtcNow);
         var plan = MealPlan.Start(HhId, today, Clock);
         var breakfast = SlotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
 

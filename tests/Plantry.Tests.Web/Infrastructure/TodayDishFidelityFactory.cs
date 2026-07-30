@@ -138,7 +138,7 @@ public static class TodayDishFidelityFixture
     /// </summary>
     public static MealPlan BuildPlan(MealSlotConfig slotConfig)
     {
-        var today = DateOnly.FromDateTime(Clock.UtcNow.LocalDateTime);
+        var today = Clock.ToLocalDate(Clock.UtcNow);
         var plan = MealPlan.Start(HhId, today, Clock);
 
         var ordered = slotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).ToList();
@@ -355,7 +355,7 @@ public static class TodayNoteMealDishFidelityFixture
 
     public static MealPlan BuildPlan(MealSlotConfig slotConfig)
     {
-        var today = DateOnly.FromDateTime(Clock.UtcNow.LocalDateTime);
+        var today = Clock.ToLocalDate(Clock.UtcNow);
         var plan = MealPlan.Start(HhId, today, Clock);
 
         var breakfast = slotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();

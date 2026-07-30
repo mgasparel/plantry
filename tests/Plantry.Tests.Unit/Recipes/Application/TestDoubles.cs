@@ -11,9 +11,15 @@ internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
     public Guid? HouseholdId { get; } = householdId;
 }
 
-internal sealed class FixedClock(DateTimeOffset now) : IClock
+/// <summary>
+/// <paramref name="zone"/> defaults to UTC (matching <see cref="IClock.Zone"/>'s own default) — pass an
+/// explicit zone only when a test specifically exercises local-vs-UTC calendar-day behaviour (e.g.
+/// <c>BrowseRecipesQueryTests</c>'s Today_Uses_The_Local_Calendar_Day_{West,East}_Of_Utc_* cases, plantry-l639).
+/// </summary>
+internal sealed class FixedClock(DateTimeOffset now, TimeZoneInfo? zone = null) : IClock
 {
     public DateTimeOffset UtcNow { get; } = now;
+    public TimeZoneInfo Zone { get; } = zone ?? TimeZoneInfo.Utc;
 }
 
 /// <summary>Returns a fixed "expiring soon" horizon for <c>FulfillmentService.ComputeAsync</c>.

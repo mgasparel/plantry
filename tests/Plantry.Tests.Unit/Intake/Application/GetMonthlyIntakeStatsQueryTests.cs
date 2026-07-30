@@ -7,11 +7,12 @@ namespace Plantry.Tests.Unit.Intake.Application;
 
 /// <summary>
 /// L2 tests (fake repository, no DB) for <see cref="GetMonthlyIntakeStatsQuery"/>. The clock is
-/// pinned mid-month (2026-03-15) so the current-month window is [2026-03-01, now]; every timestamp
-/// is placed well clear of a day/month boundary so <c>ToLocalTime</c> cannot shift it across the
-/// window edge on any CI timezone. Covers each acceptance criterion: empty month, boundary
-/// straddling, Discarded excluded from scans, Failed counted but not totalled, null Total, and a
-/// committed session whose ParsedAt is missing being skipped in the average.
+/// pinned mid-month (2026-03-15) so the current-month window is [2026-03-01, now]; the fixture
+/// clock leaves <see cref="IClock.Zone"/> at its UTC default, so <c>clock.LocalNow()</c> resolves
+/// in UTC and no timestamp can shift across the window edge on any CI timezone. Covers each
+/// acceptance criterion: empty month, boundary straddling, Discarded excluded from scans, Failed
+/// counted but not totalled, null Total, and a committed session whose ParsedAt is missing being
+/// skipped in the average.
 /// </summary>
 public sealed class GetMonthlyIntakeStatsQueryTests
 {

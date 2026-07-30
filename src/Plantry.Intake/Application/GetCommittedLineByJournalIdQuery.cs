@@ -67,7 +67,7 @@ public sealed class GetCommittedLineByJournalIdQuery(
         // to "Unknown store" / today, rather than failing the whole reverse lookup.
         var session = await sessions.FindAsync(line.SessionId, ct);
         var receiptDate = session?.PurchaseDate
-            ?? DateOnly.FromDateTime((session?.CreatedAt ?? clock.UtcNow).LocalDateTime);
+            ?? clock.ToLocalDate(session?.CreatedAt ?? clock.UtcNow);
 
         return new AmendableLine(
             line.Id.Value,
