@@ -35,8 +35,9 @@ public sealed class ClockExtensionsTests
     public void ToLocal_Converts_An_Arbitrary_Instant_Into_The_Clocks_Zone_Not_UtcNow()
     {
         // The clock's own UtcNow is unrelated to the instant being converted — ToLocal must convert
-        // the PARAMETER, not fall back to reading UtcNow.
-        var clock = new FixedClock(DateTimeOffset.UtcNow, FixedWestZone);
+        // the PARAMETER, not fall back to reading UtcNow. A fixed sentinel (not DateTimeOffset.UtcNow)
+        // keeps this test itself off the ambient wall clock, and is guaranteed distinct from `instant`.
+        var clock = new FixedClock(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero), FixedWestZone);
         var instant = new DateTimeOffset(2026, 6, 1, 4, 0, 0, TimeSpan.Zero); // 04:00 UTC
 
         var local = clock.ToLocal(instant);
@@ -66,4 +67,17 @@ public sealed class ClockExtensionsTests
 
         Assert.Equal(new DateOnly(2026, 3, 10), clock.ToLocalDate(instant));
     }
+
+    private sealed class ZoneUnsetClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = now;
+    }
+
+    [Fact]
+    public void Zone_Defaults_To_Utc_For_A_Double_That_Does_Not_Override_It() =>
+        Assert.Equal(TimeZoneInfo.Utc, ((IClock)new ZoneUnsetClock(new DateTimeOffset(2026, 3, 10, 2, 30, 0, TimeSpan.Zero))).Zone);
+
+    [Fact]
+    public void SystemClock_Zone_Is_The_Real_Machine_Local_Zone() =>
+        Assert.Equal(TimeZoneInfo.Local, SystemClock.Instance.Zone);
 }

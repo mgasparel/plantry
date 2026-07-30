@@ -105,6 +105,7 @@ public sealed class AmbientClockGuardTests
         new(@"\bDateTimeOffset\.Now\b", RegexOptions.Compiled),
         new(@"\bTimeProvider\.System\b", RegexOptions.Compiled),
         new(@"\.LocalDateTime\b", RegexOptions.Compiled),
+        new(@"\bTimeZoneInfo\.Local\b", RegexOptions.Compiled),
     ];
 
     /// <summary>
@@ -166,6 +167,7 @@ public sealed class AmbientClockGuardTests
     [InlineData(@"var today = DateTime.Today;")]                                    // DateTime.Now.Date-equivalent ambient read
     [InlineData(@"var utcNow = TimeProvider.System.GetUtcNow();")]                  // the un-injected TimeProvider singleton
     [InlineData(@"var today = DateOnly.FromDateTime(clock.UtcNow.LocalDateTime);")] // the machine-zone read plantry-l639 abolished — use clock.ToLocalDate(...)
+    [InlineData(@"var local = TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.Local);")] // the machine-zone read the IClock.Zone seam replaces
     public void Positive_ForbiddenPatterns_AreDetected(string line) =>
         Assert.True(IsOffendingLine(line), $"Guard should have flagged: {line}");
 
@@ -178,9 +180,8 @@ public sealed class AmbientClockGuardTests
     [InlineData(@"public interface IClock { DateTimeOffset UtcNow { get; } }")]     // property DECLARATION, not a read
     [InlineData(@"DateTimeOffset UtcNow { get; }")]                                 // same, on its own line
     [InlineData(@"var now = timeProvider.GetUtcNow();")]                            // injected TimeProvider instance, not the ambient singleton
-    // A comment mentioning the sanctioned fix's exact shape — this line is real, verbatim, from
-    // src/Plantry.Intake.Infrastructure/ImportSessionRepository.cs:60 (an Infrastructure file this guard does
-    // not scan anyway, but the predicate itself must not flag prose about the fix either).
+    // A comment whose prose merely mentions a local-conversion idiom — the guard scans raw lines, comments
+    // included, so the predicate must never fire on documentation about the fix.
     [InlineData(@"// Mirrors the DateOnly.FromDateTime(clock.UtcNow.ToLocalTime()) idiom used elsewhere.")]
     public void Negative_BenignPatterns_AreNotFlagged(string line) =>
         Assert.False(IsOffendingLine(line), $"Guard should NOT have flagged: {line}");
