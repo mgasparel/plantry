@@ -127,28 +127,6 @@ public sealed class DevEndpointsPageTests
     }
 }
 
-/// <summary>
-/// Boots Plantry.Web in the <b>Development</b> environment so the dev endpoints are mapped (and thus
-/// registered) and /Dev/Endpoints renders. The page reads only the in-memory registry, so no database
-/// is required; a placeholder connection string keeps DI construction happy.
-/// </summary>
-file sealed class DevEnvironmentFactory : WebApplicationFactory<Program>
-{
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Development");
-        builder.ConfigureAppConfiguration((_, config) =>
-        {
-            config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:plantrydb"] =
-                    "Host=127.0.0.1;Port=9;Database=plantrydb;Username=app_user;Password=x;Timeout=1;CommandTimeout=1",
-                ["DataProtection:KeyPath"] = Path.GetTempPath(),
-            });
-        });
-    }
-}
-
 /// <summary>Boots in the non-Development "Testing" env — DevPagesGateMiddleware must 404 all /Dev paths.</summary>
 file sealed class TestingEnvironmentFactory : WebApplicationFactory<Program>
 {

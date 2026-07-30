@@ -163,4 +163,5 @@ public sealed record DataGridViewModel(
     string? Id = null,
     string? SortUrl = null,
     GridSort? CurrentSort = null,
-    string? Caption = null);
+    string? Caption = null,
+    bool CaptionVisuallyHidden = false);

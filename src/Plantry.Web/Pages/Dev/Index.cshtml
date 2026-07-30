@@ -2373,4 +2373,23 @@ if (!resp.ok) { /* handle */ }")</code></pre>
     </p>
 
     <pre class="code-sample"><code>@("<table class=\"data-grid__table\">\n    <caption class=\"data-grid__caption sr-only\">Grocy unit mapping grid</caption>\n    <thead>...</thead>\n    <tbody>...</tbody>\n</table>")</code></pre>
+
+    <p>
+        The six hand-rolled table captions above (every consumer except <code>MealPlan/_MealCard</code>)
+        predate <code>_DataGrid</code>. For a page building a <em>new</em> grid through the shared partial, set
+        <code>CaptionVisuallyHidden = true</code> on <code>DataGridViewModel</code> instead of
+        hand-rolling the caption markup — it defaults to <code>false</code>, so every existing
+        <code>_DataGrid</code> consumer is unaffected:
+    </p>
+
+    <div style="max-width: 28rem">
+        <partial name="Shared/_DataGrid" model="Model.UtilityCaptionDemoGrid" />
+    </div>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted)">
+        Same caption result as the hand-rolled table above — present in the DOM, visually hidden —
+        here produced by <code>_DataGrid</code>, which also supplies its own bordered
+        <code>.data-grid</code> container.
+    </p>
+
+    <pre class="code-sample"><code>@("new DataGridViewModel(\n    Columns: [...],\n    Rows: [...],\n    EmptyMessage: \"...\",\n    Caption: \"Grocy unit mapping grid\",\n    CaptionVisuallyHidden: true)")</code></pre>
 </section>

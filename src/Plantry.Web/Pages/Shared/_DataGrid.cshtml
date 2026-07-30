@@ -32,7 +32,7 @@ else
     <table class="data-grid__table">
         @if (Model.Caption is { } caption)
         {
-            <caption class="data-grid__caption">@caption</caption>
+            <caption class="data-grid__caption@(Model.CaptionVisuallyHidden ? " sr-only" : "")">@caption</caption>
         }
         <thead>
             <tr>
