@@ -41,6 +41,11 @@ public sealed class UploadModel(
     ILogger<UploadModel> logger,
     ILogger<ParseSessionCommand> parseLogger) : PageModel
 {
+    /// <summary>Exposes the injected clock to the view's <c>@functions</c> block (missing-seam:iclock-web) —
+    /// <c>FormatWhen</c> renders recent-intake timestamps in the clock's zone via <see cref="ClockExtensions"/>
+    /// rather than the machine's own local zone.</summary>
+    public IClock Clock => clock;
+
     /// <summary>Household display currency (plantry-2x6e.2) — the "This month" groceries total renders through MoneyDisplay with it.</summary>
     public string DisplayCurrency { get; private set; } = "USD";
     public IReadOnlyList<RecentIntakeRow> RecentIntakes { get; private set; } = [];

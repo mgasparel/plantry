@@ -59,7 +59,7 @@
         ],
         Rows: [.. Model.Detail.History.Select(row => new GridRow(
         [
-            GridCell.Text(row.OccurredAt.ToLocalTime().ToString("d MMM yyyy HH:mm")),
+            GridCell.Text(Model.HistoryWhenLocal[row.JournalId]),
             GridCell.Text(DeltaText(row)),
             // Amendment renders as plain text like every other reason (ADR-023 A11) — no badge.
             GridCell.Text(row.Reason.ToString()),

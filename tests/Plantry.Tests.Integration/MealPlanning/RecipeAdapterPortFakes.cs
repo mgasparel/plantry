@@ -1,5 +1,6 @@
 using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Tests.Integration.MealPlanning;
 
@@ -83,4 +84,13 @@ internal sealed class IdentityConverter : IUnitConverter
 internal sealed class FixedHorizon(int days) : IExpiringSoonHorizonReader
 {
     public Task<int> GetDaysAsync(CancellationToken ct = default) => Task.FromResult(days);
+}
+
+/// <summary>Shared fixed clock for this folder's RecipeReadModelAdapter suites (missing-seam:iclock-web,
+/// plantry-4tb4). <paramref name="zone"/> defaults to UTC (matching IClock.Zone's own default) — pass an
+/// explicit zone only when a test exercises local-vs-UTC calendar-day behaviour.</summary>
+internal sealed class FixedClock(DateTimeOffset now, TimeZoneInfo? zone = null) : IClock
+{
+    public DateTimeOffset UtcNow { get; } = now;
+    public TimeZoneInfo Zone { get; } = zone ?? TimeZoneInfo.Utc;
 }

@@ -106,7 +106,8 @@ public sealed class ReviewModel(
         // Resolve the household display-currency symbol once (plantry-2x6e.3) so the island's money formatters
         // prefix the same glyph the server renders with — sourced from MoneyDisplay.Symbol, no currency map in JS.
         var currencySymbol = MoneyDisplay.Symbol(await displayCurrency.GetAsync(ct));
-        var hydration = hydrationBuilder.Build(Session, Today, clock.UtcNow, BuildHandlerUrls(), currencySymbol);
+        var hydration = hydrationBuilder.Build(
+            Session, Today, clock.UtcNow, clock.Zone, BuildHandlerUrls(), currencySymbol);
         IslandHydrationJson = JsonSerializer.Serialize(hydration, IntakeHydrationJson.Options);
         return Page();
     }

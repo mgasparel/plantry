@@ -20,7 +20,10 @@ namespace Plantry.Tests.Integration.MealPlanning;
 public sealed class RecipeReadModelAdapterYieldPhotoTests(PostgresFixture db) : IAsyncLifetime
 {
     private HouseholdId _household;
-    private static readonly IClock Clock = SystemClock.Instance;
+    /// <summary>Fixed, not <c>SystemClock.Instance</c> (missing-seam:iclock-web, plantry-4tb4) — this file's
+    /// adapter calls are clock-inert (no path here reads "today"), but the constructor is now clock-bearing,
+    /// so a fixed clock keeps every test double in this folder off the real wall clock regardless (gate 10).</summary>
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero));
 
     public async Task InitializeAsync()
     {
@@ -230,7 +233,7 @@ public sealed class RecipeReadModelAdapterYieldPhotoTests(PostgresFixture db) : 
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
         var fulfillment = new FulfillmentService(new FakeStock(), new FakeCatalog(), new IdentityConverter(), new FixedHorizon(7));
         var costing = new CostingService(new FakePrices(), new IdentityConverter(), new FakeCatalog());
-        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing);
+        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock);
     }
 
     private RecipesDbContext NewContext()

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Web.Pages.Intake;
@@ -20,6 +21,11 @@ public sealed class IntakeReviewHydrationBuilderTests
 
     private static readonly DateOnly Today = new(2026, 6, 15);
     private static readonly DateTimeOffset Now = new(2026, 6, 15, 10, 0, 0, TimeSpan.Zero);
+
+    /// <summary>The clock's zone, passed into <see cref="IntakeReviewHydrationBuilder.Build"/> for machine-timestamp
+    /// display rendering (missing-seam:iclock-web) — UTC for these tests, which assert on the raw UTC instants
+    /// above; <see cref="SessionDate_And_ScannedLabel_Render_In_The_Clocks_Zone_Not_Utc"/> pins a non-UTC zone.</summary>
+    private static readonly TimeZoneInfo Zone = TimeZoneInfo.Utc;
 
     private static readonly Guid MilkId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid CheddarSharpId = Guid.Parse("22222222-2222-2222-2222-222222222222");
@@ -110,7 +116,7 @@ public sealed class IntakeReviewHydrationBuilderTests
     private const string Symbol = "$";
 
     private static SessionHydration Build(SessionReviewView session) =>
-        Builder.Build(session, Today, Now, Urls, Symbol);
+        Builder.Build(session, Today, Now, Zone, Urls, Symbol);
 
     // ── Alternatives gate ────────────────────────────────────────────────────────────
 
@@ -284,7 +290,7 @@ public sealed class IntakeReviewHydrationBuilderTests
 
         var prefill = Builder.Build(
             new SessionReviewView(Guid.NewGuid(), ImportStatus.Ready, "M", null, Now, [line], reference),
-            Today, Now, Urls, Symbol).Lines[0].Prefill;
+            Today, Now, Zone, Urls, Symbol).Lines[0].Prefill;
 
         Assert.Equal(expected.ProductId?.ToString(), prefill.ProductId);
         Assert.Equal(expected.ProductName, prefill.ProductName);
@@ -312,10 +318,30 @@ public sealed class IntakeReviewHydrationBuilderTests
         Assert.Equal("/ch", h.CorrectHeaderUrl);
     }
 
+    [Fact(DisplayName = "SessionDate and ScannedLabel render in the clock's zone, not UTC (missing-seam:iclock-web)")]
+    public void SessionDate_And_ScannedLabel_Render_In_The_Clocks_Zone_Not_Utc()
+    {
+        var nonUtcZone = TimeZoneInfo.CreateCustomTimeZone(
+            "Fixed-05:00", TimeSpan.FromHours(-5), "Fixed -05:00", "Fixed -05:00");
+        // 02:00 UTC on 2026-06-13 is 21:00 on 2026-06-12 in Fixed-05:00 — a full calendar day earlier, so a
+        // UTC-rendered date would disagree with a zone-rendered one and the test would catch a regression to
+        // the machine's local zone (or to UTC) either way.
+        var createdAt = new DateTimeOffset(2026, 6, 13, 2, 0, 0, TimeSpan.Zero);
+        var now = new DateTimeOffset(2026, 6, 15, 10, 0, 0, TimeSpan.Zero); // >1 day later → "scanned on ..." branch
+        var session = Session([Line()]) with { CreatedAt = createdAt };
+
+        var h = Builder.Build(session, Today, now, nonUtcZone, Urls, Symbol);
+
+        var expectedLocal = TimeZoneInfo.ConvertTime(createdAt, nonUtcZone);
+        Assert.NotEqual(createdAt.Date, expectedLocal.Date); // sanity: the zone actually shifted the calendar day
+        Assert.Equal(expectedLocal.ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture), h.SessionDate);
+        Assert.Equal("scanned on " + expectedLocal.ToString("MMM d, yyyy", CultureInfo.CurrentCulture), h.ScannedLabel);
+    }
+
     [Fact(DisplayName = "The caller-supplied currency symbol is threaded verbatim into the payload (plantry-2x6e.3)")]
     public void Currency_Symbol_Is_Passed_Through()
     {
-        var h = Builder.Build(Session([Line()]), Today, Now, Urls, "€");
+        var h = Builder.Build(Session([Line()]), Today, Now, Zone, Urls, "€");
 
         Assert.Equal("€", h.CurrencySymbol);
     }
@@ -358,7 +384,7 @@ public sealed class IntakeReviewHydrationBuilderTests
         var storeId = Guid.NewGuid();
         var h = Builder.Build(
             HeaderSession("Food Basics", storeId, new DateOnly(2026, 7, 19), new TimeOnly(17, 5)),
-            Today, Now, Urls, Symbol);
+            Today, Now, Zone, Urls, Symbol);
 
         Assert.Equal("Food Basics", h.MerchantTextRaw);
         Assert.Equal(storeId.ToString(), h.SelectedStoreId);
@@ -370,7 +396,7 @@ public sealed class IntakeReviewHydrationBuilderTests
     [Fact(DisplayName = "A guard-nulled / absent date yields null raw + display so the control prompts entry")]
     public void Null_Date_Yields_Null_Raw_And_Display()
     {
-        var h = Builder.Build(HeaderSession(purchaseDate: null), Today, Now, Urls, Symbol);
+        var h = Builder.Build(HeaderSession(purchaseDate: null), Today, Now, Zone, Urls, Symbol);
 
         Assert.Null(h.PurchaseDateRaw);
         Assert.Null(h.PurchaseDate);
@@ -383,7 +409,7 @@ public sealed class IntakeReviewHydrationBuilderTests
     [InlineData("   ")]
     public void MerchantTextRaw_Is_Null_For_Blank_Merchant(string? merchant)
     {
-        var h = Builder.Build(HeaderSession(merchantText: merchant), Today, Now, Urls, Symbol);
+        var h = Builder.Build(HeaderSession(merchantText: merchant), Today, Now, Zone, Urls, Symbol);
 
         Assert.Null(h.MerchantTextRaw);       // the picker sees "unresolved" → prompts entry
         Assert.Equal("Receipt", h.MerchantText); // the facsimile title still falls back

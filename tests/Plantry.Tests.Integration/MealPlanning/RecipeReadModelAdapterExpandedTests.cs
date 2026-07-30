@@ -25,8 +25,12 @@ namespace Plantry.Tests.Integration.MealPlanning;
 public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IAsyncLifetime
 {
     private HouseholdId _household;
-    private static readonly IClock Clock = SystemClock.Instance;
     private static readonly DateOnly Today = new(2026, 7, 10);
+    /// <summary>Fixed at noon UTC on <see cref="Today"/> (missing-seam:iclock-web, plantry-4tb4) — the adapter
+    /// now derives its own <c>today</c> for <c>GetMissingIngredientsAsync</c> via <c>clock.ToLocalDate(clock.UtcNow)</c>,
+    /// so this must resolve to the same calendar day as the pinned <see cref="Today"/> constant rather than the
+    /// real wall clock's <c>TimeZoneInfo.Local</c> zone (gate 10).</summary>
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero));
 
     // Soft-ref catalog ids (never inserted into Catalog; the fake readers below stand in).
     private readonly Guid _cheeseProductId = Guid.CreateVersion7();
@@ -120,7 +124,7 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
         var fulfillment = new FulfillmentService(stock, catalog, new IdentityConverter(), new FixedHorizon(7));
         var costing = new CostingService(prices, new IdentityConverter(), catalog);
-        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing);
+        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock);
     }
 
     private RecipesDbContext NewContext()
@@ -133,7 +137,7 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         return ctx;
     }
 
-    // Port fakes (FakeStock, FakeCatalog, FakePrices, IdentityConverter, FixedHorizon) live in
+    // Port fakes (FakeStock, FakeCatalog, FakePrices, IdentityConverter, FixedHorizon, FixedClock) live in
     // RecipeAdapterPortFakes.cs — shared with RecipeReadModelAdapterYieldPhotoTests.cs (plantry-f4dt
     // critic pass 1: this was the 4th private copy of this stub family in this folder).
 }

@@ -3,6 +3,7 @@ using Plantry.MealPlanning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
+using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Web.MealPlanning;
 
@@ -27,7 +28,8 @@ public sealed class RecipeReadModelAdapter(
     RecipesDbContext db,
     RecipeExpansionService expansion,
     FulfillmentService fulfillmentService,
-    CostingService costingService) : IRecipeReadModel
+    CostingService costingService,
+    IClock clock) : IRecipeReadModel
 {
     public async Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
     {
@@ -192,7 +194,7 @@ public sealed class RecipeReadModelAdapter(
 
         if (recipe is null) return [];
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = clock.ToLocalDate(clock.UtcNow);
 
         // Expand to the flat product-level view (D4 choke point) and compute shortfall over the expanded set,
         // so ShopForWeek buys for included recipes' products too. Delegate to the shared shortfall calculator

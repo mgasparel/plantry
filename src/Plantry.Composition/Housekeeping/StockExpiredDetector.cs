@@ -14,8 +14,8 @@ namespace Plantry.Web.Housekeeping;
 /// D3 (tidy-up.md §3): flags a product with at least one active stock lot whose
 /// <see cref="StockEntry.ExpiryDate"/> is strictly before today — GRACE WINDOW: 0 days (agreed
 /// 2026-07-21): a lot expiring today does not fire, only one whose expiry has already passed. Uses
-/// <see cref="IClock"/> for "today" (never <c>DateTime.Now</c>/<c>DateTime.UtcNow</c> directly),
-/// matching the house convention (e.g. <c>PriceReaderAdapter</c>).
+/// <see cref="IClock"/> for "today" (never the ambient wall clock directly), matching the house
+/// convention (e.g. <c>PriceReaderAdapter</c>).
 /// <para>
 /// Fingerprint is the sorted set of expired <see cref="StockEntry"/> ids — never quantities (§4
 /// "fingerprint discipline"): a newly-expired lot changes the id set and reopens a dismissed finding;

@@ -39,13 +39,17 @@ public sealed class IntakeReviewHydrationBuilder
     /// <summary>
     /// Projects the loaded session + reference data into the island's hydration blob. Pure over
     /// (<paramref name="session"/>, <paramref name="today"/>, <paramref name="now"/>,
-    /// <paramref name="urls"/>): <paramref name="today"/> supplies expiry/default dates,
-    /// <paramref name="now"/> drives the "scanned N ago" relative label, <paramref name="urls"/>
-    /// carries the pre-computed row-action endpoints, and <paramref name="currencySymbol"/> is the household
-    /// display-currency glyph (from <c>MoneyDisplay.Symbol</c>) the island prefixes its money formatters with.
+    /// <paramref name="zone"/>, <paramref name="urls"/>): <paramref name="today"/> supplies expiry/default
+    /// dates, <paramref name="now"/> drives the "scanned N ago" relative label, <paramref name="zone"/> is
+    /// the clock's zone used to render machine timestamps as server-local display strings (no
+    /// <c>IClock</c> field — the caller reads the clock and passes its zone in, preserving purity),
+    /// <paramref name="urls"/> carries the pre-computed row-action endpoints, and
+    /// <paramref name="currencySymbol"/> is the household display-currency glyph (from
+    /// <c>MoneyDisplay.Symbol</c>) the island prefixes its money formatters with.
     /// </summary>
     public SessionHydration Build(
-        SessionReviewView session, DateOnly today, DateTimeOffset now, ReviewHandlerUrls urls, string currencySymbol)
+        SessionReviewView session, DateOnly today, DateTimeOffset now, TimeZoneInfo zone,
+        ReviewHandlerUrls urls, string currencySymbol)
     {
         var reference = session.ReferenceData;
 
@@ -134,7 +138,8 @@ public sealed class IntakeReviewHydrationBuilder
 
         return new SessionHydration(
             MerchantText: string.IsNullOrWhiteSpace(session.MerchantText) ? "Receipt" : session.MerchantText,
-            SessionDate: session.CreatedAt.ToLocalTime().ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture),
+            SessionDate: TimeZoneInfo.ConvertTime(session.CreatedAt, zone)
+                .ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture),
             Today: today.ToString("yyyy-MM-dd"),
             CommitUrl: urls.Commit,
             DiscardUrl: urls.Discard,
@@ -152,7 +157,7 @@ public sealed class IntakeReviewHydrationBuilder
             Lines: lines,
             // Receipt-panel metadata — via tag reflects the source; the rest is present-only display data.
             ScanVia: session.SourceType == ImportSourceType.Receipt ? "photo" : "email",
-            ScannedLabel: RelativeScanLabel(session.CreatedAt, now),
+            ScannedLabel: RelativeScanLabel(session.CreatedAt, now, zone),
             StoreBranch: NullIfBlank(session.StoreBranch),
             PurchaseDate: session.PurchaseDate is { } pd
                 ? pd.ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture) : null,
@@ -178,7 +183,7 @@ public sealed class IntakeReviewHydrationBuilder
     /// <summary>Humanises how long ago the receipt was scanned, for the receipt panel's meta line
     /// ("scanned just now" / "scanned 5 minutes ago" / "scanned on Jun 7, 2026"). Coarse buckets only —
     /// this is ambient display copy, not a precise timestamp.</summary>
-    private static string RelativeScanLabel(DateTimeOffset scannedAt, DateTimeOffset now)
+    private static string RelativeScanLabel(DateTimeOffset scannedAt, DateTimeOffset now, TimeZoneInfo zone)
     {
         var elapsed = now - scannedAt;
         if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
@@ -193,6 +198,6 @@ public sealed class IntakeReviewHydrationBuilder
             var hours = (int)elapsed.TotalHours;
             return $"scanned {hours} hour{(hours == 1 ? "" : "s")} ago";
         }
-        return "scanned on " + scannedAt.ToLocalTime().ToString("MMM d, yyyy", CultureInfo.CurrentCulture);
+        return "scanned on " + TimeZoneInfo.ConvertTime(scannedAt, zone).ToString("MMM d, yyyy", CultureInfo.CurrentCulture);
     }
 }
