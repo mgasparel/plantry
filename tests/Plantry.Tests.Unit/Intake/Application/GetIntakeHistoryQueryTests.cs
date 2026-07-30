@@ -53,7 +53,7 @@ public sealed class GetIntakeHistoryQueryTests
         var parsing = NewSession(); // still Parsing — excluded
 
         var repo = RepoWith(committed, ready, failed, discarded, parsing);
-        var page = await new GetIntakeHistoryQuery(repo).ExecuteAsync(HouseholdId.From(_householdId));
+        var page = await new GetIntakeHistoryQuery(repo, Clock).ExecuteAsync(HouseholdId.From(_householdId));
 
         Assert.Equal(4, page.Rows.Count);
         Assert.DoesNotContain(page.Rows, r => r.Id == parsing.Id);
@@ -73,7 +73,7 @@ public sealed class GetIntakeHistoryQueryTests
         line.MarkCommitted(Guid.NewGuid(), null);
         session.MarkCommitted(Clock.UtcNow);
 
-        var page = await new GetIntakeHistoryQuery(RepoWith(session)).ExecuteAsync(HouseholdId.From(_householdId));
+        var page = await new GetIntakeHistoryQuery(RepoWith(session), Clock).ExecuteAsync(HouseholdId.From(_householdId));
 
         Assert.Equal(42.00m, Assert.Single(page.Rows).Total);
     }
@@ -91,7 +91,7 @@ public sealed class GetIntakeHistoryQueryTests
         line2.MarkCommitted(Guid.NewGuid(), null);
         session.MarkCommitted(Clock.UtcNow);
 
-        var page = await new GetIntakeHistoryQuery(RepoWith(session)).ExecuteAsync(HouseholdId.From(_householdId));
+        var page = await new GetIntakeHistoryQuery(RepoWith(session), Clock).ExecuteAsync(HouseholdId.From(_householdId));
 
         Assert.Equal(3.99m + 2.50m, Assert.Single(page.Rows).Total);
     }
@@ -105,7 +105,7 @@ public sealed class GetIntakeHistoryQueryTests
         session.AddLine(3, "Loyalty card scan", SuggestedConfidence.None, null); // no suggested price
         session.MarkReady("Store", Clock.UtcNow);
 
-        var row = Assert.Single((await new GetIntakeHistoryQuery(RepoWith(session)).ExecuteAsync(HouseholdId.From(_householdId))).Rows);
+        var row = Assert.Single((await new GetIntakeHistoryQuery(RepoWith(session), Clock).ExecuteAsync(HouseholdId.From(_householdId))).Rows);
 
         Assert.Equal(3, row.ItemCount); // every parsed line, not just priced ones
         Assert.Equal(3.99m + 2.50m, row.Total);
@@ -117,7 +117,7 @@ public sealed class GetIntakeHistoryQueryTests
         var failed = NewSession();
         failed.MarkParsingFailed("bad image");
 
-        var row = Assert.Single((await new GetIntakeHistoryQuery(RepoWith(failed)).ExecuteAsync(HouseholdId.From(_householdId))).Rows);
+        var row = Assert.Single((await new GetIntakeHistoryQuery(RepoWith(failed), Clock).ExecuteAsync(HouseholdId.From(_householdId))).Rows);
 
         Assert.Null(row.ItemCount);
         Assert.Null(row.Total);
@@ -129,7 +129,7 @@ public sealed class GetIntakeHistoryQueryTests
         var session = NewSession();
         session.MarkReady("Store", Clock.UtcNow, new ReceiptMetadata(PurchaseDate: new DateOnly(2026, 3, 14)));
 
-        var row = Assert.Single((await new GetIntakeHistoryQuery(RepoWith(session)).ExecuteAsync(HouseholdId.From(_householdId))).Rows);
+        var row = Assert.Single((await new GetIntakeHistoryQuery(RepoWith(session), Clock).ExecuteAsync(HouseholdId.From(_householdId))).Rows);
 
         Assert.Equal(new DateOnly(2026, 3, 14), row.Date);
     }
@@ -140,7 +140,7 @@ public sealed class GetIntakeHistoryQueryTests
         var session = NewSession();
         session.MarkParsingFailed("x");
 
-        var page = await new GetIntakeHistoryQuery(RepoWith(session))
+        var page = await new GetIntakeHistoryQuery(RepoWith(session), Clock)
             .ExecuteAsync(HouseholdId.From(_householdId), take: 10);
 
         Assert.Null(page.NextCursor);
@@ -154,7 +154,7 @@ public sealed class GetIntakeHistoryQueryTests
         var s2 = NewSession();
         s2.MarkParsingFailed("x");
 
-        var page = await new GetIntakeHistoryQuery(RepoWith(s1, s2))
+        var page = await new GetIntakeHistoryQuery(RepoWith(s1, s2), Clock)
             .ExecuteAsync(HouseholdId.From(_householdId), take: 2);
 
         Assert.NotNull(page.NextCursor);

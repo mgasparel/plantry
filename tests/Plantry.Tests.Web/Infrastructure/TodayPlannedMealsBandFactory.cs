@@ -54,9 +54,9 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
             // ── Clock ─────────────────────────────────────────────────────────
             // Pin the host clock to the same fixed instant the fixture keys its plan off
             // (TodayPlannedBandFixture.Clock). The page computes today as
-            // DateOnly.FromDateTime(clock.UtcNow.LocalDateTime); sharing this exact instance makes
-            // the page's lookup date equal the fixture's seed date deterministically, killing the
-            // UTC-vs-local flakiness (plantry-ouvi).
+            // clock.ToLocalDate(now) (plantry-l639's IClock.Zone seam); sharing this exact instance
+            // (and therefore its Zone) makes the page's lookup date equal the fixture's seed date
+            // deterministically, killing the UTC-vs-local flakiness (plantry-ouvi).
             services.RemoveAll<IClock>();
             services.AddSingleton<IClock>(TodayPlannedBandFixture.Clock);
 
@@ -254,10 +254,10 @@ public static class TodayPlannedBandFixture
     public static MealPlan BuildPlanWithBreakfast(MealSlotConfig slotConfig)
     {
         // Derive "today" from the fixed host clock using the SAME conversion the Today page applies
-        // (Index.cshtml.cs: DateOnly.FromDateTime(clock.UtcNow.LocalDateTime)). Keying off the shared
-        // clock instead of DateTime.UtcNow guarantees the seeded meal's date matches the page's lookup
+        // (Index.cshtml.cs: clock.ToLocalDate(now), plantry-l639). Keying off the shared clock
+        // instead of DateTime.UtcNow guarantees the seeded meal's date matches the page's lookup
         // date on any machine, at any wall-clock time — eliminating the UTC/local flakiness.
-        var today = DateOnly.FromDateTime(Clock.UtcNow.LocalDateTime);
+        var today = Clock.ToLocalDate(Clock.UtcNow);
         var plan = MealPlan.Start(HhId, today, Clock);
 
         // Breakfast slot = first active slot by ordinal

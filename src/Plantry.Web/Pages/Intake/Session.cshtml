@@ -3,7 +3,7 @@
 @using System.Globalization
 @{
     ViewData["Title"] = Model.Detail.MerchantText ?? "Receipt intake";
-    var purchaseDate = Model.Detail.PurchaseDate ?? DateOnly.FromDateTime(Model.Detail.CreatedAt.LocalDateTime);
+    var purchaseDate = Model.ResolvedPurchaseDate;
     var subtitle = $"{purchaseDate:dddd d MMMM yyyy} · {Model.CommitRecencyText()} · {Model.ItemsAdded} items added";
 }
 

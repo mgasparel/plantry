@@ -181,7 +181,7 @@ public sealed class IndexModel(
     public async Task OnGetAsync(CancellationToken ct = default)
     {
         var now = clock.UtcNow;
-        DateDisplay = now.LocalDateTime.ToString("dddd, MMMM d");
+        DateDisplay = clock.ToLocal(now).ToString("dddd, MMMM d");
         Today = DateOnly.FromDateTime(now.UtcDateTime);
 
         HouseholdId? householdId = tenant.HouseholdId is { } hid
@@ -193,7 +193,7 @@ public sealed class IndexModel(
             var household = await households.FindAsync(houseId, ct);
             HouseholdName = household?.Name ?? string.Empty;
 
-            Greeting = BuildGreeting(now.LocalDateTime.Hour, HouseholdName);
+            Greeting = BuildGreeting(clock.ToLocal(now).Hour, HouseholdName);
 
             var hasStock = await stocks.AnyForHouseholdAsync(houseId, ct);
             var hasRecipes = await recipeRepo.AnyForHouseholdAsync(houseId, ct);
@@ -218,7 +218,7 @@ public sealed class IndexModel(
         }
         else
         {
-            Greeting = BuildGreeting(now.LocalDateTime.Hour, string.Empty);
+            Greeting = BuildGreeting(clock.ToLocal(now).Hour, string.Empty);
             IsColdStart = true;
             ShowTakeStockCta = true;
         }
@@ -235,7 +235,7 @@ public sealed class IndexModel(
         DateTimeOffset now,
         CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(now.LocalDateTime);
+        var today = clock.ToLocalDate(now);
 
         // Load slot config — defines the active slot vocabulary for this household.
         var slotConfig = await slotConfigRepo.FindByHouseholdAsync(householdId, ct);

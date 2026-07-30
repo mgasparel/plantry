@@ -27,7 +27,8 @@ public sealed class StockProvenanceReaderAdapter(
     IImportSessionRepository sessions,
     ICookEventRepository cookEvents,
     IRecipeRepository recipes,
-    ITenantContext tenant) : IStockProvenanceReader
+    ITenantContext tenant,
+    IClock clock) : IStockProvenanceReader
 {
     public async Task<IReadOnlyDictionary<Guid, ProvenanceChip>> ResolveAsync(
         IReadOnlyList<(Guid JournalId, StockSourceType SourceType, Guid? SourceRef)> rows,
@@ -72,7 +73,7 @@ public sealed class StockProvenanceReaderAdapter(
                 continue; // unresolvable — the line no longer exists, or matched no committed row
 
             var store = string.IsNullOrWhiteSpace(line.MerchantText) ? "Unknown store" : line.MerchantText;
-            var date = line.PurchaseDate ?? DateOnly.FromDateTime(line.SessionCreatedAt.LocalDateTime);
+            var date = line.PurchaseDate ?? clock.ToLocalDate(line.SessionCreatedAt);
             var label = $"{store} · {date:d MMM}";
             result[row.JournalId] = new ProvenanceChip(ProvenanceChipKind.Intake, label, line.SessionId, line.ImportLineId);
         }

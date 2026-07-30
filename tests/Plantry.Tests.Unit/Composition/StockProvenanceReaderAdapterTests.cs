@@ -25,7 +25,7 @@ public sealed class StockProvenanceReaderAdapterTests
 
     private StockProvenanceReaderAdapter Adapter(
         FakeImportSessionRepository sessions, TestCookEventRepository cookEvents, TestRecipeRepository recipes, Guid? household = null) =>
-        new(sessions, cookEvents, recipes, new TestTenantContext(household ?? _householdId));
+        new(sessions, cookEvents, recipes, new TestTenantContext(household ?? _householdId), Clock);
 
     // ── Intake — new-style (SourceRef = the committing line's own id) ──────────────────────────────
 

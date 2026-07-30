@@ -43,7 +43,8 @@ public sealed class SessionModel(
     IProductStockRepository stocks,
     IHouseholdMemberReader members,
     ITenantContext tenant,
-    DisplayCurrencyAccessor displayCurrency) : PageModel
+    DisplayCurrencyAccessor displayCurrency,
+    IClock clock) : PageModel
 {
     public CommittedSessionDetail Detail { get; private set; } = null!;
     public IReadOnlyList<SessionLineView> Lines { get; private set; } = [];
@@ -59,6 +60,15 @@ public sealed class SessionModel(
     public string FormatMoney(decimal amount) => MoneyDisplay.Format(amount, DisplayCurrency);
 
     /// <summary>
+    /// The session's purchase date resolved to the server-local calendar day (H8): the receipt-declared
+    /// purchase date when present, else the session's creation instant converted via the injected clock's
+    /// zone. Exposed here (rather than computed separately by <see cref="CommitRecencyText"/> and the
+    /// Razor view) so both consume the one resolution — views must not read the machine's local time zone
+    /// directly.
+    /// </summary>
+    public DateOnly ResolvedPurchaseDate => Detail.PurchaseDate ?? clock.ToLocalDate(Detail.CreatedAt);
+
+    /// <summary>
     /// "committed same day" / "committed N days later" / "" when either timestamp is missing — the
     /// page-header subtitle's commit-recency clause (H8).
     /// </summary>
@@ -67,9 +77,8 @@ public sealed class SessionModel(
         if (Detail.CommittedAt is not { } committedAt)
             return string.Empty;
 
-        var purchaseDate = Detail.PurchaseDate ?? DateOnly.FromDateTime(Detail.CreatedAt.LocalDateTime);
-        var committedDate = DateOnly.FromDateTime(committedAt.LocalDateTime);
-        var days = committedDate.DayNumber - purchaseDate.DayNumber;
+        var committedDate = clock.ToLocalDate(committedAt);
+        var days = committedDate.DayNumber - ResolvedPurchaseDate.DayNumber;
         return days switch
         {
             <= 0 => "committed same day",

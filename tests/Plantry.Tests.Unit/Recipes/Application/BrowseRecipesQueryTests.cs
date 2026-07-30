@@ -26,8 +26,11 @@ public sealed class BrowseRecipesQueryTests
     private static readonly HouseholdId Household = HouseholdId.New();
     private static readonly Guid HouseholdGuid = Household.Value;
     // Track the same clock BrowseRecipesQuery uses for its "expiring soon" comparison
-    // (BrowseRecipesQuery.cs: today = DateOnly.FromDateTime(clock.UtcNow.LocalDateTime), plantry-lgbu).
-    private static readonly DateOnly Today = DateOnly.FromDateTime(Clock.UtcNow.LocalDateTime);
+    // (BrowseRecipesQuery.cs: today = clock.ToLocalDate(clock.UtcNow), plantry-l639) via the
+    // IClock.Zone seam rather than the machine's real TimeZoneInfo.Local — Clock's Zone (unset,
+    // defaults to UTC per IClock's DIM) must match what BrowseRecipesQuery actually reads, or every
+    // fixture built off Today below would drift from the SUT on a non-UTC machine.
+    private static readonly DateOnly Today = Clock.ToLocalDate(Clock.UtcNow);
 
     // ── Dedicated test doubles for BrowseRecipesQuery ────────────────────────
 
@@ -541,21 +544,23 @@ public sealed class BrowseRecipesQueryTests
         Assert.False(tampered.FullyCookable);
     }
 
-    // ── "today" regression pins (plantry-lgbu AC5) ──────────────────────────────
+    // ── "today" regression pins (plantry-lgbu AC5, rewritten hermetically by plantry-l639) ──────
     //
     // BrowseRecipesQuery.cs previously read `DateOnly.FromDateTime(DateTime.UtcNow)` — the real
     // ambient wall clock, ignoring dependency injection entirely — instead of the household's
     // server-local "today" via the injected IClock. Two distinct failure modes, two distinct tests:
     //   1. The clock is read from IClock at all, not the real ambient wall clock.
-    //   2. The date is the server-local calendar day of that instant, not its UTC calendar day.
-    // These need separate constructions: (1) is proven by pinning the fixture's clock far from the
-    // real "now" (any regression to ambient DateTime.UtcNow then computes a wildly different date,
-    // regardless of when/where the test runs); (2) is proven by placing a stock expiry exactly one
-    // day past the "expiring soon" horizon as measured from the LOCAL day — a regression to the UTC
-    // calendar day of the SAME injected instant shifts the count by exactly one day and flips the
-    // flag, but this only exists as a distinguishable case on a server whose local offset is
-    // genuinely non-zero (BrowseRecipesQuery.cs's documented west-of-UTC bug), so (2) is skipped
-    // (a documented, deliberate no-op — not a flake) on a machine running true UTC as its local zone.
+    //   2. The date is the LOCAL calendar day of that instant (via IClock.Zone), not its UTC
+    //      calendar day.
+    // (1) is proven by pinning the fixture's clock far from the real "now" (any regression to
+    // ambient DateTime.UtcNow then computes a wildly different date, regardless of when/where the
+    // test runs). (2) is proven below by two FixedClock instances carrying an explicit, non-UTC
+    // TimeZoneInfo (west and east of UTC) — the fixture's own zone constructs the local-vs-UTC day
+    // split directly, so both cases run deterministically on every machine (no environment-dependent
+    // guard, no CI timezone pin, per plantry-l639's IClock.Zone seam). A regression to
+    // TimeZoneInfo.Local (or to DateTimeOffset.LocalDateTime, which reads it implicitly) ignores the
+    // fixture's zone entirely and — on a UTC-zoned CI/dev machine — collapses local and UTC day back
+    // together, flipping the "expiring soon" flag asserted below.
 
     [Fact]
     public async Task Today_Is_Read_From_The_Injected_Clock_Not_The_Real_Ambient_Wall_Clock()
@@ -563,7 +568,7 @@ public sealed class BrowseRecipesQueryTests
         // Fixed far in the future — nowhere near whatever the real wall-clock date happens to be
         // when this test executes, on any machine, at any time.
         var fixedClock = new FixedClock(new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero));
-        var fixedLocalToday = DateOnly.FromDateTime(fixedClock.UtcNow.LocalDateTime);
+        var fixedLocalToday = fixedClock.ToLocalDate(fixedClock.UtcNow);
 
         var h = new Harness(fixedClock);
         var unit = Guid.CreateVersion7();
@@ -581,43 +586,64 @@ public sealed class BrowseRecipesQueryTests
     }
 
     [Fact]
-    public async Task Today_Uses_The_Server_Local_Calendar_Day_Not_The_Utc_Calendar_Day_Of_The_Same_Instant()
+    public async Task Today_Uses_The_Local_Calendar_Day_West_Of_Utc_Not_The_Utc_Calendar_Day_Of_The_Same_Instant()
     {
-        // Anchor at a fixed local wall-clock time (23:00) on an arbitrary fixed date, late enough in
-        // the local day that — on a server whose local offset is negative (west of UTC) — the UTC
-        // calendar day has already rolled over to "tomorrow" while the local calendar day is still
-        // "today". This is exactly BrowseRecipesQuery.cs's documented failure mode. The offset is
-        // read from the real TimeZoneInfo.Local so the construction is self-consistent on whichever
-        // machine runs it.
-        var anchorLocal = new DateTime(2031, 6, 15, 23, 0, 0, DateTimeKind.Unspecified);
-        var localOffset = TimeZoneInfo.Local.GetUtcOffset(anchorLocal);
-
-        if (localOffset >= TimeSpan.Zero)
-        {
-            // No "UTC already tomorrow, local still today" instant exists to construct on a server
-            // at UTC or east of it — deliberate no-op here (the DI regression is still covered by
-            // Today_Is_Read_From_The_Injected_Clock_Not_The_Real_Ambient_Wall_Clock above).
-            return;
-        }
-
-        var utcInstant = new DateTimeOffset(anchorLocal, localOffset);
-        var localDay = DateOnly.FromDateTime(anchorLocal);
+        // A fixed -05:00 zone (never the real machine zone) — 23:00 local on the 15th is already
+        // 04:00 UTC on the 16th, so the UTC calendar day has rolled over to "tomorrow" while the
+        // local calendar day is still "today". This is exactly BrowseRecipesQuery.cs's documented
+        // west-of-UTC failure mode, constructed deterministically instead of depending on the
+        // machine's real offset.
+        var westZone = TimeZoneInfo.CreateCustomTimeZone("Fixed-05:00", TimeSpan.FromHours(-5), "Fixed -05:00", "Fixed -05:00");
+        var localAnchor = new DateTime(2031, 6, 15, 23, 0, 0, DateTimeKind.Unspecified);
+        var utcInstant = new DateTimeOffset(localAnchor, TimeSpan.FromHours(-5));
+        var localDay = DateOnly.FromDateTime(localAnchor);
 
         // Sanity: this instant really does read as "tomorrow" in UTC.
         Assert.Equal(localDay.AddDays(1), DateOnly.FromDateTime(utcInstant.UtcDateTime));
 
-        var fixedClock = new FixedClock(utcInstant);
+        var fixedClock = new FixedClock(utcInstant, westZone);
         var h = new Harness(fixedClock);
         var unit = Guid.CreateVersion7();
         var product = h.Catalog.AddTrackedLeaf(unit, "Milk");
         // One day past the 7-day horizon measured from the LOCAL day (8 > 7 → not flagged). Measured
         // from the UTC calendar day of this same instant it would be exactly 7 days out (7 <= 7 →
-        // wrongly flagged) — the flip that would expose a LocalDateTime → UtcDateTime regression.
+        // wrongly flagged) — the flip that would expose a TimeZoneInfo.Local/LocalDateTime regression
+        // that ignores the fixture's -05:00 zone.
         h.Stock.Add(product.Id, 500m, unit, localDay.AddDays(8));
         h.AddRecipe("Milk toast", productId: product.Id, unitId: unit);
 
         var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter());
 
         Assert.False(result.Rows[0].HasIngredientExpiringSoon);
+    }
+
+    [Fact]
+    public async Task Today_Uses_The_Local_Calendar_Day_East_Of_Utc_Not_The_Utc_Calendar_Day_Of_The_Same_Instant()
+    {
+        // The symmetric east-of-UTC case: a fixed +13:00 zone where noon local on the 16th is still
+        // 23:00 UTC on the 15th — the local calendar day has already rolled over to "tomorrow" while
+        // the UTC calendar day is still "today".
+        var eastZone = TimeZoneInfo.CreateCustomTimeZone("Fixed+13:00", TimeSpan.FromHours(13), "Fixed +13:00", "Fixed +13:00");
+        var localAnchor = new DateTime(2031, 6, 16, 12, 0, 0, DateTimeKind.Unspecified);
+        var utcInstant = new DateTimeOffset(localAnchor, TimeSpan.FromHours(13));
+        var localDay = DateOnly.FromDateTime(localAnchor);
+
+        // Sanity: this instant really does read as "yesterday" in UTC.
+        Assert.Equal(localDay.AddDays(-1), DateOnly.FromDateTime(utcInstant.UtcDateTime));
+
+        var fixedClock = new FixedClock(utcInstant, eastZone);
+        var h = new Harness(fixedClock);
+        var unit = Guid.CreateVersion7();
+        var product = h.Catalog.AddTrackedLeaf(unit, "Milk");
+        // Exactly on the 7-day horizon measured from the LOCAL day (7 <= 7 → flagged). Measured from
+        // the UTC calendar day of this same instant it would be 8 days out (8 > 7 → wrongly NOT
+        // flagged) — the flip that would expose a TimeZoneInfo.Local/LocalDateTime regression that
+        // ignores the fixture's +13:00 zone.
+        h.Stock.Add(product.Id, 500m, unit, localDay.AddDays(7));
+        h.AddRecipe("Milk toast", productId: product.Id, unitId: unit);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter());
+
+        Assert.True(result.Rows[0].HasIngredientExpiringSoon);
     }
 }

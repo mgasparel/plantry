@@ -33,7 +33,7 @@ public sealed record IntakeHistoryPage(IReadOnlyList<IntakeHistoryRow> Rows, Dat
 /// every receipt intake regardless of status — Committed, Ready ("being reviewed"), Failed, and Discarded
 /// all appear, so the page is a truthful record of every scan rather than only the successful ones.
 /// </summary>
-public sealed class GetIntakeHistoryQuery(IImportSessionRepository sessions)
+public sealed class GetIntakeHistoryQuery(IImportSessionRepository sessions, IClock clock)
 {
     /// <summary>Default page size — large enough to typically span more than one calendar month per fetch.</summary>
     public const int DefaultPageSize = 20;
@@ -52,9 +52,9 @@ public sealed class GetIntakeHistoryQuery(IImportSessionRepository sessions)
         return new IntakeHistoryPage(rows, nextCursor);
     }
 
-    private static IntakeHistoryRow ToRow(ImportSession s)
+    private IntakeHistoryRow ToRow(ImportSession s)
     {
-        var date = s.PurchaseDate ?? DateOnly.FromDateTime(s.CreatedAt.LocalDateTime);
+        var date = s.PurchaseDate ?? clock.ToLocalDate(s.CreatedAt);
         return new IntakeHistoryRow(
             s.Id, s.MerchantText, date, s.Status,
             IntakeSessionProjection.ItemCount(s), IntakeSessionProjection.Amount(s));

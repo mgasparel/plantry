@@ -44,12 +44,6 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Non-UTC, negative-offset TZ so local-vs-UTC calendar-day tests (e.g.
-    # BrowseRecipesQueryTests.Today_Uses_The_Server_Local_Calendar_Day_...) actually
-    # exercise the regression on the release gate too, matching ci.yml's fast job
-    # (plantry-vgze).
-    env:
-      TZ: America/New_York
 
     steps:
       - uses: actions/checkout@v4
