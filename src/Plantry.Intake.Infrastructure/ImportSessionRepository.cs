@@ -57,7 +57,7 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
         // Normalize the window bounds to UTC before they become SQL parameters. Npgsql rejects a
         // DateTimeOffset with a non-UTC offset when writing to 'timestamp with time zone' (it throws
         // "only offset 0 (UTC) is supported"). Callers compute the month window in server-local time
-        // (GetMonthlyIntakeStatsQuery uses clock.UtcNow.ToLocalTime()), so the offset is non-zero off
+        // (GetMonthlyIntakeStatsQuery uses clock.LocalNow()), so the offset is non-zero off
         // UTC machines. ToUniversalTime() preserves the exact instant, so the comparison is unchanged.
         var startUtc = windowStart.ToUniversalTime();
         var endUtc = windowEnd.ToUniversalTime();

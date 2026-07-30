@@ -69,6 +69,12 @@ public sealed class SessionModel(
     public DateOnly ResolvedPurchaseDate => Detail.PurchaseDate ?? clock.ToLocalDate(Detail.CreatedAt);
 
     /// <summary>
+    /// The session's creation instant converted to server-local wall-clock time (H8's "Scanned by … at"
+    /// meta line) — exposed here so the view never reads the machine's local time zone directly.
+    /// </summary>
+    public DateTimeOffset ScannedAtLocal => clock.ToLocal(Detail.CreatedAt);
+
+    /// <summary>
     /// "committed same day" / "committed N days later" / "" when either timestamp is missing — the
     /// page-header subtitle's commit-recency clause (H8).
     /// </summary>

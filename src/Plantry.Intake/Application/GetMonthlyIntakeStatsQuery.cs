@@ -30,7 +30,7 @@ public sealed record MonthlyIntakeStats(
 /// list (sessions whose <see cref="ImportSession.CreatedAt"/> OR
 /// <see cref="ImportSession.CommittedAt"/> falls in the month window); this query applies the
 /// status/null semantics so they stay unit-testable. The window spans the start of the current
-/// calendar month to now, computed in server-local time to match how intake dates are displayed.
+/// calendar month to now, computed via <c>clock.LocalNow()</c> to match how intake dates are displayed.
 /// </summary>
 public sealed class GetMonthlyIntakeStatsQuery(IImportSessionRepository sessions, IClock clock)
 {
@@ -38,7 +38,7 @@ public sealed class GetMonthlyIntakeStatsQuery(IImportSessionRepository sessions
         HouseholdId householdId,
         CancellationToken ct = default)
     {
-        var now = clock.UtcNow.ToLocalTime();
+        var now = clock.LocalNow();
         var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, now.Offset);
 
         var list = await sessions.ListInMonthWindowAsync(householdId, monthStart, now, ct);
