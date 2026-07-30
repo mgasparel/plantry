@@ -45,10 +45,16 @@ public sealed record ReviewBannerItem(
 /// Cook-strip-only fields (<c>CookedAt</c>, <c>HasPhoto</c> per dish) — porting cook-strip state
 /// onto Today is the redesign ticket's (plantry-5oaa) territory, not this one.
 /// </summary>
+/// <param name="Kind">
+/// The authoritative discriminator for display formatting (plantry-r2yf AC6) — <see cref="FormatDishQuantity"/>
+/// branches on this, not on <see cref="UnitCode"/> nullness, so a product dish always renders its
+/// unit code (or the unresolved-unit placeholder) even if constructed without one.
+/// </param>
 /// <param name="UnitCode">
-/// The product's default unit's display code — null for a recipe dish, which keeps rendering
-/// "servings"; "?" when a product dish's unit could not be resolved. Mirrors the convention
-/// MealPlan's <c>MealCardDishVm.UnitCode</c> established (plantry-ri26).
+/// The product's default unit's display code — left at its null default for a recipe dish;
+/// "?" (<see cref="DishDisplayPlaceholders.UnresolvedUnitCode"/>) when a product dish's unit could
+/// not be resolved. Mirrors the convention MealPlan's <c>MealCardDishVm.UnitCode</c> established
+/// (plantry-ri26).
 /// </param>
 public sealed record PlannedMealDishVm(string Name, DishKind Kind, int Servings, string? UnitCode = null);
 
@@ -285,6 +291,24 @@ public sealed class IndexModel(
             ? await catalogReader.ResolveDefaultUnitCodesAsync(allProductIds, ct)
             : new Dictionary<Guid, string>();
 
+        // Batched recipe-dish resolution (plantry-r2yf): one IRecipeReadModel.GetByIdsAsync call for
+        // the union of recipe ids across every slot's meal today, up front — the same shape as the
+        // product pre-pass above, and ZERO Recipes-repository round trips (the recipe-repo hop this
+        // replaced is gone entirely; see the design-decision note on plantry-r2yf). A day with the
+        // same recipe planned in two different slots resolves it once here and both slots read the
+        // same dictionary entry.
+        var allRecipeIds = slotMeals
+            .Where(sm => sm.Meal is { Note: null })
+            .SelectMany(sm => sm.Meal!.PlannedDishes)
+            .Where(d => d.RecipeId.HasValue)
+            .Select(d => d.RecipeId!.Value)
+            .Distinct()
+            .ToList();
+
+        IReadOnlyDictionary<Guid, RecipeReadModel> recipeModels = allRecipeIds.Count > 0
+            ? await recipeReadModel.GetByIdsAsync(allRecipeIds, ct)
+            : new Dictionary<Guid, RecipeReadModel>();
+
         var result = new List<PlannedMealSlotVm>(activeSlots.Count);
 
         foreach (var (slot, meal) in slotMeals)
@@ -332,9 +356,11 @@ public sealed class IndexModel(
                 {
                     if (dish.RecipeId.HasValue)
                     {
-                        // Use IRecipeReadModel (MealPlanning ACL port) for name + HasPhoto — it's the
-                        // established cross-context seam for MealPlanning→Recipes lookups.
-                        var recipeModel = await recipeReadModel.GetByIdAsync(dish.RecipeId.Value, ct);
+                        // Recipe-dish: name, HasPhoto, and CookTimeMinutes all resolved from the
+                        // batched pre-pass above (never a per-dish call here). Uses IRecipeReadModel
+                        // (MealPlanning ACL port) — the established cross-context seam for
+                        // MealPlanning→Recipes lookups.
+                        var recipeModel = recipeModels.GetValueOrDefault(dish.RecipeId.Value);
                         var name = recipeModel?.Name ?? "Unknown recipe";
                         dishVms.Add(new PlannedMealDishVm(name, DishKind.Recipe, dish.Servings));
 
@@ -343,24 +369,19 @@ public sealed class IndexModel(
                             primaryRecipeId = dish.RecipeId.Value;
                             primaryRecipeName = name;
                             hasPhoto = recipeModel?.HasPhoto ?? false;
-
-                            // CookTimeMinutes is not in IRecipeReadModel; load from the Recipes domain
-                            // repository (composition root has full access — ADR-021 §3).
-                            if (recipeModel is not null)
-                            {
-                                var recipeEntity = await recipeRepo.GetByIdAsync(
-                                    RecipeId.From(dish.RecipeId.Value), ct);
-                                cookTimeMinutes = recipeEntity?.CookTimeMinutes;
-                            }
+                            cookTimeMinutes = recipeModel?.CookTimeMinutes;
                         }
                     }
                     else if (dish.ProductId.HasValue)
                     {
                         // Product-dish: name + default unit code, resolved from the batched pre-pass
-                        // above (never a per-dish call here). Same fallback text/placeholder MealPlan's
-                        // MealCardDishVm projection uses (Index.cshtml.cs:1136/1140).
-                        var name = productNames.GetValueOrDefault(dish.ProductId.Value, "Unknown product");
-                        var unitCode = productUnitCodes.GetValueOrDefault(dish.ProductId.Value, "?");
+                        // above (never a per-dish call here). Same shared placeholders MealPlan's
+                        // MealCardDishVm projection uses (Index.cshtml.cs), hoisted to
+                        // DishDisplayPlaceholders so the two surfaces cannot drift (plantry-r2yf AC7).
+                        var name = productNames.GetValueOrDefault(
+                            dish.ProductId.Value, DishDisplayPlaceholders.UnknownProductName);
+                        var unitCode = productUnitCodes.GetValueOrDefault(
+                            dish.ProductId.Value, DishDisplayPlaceholders.UnresolvedUnitCode);
                         dishVms.Add(new PlannedMealDishVm(name, DishKind.Product, dish.Servings, unitCode));
                     }
                 }
@@ -394,10 +415,15 @@ public sealed class IndexModel(
     /// drift into separately-worded formatting rules. A product dish shows its resolved unit code
     /// (or "?" when unresolved); a recipe dish shows the full "serving"/"servings" word — Today's
     /// voice is fuller than MealPlan's abbreviated "srv" (plantry-ri26 convention; do not abbreviate here).
+    /// Discriminates on <see cref="PlannedMealDishVm.Kind"/>, not <see cref="PlannedMealDishVm.UnitCode"/>
+    /// nullness (plantry-r2yf AC6, mirroring the Kind-based branch at MealPlan/_MealCard.cshtml:197) —
+    /// <c>Kind</c> is the authoritative discriminator, so a product dish constructed without a resolved
+    /// unit code (<c>UnitCode</c> left at its <see langword="null"/> default) still renders "N ?" rather
+    /// than silently falling through to "N servings".
     /// </summary>
     internal static string FormatDishQuantity(PlannedMealDishVm dish) =>
-        dish.UnitCode is not null
-            ? $"{dish.Servings} {dish.UnitCode}"
+        dish.Kind == DishKind.Product
+            ? $"{dish.Servings} {dish.UnitCode ?? DishDisplayPlaceholders.UnresolvedUnitCode}"
             : $"{dish.Servings} serving{(dish.Servings == 1 ? "" : "s")}";
 
     /// <summary>

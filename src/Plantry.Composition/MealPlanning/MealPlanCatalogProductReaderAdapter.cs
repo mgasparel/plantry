@@ -69,7 +69,7 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
 
         return products
             .Select(p => new MealPlanProductReadModel(
-                p.Id.Value, p.Name, unitCodes.GetValueOrDefault(p.DefaultUnitId, "?")))
+                p.Id.Value, p.Name, unitCodes.GetValueOrDefault(p.DefaultUnitId, DishDisplayPlaceholders.UnresolvedUnitCode)))
             .ToList();
     }
 
@@ -111,7 +111,7 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
         var unitCodes = await GetUnitCodesByIdAsync(ct);
         return products.ToDictionary(
             p => p.Id.Value,
-            p => unitCodes.GetValueOrDefault(p.DefaultUnitId, "?"));
+            p => unitCodes.GetValueOrDefault(p.DefaultUnitId, DishDisplayPlaceholders.UnresolvedUnitCode));
     }
 
     /// <summary>
