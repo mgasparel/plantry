@@ -90,8 +90,9 @@ public sealed class AmbientClockGuardTests
 
     // The forbidden shapes — six type-qualified ambient-clock reads, two member-name machine-zone
     // conversions, and TimeZoneInfo.Local itself (the 6/2/1 split in the class doc). Each type-qualified
-    // entry requires the literal type name immediately
-    // followed by ".UtcNow" / ".Now" / ".Today" — "clock.UtcNow" and "_clock.UtcNow" contain no
+    // entry requires the literal type name immediately followed by its forbidden member (".UtcNow" / ".Now" /
+    // ".Today" on the date types, ".System" on TimeProvider, ".Local" on TimeZoneInfo) — "clock.UtcNow" and
+    // "_clock.UtcNow" contain no
     // "DateTime"/"DateTimeOffset"/"TimeProvider" substring at all, so they can never match. A word boundary
     // before the type name additionally guards against a hypothetical longer identifier ending in
     // "...DateTime" being misread as the BCL type. Requiring the dot also keeps this from matching a property
@@ -117,8 +118,8 @@ public sealed class AmbientClockGuardTests
 
     /// <summary>
     /// The single predicate every caller shares: true when <paramref name="line"/> contains any forbidden
-    /// ambient-clock shape. The tree scan and both theories delegate here so reach and precision are pinned to
-    /// the exact patterns that ship.
+    /// ambient-clock or machine-zone shape. The tree scan and both theories delegate here so reach and
+    /// precision are pinned to the exact patterns that ship.
     /// </summary>
     private static bool IsOffendingLine(string line) =>
         ForbiddenPatterns.Any(p => p.IsMatch(line));
@@ -160,7 +161,9 @@ public sealed class AmbientClockGuardTests
 
         Assert.True(
             offenders.Count == 0,
-            "Domain/application code must read the clock through an injected IClock, never ambiently. " +
+            "Domain/application code must read the clock through an injected IClock — never ambiently, and " +
+            "never converting to local time via the machine zone (.LocalDateTime / .ToLocalTime() / " +
+            "TimeZoneInfo.Local fire even off an injected clock): use the ClockExtensions seam instead. " +
             "Offending lines:\n" + string.Join("\n", offenders));
     }
 
@@ -168,7 +171,7 @@ public sealed class AmbientClockGuardTests
     // Now/UtcNow/Today plus the ambient TimeProvider.System singleton), the two member-name machine-zone
     // conversions (.LocalDateTime, .ToLocalTime()), and TimeZoneInfo.Local itself. If a refactor weakens a
     // pattern, one of these fails loudly.
-    [Theory(DisplayName = "Guard flags every forbidden ambient-clock shape")]
+    [Theory(DisplayName = "Guard flags every forbidden ambient-clock and machine-zone shape")]
     [InlineData(@"public DateTimeOffset OccurredAt { get; } = DateTimeOffset.UtcNow;")] // the exact plantry-lgbu bug
     [InlineData(@"var today = DateOnly.FromDateTime(DateTime.UtcNow);")]                // the exact BrowseRecipesQuery bug
     [InlineData(@"var stamp = DateTime.Now;")]
