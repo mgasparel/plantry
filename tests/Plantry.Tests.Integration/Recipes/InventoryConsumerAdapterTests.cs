@@ -242,7 +242,7 @@ public sealed class InventoryConsumerAdapterTests(PostgresFixture db) : IAsyncLi
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
-        var catalog = new CatalogReadFacade(productRepo, unitRepo, categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
+        var catalog = new CatalogReadFacade(productRepo, new UnitCodesAccessor(unitRepo), categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var stocks = new ProductStockRepository(invDb);
         var tenant = new TestTenant(_household.Value);
         return new InventoryConsumerAdapter(stocks, catalog, conversions, Clock, tenant,

@@ -103,6 +103,27 @@ public sealed class IndexModel : PageModel
     /// <summary>Built in OnGet (Url.Page needs page context). Re-built by OnGetSortProducts for the htmx sort swap.</summary>
     public DataGridViewModel ProductGrid { get; private set; } = null!;
 
+    /// <summary>
+    /// Backs the Utilities/<c>.sr-only</c> section's second, <c>_DataGrid</c>-composed caption example
+    /// (plantry-4gft) — demonstrates <see cref="DataGridViewModel.CaptionVisuallyHidden"/> alongside the
+    /// hand-rolled markup example already on the page. No sort/actions, so it needs no page context and
+    /// can be a plain property initializer rather than built in OnGet.
+    /// </summary>
+    public DataGridViewModel UtilityCaptionDemoGrid { get; } = new(
+        Id: "utility-caption-demo-grid",
+        Caption: "Demo grid — this caption is in the DOM but visually hidden",
+        CaptionVisuallyHidden: true,
+        Columns:
+        [
+            new("Name"),
+            new("Category"),
+        ],
+        Rows:
+        [
+            new GridRow([GridCell.Text("Whole milk"), GridCell.Text("Dairy")]),
+        ],
+        EmptyMessage: "No rows.");
+
     public sealed class FieldRowDemoInput
     {
         [Required, MaxLength(200)]
@@ -228,6 +249,7 @@ public sealed class IndexModel : PageModel
 
         return new DataGridViewModel(
             Id: "products-grid",
+            Caption: "Demo products grid",
             SortUrl: Url.Page("./Index", "SortProducts"),
             CurrentSort: sort,
             Columns:

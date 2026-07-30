@@ -2,7 +2,6 @@ using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Web.Background;
@@ -45,23 +44,16 @@ public sealed class DevSweepQueueingTests
 /// Boots Plantry.Web in Development (so the dev sweep endpoints are mapped) with the
 /// <see cref="IBackgroundTaskQueue"/> replaced by a recording fake. The fake never yields a work item, so
 /// <c>QueuedHostedService</c> parks and the (DB-touching) cycles never run — no Postgres is required.
+/// Extends the shared <see cref="DevEnvironmentFactory"/> (plantry-4gft) rather than re-declaring the
+/// Development-environment/placeholder-connection-string config, adding only the queue substitution.
 /// </summary>
-file sealed class QueueRecordingDevFactory : WebApplicationFactory<Program>
+file sealed class QueueRecordingDevFactory : DevEnvironmentFactory
 {
     public RecordingBackgroundTaskQueue Queue { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
-        builder.ConfigureAppConfiguration((_, config) =>
-        {
-            config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:plantrydb"] =
-                    "Host=127.0.0.1;Port=9;Database=plantrydb;Username=app_user;Password=x;Timeout=1;CommandTimeout=1",
-                ["DataProtection:KeyPath"] = Path.GetTempPath(),
-            });
-        });
+        base.ConfigureWebHost(builder);
         builder.ConfigureTestServices(services =>
             services.Replace(ServiceDescriptor.Singleton<IBackgroundTaskQueue>(Queue)));
     }

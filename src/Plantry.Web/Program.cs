@@ -218,7 +218,8 @@ builder.Services.AddScoped<DisplayCurrencyService>();
 builder.Services.AddScoped<IDisplayCurrency>(sp => sp.GetRequiredService<DisplayCurrencyService>());
 // Per-request cache over IDisplayCurrency (plantry-2x6e.2): the presentation edge resolves the household
 // display currency once per request (one DB read) and threads it onto view models via MoneyDisplay.
-builder.Services.AddScoped<DisplayCurrencyAccessor>();
+// Registered via AddCrossContextAdapters (Plantry.Composition), not here (plantry-47tc, absorbing
+// plantry-x9vm) — see CompositionServiceCollectionExtensions for the Scoped/tenant-load-bearing rationale.
 // Per-household freeze/thaw expiry defaults (plantry-hh1f): one settings service backs both the read
 // source (IHouseholdExpiryDefaults — Catalog's IHouseholdExpiryDefaultsReader ACL adapter, registered
 // below via AddCrossContextAdapters, delegates to this) and the future /Settings/Expiry write path

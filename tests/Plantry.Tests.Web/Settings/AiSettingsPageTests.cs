@@ -150,11 +150,6 @@ public sealed class AiSettingsPageTests
         }
     }
 
-    private sealed class FixedClock(DateTimeOffset now) : IClock
-    {
-        public DateTimeOffset UtcNow { get; } = now;
-    }
-
     /// <summary>In-memory repo holding one household, returned for any id lookup (single-tenant test).</summary>
     private sealed class SingleHouseholdRepo(Household household) : IHouseholdRepository
     {

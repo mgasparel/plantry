@@ -17,7 +17,7 @@ namespace Plantry.Tests.Unit.MealPlanning.Domain;
 public sealed class MealPlanTests
 {
     private static readonly HouseholdId HouseholdId = HouseholdId.New();
-    private static readonly IClock Clock = SystemClock.Instance;
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero));
     private static readonly DateOnly Monday = new(2026, 6, 1); // a known Monday
     private static readonly MealSlotId SlotA = MealSlotId.New();
     private static readonly MealSlotId SlotB = MealSlotId.New();
@@ -545,10 +545,5 @@ public sealed class MealPlanTests
         Assert.Equal(1, accepted);
         var meal = Assert.Single(plan.PlannedMeals);
         Assert.Equal("ai", meal.Source);
-    }
-
-    private sealed class FixedClock(DateTimeOffset now) : IClock
-    {
-        public DateTimeOffset UtcNow { get; } = now;
     }
 }

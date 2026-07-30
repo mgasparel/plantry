@@ -10,6 +10,12 @@ namespace Plantry.Deals.Application;
 /// The §7e read row: a <see cref="StoreSubscription"/> joined to its <c>catalog.store</c> display name
 /// and last-pull status. <see cref="LastPulledAt"/> is null until the P5-6 worker records a pull — the
 /// UI renders a "not pulled yet" state for those rows.
+/// <para>
+/// plantry-fsmb: <see cref="LastNewContentAt"/>, <see cref="FlyerValidTo"/>, and
+/// <see cref="FlyerValidityLapsed"/> back the §7e badge's three-way state — a no-op re-pull (the
+/// statistically normal daily outcome under the P5-6 daily sweep cadence, plantry-rb36) must never make
+/// the badge read as fresher than the underlying flyer actually is.
+/// </para>
 /// </summary>
 public sealed record SubscriptionView(
     StoreSubscriptionId Id,
@@ -18,7 +24,10 @@ public sealed record SubscriptionView(
     string PostalCode,
     bool IsActive,
     DateTimeOffset? LastPulledAt,
-    string? LastFlyerExternalId);
+    string? LastFlyerExternalId,
+    DateTimeOffset? LastNewContentAt,
+    DateOnly? FlyerValidTo,
+    bool FlyerValidityLapsed);
 
 /// <summary>
 /// DJ1 application service. Orchestrates the two-context subscribe (ensure <c>catalog.store</c> →
@@ -27,6 +36,7 @@ public sealed record SubscriptionView(
 /// </summary>
 public sealed class ManageSubscriptions(
     IStoreSubscriptionRepository subscriptions,
+    IFlyerImportRepository imports,
     ICatalogStoreReader storeReader,
     ICatalogStoreWriter storeWriter,
     IFlyerSource flyerSource,
@@ -53,18 +63,42 @@ public sealed class ManageSubscriptions(
         var subs = await subscriptions.ListAsync(ct);
         if (subs.Count == 0) return [];
 
-        var names = await storeReader.ResolveNamesAsync(
-            subs.Select(s => s.StoreId).Distinct().ToList(), ct);
+        var storeIds = subs.Select(s => s.StoreId).Distinct().ToList();
+        var names = await storeReader.ResolveNamesAsync(storeIds, ct);
+
+        // plantry-fsmb: resolve each subscription's most recently pulled flyer's own validity window (one
+        // batch read, no N+1 — mirrors ResolveNamesAsync above). ListParsedRefsByStoresAsync returns every
+        // distinct (store, window) the household has ever parsed, keyed by flyer_external_id — matched below
+        // against each subscription's own LastFlyerExternalId (the DD5 dedup anchor) so the badge reflects
+        // THAT flyer's window, not just any parsed import for the store.
+        var refs = await imports.ListParsedRefsByStoresAsync(storeIds, ct);
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
 
         return subs
-            .Select(s => new SubscriptionView(
-                s.Id,
-                s.StoreId,
-                names.TryGetValue(s.StoreId, out var name) ? name : "(unknown store)",
-                s.PostalCode,
-                s.IsActive,
-                s.LastPulledAt,
-                s.LastFlyerExternalId))
+            .Select(s =>
+            {
+                var flyerRef = s.LastFlyerExternalId is { } externalId
+                    ? refs.FirstOrDefault(r => r.StoreId == s.StoreId && r.FlyerExternalId == externalId)
+                    : null;
+                // Lapsed = ValidTo < today (an upper-bound-only check, critic pass 1) — NOT !window.Contains(today),
+                // which would also flag a pre-published not-yet-started window (Flipp ships next week's flyer
+                // ahead of time, FlyerSource.cs, with no "must contain today" filter) as falsely "Expired".
+                // Mirrors the house convention: ExpiryDisplay's IsExpired = date < today; PriceObservationRepository's
+                // still-valid check is ValidTo >= today.
+                var lapsed = flyerRef is not null && flyerRef.ValidTo < today;
+
+                return new SubscriptionView(
+                    s.Id,
+                    s.StoreId,
+                    names.TryGetValue(s.StoreId, out var name) ? name : "(unknown store)",
+                    s.PostalCode,
+                    s.IsActive,
+                    s.LastPulledAt,
+                    s.LastFlyerExternalId,
+                    s.LastNewContentAt,
+                    flyerRef?.ValidTo,
+                    lapsed);
+            })
             .ToList();
     }
 

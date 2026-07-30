@@ -4,7 +4,7 @@ namespace Plantry.Web.Inventory;
 
 /// <summary>
 /// Per-request cache over <see cref="IHouseholdExpiryDefaults"/> (plantry-hw39, absorbing plantry-rsy1),
-/// mirroring <c>DisplayCurrencyAccessor</c> (<c>src/Plantry.Web/DisplayCurrencyAccessor.cs</c>).
+/// mirroring <c>DisplayCurrencyAccessor</c> (<c>src/Plantry.Composition/Identity/DisplayCurrencyAccessor.cs</c>).
 /// <see cref="HouseholdExpiryDefaultsReaderAdapter"/> reads through this instead of calling
 /// <see cref="IHouseholdExpiryDefaults.GetAsync"/> directly — <see cref="CatalogReadFacade"/>'s
 /// <c>FindProductAsync</c> resolves the household's freeze/thaw defaults on every call, and

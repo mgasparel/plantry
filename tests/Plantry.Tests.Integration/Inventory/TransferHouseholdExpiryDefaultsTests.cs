@@ -179,7 +179,7 @@ public sealed class TransferHouseholdExpiryDefaultsTests(PostgresFixture db) : I
                 new HouseholdExpiryDefaultsService(
                     new HouseholdRepository(identityDb), tenant, NullLogger<HouseholdExpiryDefaultsService>.Instance)));
         var catalogFacade = new CatalogReadFacade(
-            new ProductRepository(catalogDb), new UnitRepository(catalogDb),
+            new ProductRepository(catalogDb), new UnitCodesAccessor(new UnitRepository(catalogDb)),
             new CategoryRepository(catalogDb), new LocationRepository(catalogDb), expiryDefaults);
 
         var stocks = new ProductStockRepository(inventoryDb);

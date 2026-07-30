@@ -118,7 +118,7 @@ public sealed class HouseholdExpiryDefaultsAccessorQueryCountTests(PostgresFixtu
         var readerAdapter = new HouseholdExpiryDefaultsReaderAdapter(accessor);
 
         return new CatalogReadFacade(
-            new ProductRepository(catalogDb), new UnitRepository(catalogDb),
+            new ProductRepository(catalogDb), new UnitCodesAccessor(new UnitRepository(catalogDb)),
             new CategoryRepository(catalogDb), new LocationRepository(catalogDb), readerAdapter);
     }
 

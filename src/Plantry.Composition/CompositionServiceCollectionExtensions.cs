@@ -9,6 +9,7 @@ using Plantry.Pricing.Application;
 using Plantry.Recipes.Application;
 using Plantry.Shopping.Application;
 using Plantry.SharedKernel.Domain;
+using Plantry.Web;
 using Plantry.Web.Deals;
 using Plantry.Web.Events;
 using Plantry.Web.Housekeeping;
@@ -62,6 +63,20 @@ public static class CompositionServiceCollectionExtensions
         // can sweep it, not in the host.
         services.AddScoped<HouseholdExpiryDefaultsAccessor>();
         services.AddScoped<IHouseholdExpiryDefaultsReader, HouseholdExpiryDefaultsReaderAdapter>();
+        // Per-request cache over IUnitRepository's unit codes (plantry-47tc, plantry-hw39 code review):
+        // CatalogReadFacade.FindProductAsync loaded the whole units table per call, and
+        // InventoryStockReaderAdapter already calls FindProductAsync in a per-product loop, so a
+        // recipe/meal-plan fulfilment read multiplied units reads by product count. Scoped lifetime is
+        // tenant-load-bearing (units are household reference data; never leaked across households), so
+        // it must be registered here where CompositionRegistrationLifetimeTests can sweep it.
+        services.AddScoped<UnitCodesAccessor>();
+        // Per-request cache over IDisplayCurrency (plantry-2x6e.2, relocated plantry-47tc absorbing
+        // plantry-x9vm): same Scoped/tenant-load-bearing shape as the two accessors above, but its
+        // consumer is the presentation edge (MoneyDisplay) rather than an Inventory/Catalog ACL adapter —
+        // it lived in the Plantry.Web host outside CompositionRegistrationLifetimeTests' sweep until now.
+        // Namespace stays Plantry.Web (project convention: Composition adapters keep their original
+        // Plantry.Web.* namespace), so consumer using-directives are unaffected by the move.
+        services.AddScoped<DisplayCurrencyAccessor>();
 
         // Pricing unit-price calculation ACL.
         services.AddScoped<IUnitPriceCalculator, UnitPriceCalculatorAdapter>();

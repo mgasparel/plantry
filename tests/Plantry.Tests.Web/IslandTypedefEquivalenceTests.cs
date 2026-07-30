@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
+using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Pages.Intake;
 using Plantry.Web.Pages.MealPlan;
 using Plantry.Web.Pages.Pantry.TakeStock;
@@ -37,27 +38,12 @@ public sealed class IslandTypedefEquivalenceTests
     /// </summary>
     private static string IslandPath(string filename)
     {
-        // Walk up from bin/Debug/net10.0 → tests/Plantry.Tests.Web → tests → repo root
-        // then descend into src/Plantry.Web/wwwroot/js/islands/.
-        var binDir = Path.GetDirectoryName(typeof(IslandTypedefEquivalenceTests).Assembly.Location)!;
-        var repoRoot = FindRepoRoot(binDir)
-            ?? throw new InvalidOperationException($"Could not locate repo root from {binDir}");
+        // Descend into src/Plantry.Web/wwwroot/js/islands/ from the repo root.
+        var repoRoot = WebSourceTree.RepoRoot();
         var path = Path.Combine(repoRoot, "src", "Plantry.Web", "wwwroot", "js", "islands", filename);
         if (!File.Exists(path))
             throw new FileNotFoundException($"Island JS not found at {path}", path);
         return path;
-    }
-
-    private static string? FindRepoRoot(string start)
-    {
-        var dir = new DirectoryInfo(start);
-        while (dir != null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "Plantry.sln")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-        return null;
     }
 
     // ─── Reflection helpers ───────────────────────────────────────────────────

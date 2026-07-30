@@ -22,7 +22,7 @@ public sealed class BrowseRecipesQueryTests
     // fixture below fully deterministic, and — as a bonus — a regression to ambient DateTime.UtcNow in
     // BrowseRecipesQuery.cs now fails 4 tests (not just the dedicated Today_* regression tests),
     // because every fixture built off Today stops matching what the SUT actually computes.
-    private static readonly IClock Clock = new FixedIClock(new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero));
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero));
     private static readonly HouseholdId Household = HouseholdId.New();
     private static readonly Guid HouseholdGuid = Household.Value;
     // Track the same clock BrowseRecipesQuery uses for its "expiring soon" comparison
@@ -557,17 +557,12 @@ public sealed class BrowseRecipesQueryTests
     // genuinely non-zero (BrowseRecipesQuery.cs's documented west-of-UTC bug), so (2) is skipped
     // (a documented, deliberate no-op — not a flake) on a machine running true UTC as its local zone.
 
-    private sealed class FixedIClock(DateTimeOffset now) : IClock
-    {
-        public DateTimeOffset UtcNow { get; } = now;
-    }
-
     [Fact]
     public async Task Today_Is_Read_From_The_Injected_Clock_Not_The_Real_Ambient_Wall_Clock()
     {
         // Fixed far in the future — nowhere near whatever the real wall-clock date happens to be
         // when this test executes, on any machine, at any time.
-        var fixedClock = new FixedIClock(new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero));
+        var fixedClock = new FixedClock(new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero));
         var fixedLocalToday = DateOnly.FromDateTime(fixedClock.UtcNow.LocalDateTime);
 
         var h = new Harness(fixedClock);
@@ -611,7 +606,7 @@ public sealed class BrowseRecipesQueryTests
         // Sanity: this instant really does read as "tomorrow" in UTC.
         Assert.Equal(localDay.AddDays(1), DateOnly.FromDateTime(utcInstant.UtcDateTime));
 
-        var fixedClock = new FixedIClock(utcInstant);
+        var fixedClock = new FixedClock(utcInstant);
         var h = new Harness(fixedClock);
         var unit = Guid.CreateVersion7();
         var product = h.Catalog.AddTrackedLeaf(unit, "Milk");
