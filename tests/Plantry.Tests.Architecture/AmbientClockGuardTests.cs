@@ -9,8 +9,9 @@ namespace Plantry.Tests.Architecture;
 /// every server-local conversion goes through <c>Plantry.SharedKernel.Domain.ClockExtensions</c>
 /// (<c>clock.LocalNow()</c> / <c>clock.ToLocal(...)</c> / <c>clock.ToLocalDate(...)</c>) rather than a direct
 /// <c>DateTime.UtcNow</c> / <c>DateTime.Now</c> / <c>DateTime.Today</c> / <c>DateTimeOffset.UtcNow</c> /
-/// <c>DateTimeOffset.Now</c> / <c>TimeProvider.System</c> call, or a <c>.LocalDateTime</c> read (which silently
-/// converts via the machine's own <c>TimeZoneInfo.Local</c>, bypassing the injected clock's zone entirely). An
+/// <c>DateTimeOffset.Now</c> / <c>TimeProvider.System</c> call, or a <c>.LocalDateTime</c> / <c>.ToLocalTime()</c>
+/// read (which silently converts via the machine's own <c>TimeZoneInfo.Local</c>, bypassing the injected
+/// clock's zone entirely). An
 /// ambient read is untestable (no fixed-clock fixture can control it) and has repeatedly produced real bugs —
 /// a UTC-vs-server-local "today" miscalculation in <c>BrowseRecipesQuery</c> (plantry-lgbu) that showed stock
 /// as expired, and recipes as not cookable, a day early on any server west of UTC, and the same class of bug
@@ -92,10 +93,10 @@ public sealed class AmbientClockGuardTests
     // DECLARATION shaped like "DateTimeOffset UtcNow { get; }" (space, not dot, between the type and the
     // member name — AC9).
     //
-    // ".LocalDateTime" (plantry-l639) is a member-name match rather than type-qualified: unlike the shapes
-    // above it isn't preceded by a fixed BCL type name (it hangs off any DateTimeOffset-typed expression,
-    // including "clock.UtcNow"), so a leading word boundary on the member name itself is what keeps this
-    // precise without needing to enumerate every possible receiver.
+    // ".LocalDateTime" and ".ToLocalTime()" (plantry-l639) are member-name matches rather than type-qualified:
+    // unlike the shapes above they aren't preceded by a fixed BCL type name (they hang off any
+    // DateTimeOffset-typed expression, including "clock.UtcNow"), so a leading word boundary on the member name
+    // itself is what keeps this precise without needing to enumerate every possible receiver.
     private static readonly Regex[] ForbiddenPatterns =
     [
         new(@"\bDateTime\.UtcNow\b", RegexOptions.Compiled),
@@ -106,6 +107,7 @@ public sealed class AmbientClockGuardTests
         new(@"\bTimeProvider\.System\b", RegexOptions.Compiled),
         new(@"\.LocalDateTime\b", RegexOptions.Compiled),
         new(@"\bTimeZoneInfo\.Local\b", RegexOptions.Compiled),
+        new(@"\.ToLocalTime\(", RegexOptions.Compiled),
     ];
 
     /// <summary>
@@ -168,6 +170,7 @@ public sealed class AmbientClockGuardTests
     [InlineData(@"var utcNow = TimeProvider.System.GetUtcNow();")]                  // the un-injected TimeProvider singleton
     [InlineData(@"var today = DateOnly.FromDateTime(clock.UtcNow.LocalDateTime);")] // the machine-zone read plantry-l639 abolished — use clock.ToLocalDate(...)
     [InlineData(@"var local = TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.Local);")] // the machine-zone read the IClock.Zone seam replaces
+    [InlineData(@"var today = DateOnly.FromDateTime(clock.UtcNow.ToLocalTime());")] // the machine-zone conversion the ClockExtensions seam replaces — use clock.ToLocal(...)
     public void Positive_ForbiddenPatterns_AreDetected(string line) =>
         Assert.True(IsOffendingLine(line), $"Guard should have flagged: {line}");
 
@@ -176,13 +179,13 @@ public sealed class AmbientClockGuardTests
     [Theory(DisplayName = "Guard does not flag the sanctioned clock.UtcNow idiom or benign look-alikes")]
     [InlineData(@"var now = clock.UtcNow;")]                                     // the sanctioned idiom
     [InlineData(@"var now = _clock.UtcNow;")]                                    // field-backed variant
-    [InlineData(@"var today = DateOnly.FromDateTime(clock.UtcNow.ToLocalTime());")] // not yet guarded — Plantry.Web is out of this guard's scanned set (plantry-l639 DEFER)
     [InlineData(@"public interface IClock { DateTimeOffset UtcNow { get; } }")]     // property DECLARATION, not a read
     [InlineData(@"DateTimeOffset UtcNow { get; }")]                                 // same, on its own line
     [InlineData(@"var now = timeProvider.GetUtcNow();")]                            // injected TimeProvider instance, not the ambient singleton
     // A comment whose prose merely mentions a local-conversion idiom — the guard scans raw lines, comments
-    // included, so the predicate must never fire on documentation about the fix.
-    [InlineData(@"// Mirrors the DateOnly.FromDateTime(clock.UtcNow.ToLocalTime()) idiom used elsewhere.")]
+    // included, so the predicate must never fire on documentation about the fix, even one worded close to a
+    // forbidden shape.
+    [InlineData(@"// Mirrors the clock.ToLocalDate(clock.UtcNow) idiom used elsewhere.")]
     public void Negative_BenignPatterns_AreNotFlagged(string line) =>
         Assert.False(IsOffendingLine(line), $"Guard should NOT have flagged: {line}");
 

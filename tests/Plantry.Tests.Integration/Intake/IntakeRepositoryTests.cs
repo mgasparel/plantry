@@ -348,7 +348,7 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
     public async Task ListInMonthWindowAsync_NonUtcOffset_Window_DoesNotThrow_And_Filters_Correctly()
     {
         // Regression (plantry-bzyr): the real caller GetMonthlyIntakeStatsQuery builds the window from
-        // clock.UtcNow.ToLocalTime(), producing a NON-UTC offset off UTC machines. Npgsql throws
+        // clock.LocalNow(), producing a NON-UTC offset off UTC machines. Npgsql throws
         // "Cannot write DateTimeOffset with Offset=… only offset 0 (UTC) is supported" when such a value
         // is written to a 'timestamp with time zone' parameter, which 500'd the Add-groceries page. The
         // repo must normalize to UTC. The pre-existing window tests only passed UTC (TimeSpan.Zero) bounds,
