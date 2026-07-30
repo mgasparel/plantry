@@ -19,7 +19,7 @@ namespace Plantry.Tests.Unit.Composition;
 /// </summary>
 public sealed class StockProvenanceReaderAdapterTests
 {
-    private static readonly IClock Clock = SystemClock.Instance;
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 7, 18, 12, 0, 0, TimeSpan.Zero));
     private readonly Guid _householdId = Guid.NewGuid();
     private readonly Guid _userId = Guid.CreateVersion7();
 
@@ -243,5 +243,10 @@ public sealed class StockProvenanceReaderAdapterTests
         public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) => Task.FromResult(false);
         public Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<RecipeInclusionEdge>>([]);
         public Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default) => Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow => now;
     }
 }

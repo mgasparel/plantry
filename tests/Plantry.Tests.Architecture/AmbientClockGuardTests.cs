@@ -26,13 +26,16 @@ namespace Plantry.Tests.Architecture;
 /// guard's). A new bounded context added under <c>src/</c> is scanned automatically instead of silently
 /// falling outside a hardcoded list.</para>
 ///
-/// <para><b>Precision is the point.</b> The forbidden shapes are <i>type-qualified</i> forms only —
+/// <para><b>Precision is the point.</b> Six forbidden shapes are <i>type-qualified</i> forms —
 /// <c>DateTime.UtcNow</c>, <c>DateTime.Now</c>, <c>DateTime.Today</c>, <c>DateTimeOffset.UtcNow</c>,
-/// <c>DateTimeOffset.Now</c>, <c>TimeProvider.System</c> — never the sanctioned <c>clock.UtcNow</c> idiom (or
-/// <c>_clock.UtcNow</c>, or any member access off an injected <c>IClock</c>/<c>TimeProvider</c> instance) that
-/// appears throughout the code being guarded. A guard that fires on <c>clock.UtcNow</c> would be worse than no
-/// guard at all, so <see cref="Negative_BenignPatterns_AreNotFlagged"/> pins that boundary as hard as
-/// <see cref="Positive_ForbiddenPatterns_AreDetected"/> pins reach.</para>
+/// <c>DateTimeOffset.Now</c>, <c>TimeProvider.System</c> — which can never match the sanctioned
+/// <c>clock.UtcNow</c> idiom (or <c>_clock.UtcNow</c>). Two are <i>member-name</i> forms —
+/// <c>.LocalDateTime</c> and <c>.ToLocalTime()</c> — which by design <b>do</b> fire even off an injected
+/// clock (<c>clock.UtcNow.LocalDateTime</c>, <c>clock.UtcNow.ToLocalTime()</c>): the instant is injected but
+/// the conversion still reads the machine zone — use the <c>ClockExtensions</c> seam instead. The ninth,
+/// <c>TimeZoneInfo.Local</c>, names the machine zone directly. A guard that fired on <c>clock.UtcNow</c>
+/// itself would be worse than no guard at all, so <see cref="Negative_BenignPatterns_AreNotFlagged"/> pins
+/// that boundary as hard as <see cref="Positive_ForbiddenPatterns_AreDetected"/> pins reach.</para>
 ///
 /// <para>The tree scan and both theories all delegate to the single <see cref="IsOffendingLine"/> predicate, so
 /// reach and precision can never drift apart — the pattern mirrors <c>MoneyFormattingGuardTests</c> in
@@ -182,9 +185,9 @@ public sealed class AmbientClockGuardTests
     [InlineData(@"public interface IClock { DateTimeOffset UtcNow { get; } }")]     // property DECLARATION, not a read
     [InlineData(@"DateTimeOffset UtcNow { get; }")]                                 // same, on its own line
     [InlineData(@"var now = timeProvider.GetUtcNow();")]                            // injected TimeProvider instance, not the ambient singleton
-    // A comment whose prose merely mentions a local-conversion idiom — the guard scans raw lines, comments
-    // included, so the predicate must never fire on documentation about the fix, even one worded close to a
-    // forbidden shape.
+    // The guard scans raw lines, comments included: prose that merely DESCRIBES a sanctioned idiom must not
+    // fire, but prose containing a forbidden token verbatim IS flagged by design — reword such comments (as
+    // ClockExtensions' own class doc does) rather than weakening a pattern.
     [InlineData(@"// Mirrors the clock.ToLocalDate(clock.UtcNow) idiom used elsewhere.")]
     public void Negative_BenignPatterns_AreNotFlagged(string line) =>
         Assert.False(IsOffendingLine(line), $"Guard should NOT have flagged: {line}");
