@@ -27,8 +27,11 @@ namespace Plantry.Tests.Web.Infrastructure;
 ///   <item>Household has stock (hasStock=true → IsColdStart=false → board renders).</item>
 ///   <item>Slot config: default 3 slots (Breakfast, Lunch, Dinner) from <c>MealSlotConfig.CreateWithDefaults</c>.</item>
 ///   <item>Meal plan: one meal in the Breakfast slot for today — a recipe dish (PastaCarbonara, RecipeId = <see cref="TodayPlannedBandFixture.RecipeId"/>).</item>
-///   <item>Recipe read model: returns display info (name="Pasta Carbonara", HasPhoto=true) for the fixture recipe.</item>
-///   <item>Recipe repository: returns a recipe with CookTimeMinutes=20 for <c>GetByIdAsync</c>.</item>
+///   <item>Recipe read model: returns display info (name="Pasta Carbonara", HasPhoto=true,
+///     CookTimeMinutes=20) for the fixture recipe — including cook time (plantry-r2yf), since
+///     Today no longer makes a separate recipe-repository round trip for it.</item>
+///   <item>Recipe repository: still returns the fixture recipe for <c>GetByIdAsync</c> (consumed
+///     elsewhere, e.g. Cook Now), but <c>LoadPlannedMealsTodayAsync</c> itself makes zero calls to it.</item>
 ///   <item>Fulfillment: 100% (all in stock, hasExpiring=false) → ready hint shown.</item>
 ///   <item>Lunch + Dinner slots: empty → "Nothing planned yet" affordance.</item>
 /// </list>
@@ -323,14 +326,17 @@ internal sealed class FakeTodayPlannedBandMealPlanRepo : IMealPlanRepository
 
 /// <summary>
 /// Recipe read model that returns display info for the fixture recipe.
-/// HasPhoto=true so the photo img renders (not the placeholder).
+/// HasPhoto=true so the photo img renders (not the placeholder). CookTimeMinutes=20 (plantry-r2yf)
+/// — Today's planned-meals band resolves cook time from this port's batched
+/// <see cref="IRecipeReadModel.GetByIdsAsync"/> (default-interface fallback to <see cref="GetByIdAsync"/>
+/// below), never a separate <c>IRecipeRepository</c> call.
 /// GetEnrichmentAsync returns 100% fulfillment, no expiring → ready hint.
 /// </summary>
 internal sealed class FakeTodayPlannedBandRecipeReadModel : IRecipeReadModel
 {
     private static readonly Guid RecipeId = TodayPlannedBandFixture.RecipeId;
     private static readonly RecipeReadModel FixtureModel =
-        new(RecipeId, "Pasta Carbonara", [], DefaultServings: 2, HasPhoto: true);
+        new(RecipeId, "Pasta Carbonara", [], DefaultServings: 2, HasPhoto: true, CookTimeMinutes: 20);
     private static readonly RecipeDishEnrichment FullyReadyEnrichment =
         new(FulfillmentPercent: 100, TotalCost: null, CostIsPartial: false, HasExpiringIngredients: false);
 

@@ -489,7 +489,8 @@ public sealed class IndexModel(
 
         var vm = new EatSheetVm(
             plannedDishId, date, slotId, cellId, week,
-            hit.Dish.Name, hit.Dish.Servings, onHand, hit.Dish.UnitCode ?? "?");
+            hit.Dish.Name, hit.Dish.Servings, onHand,
+            hit.Dish.UnitCode ?? DishDisplayPlaceholders.UnresolvedUnitCode);
         return Partial("_EatSheet", vm);
     }
 
@@ -765,8 +766,9 @@ public sealed class IndexModel(
                     else if (d.ProductId.HasValue)
                     {
                         dishes.Add(new EditorDishVm(DishKind.Product, d.ProductId.Value,
-                            productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product"), d.Servings, d.Ordinal,
-                            UnitCode: productUnitCodes.GetValueOrDefault(d.ProductId.Value, "?")));
+                            productNames.GetValueOrDefault(d.ProductId.Value, DishDisplayPlaceholders.UnknownProductName),
+                            d.Servings, d.Ordinal,
+                            UnitCode: productUnitCodes.GetValueOrDefault(d.ProductId.Value, DishDisplayPlaceholders.UnresolvedUnitCode)));
                     }
                 }
 
@@ -1237,10 +1239,10 @@ public sealed class IndexModel(
                     }
                     else if (d.ProductId.HasValue)
                     {
-                        name = productNames.GetValueOrDefault(d.ProductId.Value, "Unknown product");
+                        name = productNames.GetValueOrDefault(d.ProductId.Value, DishDisplayPlaceholders.UnknownProductName);
                         kind = DishKind.Product;
                         itemId = d.ProductId.Value;
-                        unitCode = productUnitCodes.GetValueOrDefault(d.ProductId.Value, "?");
+                        unitCode = productUnitCodes.GetValueOrDefault(d.ProductId.Value, DishDisplayPlaceholders.UnresolvedUnitCode);
                         // plantry-f4dt: a product-dish photo is inherited from its sole photo-bearing
                         // producer-recipe (see soleYieldPhotoRecipeIds above); absent → no photo,
                         // same gradient-placeholder fallback as before (plantry-tyvg).

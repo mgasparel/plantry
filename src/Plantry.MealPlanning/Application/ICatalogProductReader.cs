@@ -65,8 +65,26 @@ public interface IMealPlanCatalogProductReader
 
 /// <summary>Display facts for a catalog product in the meal editor.</summary>
 /// <param name="UnitCode">
-/// The product's default unit's display code (e.g. "ea", "lb") — plantry-ri26. Defaults to "?" so
-/// existing positional construction sites (only the adapter's SearchAsync today) keep compiling;
-/// the adapter always supplies a resolved code or the same "?" placeholder.
+/// The product's default unit's display code (e.g. "ea", "lb") — plantry-ri26. Defaults to
+/// <see cref="DishDisplayPlaceholders.UnresolvedUnitCode"/> so existing positional construction
+/// sites (only the adapter's SearchAsync today) keep compiling; the adapter always supplies a
+/// resolved code or the same placeholder.
 /// </param>
-public sealed record MealPlanProductReadModel(Guid ProductId, string Name, string UnitCode = "?");
+public sealed record MealPlanProductReadModel(
+    Guid ProductId, string Name, string UnitCode = DishDisplayPlaceholders.UnresolvedUnitCode);
+
+/// <summary>
+/// Shared placeholder text for an unresolvable product-dish name/unit (plantry-r2yf AC7). Both the
+/// Today and MealPlan projections resolve product-dish names/unit codes via a batched
+/// <c>GetValueOrDefault(id, &lt;placeholder&gt;)</c> lookup against <see cref="IMealPlanCatalogProductReader"/>'s
+/// results — hoisting the literal text here means the two surfaces cannot silently drift into
+/// different wording for the same "unresolvable" case.
+/// </summary>
+public static class DishDisplayPlaceholders
+{
+    /// <summary>Shown for a product-dish whose product id could not be resolved to a name.</summary>
+    public const string UnknownProductName = "Unknown product";
+
+    /// <summary>Shown for a product-dish whose default unit code could not be resolved.</summary>
+    public const string UnresolvedUnitCode = "?";
+}

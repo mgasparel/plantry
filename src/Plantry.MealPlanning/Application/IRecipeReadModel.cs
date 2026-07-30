@@ -70,18 +70,51 @@ public interface IRecipeReadModel
     Task<IReadOnlyDictionary<Guid, Guid>> FindSoleYieldPhotoRecipeIdsAsync(
         IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, Guid>>(new Dictionary<Guid, Guid>());
+
+    /// <summary>
+    /// Batched lookup for a set of recipe ids in a single round-trip (plantry-r2yf) — the shape
+    /// Today's <c>LoadPlannedMealsTodayAsync</c> uses to resolve every recipe dish across the whole
+    /// day up front, mirroring the week-wide pre-passes established for product-dish resolution
+    /// (plantry-nlg4/plantry-vj6z). Ids that do not exist (or belong to another household) are
+    /// simply omitted from the result — same "absent means unresolved" convention as
+    /// <see cref="FindSoleYieldPhotoRecipeIdsAsync"/>.
+    /// Default implementation falls back to one <see cref="GetByIdAsync"/> call per id, using the
+    /// same default-interface-implementation pattern as <see cref="FindSoleYieldPhotoRecipeIdsAsync"/>
+    /// so existing <see cref="IRecipeReadModel"/> test doubles keep compiling (and keep behaving
+    /// correctly) without overriding this member — the production adapter overrides it with a
+    /// genuinely batched query.
+    /// </summary>
+    async Task<IReadOnlyDictionary<Guid, RecipeReadModel>> GetByIdsAsync(
+        IReadOnlyCollection<Guid> recipeIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, RecipeReadModel>();
+        foreach (var id in recipeIds)
+        {
+            var model = await GetByIdAsync(id, ct);
+            if (model is not null)
+                result[id] = model;
+        }
+        return result;
+    }
 }
 
 /// <summary>Display facts for a recipe in the meal editor.</summary>
 /// <param name="HasPhoto">True when the recipe has a stored photo (served at
 /// <c>/Recipes/Details?id={RecipeId}&amp;handler=Photo</c>) — lets the dish picker show a thumbnail
 /// and fall back to an initial chip when absent.</param>
+/// <param name="CookTimeMinutes">Cook time in minutes; null when not set. Added for plantry-r2yf so
+/// Today's planned-meals band can resolve cook time from this port instead of reaching past it into
+/// the Recipes domain repository (composition-root bypass, formerly justified by ADR-021 §3) —
+/// the port's contract is "minimal facts needed to display and validate a recipe dish"
+/// (see this interface's summary), and cook time is such a fact. Defaults to null so existing
+/// positional construction sites keep compiling; the adapter always supplies the resolved value.</param>
 public sealed record RecipeReadModel(
     Guid RecipeId,
     string Name,
     IReadOnlyList<Guid> TagIds,
     int DefaultServings,
-    bool HasPhoto = false);
+    bool HasPhoto = false,
+    int? CookTimeMinutes = null);
 
 /// <summary>
 /// Live fulfillment and cost enrichment for a recipe dish at a given serving count.

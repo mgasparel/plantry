@@ -199,6 +199,19 @@ public sealed class PlannedMealsBandSlotTests
         Assert.Equal("3 ?", IndexModel.FormatDishQuantity(dish));
     }
 
+    [Fact(DisplayName = "FormatDishQuantity — product dish with no UnitCode still renders 'N ?', never 'N servings' (AC6, plantry-r2yf)")]
+    public void FormatDishQuantity_ProductDish_NoUnitCode_DiscriminatesOnKind()
+    {
+        // Kind is the authoritative discriminator, not UnitCode nullness — a product dish
+        // constructed without a resolved unit code (the UnitCode ctor param left at its null
+        // default) must still fall through to the unresolved-unit placeholder, never silently
+        // render the recipe-dish "servings" wording.
+        var dish = new PlannedMealDishVm("X", DishKind.Product, 3);
+
+        Assert.Equal("3 ?", IndexModel.FormatDishQuantity(dish));
+        Assert.DoesNotContain("serving", IndexModel.FormatDishQuantity(dish));
+    }
+
     // ── AllMealsPlanned invariant ────────────────────────────────────────────
 
     [Fact(DisplayName = "AllMealsPlanned is true when all slot VMs have IsPlanned=true")]

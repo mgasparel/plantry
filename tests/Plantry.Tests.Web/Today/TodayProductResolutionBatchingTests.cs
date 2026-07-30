@@ -135,7 +135,9 @@ public sealed class TodayProductBatchingFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
-            TodayProductBatchingCommon.ConfigureSeams(services, _plan, CatalogReader);
+            TodayProductBatchingCommon.ConfigureSeams(
+                services, _plan, TodayProductBatchingFixture.SlotConfig, TodayProductBatchingFixture.Clock,
+                CatalogReader, new FixedRecipeReadModel(), new FakeTodayPlannedBandRecipeRepository());
         });
     }
 }
@@ -150,15 +152,31 @@ public sealed class TodayRecipeOnlyBatchingFactory : WebApplicationFactory<Progr
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
-            TodayProductBatchingCommon.ConfigureSeams(services, _plan, CatalogReader);
+            TodayProductBatchingCommon.ConfigureSeams(
+                services, _plan, TodayProductBatchingFixture.SlotConfig, TodayProductBatchingFixture.Clock,
+                CatalogReader, new FixedRecipeReadModel(), new FakeTodayPlannedBandRecipeRepository());
         });
     }
 }
 
+/// <summary>
+/// Shared seam wiring for the plantry-nlg4/plantry-r2yf Today batching regression suites — reused
+/// (not duplicated) by <see cref="TodayProductBatchingFactory"/>/<see cref="TodayRecipeOnlyBatchingFactory"/>
+/// (product-resolution batching, plantry-nlg4) and <see cref="TodayRecipeBatchingFactory"/>
+/// (recipe-resolution batching, plantry-r2yf) — every seam except the six that genuinely vary by
+/// scenario (plan, slot config, clock, product-catalog reader, recipe read model, recipe repository)
+/// is registered here exactly once.
+/// </summary>
 internal static class TodayProductBatchingCommon
 {
     public static void ConfigureSeams(
-        IServiceCollection services, MealPlan plan, TodayCountingCatalogProductReader catalogReader)
+        IServiceCollection services,
+        MealPlan plan,
+        MealSlotConfig slotConfig,
+        IClock clock,
+        IMealPlanCatalogProductReader catalogReader,
+        IRecipeReadModel recipeReadModel,
+        IRecipeRepository recipeRepo)
     {
         services.AddFakeExpiringSoonHorizon();
 
@@ -171,7 +189,7 @@ internal static class TodayProductBatchingCommon
             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
 
         services.RemoveAll<IClock>();
-        services.AddSingleton<IClock>(TodayProductBatchingFixture.Clock);
+        services.AddSingleton<IClock>(clock);
 
         services.RemoveAll<IHouseholdRepository>();
         services.AddSingleton<IHouseholdRepository>(new FakeTodayHouseholdRepository());
@@ -189,7 +207,7 @@ internal static class TodayProductBatchingCommon
         services.AddSingleton<IImportSessionRepository>(new FakeTodaySessionRepository());
 
         services.RemoveAll<IRecipeRepository>();
-        services.AddSingleton<IRecipeRepository>(new FakeTodayPlannedBandRecipeRepository());
+        services.AddSingleton(recipeRepo);
 
         services.RemoveAll<ITagRepository>();
         services.AddSingleton<ITagRepository>(new FakeBrowseTagRepository([]));
@@ -212,13 +230,13 @@ internal static class TodayProductBatchingCommon
         services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
 
         services.RemoveAll<IMealSlotConfigRepository>();
-        services.AddSingleton<IMealSlotConfigRepository>(new TodayFixedPlanSlotConfigRepo());
+        services.AddSingleton<IMealSlotConfigRepository>(new TodayFixedPlanSlotConfigRepo(slotConfig));
 
         services.RemoveAll<IMealPlanRepository>();
         services.AddSingleton<IMealPlanRepository>(new TodayFixedPlanRepo(plan));
 
         services.RemoveAll<IRecipeReadModel>();
-        services.AddSingleton<IRecipeReadModel>(new FixedRecipeReadModel());
+        services.AddSingleton(recipeReadModel);
 
         services.RemoveAll<IMealPlanStockReader>();
         services.AddSingleton<IMealPlanStockReader>(new FakeTodayNullStockReader());
@@ -233,12 +251,13 @@ internal static class TodayProductBatchingCommon
     }
 }
 
-internal sealed class TodayFixedPlanSlotConfigRepo : IMealSlotConfigRepository
+/// <summary>Returns the given <see cref="MealSlotConfig"/> for any household — shared by every
+/// Today batching-regression scenario (plantry-nlg4/plantry-r2yf), parameterized on the config so
+/// each scenario's own fixture (its own household/slot ids) can be plugged in.</summary>
+internal sealed class TodayFixedPlanSlotConfigRepo(MealSlotConfig config) : IMealSlotConfigRepository
 {
-    private readonly MealSlotConfig _config = TodayProductBatchingFixture.SlotConfig;
-
     public Task<MealSlotConfig?> FindByHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
-        => Task.FromResult<MealSlotConfig?>(_config);
+        => Task.FromResult<MealSlotConfig?>(config);
     public Task AddAsync(MealSlotConfig config, CancellationToken ct = default) => Task.CompletedTask;
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
