@@ -1,6 +1,7 @@
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Tests.Unit.Recipes.Application;
@@ -8,6 +9,11 @@ namespace Plantry.Tests.Unit.Recipes.Application;
 internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
 {
     public Guid? HouseholdId { get; } = householdId;
+}
+
+internal sealed class FixedClock(DateTimeOffset now) : IClock
+{
+    public DateTimeOffset UtcNow { get; } = now;
 }
 
 /// <summary>Returns a fixed "expiring soon" horizon for <c>FulfillmentService.ComputeAsync</c>.

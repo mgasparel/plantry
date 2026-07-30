@@ -17,7 +17,7 @@ public sealed class TidyUpBadgeCacheTests
     [Fact(DisplayName = "TryGet before any Set — returns null (true cache miss)")]
     public async Task TryGet_BeforeSet_ReturnsNull()
     {
-        var cache = new TidyUpBadgeCache(new FixedClock(DateTimeOffset.UtcNow));
+        var cache = new TidyUpBadgeCache(new MutableClock(DateTimeOffset.UtcNow));
 
         Assert.Null(await cache.TryGetAsync(HouseholdA));
     }
@@ -25,7 +25,7 @@ public sealed class TidyUpBadgeCacheTests
     [Fact(DisplayName = "Set then TryGet — returns the stored count, fresh")]
     public async Task Set_ThenTryGet_ReturnsStoredCount()
     {
-        var cache = new TidyUpBadgeCache(new FixedClock(DateTimeOffset.UtcNow));
+        var cache = new TidyUpBadgeCache(new MutableClock(DateTimeOffset.UtcNow));
 
         await cache.SetAsync(HouseholdA, 4);
 
@@ -37,7 +37,7 @@ public sealed class TidyUpBadgeCacheTests
     [Fact(DisplayName = "Invalidate — clears the cached count for that household (true miss again)")]
     public async Task Invalidate_ClearsStoredCount()
     {
-        var cache = new TidyUpBadgeCache(new FixedClock(DateTimeOffset.UtcNow));
+        var cache = new TidyUpBadgeCache(new MutableClock(DateTimeOffset.UtcNow));
         await cache.SetAsync(HouseholdA, 4);
 
         await cache.InvalidateAsync(HouseholdA);
@@ -48,7 +48,7 @@ public sealed class TidyUpBadgeCacheTests
     [Fact(DisplayName = "Per-household isolation — setting one household's count never leaks to another")]
     public async Task PerHousehold_Isolated()
     {
-        var cache = new TidyUpBadgeCache(new FixedClock(DateTimeOffset.UtcNow));
+        var cache = new TidyUpBadgeCache(new MutableClock(DateTimeOffset.UtcNow));
 
         await cache.SetAsync(HouseholdA, 4);
         await cache.SetAsync(HouseholdB, 7);
@@ -60,7 +60,7 @@ public sealed class TidyUpBadgeCacheTests
     [Fact(DisplayName = "TTL expiry (SWR) — the count is still returned, marked not-fresh, not a miss")]
     public async Task Expiry_AfterTtl_ReadsAsStaleNotMiss()
     {
-        var clock = new FixedClock(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+        var clock = new MutableClock(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
         var cache = new TidyUpBadgeCache(clock);
         await cache.SetAsync(HouseholdA, 4);
 
@@ -75,7 +75,7 @@ public sealed class TidyUpBadgeCacheTests
     [Fact(DisplayName = "Within TTL — the count is still returned, fresh")]
     public async Task WithinTtl_StillReturned()
     {
-        var clock = new FixedClock(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
+        var clock = new MutableClock(new DateTimeOffset(2026, 7, 21, 12, 0, 0, TimeSpan.Zero));
         var cache = new TidyUpBadgeCache(clock);
         await cache.SetAsync(HouseholdA, 4);
 
@@ -86,7 +86,7 @@ public sealed class TidyUpBadgeCacheTests
         Assert.True(snapshot?.IsFresh);
     }
 
-    private sealed class FixedClock(DateTimeOffset now) : IClock
+    private sealed class MutableClock(DateTimeOffset now) : IClock
     {
         public DateTimeOffset UtcNow { get; private set; } = now;
         public void Set(DateTimeOffset value) => UtcNow = value;

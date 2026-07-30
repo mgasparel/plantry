@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web.Conventions;
 
@@ -334,10 +335,10 @@ public sealed class AlpineXDataRawGuardTests
     [Fact(DisplayName = "No Html.Raw spliced inside an x-data attribute anywhere in Plantry.Web")]
     public void PlantryWeb_HasNoHtmlRawInsideXData()
     {
-        var webRoot = Path.Combine(RepoRoot(), "src", "Plantry.Web");
+        var webRoot = Path.Combine(WebSourceTree.RepoRoot(), "src", "Plantry.Web");
 
         var offenders = new List<string>();
-        foreach (var file in EnumerateSourceFiles(webRoot))
+        foreach (var file in WebSourceTree.EnumerateSourceFiles(webRoot))
         {
             var text = File.ReadAllText(file);
             foreach (var offense in FindOffenses(text))
@@ -640,26 +641,5 @@ public sealed class AlpineXDataRawGuardTests
         var offenses = FindOffenses(sample);
 
         Assert.Contains(offenses, o => o.Kind == OffenseKind.UnterminatedXData);
-    }
-
-    private static IEnumerable<string> EnumerateSourceFiles(string root) =>
-        Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories)
-            .Where(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
-                     || p.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase))
-            // wwwroot holds vendored JS/CSS and client-side islands (no Razor/Alpine splicing there); obj holds
-            // generated build artifacts.
-            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}wwwroot{Path.DirectorySeparatorChar}")
-                     && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"));
-
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(Path.GetDirectoryName(typeof(AlpineXDataRawGuardTests).Assembly.Location)!);
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "Plantry.sln")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-        throw new InvalidOperationException("Could not locate repo root (Plantry.sln).");
     }
 }

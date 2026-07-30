@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web.Formatting;
 
@@ -52,10 +53,10 @@ public sealed class MoneyFormattingGuardTests
     [Fact(DisplayName = "No ad-hoc currency-format specifier or hardcoded $-prefix money outside MoneyDisplay")]
     public void PlantryWeb_HasNoAdHocMoneyFormatting()
     {
-        var webRoot = Path.Combine(RepoRoot(), "src", "Plantry.Web");
+        var webRoot = Path.Combine(WebSourceTree.RepoRoot(), "src", "Plantry.Web");
 
         var offenders = new List<string>();
-        foreach (var file in EnumerateSourceFiles(webRoot))
+        foreach (var file in WebSourceTree.EnumerateSourceFiles(webRoot))
         {
             // MoneyDisplay itself is the one sanctioned home of the '$' symbol map and mentions ToString("C") in
             // its doc comment describing what it replaces.
@@ -110,25 +111,4 @@ public sealed class MoneyFormattingGuardTests
     [InlineData(@"@Html.DisplayFor(m => m.Total)")]                     // sanctioned display path, no specifier
     public void Negative_BenignPatterns_AreNotFlagged(string line) =>
         Assert.False(IsOffendingLine(line), $"Guard should NOT have flagged: {line}");
-
-    private static IEnumerable<string> EnumerateSourceFiles(string root) =>
-        Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories)
-            .Where(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
-                     || p.EndsWith(".cshtml", StringComparison.OrdinalIgnoreCase))
-            // wwwroot holds vendored JS/CSS and the client-side islands (their money formatting is a separate
-            // concern, plantry-2x6e.3); obj holds generated build artifacts.
-            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}wwwroot{Path.DirectorySeparatorChar}")
-                     && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"));
-
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(Path.GetDirectoryName(typeof(MoneyFormattingGuardTests).Assembly.Location)!);
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "Plantry.sln")))
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-        throw new InvalidOperationException("Could not locate repo root (Plantry.sln).");
-    }
 }
