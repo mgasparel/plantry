@@ -96,4 +96,47 @@ public sealed class StoreSubscriptionTests
 
         Assert.Throws<ArgumentException>(() => sub.RecordPull("  ", new TestClock()));
     }
+
+    [Fact(DisplayName = "RecordPull with hasNewContent:false (the DD5 no-op branch) advances LastPulledAt but leaves LastNewContentAt null (plantry-fsmb)")]
+    public void RecordPull_NoOp_AdvancesLastPulledAt_LeavesLastNewContentAtNull()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        clock.Advance(TimeSpan.FromHours(1));
+        sub.RecordPull("flyer-abc-123", clock); // default hasNewContent: false — the dedup no-op path
+
+        Assert.Equal(clock.UtcNow, sub.LastPulledAt);
+        Assert.Null(sub.LastNewContentAt);
+    }
+
+    [Fact(DisplayName = "RecordPull with hasNewContent:true stamps LastNewContentAt alongside LastPulledAt (plantry-fsmb)")]
+    public void RecordPull_NewContent_StampsBoth()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        clock.Advance(TimeSpan.FromHours(1));
+        sub.RecordPull("flyer-abc-123", clock, hasNewContent: true);
+
+        Assert.Equal(clock.UtcNow, sub.LastPulledAt);
+        Assert.Equal(clock.UtcNow, sub.LastNewContentAt);
+    }
+
+    [Fact(DisplayName = "A subsequent no-op re-pull advances LastPulledAt but does NOT shift LastNewContentAt forward (plantry-fsmb)")]
+    public void RecordPull_SubsequentNoOp_DoesNotShiftLastNewContentAt()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        clock.Advance(TimeSpan.FromHours(1));
+        sub.RecordPull("flyer-abc-123", clock, hasNewContent: true);
+        var newContentAt = sub.LastNewContentAt;
+
+        clock.Advance(TimeSpan.FromDays(1));
+        sub.RecordPull("flyer-abc-123", clock); // next day's no-op re-confirmation
+
+        Assert.Equal(clock.UtcNow, sub.LastPulledAt);       // LastPulledAt DID advance (boot-schedule needs this)
+        Assert.Equal(newContentAt, sub.LastNewContentAt);   // LastNewContentAt did NOT — no-op is not "fresh"
+    }
 }

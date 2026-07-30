@@ -160,7 +160,9 @@ public sealed class IngestFlyer(
             ? await IngestNewImportAsync(household, sub, pull, contentHash, ct)
             : await RefreshImportAsync(household, sub, existing, pull, contentHash, ct);
 
-        sub.RecordPull(pull.FlyerExternalId, clock);
+        // hasNewContent: true — this branch only reaches here after a fresh import or a changed re-pull
+        // refresh actually persisted new/changed deals (the DD5 no-op returns earlier, at line ~154).
+        sub.RecordPull(pull.FlyerExternalId, clock, hasNewContent: true);
         await subscriptions.SaveChangesAsync(ct);
         return result;
     }

@@ -34,13 +34,28 @@
                             <span class="catalog-list__secondary">@sub.PostalCode</span>
                         </div>
                         <div class="store-row__status">
+                            @* plantry-fsmb: a no-op re-pull must never look fresher than the flyer actually is —
+                               a lapsed validity window gets a visually distinct (non-success) badge regardless
+                               of how recently the last no-op re-confirmation ran, and "Confirmed current" (not
+                               "Updated") is the everyday framing since a no-op is the statistically normal daily
+                               outcome under the P5-6 daily sweep cadence (plantry-rb36). LastPulledAt itself is
+                               NEVER rendered here (critic pass 1) — it also advances on a no-op, so displaying
+                               it anywhere in this badge would reintroduce the exact defect this ticket removes. *@
                             @if (sub.LastPulledAt is null)
                             {
                                 <span class="badge badge--neutral">Not pulled yet</span>
                             }
+                            else if (sub.FlyerValidityLapsed)
+                            {
+                                <span class="badge badge--warning">Expired @sub.FlyerValidTo!.Value.ToString("d MMM")</span>
+                            }
+                            else if (sub.LastNewContentAt is null)
+                            {
+                                <span class="badge badge--neutral">No new content yet</span>
+                            }
                             else
                             {
-                                <span class="badge badge--success">Updated @sub.LastPulledAt.Value.ToString("d MMM")</span>
+                                <span class="badge badge--success">Confirmed current &middot; @sub.LastNewContentAt.Value.ToString("d MMM")</span>
                             }
                         </div>
                         <div class="store-row__actions">

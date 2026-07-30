@@ -140,6 +140,46 @@ public sealed class IngestFlyerTests
         Assert.Equal(0, second.Pulled);
     }
 
+    [Fact(DisplayName = "A fresh import stamps LastNewContentAt; a byte-identical re-pull no-op advances LastPulledAt but NOT LastNewContentAt (plantry-fsmb)")]
+    public async Task NewImport_StampsLastNewContentAt_NoOpRepull_DoesNotShiftIt()
+    {
+        var h = new Harness();
+        var sub = h.Subscribe(StoreId, ExternalRef);
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-1", "{same}", Raw("Bread")));
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-1", "{same}", Raw("Bread")));
+
+        await h.Build().RunAsync();
+        Assert.NotNull(sub.LastPulledAt);
+        Assert.NotNull(sub.LastNewContentAt); // the fresh import DID persist new content
+        var newContentAt = sub.LastNewContentAt;
+        var pulledAtAfterFirst = sub.LastPulledAt;
+
+        h.Clock.Advance(TimeSpan.FromDays(1));
+        await h.Build().RunAsync(); // no-op re-pull (byte-identical)
+
+        Assert.True(sub.LastPulledAt > pulledAtAfterFirst);  // LastPulledAt DID advance (boot-schedule needs this)
+        Assert.Equal(newContentAt, sub.LastNewContentAt);    // LastNewContentAt did NOT shift — badge stays honest
+    }
+
+    [Fact(DisplayName = "A changed re-pull refresh stamps LastNewContentAt again (plantry-fsmb)")]
+    public async Task Repull_Changed_StampsLastNewContentAtAgain()
+    {
+        var h = new Harness();
+        var sub = h.Subscribe(StoreId, ExternalRef);
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-1", "{v1}", Raw("Bread", 2.00m)));
+        h.Source.EnqueuePull(ExternalRef, Pull("flyer-1", "{v2}", Raw("Bread", 3.00m)));
+
+        await h.Build().RunAsync();
+        var firstNewContentAt = sub.LastNewContentAt;
+        Assert.NotNull(firstNewContentAt);
+
+        h.Clock.Advance(TimeSpan.FromDays(1));
+        await h.Build().RunAsync(); // changed re-pull → RefreshImportAsync
+
+        Assert.NotNull(sub.LastNewContentAt);
+        Assert.True(sub.LastNewContentAt > firstNewContentAt); // the refresh DID persist changed content
+    }
+
     [Fact(DisplayName = "Re-pull with a volatile raw payload but unchanged deals is a no-op — the DD5 hash is over the deal projection, not raw bytes (plantry-04ji.4)")]
     public async Task Repull_VolatileRawContent_SameDeals_IsNoOp()
     {

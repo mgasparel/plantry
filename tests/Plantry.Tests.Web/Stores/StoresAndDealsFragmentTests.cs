@@ -6,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Deals.Application;
 using Plantry.Deals.Domain;
+using Plantry.SharedKernel.Domain;
+using Plantry.Tests.Web.Deals;
 using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web.Stores;
@@ -218,6 +220,75 @@ public sealed class StoresAndDealsFragmentTests(StoresAndDealsFragmentFactory fa
         Assert.False(factory.Repo.Items.Single().IsActive);
     }
 
+    [Fact(DisplayName = "The store list badge reads 'Expired {date}' — not 'Confirmed current' — for a lapsed flyer validity window (plantry-fsmb)")]
+    public async Task List_Shows_Expired_Badge_For_Lapsed_Window()
+    {
+        factory.Repo.Items.Clear();
+        factory.Imports.Refs.Clear();
+        var client = AuthedClient();
+        var token = await GetTokenAsync(client);
+
+        await client.PostAsync("/Settings/StoresAndDeals?handler=Subscribe",
+            new FormUrlEncodedContent([
+                new("__RequestVerificationToken", token),
+                new("externalRef", "flipp-freshco"),
+                new("name", "FreshCo"),
+                new("postalCode", "K1A0B1"),
+            ]));
+
+        var sub = factory.Repo.Items.Single();
+        var clock = new FixedClock(StoresAndDealsFragmentFactory.ClockInstant);
+        sub.RecordPull("flyer-1", clock, hasNewContent: true); // the original fresh pull that created this window
+        sub.RecordPull("flyer-1", clock);                      // today's dedup no-op — must not shift the badge date
+        // The flyer's own window lapsed 4 days before "today" (ClockInstant = 2026-07-22).
+        factory.Imports.Refs.Add(new FlyerImportRef(
+            sub.StoreId, new DateOnly(2026, 7, 11), new DateOnly(2026, 7, 18), "flyer-1"));
+
+        var response = await client.GetAsync("/Settings/StoresAndDeals?handler=List");
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("badge badge--warning", html);
+        Assert.Contains("Expired 18 Jul", html);
+        Assert.DoesNotContain("Confirmed current", html);
+    }
+
+    [Fact(DisplayName = "The store list badge reads 'Confirmed current · {LastNewContentAt}' for a still-open flyer validity window (plantry-fsmb)")]
+    public async Task List_Shows_ConfirmedCurrent_Badge_For_OpenWindow()
+    {
+        factory.Repo.Items.Clear();
+        factory.Imports.Refs.Clear();
+        var client = AuthedClient();
+        var token = await GetTokenAsync(client);
+
+        await client.PostAsync("/Settings/StoresAndDeals?handler=Subscribe",
+            new FormUrlEncodedContent([
+                new("__RequestVerificationToken", token),
+                new("externalRef", "flipp-freshco"),
+                new("name", "FreshCo"),
+                new("postalCode", "K1A0B1"),
+            ]));
+
+        var sub = factory.Repo.Items.Single();
+        var clock = new FixedClock(StoresAndDealsFragmentFactory.ClockInstant);
+        sub.RecordPull("flyer-1", clock, hasNewContent: true); // stamps LastNewContentAt = ClockInstant (22 Jul)
+        var laterNoOpClock = new FixedClock(StoresAndDealsFragmentFactory.ClockInstant.AddDays(1));
+        sub.RecordPull("flyer-1", laterNoOpClock); // a LATER no-op re-pull — LastPulledAt moves to 23 Jul, must not render
+        // The flyer's own window is still open (2026-07-22 falls within 20-26 Jul).
+        factory.Imports.Refs.Add(new FlyerImportRef(
+            sub.StoreId, new DateOnly(2026, 7, 20), new DateOnly(2026, 7, 26), "flyer-1"));
+
+        var response = await client.GetAsync("/Settings/StoresAndDeals?handler=List");
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("badge badge--success", html);
+        Assert.Contains("Confirmed current", html);
+        Assert.Contains("22 Jul", html);      // LastNewContentAt's date
+        Assert.DoesNotContain("23 Jul", html); // the later no-op's LastPulledAt must never render
+        Assert.DoesNotContain("badge badge--warning", html);
+    }
+
     [Fact(DisplayName = "Unauthenticated GET returns 401 (test auth scheme)")]
     public async Task Unauthenticated_Returns_401()
     {
@@ -247,6 +318,17 @@ public sealed class StoresAndDealsFragmentFactory : WebApplicationFactory<Progra
 {
     public FakeStoreSubscriptionRepo Repo { get; } = new();
     public FakeCatalogStorePort StorePort { get; } = new();
+    // plantry-fsmb: ManageSubscriptions.ListAsync joins each subscription's last-pulled flyer's validity
+    // window off IFlyerImportRepository. Empty by default (every badge then falls through to "Confirmed
+    // current"/"Not pulled yet") — individual tests seed Refs per-test to exercise the lapsed-window badge.
+    public FakeReviewFlyerImportRepo Imports { get; } = new();
+
+    /// <summary>
+    /// The fixed "today" every badge test pins against (critic pass 1) — the WAF-hosted SUT and the test's
+    /// own window seeding must agree on "today" or the lapsed/not-lapsed assertions would race the real
+    /// system clock at a day boundary (mirrors <see cref="MealPlanningTestClock"/>).
+    /// </summary>
+    public static readonly DateTimeOffset ClockInstant = new(2026, 7, 22, 12, 0, 0, TimeSpan.Zero);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -270,6 +352,14 @@ public sealed class StoresAndDealsFragmentFactory : WebApplicationFactory<Progra
 
             services.RemoveAll<IStoreSubscriptionRepository>();
             services.AddScoped<IStoreSubscriptionRepository>(_ => Repo);
+
+            services.RemoveAll<IFlyerImportRepository>();
+            services.AddScoped<IFlyerImportRepository>(_ => Imports);
+
+            // Fixed clock (critic pass 1): the badge-lapsed tests seed FlyerImportRef windows relative to
+            // ClockInstant, so ManageSubscriptions.ListAsync's "today" must resolve to that same instant.
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock>(new FixedClock(ClockInstant));
 
             services.RemoveAll<ICatalogStoreReader>();
             services.AddScoped<ICatalogStoreReader>(_ => StorePort);

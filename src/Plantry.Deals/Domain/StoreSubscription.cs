@@ -38,6 +38,15 @@ public sealed class StoreSubscription : AggregateRoot<StoreSubscriptionId>
 
     public DateTimeOffset? LastPulledAt { get; private set; }
 
+    /// <summary>
+    /// When a pull last actually persisted new or changed deals (a genuine <see cref="IngestFlyer"/>
+    /// import or refresh) — distinct from <see cref="LastPulledAt"/>, which also advances on a
+    /// byte-identical dedup no-op (DD5). The §7e badge (plantry-fsmb) shows THIS date as "Confirmed
+    /// current" so a no-op re-confirmation — the statistically normal daily outcome under the P5-6 daily
+    /// sweep cadence (plantry-rb36) — never makes the UI look more current than it is.
+    /// </summary>
+    public DateTimeOffset? LastNewContentAt { get; private set; }
+
     /// <summary>The last pulled flyer's external id — the dedup anchor (DD5/DL-O5).</summary>
     public string? LastFlyerExternalId { get; private set; }
 
@@ -92,14 +101,23 @@ public sealed class StoreSubscription : AggregateRoot<StoreSubscriptionId>
         UpdatedAt = clock.UtcNow;
     }
 
-    /// <summary>Stamps bookkeeping after a successful pull (the dedup anchor, DD5).</summary>
-    public void RecordPull(string flyerExternalId, IClock clock)
+    /// <summary>
+    /// Stamps bookkeeping after a successful pull (the dedup anchor, DD5). <see cref="LastPulledAt"/>
+    /// always advances — the P5-6 worker's boot due-check (plantry-rb36) depends on it bumping on every
+    /// pull attempt, no-op or not. <paramref name="hasNewContent"/> additionally stamps
+    /// <see cref="LastNewContentAt"/>, and MUST be <c>true</c> only from the two branches that actually
+    /// persisted new/changed deals (a fresh <see cref="IngestFlyer"/> import or a changed re-pull refresh)
+    /// — never from the byte-identical dedup no-op branch (plantry-fsmb).
+    /// </summary>
+    public void RecordPull(string flyerExternalId, IClock clock, bool hasNewContent = false)
     {
         if (string.IsNullOrWhiteSpace(flyerExternalId))
             throw new ArgumentException("Flyer external id must not be blank.", nameof(flyerExternalId));
 
         LastFlyerExternalId = flyerExternalId;
         LastPulledAt = clock.UtcNow;
+        if (hasNewContent)
+            LastNewContentAt = clock.UtcNow;
         UpdatedAt = clock.UtcNow;
     }
 }

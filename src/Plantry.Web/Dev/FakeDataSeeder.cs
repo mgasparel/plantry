@@ -766,7 +766,9 @@ public sealed class FakeDataSeeder(
 
         // Standing subscription with a realistic post-ingest dedup anchor pointing at the current-week import.
         var subscription = StoreSubscription.Subscribe(householdId, storeId, DemoFlyerPostalCode, clock);
-        subscription.RecordPull(fixture.Flyer.ExternalId, clock);
+        // hasNewContent: true — mirrors a genuine IngestFlyer new-import pull (the current-week import staged
+        // above), so the seeded row exercises the "Confirmed current" badge path (plantry-fsmb).
+        subscription.RecordPull(fixture.Flyer.ExternalId, clock, hasNewContent: true);
         dealsDb.StoreSubscriptions.Add(subscription);
         await dealsDb.SaveChangesAsync(ct);
     }

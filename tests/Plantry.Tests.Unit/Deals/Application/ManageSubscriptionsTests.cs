@@ -1,5 +1,6 @@
 using Plantry.Deals.Application;
 using Plantry.Deals.Domain;
+using Plantry.SharedKernel;
 using Xunit;
 
 namespace Plantry.Tests.Unit.Deals.Application;
@@ -27,7 +28,8 @@ public sealed class ManageSubscriptionsTests
         reader = new FakeCatalogStoreReader();
         flyer = new FakeFlyerSource();
         var tenant = new FakeTenantContext(household ?? Household);
-        return new ManageSubscriptions(subs, reader, writer, flyer, tenant, clock ?? new TestClock());
+        return new ManageSubscriptions(
+            subs, new FakeFlyerImportRepository(), reader, writer, flyer, tenant, clock ?? new TestClock());
     }
 
     [Fact(DisplayName = "Subscribe ensures the catalog.store then creates the StoreSubscription")]
@@ -54,6 +56,7 @@ public sealed class ManageSubscriptionsTests
         var subs = new FakeStoreSubscriptionRepository();
         var service = new ManageSubscriptions(
             subs,
+            new FakeFlyerImportRepository(),
             new FakeCatalogStoreReader(),
             new FakeCatalogStoreWriter(),
             new FakeFlyerSource(),
@@ -201,5 +204,113 @@ public sealed class ManageSubscriptionsTests
 
         var view = Assert.Single(await service.ListAsync());
         Assert.Equal("(unknown store)", view.StoreName);
+    }
+
+    // ── plantry-fsmb: the §7e badge join (LastNewContentAt / FlyerValidTo / FlyerValidityLapsed) ──────
+
+    private static FlyerImport ParsedImport(
+        Guid storeId, string flyerExternalId, ValidityWindow window, TestClock clock)
+    {
+        var import = FlyerImport.Start(HouseholdId.From(Household), storeId, flyerExternalId, [1], window, "{}", clock);
+        Assert.True(import.MarkParsed(0, clock).IsSuccess);
+        return import;
+    }
+
+    [Fact(DisplayName = "ListAsync leaves FlyerValidTo/FlyerValidityLapsed unset for a subscription never pulled")]
+    public async Task List_NeverPulled_NoFlyerWindowData()
+    {
+        var service = Build(out var subs, out _, out var reader, out _);
+        var id = (await service.SubscribeAsync("flipp-freshco", "FreshCo", "K1A0B1")).Value;
+        reader.Names[subs.Items.Single().StoreId] = "FreshCo";
+
+        var view = Assert.Single(await service.ListAsync());
+
+        Assert.Equal(id, view.Id);
+        Assert.Null(view.LastNewContentAt);
+        Assert.Null(view.FlyerValidTo);
+        Assert.False(view.FlyerValidityLapsed);
+    }
+
+    [Fact(DisplayName = "ListAsync resolves the last-pulled flyer's still-open window as NOT lapsed, carrying LastNewContentAt")]
+    public async Task List_PulledWithOpenWindow_NotLapsed()
+    {
+        var clock = new TestClock(new DateTimeOffset(2026, 7, 15, 0, 0, 0, TimeSpan.Zero));
+        var service = Build(out var subs, out _, out var reader, out _, clock: clock);
+        var id = (await service.SubscribeAsync("flipp-freshco", "FreshCo", "K1A0B1")).Value;
+        var sub = subs.Items.Single();
+        reader.Names[sub.StoreId] = "FreshCo";
+
+        var window = ValidityWindow.Create(new DateOnly(2026, 7, 13), new DateOnly(2026, 7, 19)).Value; // contains "today"
+        sub.RecordPull("flyer-1", clock, hasNewContent: true);
+
+        var imports = new FakeFlyerImportRepository();
+        imports.Items.Add(ParsedImport(sub.StoreId, "flyer-1", window, clock));
+        var serviceWithImports = new ManageSubscriptions(
+            subs, imports, reader, new FakeCatalogStoreWriter(), new FakeFlyerSource(),
+            new FakeTenantContext(Household), clock);
+
+        var view = Assert.Single(await serviceWithImports.ListAsync());
+
+        Assert.Equal(id, view.Id);
+        Assert.Equal(sub.LastNewContentAt, view.LastNewContentAt);
+        Assert.Equal(new DateOnly(2026, 7, 19), view.FlyerValidTo);
+        Assert.False(view.FlyerValidityLapsed);
+    }
+
+    [Fact(DisplayName = "ListAsync does NOT flag a pre-published, not-yet-started window as lapsed (critic pass 1 — ValidTo < today, not !Contains(today))")]
+    public async Task List_PulledWithNotYetStartedWindow_NotLapsed()
+    {
+        // Flipp ships next week's flyer ahead of time with no "must contain today" filter (FlyerSource.cs);
+        // a window that starts in the future must never render as "Expired".
+        var clock = new TestClock(new DateTimeOffset(2026, 7, 15, 0, 0, 0, TimeSpan.Zero));
+        var service = Build(out var subs, out _, out var reader, out _, clock: clock);
+        var id = (await service.SubscribeAsync("flipp-freshco", "FreshCo", "K1A0B1")).Value;
+        var sub = subs.Items.Single();
+        reader.Names[sub.StoreId] = "FreshCo";
+
+        var window = ValidityWindow.Create(new DateOnly(2026, 7, 20), new DateOnly(2026, 7, 26)).Value; // starts AFTER "today"
+        sub.RecordPull("flyer-1", clock, hasNewContent: true);
+
+        var imports = new FakeFlyerImportRepository();
+        imports.Items.Add(ParsedImport(sub.StoreId, "flyer-1", window, clock));
+        var serviceWithImports = new ManageSubscriptions(
+            subs, imports, reader, new FakeCatalogStoreWriter(), new FakeFlyerSource(),
+            new FakeTenantContext(Household), clock);
+
+        var view = Assert.Single(await serviceWithImports.ListAsync());
+
+        Assert.Equal(id, view.Id);
+        Assert.Equal(new DateOnly(2026, 7, 26), view.FlyerValidTo);
+        Assert.False(view.FlyerValidityLapsed);
+    }
+
+    [Fact(DisplayName = "ListAsync flags a lapsed validity window even though a no-op re-pull ran today (plantry-fsmb)")]
+    public async Task List_PulledWithLapsedWindow_FlaggedLapsed_DespiteRecentNoOpRepull()
+    {
+        var clock = new TestClock(new DateTimeOffset(2026, 7, 22, 0, 0, 0, TimeSpan.Zero));
+        var service = Build(out var subs, out _, out var reader, out _, clock: clock);
+        var id = (await service.SubscribeAsync("flipp-freshco", "FreshCo", "K1A0B1")).Value;
+        var sub = subs.Items.Single();
+        reader.Names[sub.StoreId] = "FreshCo";
+
+        // The flyer's own window expired 4 days before "today" — but a no-op re-pull ran today anyway
+        // (the daily-cadence-vs-weekly-refresh backing context in the ticket).
+        var window = ValidityWindow.Create(new DateOnly(2026, 7, 11), new DateOnly(2026, 7, 18)).Value;
+        sub.RecordPull("flyer-1", clock, hasNewContent: true); // the original fresh pull that created this window
+        var newContentAt = sub.LastNewContentAt;
+        sub.RecordPull("flyer-1", clock); // today's dedup no-op — LastPulledAt moves, LastNewContentAt must not
+
+        var imports = new FakeFlyerImportRepository();
+        imports.Items.Add(ParsedImport(sub.StoreId, "flyer-1", window, clock));
+        var serviceWithImports = new ManageSubscriptions(
+            subs, imports, reader, new FakeCatalogStoreWriter(), new FakeFlyerSource(),
+            new FakeTenantContext(Household), clock);
+
+        var view = Assert.Single(await serviceWithImports.ListAsync());
+
+        Assert.Equal(id, view.Id);
+        Assert.True(view.FlyerValidityLapsed);
+        Assert.Equal(new DateOnly(2026, 7, 18), view.FlyerValidTo);
+        Assert.Equal(newContentAt, view.LastNewContentAt); // unchanged by today's no-op
     }
 }

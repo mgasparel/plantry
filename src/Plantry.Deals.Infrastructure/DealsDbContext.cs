@@ -45,6 +45,7 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
             b.Property(s => s.PostalCode).HasColumnName("postal_code").IsRequired();
             b.Property(s => s.IsActive).HasColumnName("is_active").IsRequired().HasDefaultValue(true);
             b.Property(s => s.LastPulledAt).HasColumnName("last_pulled_at");
+            b.Property(s => s.LastNewContentAt).HasColumnName("last_new_content_at");
             b.Property(s => s.LastFlyerExternalId).HasColumnName("last_flyer_external_id");
             b.Property(s => s.CreatedAt).HasColumnName("created_at");
             b.Property(s => s.UpdatedAt).HasColumnName("updated_at");
