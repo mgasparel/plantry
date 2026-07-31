@@ -29,7 +29,7 @@ public sealed class HouseholdMemberReaderAdapter(
         if (string.IsNullOrWhiteSpace(displayName)) return "?";
         var parts = displayName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return parts.Length == 1
-            ? displayName[0].ToString().ToUpperInvariant()
+            ? parts[0][0].ToString().ToUpperInvariant()
             : $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
     }
 }

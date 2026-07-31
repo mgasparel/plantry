@@ -123,6 +123,10 @@ internal sealed class FakeTagRepository : ITagRepository
     public List<Tag> Items { get; } = [];
     public int SaveChangesCalls { get; private set; }
 
+    /// <summary>Opt out of <see cref="ListAllAsync"/>'s name sort so a test can prove the SUT's own
+    /// ordering is load-bearing (a pre-sorted fake would mask a dropped OrderBy in the SUT).</summary>
+    public bool PreserveInsertionOrder { get; set; }
+
     public Task<Tag?> FindByNameAsync(HouseholdId householdId, string name, CancellationToken ct = default) =>
         Task.FromResult(Items.SingleOrDefault(t =>
             t.HouseholdId == householdId && string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)));
@@ -156,7 +160,8 @@ internal sealed class FakeTagRepository : ITagRepository
     {
         var query = Items.AsEnumerable();
         if (activeOnly) query = query.Where(t => !t.IsArchived);
-        return Task.FromResult<IReadOnlyList<Tag>>(query.OrderBy(t => t.Name).ToList());
+        if (!PreserveInsertionOrder) query = query.OrderBy(t => t.Name);
+        return Task.FromResult<IReadOnlyList<Tag>>(query.ToList());
     }
 }
 
