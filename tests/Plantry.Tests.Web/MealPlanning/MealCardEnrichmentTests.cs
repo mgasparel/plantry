@@ -430,4 +430,4 @@ internal sealed class FakeEnrichmentWeekReadModel(
         new(productId, unitPrice, 1m, UnitId, unitPrice, MealPlanningTestClock.Instant.UtcDateTime.AddDays(-1));
 }
 
-// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).
+// NullTagReader is defined in Infrastructure/WeekGridFixture.cs (shared across the MealPlanning test namespace, plantry-ej84).

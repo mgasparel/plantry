@@ -197,9 +197,9 @@ public sealed class TodayIndexModelTests
         // Deals seam (plantry-bpw): empty repo → BrowseDeals reports zero pending → no deal banner.
         // These tests only exercise IsColdStart / greeting / expiring, so an empty board is sufficient.
         var browseDeals = new Plantry.Deals.Application.BrowseDeals(
-            new Plantry.Tests.Web.Deals.FakeDealBrowseRepo(),
-            new Plantry.Tests.Web.Deals.FakeDealProductReader(),
-            new Plantry.Tests.Web.Deals.FakeDealStoreReader(),
+            new Plantry.Tests.Web.Infrastructure.FakeDealBrowseRepo(),
+            new Plantry.Tests.Web.Infrastructure.FakeDealProductReader(),
+            new Plantry.Tests.Web.Infrastructure.FakeDealStoreReader(),
             FixedClock);
 
         return new IndexModel(
@@ -438,9 +438,9 @@ public sealed class ExpiringWidgetModelTests
 
         // Deals seam (plantry-bpw): empty repo → BrowseDeals reports zero pending → no deal banner.
         var browseDeals = new Plantry.Deals.Application.BrowseDeals(
-            new Plantry.Tests.Web.Deals.FakeDealBrowseRepo(),
-            new Plantry.Tests.Web.Deals.FakeDealProductReader(),
-            new Plantry.Tests.Web.Deals.FakeDealStoreReader(),
+            new Plantry.Tests.Web.Infrastructure.FakeDealBrowseRepo(),
+            new Plantry.Tests.Web.Infrastructure.FakeDealProductReader(),
+            new Plantry.Tests.Web.Infrastructure.FakeDealStoreReader(),
             FixedClock);
 
         return new IndexModel(
