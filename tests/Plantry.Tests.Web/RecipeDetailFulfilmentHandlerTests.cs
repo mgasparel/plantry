@@ -123,9 +123,7 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
 
     public Guid RecipeId => Recipe.Id.Value;
 
-    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
-
-    private static IReadOnlyDictionary<Guid, ProductStock> AllInStockAtDefaultServings(DateOnly today) =>
+    private static IReadOnlyDictionary<Guid, ProductStock> AllInStockAtDefaultServings() =>
         new Dictionary<Guid, ProductStock>
         {
             [RecipeDetailFixture.PastaId]  = new(RecipeDetailFixture.PastaId,  600m, RecipeDetailFixture.GramUnitId, null),
@@ -164,7 +162,7 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
             // All InStock at default servings → FullyCookable on initial render.
             services.RemoveAll<IInventoryStockReader>();
             services.AddSingleton<IInventoryStockReader>(
-                new FakeDetailStockReader(AllInStockAtDefaultServings(Today)));
+                new FakeDetailStockReader(AllInStockAtDefaultServings()));
 
             services.RemoveAll<IPriceReader>();
             services.AddSingleton<IPriceReader>(new FakeDetailPriceReader(RecipeDetailFixture.Prices()));
