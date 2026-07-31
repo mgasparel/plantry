@@ -114,6 +114,22 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
             p => unitCodes.GetValueOrDefault(p.DefaultUnitId, DishDisplayPlaceholders.UnresolvedUnitCode));
     }
 
+    public async Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyCollection<Guid> unitIds, CancellationToken ct = default)
+    {
+        if (unitIds.Count == 0) return new Dictionary<Guid, string>();
+
+        // Same dictionary-lookup pattern as ResolveDefaultUnitCodesAsync above, keyed by unit id
+        // directly rather than joining through a product (plantry-vqa7: the meal card's actual-eaten
+        // quantity is denominated in the journal row's own unit, which can differ from the product's
+        // configured default).
+        var wanted = unitIds.Select(UnitId.From).ToHashSet();
+        var unitCodes = await GetUnitCodesByIdAsync(ct);
+        return unitCodes
+            .Where(kv => wanted.Contains(kv.Key))
+            .ToDictionary(kv => kv.Key.Value, kv => kv.Value);
+    }
+
     /// <summary>
     /// Household unit codes keyed by <see cref="UnitId"/>. A household's unit set is small
     /// (dozens at most), so loading it whole and joining in memory avoids the converted-key

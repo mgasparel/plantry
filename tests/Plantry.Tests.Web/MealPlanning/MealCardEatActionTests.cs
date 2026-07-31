@@ -30,7 +30,10 @@ public sealed class MealCardEatActionTests
     [Fact(DisplayName = "POST /MealPlan?handler=Eat: consumes the product dish and the cell swap shows the Eaten row with Undo")]
     public async Task Eat_Consumes_Dish_And_Swaps_To_Eaten_Row_With_Undo()
     {
-        await using var factory = new EatActionFactory();
+        // stubUnitCodes: true so the journal-derived ConsumedUnitId genuinely resolves to a display
+        // code — AC2 (plantry-vqa7) is "Eaten · 2 ea", and without a resolvable code the row would
+        // render the unresolved-unit placeholder instead.
+        await using var factory = new EatActionFactory(stubUnitCodes: true);
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EatActionFixture.HouseholdId.ToString());
 
@@ -56,7 +59,10 @@ public sealed class MealCardEatActionTests
         // every other cell-targeted POST handler in this file.
         Assert.DoesNotContain("<html", html, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("mc-cook-done", html);
-        Assert.Contains("Eaten · 2", html);
+        // AC2 (plantry-vqa7): one-tap eat (planned == consumed) reads "Eaten · 2 ea" — the full
+        // "· ea" suffix is asserted (not just the "Eaten · 2" prefix) because a regression that
+        // fell back to the unresolved-unit placeholder ("Eaten · 2 ?") would otherwise still pass.
+        Assert.Contains("Eaten · 2 ea", html);
         Assert.Contains("class=\"undo\"", html); // today's eaten product row carries Undo, not a timestamp
     }
 
@@ -134,12 +140,13 @@ public sealed class MealCardEatActionTests
 /// POST's effect is visible on the very next cell re-render) and a one-product-dish meal dated today.
 /// <paramref name="onHand"/> and <paramref name="stubUnitCodes"/> (plantry-yuy3) let the Eat CONFIRM
 /// SHEET tests (<c>MealCardEatSheetTests</c>) drive the on-hand-aware auto-trigger check and get a
-/// resolvable product name/unit code, without a second near-duplicate factory — critic pass 1
-/// (reuse-first): the two factories differed by exactly these two registrations.</summary>
-public sealed class EatActionFactory(decimal? onHand = null, bool stubUnitCodes = false) : MealPlanFragmentFactory
+/// resolvable product name/unit code, and <paramref name="mixedUnitDone"/> (plantry-vqa7, critic pass
+/// 3) lets that same suite fabricate the mixed-unit-fallback status (<c>ConsumedQuantity</c>/
+/// <c>ConsumedUnitId</c> both null) that <see cref="SpyEatWriter"/>'s real Eat POST path can never
+/// produce (it only ever stamps a single, uniform unit) — without a second near-duplicate factory
+/// (critic pass 1/3, reuse-first): every prior factory here differed only by registrations like these.</summary>
+public sealed class EatActionFactory(decimal? onHand = null, bool stubUnitCodes = false, bool mixedUnitDone = false) : MealPlanFragmentFactory
 {
-    private static readonly Guid EachUnitId = Guid.Parse("eeeeeeee-0000-0000-0000-00000000000e");
-
     public EatActionMealPlanRepo Repo { get; } = new();
     public SpyEatWriter Writer { get; } = new();
 
@@ -157,15 +164,26 @@ public sealed class EatActionFactory(decimal? onHand = null, bool stubUnitCodes 
         stubUnitCodes ? new StubUnitCodeCatalogProductReader() : new FakeCatalogProductReaderW(existsResult: true);
 
     // The port under test's handler wiring: a spy that both records calls AND drives the
-    // cook-status reader, so a POST's effect is immediately visible in the next fragment render.
+    // cook-status reader, so a POST's effect is immediately visible in the next fragment render —
+    // UNLESS mixedUnitDone fabricates the mixed-unit fallback status directly (plantry-vqa7), which
+    // no real Eat call in this test project can produce.
     protected override IMealPlanEatWriter? EatWriter => Writer;
-    protected override IMealPlanCookStatusReader CookStatusReader => Writer;
+    protected override IMealPlanCookStatusReader CookStatusReader =>
+        mixedUnitDone
+            ? new FixedCookStatusReader(new Dictionary<Guid, DishCookStatus>
+                {
+                    // ConsumedQuantity/ConsumedUnitId both null — the mixed-unit fallback
+                    // MealPlanCookStatusReaderAdapter produces when a dish's journal movements span
+                    // more than one unit.
+                    [Repo.ProductDishId] = new DishCookStatus(MealPlanningTestClock.Instant),
+                })
+            : Writer;
 
     // Configurable on-hand (plantry-yuy3): null (default) reports no stock record for every
     // product, exactly as before; a sheet test passing onHand drives the Eat auto-trigger check
     // (UseUpZone.IsInUseUpZone) into or out of the sliver zone.
     protected override IMealPlanStockReader StockReader =>
-        onHand is { } oh ? new SingleProductStockReader(Repo.ProductId, oh, EachUnitId) : new NullStockReader();
+        onHand is { } oh ? new SingleProductStockReader(Repo.ProductId, oh, EatActionFixture.EachUnitId) : new NullStockReader();
 }
 
 internal static class EatActionFixture
@@ -177,6 +195,17 @@ internal static class EatActionFixture
 
     private static readonly List<MealSlot> OrderedSlots = [.. SlotConfig.Slots.OrderBy(s => s.Ordinal)];
     public static readonly MealSlotId LunchSlotId = OrderedSlots[1].Id;
+
+    /// <summary>
+    /// This fixture's single "each" unit — the unit the stock reader reports on-hand in AND the
+    /// unit every spied Eat's <see cref="DishCookStatus.ConsumedUnitId"/> is stamped with
+    /// (plantry-vqa7; <see cref="SpyEatWriter"/> never fabricates a mixed-unit journal, so every
+    /// eat it records is real-eaten-quantity-displayable). Must NOT equal
+    /// <see cref="ProductUnitLabelFixture.GramsUnitId"/>: <see cref="StubUnitCodeCatalogProductReader"/>
+    /// is deliberately id-aware and resolves that one id to "g" and every other id to "ea", so
+    /// this value is exactly what makes AC2's "Eaten · 2 ea" render.
+    /// </summary>
+    public static readonly Guid EachUnitId = Guid.Parse("eeeeeeee-0000-0000-0000-00000000000e");
 }
 
 /// <summary>
@@ -233,7 +262,11 @@ public sealed class SpyEatWriter : IMealPlanEatWriter, IMealPlanCookStatusReader
     public Task EatAsync(Guid plannedDishId, Guid productId, decimal quantity, Guid userId, CancellationToken ct = default)
     {
         EatCalls.Add((plannedDishId, productId, quantity, userId));
-        _statuses[plannedDishId] = new DishCookStatus(MealPlanningTestClock.Instant);
+        // plantry-vqa7: mirrors the real MealPlanCookStatusReaderAdapter's netting — a single-movement
+        // eat is always uniform-unit, so ConsumedQuantity is set to exactly the quantity consumed,
+        // denominated in the fixture's single "each" unit (see EatActionFixture.EachUnitId's doc
+        // comment for the load-bearing constraint on that value).
+        _statuses[plannedDishId] = new DishCookStatus(MealPlanningTestClock.Instant, quantity, EatActionFixture.EachUnitId);
         return Task.CompletedTask;
     }
 

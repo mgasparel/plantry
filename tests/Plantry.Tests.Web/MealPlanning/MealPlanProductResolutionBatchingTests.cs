@@ -15,7 +15,10 @@ namespace Plantry.Tests.Web.MealPlanning;
 /// correct (AC2/AC3/AC4 — every product dish in every meal still renders its right name/unit,
 /// including a product that recurs across meals) and actually flat in meal count (AC1 — the
 /// resolver is called at most once per <c>LoadWeekAsync</c> invocation, verified by a
-/// call-counting catalog reader stub rather than by inference from behaviour alone).
+/// call-counting catalog reader stub rather than by inference from behaviour alone). The same
+/// call-count policing covers the two later batched lookups that landed in the same spot: the
+/// product-dish photo-inheritance lookup (plantry-f4dt) and the done-dish consumed-unit-code
+/// lookup (plantry-vqa7).
 /// </summary>
 public sealed class MealPlanProductResolutionBatchingTests
 {
@@ -40,8 +43,12 @@ public sealed class MealPlanProductResolutionBatchingTests
         // of the three meals (Breakfast, Lunch, Dinner) contain product dishes.
         Assert.Equal(1, factory.CatalogReader.ResolveNamesCallCount);
         Assert.Equal(1, factory.CatalogReader.ResolveUnitCodesCallCount);
+        // plantry-vqa7: the consumed-unit-code lookup for the two DONE product dishes (Butter in
+        // Breakfast, Oil in Dinner — two meals, two distinct unit ids) sits in the same batched
+        // spot — a per-meal or per-dish regression would count 2 here, not 1.
+        Assert.Equal(1, factory.CatalogReader.ResolveUnitCodesByIdCallCount);
         // plantry-f4dt: the product-dish photo-inheritance lookup sits in the exact same batched
-        // spot as the two calls above — must not regress to a per-meal round trip either.
+        // spot as the calls above — must not regress to a per-meal round trip either.
         Assert.Equal(1, factory.RecipeReader.FindSoleYieldPhotoCallCount);
 
         // AC3: Flour is planned in BOTH Breakfast and Lunch — the Distinct() union that feeds the
@@ -72,6 +79,9 @@ public sealed class MealPlanProductResolutionBatchingTests
         // AC4: no product dishes anywhere in the week -> zero product-resolution round trips.
         Assert.Equal(0, factory.CatalogReader.ResolveNamesCallCount);
         Assert.Equal(0, factory.CatalogReader.ResolveUnitCodesCallCount);
+        // plantry-vqa7: no done product dish -> no consumed unit ids -> the `consumedUnitIds.Count
+        // > 0` guard must skip the consumed-unit lookup entirely.
+        Assert.Equal(0, factory.CatalogReader.ResolveUnitCodesByIdCallCount);
         // plantry-f4dt: the `allProductDishIds.Count > 0` guard at Index.cshtml.cs:1177 must skip
         // the photo-inheritance lookup too when there are zero product dishes.
         Assert.Equal(0, factory.RecipeReader.FindSoleYieldPhotoCallCount);
@@ -100,6 +110,23 @@ internal static class ProductBatchingFixture
     /// week-wide) batch would still technically cover, but which proves the union spans all
     /// meals rather than being coincidentally wide enough for two (AC2).</summary>
     public static readonly Guid SugarProductId = Guid.CreateVersion7();
+
+    /// <summary>Planned in Breakfast and already DONE (plantry-vqa7) — its consumed unit id is
+    /// what makes <c>LoadWeekAsync</c>'s fourth batched catalog call
+    /// (<c>ResolveUnitCodesAsync</c>) fire at all.</summary>
+    public static readonly Guid ButterProductId = Guid.CreateVersion7();
+
+    /// <summary>Planned in Dinner and already DONE (plantry-vqa7) — a second done product dish in
+    /// a DIFFERENT meal, so a regression to a per-meal consumed-unit lookup surfaces as two calls
+    /// rather than one.</summary>
+    public static readonly Guid OilProductId = Guid.CreateVersion7();
+
+    /// <summary>The unit Butter's consumed quantity is denominated in (plantry-vqa7).</summary>
+    public static readonly Guid EachUnitId = Guid.Parse("eeeeeeee-1111-0000-0000-00000000000e");
+
+    /// <summary>The unit Oil's consumed quantity is denominated in — deliberately distinct from
+    /// <see cref="EachUnitId"/> so the single batched call must carry BOTH ids (plantry-vqa7).</summary>
+    public static readonly Guid GramUnitId = Guid.Parse("99999999-1111-0000-0000-000000000009");
 }
 
 // ── Factory: three meals, two of which share a product ──────────────────────────
@@ -121,8 +148,15 @@ public sealed class ProductBatchingFactory : MealPlanFragmentFactory
     protected override IMealPlanCatalogProductReader CatalogProductReader => CatalogReader;
     protected override IRecipeReadModel RecipeReadModel => RecipeReader;
 
+    // plantry-vqa7: two DONE product dishes in two DIFFERENT meals, carrying two DISTINCT consumed
+    // unit ids — the shape that makes the week-wide ResolveUnitCodesAsync batch fire exactly once,
+    // and that would surface a per-meal regression as two calls rather than one.
     protected override IMealPlanCookStatusReader CookStatusReader =>
-        new FixedCookStatusReader(new Dictionary<Guid, DishCookStatus>());
+        new FixedCookStatusReader(new Dictionary<Guid, DishCookStatus>
+        {
+            [Repo.ButterDishId] = new(MealPlanningTestClock.Instant, 2m, ProductBatchingFixture.EachUnitId),
+            [Repo.OilDishId] = new(MealPlanningTestClock.Instant, 1m, ProductBatchingFixture.GramUnitId),
+        });
 }
 
 // ── Factory: recipe-only week (AC4) ──────────────────────────────────────────
@@ -150,8 +184,9 @@ public sealed class RecipeOnlyBatchingFactory : MealPlanFragmentFactory
 
 /// <summary>
 /// Meal plan repo for the plantry-vj6z batching scenario: Flour is planned in both Breakfast and
-/// Lunch (same product, two meals); Sugar is planned only in Dinner (a third, distinct meal). All
-/// dated the current week's Monday.
+/// Lunch (same product, two meals); Sugar is planned only in Dinner (a third, distinct meal).
+/// Breakfast and Dinner additionally carry one DONE product dish each (Butter and Oil,
+/// plantry-vqa7) to drive the consumed-unit-code batch. All dated the current week's Monday.
 /// </summary>
 public sealed class ProductBatchingMealPlanRepo : IMealPlanRepository
 {
@@ -159,6 +194,12 @@ public sealed class ProductBatchingMealPlanRepo : IMealPlanRepository
 
     public MealPlan ThisWeekPlan { get; }
     public DateOnly ThisWeekMonday { get; }
+
+    /// <summary>Breakfast's DONE Butter dish (plantry-vqa7) — drives the consumed-unit batch.</summary>
+    public Guid ButterDishId { get; private set; }
+
+    /// <summary>Dinner's DONE Oil dish (plantry-vqa7) — a second done dish in a different meal.</summary>
+    public Guid OilDishId { get; private set; }
 
     public ProductBatchingMealPlanRepo()
     {
@@ -169,7 +210,10 @@ public sealed class ProductBatchingMealPlanRepo : IMealPlanRepository
         ThisWeekPlan = MealPlan.Start(hhId, ThisWeekMonday, _clock);
 
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductBatchingFixture.BreakfastSlotId,
-            [new DishSpec(DishKind.Product, ProductBatchingFixture.FlourProductId, 2)],
+            [
+                new DishSpec(DishKind.Product, ProductBatchingFixture.FlourProductId, 2),
+                new DishSpec(DishKind.Product, ProductBatchingFixture.ButterProductId, 2),
+            ],
             null, "manual", Guid.Empty, _clock);
 
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductBatchingFixture.LunchSlotId,
@@ -177,8 +221,19 @@ public sealed class ProductBatchingMealPlanRepo : IMealPlanRepository
             null, "manual", Guid.Empty, _clock);
 
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductBatchingFixture.DinnerSlotId,
-            [new DishSpec(DishKind.Product, ProductBatchingFixture.SugarProductId, 1)],
+            [
+                new DishSpec(DishKind.Product, ProductBatchingFixture.SugarProductId, 1),
+                new DishSpec(DishKind.Product, ProductBatchingFixture.OilProductId, 1),
+            ],
             null, "manual", Guid.Empty, _clock);
+
+        // Resolve the two done dishes' ids post-construction, same pattern as
+        // ProductUnitLabelMealPlanRepo (MealPlanProductUnitLabelTests.cs).
+        var breakfast = ThisWeekPlan.PlannedMeals.Single(m => m.MealSlotId == ProductBatchingFixture.BreakfastSlotId);
+        ButterDishId = breakfast.PlannedDishes.Single(d => d.ProductId == ProductBatchingFixture.ButterProductId).Id.Value;
+
+        var dinner = ThisWeekPlan.PlannedMeals.Single(m => m.MealSlotId == ProductBatchingFixture.DinnerSlotId);
+        OilDishId = dinner.PlannedDishes.Single(d => d.ProductId == ProductBatchingFixture.OilProductId).Id.Value;
     }
 
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
@@ -225,14 +280,21 @@ public sealed class RecipeOnlyMealPlanRepo : IMealPlanRepository
 
 /// <summary>
 /// Catalog reader for the plantry-vj6z batching scenario. Counts how many times
-/// <see cref="ResolveNamesAsync"/> and <see cref="ResolveDefaultUnitCodesAsync"/> are invoked, so
-/// tests can assert the week-wide batching directly (AC1) rather than only inferring it from
-/// rendered output. Resolves Flour -> "ea" and Sugar -> "g"; any other id falls back to "Unknown".
+/// <see cref="ResolveNamesAsync"/>, <see cref="ResolveDefaultUnitCodesAsync"/>, and the
+/// consumed-unit resolver <see cref="ResolveUnitCodesAsync"/> (plantry-vqa7's third batched
+/// resolver on this port) are invoked, so tests can assert the week-wide batching directly (AC1)
+/// rather than only inferring it from rendered output. Resolves Flour -> "ea" and Sugar -> "g";
+/// any other id falls back to "Unknown".
 /// </summary>
 public sealed class CountingCatalogProductReader : IMealPlanCatalogProductReader
 {
     public int ResolveNamesCallCount { get; private set; }
     public int ResolveUnitCodesCallCount { get; private set; }
+
+    /// <summary>Counts <see cref="ResolveUnitCodesAsync"/> (consumed-unit ids, plantry-vqa7) —
+    /// named distinctly from <see cref="ResolveUnitCodesCallCount"/>, which counts
+    /// <see cref="ResolveDefaultUnitCodesAsync"/> (product default units).</summary>
+    public int ResolveUnitCodesByIdCallCount { get; private set; }
 
     public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(true);
 
@@ -256,6 +318,14 @@ public sealed class CountingCatalogProductReader : IMealPlanCatalogProductReader
         ResolveUnitCodesCallCount++;
         return Task.FromResult<IReadOnlyDictionary<Guid, string>>(
             productIds.ToDictionary(id => id, ResolveUnitCode));
+    }
+
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyCollection<Guid> unitIds, CancellationToken ct = default)
+    {
+        ResolveUnitCodesByIdCallCount++;
+        return Task.FromResult<IReadOnlyDictionary<Guid, string>>(
+            unitIds.ToDictionary(id => id, id => id == ProductBatchingFixture.GramUnitId ? "g" : "ea"));
     }
 
     private static string ResolveName(Guid id) =>

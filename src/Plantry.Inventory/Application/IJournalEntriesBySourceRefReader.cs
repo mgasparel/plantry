@@ -22,7 +22,14 @@ public interface IJournalEntriesBySourceRefReader
         IReadOnlyCollection<Guid> sourceRefs, CancellationToken ct = default);
 }
 
-/// <summary>One journal row's movement, projected for netting — no product/unit/reason detail needed.</summary>
+/// <summary>
+/// One journal row's movement, projected for netting — no product/reason detail needed, but
+/// <see cref="UnitId"/> is carried (plantry-vqa7) so a caller deriving a displayable consumed
+/// quantity can detect whether every movement for a source ref shares one unit (safe to sum) or
+/// spans more than one (the raw net is not a displayable magnitude — see
+/// <c>MealPlanEatWriterAdapter</c>'s doc comment on why undo mirrors per-lot units).
+/// </summary>
 /// <param name="Delta">Signed quantity delta (negative = consume, positive = a compensating undo ADD).</param>
 /// <param name="OccurredAt">When the movement was recorded.</param>
-public sealed record JournalMovement(decimal Delta, DateTimeOffset OccurredAt);
+/// <param name="UnitId">The unit this row's <see cref="Delta"/> is denominated in.</param>
+public sealed record JournalMovement(decimal Delta, DateTimeOffset OccurredAt, Guid UnitId);
