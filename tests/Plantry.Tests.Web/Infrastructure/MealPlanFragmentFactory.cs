@@ -9,8 +9,6 @@ using Plantry.Identity.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel.Domain;
-using Plantry.Tests.Web.MealPlanning;
-using Plantry.Tests.Web.Preferences;
 using Plantry.Web.MealPlanning;
 
 namespace Plantry.Tests.Web.Infrastructure;

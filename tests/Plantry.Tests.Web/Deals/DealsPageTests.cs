@@ -232,59 +232,10 @@ public sealed class DealsPageFactory : WebApplicationFactory<Program>
 
 // ── fakes ───────────────────────────────────────────────────────────────────────
 
-public sealed class FakeDealBrowseRepo : IDealRepository
-{
-    public List<Deal> Items { get; } = [];
-
-    public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) =>
-        Task.FromResult(Items.SingleOrDefault(d => d.Id == id));
-
-    public Task<List<Deal>> ListBrowsableAsync(CancellationToken ct = default) =>
-        Task.FromResult(Items.Where(d => d.Status is DealStatus.Pending or DealStatus.Confirmed).ToList());
-
-    public Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default) =>
-        Task.FromResult(Items.Where(d => d.FlyerImportId == flyerImportId).ToList());
-
-    public Task AddAsync(Deal deal, CancellationToken ct = default) { Items.Add(deal); return Task.CompletedTask; }
-    public void Remove(Deal deal) => Items.Remove(deal);
-    public void DiscardStagedChanges() { } // no deferred change tracker to reset in this browse fake
-    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
-}
-
-public sealed class FakeDealProductReader : ICatalogProductReader
-{
-    public Dictionary<Guid, DealProductInfo> Items { get; } = new();
-
-    public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(true);
-    public Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<ProductCandidate>>([]);
-
-    public Task<IReadOnlyDictionary<Guid, DealProductInfo>> ForProductsAsync(
-        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
-    {
-        IReadOnlyDictionary<Guid, DealProductInfo> result = productIds
-            .Where(Items.ContainsKey)
-            .ToDictionary(id => id, id => Items[id]);
-        return Task.FromResult(result);
-    }
-}
-
-public sealed class FakeDealStoreReader : ICatalogStoreReader
-{
-    public Dictionary<Guid, string> Names { get; } = new();
-
-    public Task<CatalogStoreInfo?> FindAsync(Guid storeId, CancellationToken ct = default) =>
-        Task.FromResult(Names.TryGetValue(storeId, out var n) ? new CatalogStoreInfo(storeId, n, null) : null);
-
-    public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(
-        IReadOnlyList<Guid> storeIds, CancellationToken ct = default)
-    {
-        IReadOnlyDictionary<Guid, string> result = storeIds
-            .Where(Names.ContainsKey)
-            .ToDictionary(id => id, id => Names[id]);
-        return Task.FromResult(result);
-    }
-}
+// FakeDealBrowseRepo, FakeDealProductReader, and FakeDealStoreReader moved to
+// Infrastructure/TodayDealsStubs.cs (plantry-ej84) — TodayDealsStubs reaches back into them, so they
+// now live alongside it instead of being reached for across a feature-namespace `using`. Still
+// resolved here via `using Plantry.Tests.Web.Infrastructure;`.
 
 /// <summary>In-memory <see cref="IPurchaseFrequencyReader"/> — product id → purchase count in the window.</summary>
 public sealed class FakeDealFrequency : IPurchaseFrequencyReader

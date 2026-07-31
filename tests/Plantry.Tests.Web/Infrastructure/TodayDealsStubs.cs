@@ -4,7 +4,6 @@ using Plantry.Deals.Application;
 using Plantry.Deals.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
-using Plantry.Tests.Web.Deals;
 
 namespace Plantry.Tests.Web.Infrastructure;
 
@@ -77,5 +76,67 @@ internal static class TodayDealsStubs
             DealNormalizer.Normalize("Fresh Salmon"),
             MatchProposal.Unmatched(),            // Pending → no committed product
             clock);
+    }
+}
+
+// ── fakes ─────────────────────────────────────────────────────────────────────
+//
+// Relocated from Deals/DealsPageTests.cs (plantry-ej84) — the declarations TodayDealsStubs reaches
+// back into now live alongside it in Infrastructure/, matching the house convention the other
+// Infrastructure/ factories already follow. Still consumed directly by Deals/DealsPageTests.cs and
+// Deals/DealReviewPageTests.cs (both already carry `using Plantry.Tests.Web.Infrastructure;`) and by
+// Today/TodayIndexModelTests.cs (fully qualified). Pure declaration move: no behaviour change.
+
+public sealed class FakeDealBrowseRepo : IDealRepository
+{
+    public List<Deal> Items { get; } = [];
+
+    public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(d => d.Id == id));
+
+    public Task<List<Deal>> ListBrowsableAsync(CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(d => d.Status is DealStatus.Pending or DealStatus.Confirmed).ToList());
+
+    public Task<List<Deal>> ListByFlyerImportAsync(FlyerImportId flyerImportId, CancellationToken ct = default) =>
+        Task.FromResult(Items.Where(d => d.FlyerImportId == flyerImportId).ToList());
+
+    public Task AddAsync(Deal deal, CancellationToken ct = default) { Items.Add(deal); return Task.CompletedTask; }
+    public void Remove(Deal deal) => Items.Remove(deal);
+    public void DiscardStagedChanges() { } // no deferred change tracker to reset in this browse fake
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+public sealed class FakeDealProductReader : ICatalogProductReader
+{
+    public Dictionary<Guid, DealProductInfo> Items { get; } = new();
+
+    public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ProductCandidate>>([]);
+
+    public Task<IReadOnlyDictionary<Guid, DealProductInfo>> ForProductsAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, DealProductInfo> result = productIds
+            .Where(Items.ContainsKey)
+            .ToDictionary(id => id, id => Items[id]);
+        return Task.FromResult(result);
+    }
+}
+
+public sealed class FakeDealStoreReader : ICatalogStoreReader
+{
+    public Dictionary<Guid, string> Names { get; } = new();
+
+    public Task<CatalogStoreInfo?> FindAsync(Guid storeId, CancellationToken ct = default) =>
+        Task.FromResult(Names.TryGetValue(storeId, out var n) ? new CatalogStoreInfo(storeId, n, null) : null);
+
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(
+        IReadOnlyList<Guid> storeIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, string> result = storeIds
+            .Where(Names.ContainsKey)
+            .ToDictionary(id => id, id => Names[id]);
+        return Task.FromResult(result);
     }
 }

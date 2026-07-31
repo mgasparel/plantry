@@ -235,7 +235,7 @@ internal sealed class GhostCellRecipeReader : IRecipeReadModel
         => Task.FromResult(false);
 }
 
-// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).
+// NullTagReader is defined in Infrastructure/WeekGridFixture.cs (shared across the MealPlanning test namespace, plantry-ej84).
 
 // ── Mixed-cost ghost-cell partial flag tests ──────────────────────────────────
 

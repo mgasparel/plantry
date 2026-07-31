@@ -192,9 +192,6 @@ internal sealed class ConflictPrefsRepo(UserPreference alicePref, UserPreference
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
-/// <summary>No-op ITagReader stub for WAF tests that don't test tag name resolution.</summary>
-internal sealed class NullTagReader : ITagReader
-{
-    public Task<IReadOnlyList<TagGroup>> ListGroupedAsync(CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<TagGroup>>([]);
-}
+// NullTagReader moved to Infrastructure/WeekGridFixture.cs (plantry-ej84) — it's a shared default
+// MealPlanFragmentFactory reaches back into, so it now lives alongside the factory instead of being
+// reached for across a feature-namespace `using`.
