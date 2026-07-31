@@ -208,6 +208,32 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         Assert.Equal(0, counter.CountMatching("units"));
     }
 
+    [Fact(DisplayName = "ResolveUnitCodesAsync resolves unit ids to display codes directly, omitting unknown ids (plantry-vqa7)")]
+    public async Task ResolveUnitCodesAsync_Resolves_By_Unit_Id_Omits_Unknown()
+    {
+        UnitId poundsId;
+        await using (var setup = NewCatalogDb())
+        {
+            var pounds = Plantry.Catalog.Domain.Unit.Create(_household, "lb", "pounds", Dimension.Mass, 453.592m, isBase: false);
+            await setup.Units.AddAsync(pounds);
+            await setup.SaveChangesAsync();
+            poundsId = pounds.Id;
+        }
+
+        await using var read = NewCatalogDb();
+        var reader = new MealPlanCatalogProductReaderAdapter(read);
+
+        // Keyed directly by unit id (not joined through a product's default unit) — proves the
+        // production override, not just the "ea"-for-everything test stub every other consumer test
+        // exercises.
+        var codes = await reader.ResolveUnitCodesAsync([_gramsId.Value, poundsId.Value, Guid.NewGuid()]);
+        Assert.Equal(2, codes.Count);
+        Assert.Equal("g", codes[_gramsId.Value]);
+        Assert.Equal("lb", codes[poundsId.Value]);
+
+        Assert.Empty(await reader.ResolveUnitCodesAsync([]));
+    }
+
     private CatalogDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
     {
         var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString);

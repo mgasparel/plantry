@@ -61,6 +61,22 @@ public interface IMealPlanCatalogProductReader
     Task<IReadOnlyDictionary<Guid, string>> ResolveDefaultUnitCodesAsync(
         IReadOnlyList<Guid> productIds, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+    /// <summary>
+    /// Resolves unit ids to their display code (e.g. "g", "ea") in a single round-trip — for
+    /// rendering the meal card's actual-eaten quantity (plantry-vqa7,
+    /// <see cref="Plantry.MealPlanning.Application.DishCookStatus.ConsumedUnitId"/>). Distinct from
+    /// <see cref="ResolveDefaultUnitCodesAsync"/>, which is keyed by PRODUCT and returns that
+    /// product's DEFAULT unit's code — a journal row's unit can differ from it, so that method must
+    /// not be reused here. Ids absent from this household are omitted. Mirrors
+    /// <c>Plantry.Recipes.Application.ICatalogProductReader.ResolveUnitCodesAsync</c>.
+    /// Default implementation returns an empty dictionary so existing implementers/test doubles
+    /// compile unchanged; the production adapter overrides it with one batched query (mirrors
+    /// <see cref="ResolveDefaultUnitCodesAsync"/>).
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyCollection<Guid> unitIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 }
 
 /// <summary>Display facts for a catalog product in the meal editor.</summary>

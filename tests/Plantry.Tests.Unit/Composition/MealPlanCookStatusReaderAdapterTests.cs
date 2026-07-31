@@ -48,8 +48,9 @@ public sealed class MealPlanCookStatusReaderAdapterTests
     {
         var dishId = Guid.NewGuid();
         var eatenAt = DateTimeOffset.UtcNow.AddMinutes(-10);
+        var eachUnitId = Guid.NewGuid();
         var journal = new TestJournalReader();
-        journal.MovementsBySourceRef[dishId] = [new JournalMovement(-4m, eatenAt)];
+        journal.MovementsBySourceRef[dishId] = [new JournalMovement(-4m, eatenAt, eachUnitId)];
 
         var statuses = await Adapter(new TestCookEventRepository(), journal).GetStatusesAsync([dishId]);
 
@@ -61,11 +62,12 @@ public sealed class MealPlanCookStatusReaderAdapterTests
     public async Task Product_dish_fully_undone_nets_to_pending_ie_absent()
     {
         var dishId = Guid.NewGuid();
+        var eachUnitId = Guid.NewGuid();
         var journal = new TestJournalReader();
         journal.MovementsBySourceRef[dishId] =
         [
-            new JournalMovement(-4m, DateTimeOffset.UtcNow.AddMinutes(-10)),
-            new JournalMovement(4m, DateTimeOffset.UtcNow.AddMinutes(-8)), // compensating undo ADD
+            new JournalMovement(-4m, DateTimeOffset.UtcNow.AddMinutes(-10), eachUnitId),
+            new JournalMovement(4m, DateTimeOffset.UtcNow.AddMinutes(-8), eachUnitId), // compensating undo ADD
         ];
 
         var statuses = await Adapter(new TestCookEventRepository(), journal).GetStatusesAsync([dishId]);
@@ -80,18 +82,26 @@ public sealed class MealPlanCookStatusReaderAdapterTests
         var firstEat = DateTimeOffset.UtcNow.AddMinutes(-30);
         var undo = DateTimeOffset.UtcNow.AddMinutes(-20);
         var reEat = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var eachUnitId = Guid.NewGuid();
         var journal = new TestJournalReader();
         journal.MovementsBySourceRef[dishId] =
         [
-            new JournalMovement(-4m, firstEat),
-            new JournalMovement(4m, undo),
-            new JournalMovement(-4m, reEat),
+            new JournalMovement(-4m, firstEat, eachUnitId),
+            new JournalMovement(4m, undo, eachUnitId),
+            new JournalMovement(-2.5m, reEat, eachUnitId),
         ];
 
         var statuses = await Adapter(new TestCookEventRepository(), journal).GetStatusesAsync([dishId]);
 
         var status = Assert.Single(statuses).Value;
         Assert.Equal(reEat, status.At);
+        // plantry-vqa7: re-eat after undo reports the LATEST eat's net (-2.5, the second eat alone —
+        // the undo cancelled the first eat's -4 out of the running net), not the sum across both eats.
+        // The re-eat's quantity (-2.5) is deliberately different from the first eat's (-4) so this
+        // assertion can only pass if the adapter is genuinely reading the post-undo net, not just
+        // echoing back whichever fixed magnitude every movement in the fixture happened to share.
+        Assert.Equal(2.5m, status.ConsumedQuantity);
+        Assert.Equal(eachUnitId, status.ConsumedUnitId);
     }
 
     [Fact]
@@ -102,20 +112,86 @@ public sealed class MealPlanCookStatusReaderAdapterTests
         var pendingRecipeDishId = Guid.NewGuid();
         var cookedAt = DateTimeOffset.UtcNow.AddMinutes(-15);
         var eatenAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        var eachUnitId = Guid.NewGuid();
 
         var cookEvents = new TestCookEventRepository();
         cookEvents.CookedAtByPlannedDishId[recipeDishId] = cookedAt;
 
         var journal = new TestJournalReader();
-        journal.MovementsBySourceRef[productDishId] = [new JournalMovement(-2m, eatenAt)];
+        journal.MovementsBySourceRef[productDishId] = [new JournalMovement(-2m, eatenAt, eachUnitId)];
 
         var statuses = await Adapter(cookEvents, journal)
             .GetStatusesAsync([recipeDishId, productDishId, pendingRecipeDishId]);
 
         Assert.Equal(2, statuses.Count);
         Assert.Equal(cookedAt, statuses[recipeDishId].At);
+        Assert.Null(statuses[recipeDishId].ConsumedQuantity); // recipe dishes never set Consumed*
         Assert.Equal(eatenAt, statuses[productDishId].At);
         Assert.False(statuses.ContainsKey(pendingRecipeDishId));
+    }
+
+    // ── plantry-vqa7: actual-eaten quantity display ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Product_dish_with_uniform_unit_movements_resolves_ConsumedQuantity_to_negated_net()
+    {
+        var dishId = Guid.NewGuid();
+        var eachUnitId = Guid.NewGuid();
+        var journal = new TestJournalReader();
+        // An adjusted eat: planned 2, but 2.1 actually consumed in one movement.
+        journal.MovementsBySourceRef[dishId] = [new JournalMovement(-2.1m, DateTimeOffset.UtcNow, eachUnitId)];
+
+        var statuses = await Adapter(new TestCookEventRepository(), journal).GetStatusesAsync([dishId]);
+
+        var status = Assert.Single(statuses).Value;
+        Assert.Equal(2.1m, status.ConsumedQuantity);
+        Assert.Equal(eachUnitId, status.ConsumedUnitId);
+    }
+
+    [Fact]
+    public async Task Product_dish_with_multiple_uniform_unit_movements_sums_them()
+    {
+        // ProductStock.Consume writes one negative journal row PER LOT touched (MealPlanEatWriterAdapter
+        // doc comment) — a FEFO eat spanning two same-unit lots is multi-row uniform-unit, the real,
+        // common case where "sum every movement" and "read the latest movement's own delta" diverge.
+        var dishId = Guid.NewGuid();
+        var eachUnitId = Guid.NewGuid();
+        var t1 = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var t2 = DateTimeOffset.UtcNow;
+        var journal = new TestJournalReader();
+        journal.MovementsBySourceRef[dishId] =
+        [
+            new JournalMovement(-2m, t1, eachUnitId),
+            new JournalMovement(-0.5m, t2, eachUnitId),
+        ];
+
+        var statuses = await Adapter(new TestCookEventRepository(), journal).GetStatusesAsync([dishId]);
+
+        var status = Assert.Single(statuses).Value;
+        Assert.Equal(2.5m, status.ConsumedQuantity);
+        Assert.Equal(eachUnitId, status.ConsumedUnitId);
+    }
+
+    [Fact]
+    public async Task Product_dish_with_mixed_unit_movements_leaves_ConsumedQuantity_and_ConsumedUnitId_null()
+    {
+        var dishId = Guid.NewGuid();
+        var gramsUnitId = Guid.NewGuid();
+        var eachUnitId = Guid.NewGuid();
+        var journal = new TestJournalReader();
+        // A shortfall eat that drew from two lots in different units — net is still negative (done),
+        // but summing raw Delta across units is not a displayable magnitude (plantry-wiv2).
+        journal.MovementsBySourceRef[dishId] =
+        [
+            new JournalMovement(-1.5m, DateTimeOffset.UtcNow.AddMinutes(-2), gramsUnitId),
+            new JournalMovement(-1m, DateTimeOffset.UtcNow, eachUnitId),
+        ];
+
+        var statuses = await Adapter(new TestCookEventRepository(), journal).GetStatusesAsync([dishId]);
+
+        var status = Assert.Single(statuses).Value;
+        Assert.Null(status.ConsumedQuantity);
+        Assert.Null(status.ConsumedUnitId);
     }
 
     [Fact]

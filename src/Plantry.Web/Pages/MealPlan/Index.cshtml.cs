@@ -1149,6 +1149,20 @@ public sealed class IndexModel(
                 ? await cookStatusReader.GetStatusesAsync(allPlannedDishIds, ct)
                 : new Dictionary<Guid, DishCookStatus>();
 
+            // Actual-eaten unit codes (plantry-vqa7): one batched resolution for every DISTINCT
+            // ConsumedUnitId the cook-status query returned this week, up front — never per-dish
+            // inside the dishVms projection below (same batching discipline as productUnitCodes).
+            var consumedUnitIds = cookStatusByDish.Values
+                .Select(s => s.ConsumedUnitId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .Distinct()
+                .ToList();
+            IReadOnlyDictionary<Guid, string> consumedUnitCodes =
+                consumedUnitIds.Count > 0
+                    ? await catalogReader.ResolveUnitCodesAsync(consumedUnitIds, ct)
+                    : new Dictionary<Guid, string>();
+
             // Product dish name/unit resolution (plantry-vj6z): one batched pair of catalogReader
             // calls for every product dish in the whole week, up front — never per-meal. Recipe
             // names come from the in-memory bag (no DB call); product dishes are rare and not on
@@ -1272,9 +1286,17 @@ public sealed class IndexModel(
                     var cookedAtLocalTime = status?.At is { } cookedAt
                         ? clock.ToLocal(cookedAt).ToString("h:mm tt", CultureInfo.InvariantCulture).ToLowerInvariant()
                         : null;
+
+                    // plantry-vqa7: the done row shows what was ACTUALLY eaten (status.ConsumedQuantity,
+                    // journal-derived), not the planned Servings — null for a recipe dish and for a
+                    // mixed-unit product dish, either of which falls back to no quantity in the view.
+                    var consumedUnitCode = status?.ConsumedUnitId is { } cuid
+                        ? consumedUnitCodes.GetValueOrDefault(cuid, DishDisplayPlaceholders.UnresolvedUnitCode)
+                        : null;
                     dishVms.Add(new MealCardDishVm(
                         d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode,
-                        needsEatConfirm, photoRecipeId, cookedAtLocalTime));
+                        needsEatConfirm, photoRecipeId, cookedAtLocalTime,
+                        status?.ConsumedQuantity, consumedUnitCode));
                 }
                 var dishNames = dishVms.Select(v => v.Name).ToList();
 
@@ -1957,7 +1979,20 @@ public sealed class IndexModel(
         /// — null while the dish is pending. <c>_MealCard.cshtml</c> is a DI-less partial, so this is
         /// precomputed here (alongside <see cref="NeedsEatConfirm"/>) rather than converted in the view.
         /// </summary>
-        string? CookedAtLocalTime = null);
+        string? CookedAtLocalTime = null,
+        /// <summary>
+        /// plantry-vqa7: for a done product dish whose journal movements all shared one unit, the
+        /// amount ACTUALLY consumed (<see cref="DishCookStatus.ConsumedQuantity"/>) — the done row
+        /// renders this instead of the planned <see cref="Servings"/>. Null for a recipe dish (always,
+        /// "Cooked · N srv" keeps rendering planned Servings) and for a mixed-unit product dish (the
+        /// done row then shows no quantity at all rather than a number that could be wrong).
+        /// </summary>
+        decimal? ConsumedQuantity = null,
+        /// <summary>
+        /// The display code <see cref="ConsumedQuantity"/> is denominated in — set exactly when
+        /// <see cref="ConsumedQuantity"/> is. "?" when the unit id could not be resolved.
+        /// </summary>
+        string? ConsumedUnitCode = null);
 
     /// <summary>
     /// View model for the Eat confirm sheet (plantry-yuy3, _EatSheet.cshtml) — the product-dish

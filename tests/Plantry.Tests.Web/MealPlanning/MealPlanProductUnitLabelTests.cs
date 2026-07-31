@@ -14,7 +14,8 @@ namespace Plantry.Tests.Web.MealPlanning;
 /// (Cook strip's pending "Eat" button and done "Eaten ·" row) — regardless of the product's actually
 /// configured default unit. The fix threads a real unit CODE (e.g. "ea") through every one of those
 /// surfaces. Covers the three server-rendered/hydrated hops:
-///   1. The Cook strip's pending "Eat" button and done "Eaten ·" row (_MealCard.cshtml).
+///   1. The Cook strip's pending "Eat" button — the product's configured unit — and, since plantry-vqa7,
+///      the done "Eaten ·" row's JOURNAL-derived consumed unit (_MealCard.cshtml).
 ///   2. GET ?handler=EditorJson's dishes[].unitCode — the edit-existing-meal hydration hop.
 ///   3. GET ?handler=SearchJson's product hits — the dish-search hop.
 /// A same-meal recipe dish acts as a control in the Cook-strip tests: it must keep rendering the
@@ -45,8 +46,8 @@ public sealed class MealPlanProductUnitLabelTests
         Assert.DoesNotContain("act-srv\">5</span>", html);
     }
 
-    [Fact(DisplayName = "GET /MealPlan: a done product dish's Cook-strip row shows the product's configured unit")]
-    public async Task DoneProductDish_ShowsConfiguredUnit()
+    [Fact(DisplayName = "GET /MealPlan: a done product dish's Cook-strip row shows the JOURNAL unit its consumed quantity was denominated in, not the product's configured default")]
+    public async Task DoneProductDish_ShowsJournalConsumedUnit_NotProductDefault()
     {
         await using var factory = new ProductUnitLabelFactory();
         var client = CreateClient(factory);
@@ -55,9 +56,15 @@ public sealed class MealPlanProductUnitLabelTests
         response.EnsureSuccessStatusCode();
         var html = await response.Content.ReadAsStringAsync();
 
-        // Breakfast's already-eaten product dish (3 units) shows "Eaten · 3 ea" — not the pre-fix
-        // bare "Eaten · 3" with no unit at all.
-        Assert.Contains("Eaten · 3 ea", html);
+        // Breakfast's already-eaten product dish (3 units) shows "Eaten · 3 g" — not the pre-fix
+        // bare "Eaten · 3" with no unit at all. The done row is denominated in the JOURNAL row's own
+        // unit ("g", plantry-vqa7's DishCookStatus.ConsumedUnitId) — NOT the product's configured
+        // default unit ("ea", which the still-pending Lunch dish's Eat button below proves is what
+        // Flour actually defaults to). A regression that reused ResolveDefaultUnitCodesAsync/UnitCode
+        // for the done row instead of the journal-derived ConsumedUnitCode would render "Eaten · 3 ea"
+        // here — exactly what the negative assertion below catches.
+        Assert.Contains("Eaten · 3 g", html);
+        Assert.DoesNotContain("Eaten · 3 ea", html);
         Assert.DoesNotContain("Eaten · 3<", html);
 
         // Control: the recipe dish sharing the same meal keeps its unrelated "servings" label
@@ -123,6 +130,17 @@ internal static class ProductUnitLabelFixture
     /// <summary>The one product used across every scenario in this file — its configured default
     /// unit code is always "ea" per <see cref="StubUnitCodeCatalogProductReader"/>.</summary>
     public static readonly Guid FlourProductId = Guid.CreateVersion7();
+
+    /// <summary>
+    /// A journal unit deliberately distinct from every id that resolves to the product's own default
+    /// unit code, resolving to a
+    /// DIFFERENT display code ("g", not "ea") via
+    /// <see cref="StubUnitCodeCatalogProductReader.ResolveUnitCodesAsync"/> — so the done row's
+    /// ConsumedUnitCode is provably read from the journal unit id, not silently reusing the product's
+    /// own configured default unit code (both of which happen to be "ea" for Flour, which would let a
+    /// `ConsumedUnitCode`/`UnitCode` mix-up pass unnoticed).
+    /// </summary>
+    public static readonly Guid GramsUnitId = Guid.Parse("99999999-0000-0000-0000-000000000009");
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -151,7 +169,14 @@ public sealed class ProductUnitLabelFactory : MealPlanFragmentFactory
         new Dictionary<Guid, DishCookStatus>
         {
             [Repo.DoneRecipeDishId] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-30)),
-            [Repo.DoneProductDishId] = new DishCookStatus(MealPlanningTestClock.Instant.AddMinutes(-20)),
+            // plantry-vqa7: the done row now displays the ACTUAL eaten quantity — 3, the planned
+            // amount, since this fixture's "eat" was never adjusted; the point under test here is the
+            // UNIT code beside it, which is why this suite exists. Keyed to GramsUnitId (resolves to
+            // "g"), deliberately DIFFERENT from Flour's own configured default unit ("ea", proven by
+            // the still-pending Lunch dish's Eat button) — proves the done row reads the journal's
+            // own unit, not the product's default.
+            [Repo.DoneProductDishId] = new DishCookStatus(
+                MealPlanningTestClock.Instant.AddMinutes(-20), 3m, ProductUnitLabelFixture.GramsUnitId),
         });
 }
 
@@ -241,4 +266,15 @@ internal sealed class StubUnitCodeCatalogProductReader : IMealPlanCatalogProduct
         IReadOnlyList<Guid> productIds, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyDictionary<Guid, string>>(
             productIds.ToDictionary(id => id, _ => "ea"));
+
+    /// <summary>
+    /// plantry-vqa7: resolves <see cref="ProductUnitLabelFixture.GramsUnitId"/> to "g" and every other
+    /// requested id to "ea" — id-aware (not a blanket "ea" for everything) so a done row's
+    /// ConsumedUnitCode can be proven to come from the JOURNAL unit id, distinct from the product's
+    /// own configured default unit code.
+    /// </summary>
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyCollection<Guid> unitIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(
+            unitIds.ToDictionary(id => id, id => id == ProductUnitLabelFixture.GramsUnitId ? "g" : "ea"));
 }

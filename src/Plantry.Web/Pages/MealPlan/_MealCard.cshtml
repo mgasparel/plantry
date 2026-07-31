@@ -188,7 +188,13 @@
            Per pending recipe dish: a Cook deep-link. Per pending product dish: an Eat button
            (plantry-zcbx) that POSTs one consume and re-renders this cell. Per done dish: a settled
            row — today's eaten product gets an Undo button in place of the timestamp (Undo stays live
-           all of today, never on a past date); every other done row shows its timestamp. *@
+           all of today, never on a past date); every other done row shows its timestamp. A recipe
+           done row always reads "Cooked · N srv" (the planned Servings). A product done row reads
+           what was ACTUALLY eaten (plantry-vqa7, dish.ConsumedQuantity — journal-derived, may differ
+           from the planned Servings for an adjusted eat): "Eaten · {qty} {unit}" when the journal
+           movements shared one unit, or plain "Eaten" with no quantity when they spanned more than
+           one unit (the raw net is not a displayable magnitude — never show a number that could be
+           wrong). *@
         @if (stripRows.Count > 0)
         {
             <div class="mc-cook-strip">
@@ -200,7 +206,21 @@
                         var verb = isProduct ? "Eaten" : "Cooked";
                         <div class="mc-cook-done">
                             <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-                            @verb · @dish.Servings@(isProduct ? " " + dish.UnitCode : " srv")
+                            @if (isProduct)
+                            {
+                                if (dish.ConsumedQuantity is { } consumedQty)
+                                {
+                                    <text>@verb · @(consumedQty.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)) @dish.ConsumedUnitCode</text>
+                                }
+                                else
+                                {
+                                    <text>@verb</text>
+                                }
+                            }
+                            else
+                            {
+                                <text>@verb · @dish.Servings srv</text>
+                            }
                             @if (isProduct && meal.IsToday)
                             {
                                 <button class="undo" type="button"
