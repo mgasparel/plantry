@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Shopping.Domain;
 using Plantry.Tests.Web.Infrastructure;
@@ -159,7 +160,15 @@ public abstract class RecipeDetailExpiredBadgeFactoryBase : WebApplicationFactor
     public Recipe Recipe { get; } = RecipeDetailFixture.Build();
     public Guid RecipeId => Recipe.Id.Value;
 
-    protected static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
+    // Fixed instant, not a live clock read (plantry-3orq — regression from plantry-4tb4's switch to
+    // clock.ToLocalDate(clock.UtcNow) for the Details page's "today"). Before plantry-4tb4 the SUT and
+    // this fixture both resolved "today" via UTC independently and stayed in sync by luck; after it the
+    // SUT reads local time while an unpinned fixture stays UTC-anchored, so they silently diverge on any
+    // machine whose local offset shifts the calendar day relative to UTC. Pinning the SUT's IClock (below)
+    // to this exact instance — noon UTC, far from any midnight boundary, matching the house
+    // MealPlanningTestClock.Instant / FixedClock convention — makes both sides agree deterministically.
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 3, 10, 12, 0, 0, TimeSpan.Zero));
+    protected static readonly DateOnly Today = Clock.ToLocalDate(Clock.UtcNow);
 
     protected abstract IReadOnlyDictionary<Guid, ProductStock> BuildStock(DateOnly today);
 
@@ -171,6 +180,12 @@ public abstract class RecipeDetailExpiredBadgeFactoryBase : WebApplicationFactor
         {
             services.AddFakeDisplayCurrency();
             services.AddFakeExpiringSoonHorizon();
+
+            // Pin the host clock to the same fixed instant Today is derived from, so the SUT's
+            // clock.ToLocalDate(clock.UtcNow) and this fixture's Today always agree (see comment above).
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock>(Clock);
+
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
