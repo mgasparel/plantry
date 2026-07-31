@@ -24,13 +24,13 @@ public sealed class JournalEntriesBySourceRefReader(InventoryDbContext db) : IJo
 
         var rows = await db.StockJournalEntries
             .Where(j => j.SourceRef != null && wanted.Contains(j.SourceRef!.Value))
-            .Select(j => new { SourceRef = j.SourceRef!.Value, j.Delta, j.OccurredAt })
+            .Select(j => new { SourceRef = j.SourceRef!.Value, j.Delta, j.OccurredAt, j.UnitId })
             .ToListAsync(ct);
 
         return rows
             .GroupBy(r => r.SourceRef)
             .ToDictionary(
                 g => g.Key,
-                g => (IReadOnlyList<JournalMovement>)g.Select(r => new JournalMovement(r.Delta, r.OccurredAt)).ToList());
+                g => (IReadOnlyList<JournalMovement>)g.Select(r => new JournalMovement(r.Delta, r.OccurredAt, r.UnitId)).ToList());
     }
 }

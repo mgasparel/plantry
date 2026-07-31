@@ -215,11 +215,13 @@ public sealed class MealCardEatSheetTests
         Assert.Equal(2.1m, call.Quantity); // the ADJUSTED quantity, not hit.Dish.Servings (2)
 
         Assert.Contains("mc-cook-done", html);
-        // The done row's displayed figure is MealCardDishVm.Servings — the PLANNED quantity — same as
-        // the one-tap path; it does not reflect an adjusted eat amount (pre-existing behaviour, unchanged
-        // by this ticket). The proof that the CHOSEN quantity was actually consumed is the write-port
-        // call asserted above, not this display.
-        Assert.Contains("Eaten · 2", html);
+        // plantry-vqa7: the done row now displays what was ACTUALLY eaten (journal-derived), not the
+        // planned Servings (2) — so an adjusted eat of 2.1 renders "Eaten · 2.1 ea" (AC1), proving the
+        // display reflects the chosen quantity asserted via the write-port call above, not just the
+        // plan. The full "... ea" suffix (not just "Eaten · 2.1") is asserted because this factory's
+        // stub genuinely resolves the consumed unit code — a regression that fell back to the
+        // unresolved-unit placeholder ("Eaten · 2.1 ?") would otherwise still pass.
+        Assert.Contains("Eaten · 2.1 ea", html);
 
         // The now-stale Eat confirm sheet is closed via the OOB #sheet-host-emptying fragment —
         // this response targets the CELL directly, not #sheet-host, so it needs its own close signal.
@@ -317,13 +319,37 @@ public sealed class MealCardEatSheetTests
         Assert.Contains("mc-cook-act eat", html);
         Assert.DoesNotContain("mc-cook-done", html);
     }
+
+    // ── plantry-vqa7: mixed-unit fallback ─────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "GET /MealPlan: a done product dish whose journal movements spanned more than one unit renders 'Eaten' with no quantity, Undo still present")]
+    public async Task MixedUnitDoneDish_RendersEatenWithNoQuantity_UndoStillPresent()
+    {
+        await using var factory = new EatActionFactory(mixedUnitDone: true);
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EatActionFixture.HouseholdId.ToString());
+
+        var html = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+
+        Assert.Contains("mc-cook-done", html);
+        // The verb itself must still render — "Eaten" appears nowhere else on /MealPlan
+        // (_MealCard.cshtml is its only source), so this catches a regression that emptied the
+        // mixed-unit branch entirely (bare check icon + Undo, no text at all).
+        Assert.Contains("Eaten", html);
+        // The raw net across more than one unit is not a displayable magnitude (plantry-wiv2) — never
+        // show a number that could be wrong, so the row reads plain "Eaten", no "· {qty} {unit}".
+        Assert.DoesNotContain("Eaten ·", html);
+        // Undo stays available regardless of whether a quantity could be displayed (today's eaten
+        // product row always gets Undo in place of a timestamp).
+        Assert.Contains("class=\"undo\"", html);
+    }
 }
 
 // ── Fixture ─────────────────────────────────────────────────────────────────────
 //
 // The WAF factory used by every test above is EatActionFactory (MealCardEatActionTests.cs) — its
-// optional onHand/stubUnitCodes constructor args (plantry-yuy3) exist for exactly this suite, so a
-// second near-duplicate factory isn't needed here (critic pass 1, reuse-first).
+// optional onHand/stubUnitCodes/mixedUnitDone constructor args (plantry-yuy3, plantry-vqa7) exist for
+// exactly this suite, so a second near-duplicate factory isn't needed here (critic pass 1/3, reuse-first).
 
 /// <summary>Reports a fixed on-hand quantity for exactly one product; every other product has no stock record.</summary>
 internal sealed class SingleProductStockReader(Guid productId, decimal onHand, Guid unitId) : IMealPlanStockReader

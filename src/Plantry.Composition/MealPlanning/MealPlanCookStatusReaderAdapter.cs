@@ -46,7 +46,22 @@ public sealed class MealPlanCookStatusReaderAdapter(
                 continue; // fully undone, or never net-consumed — still pending
 
             var latestConsumeAt = movements.Where(m => m.Delta < 0).Max(m => m.OccurredAt);
-            result[dishId] = new DishCookStatus(latestConsumeAt);
+
+            // plantry-vqa7: the done row displays what was ACTUALLY eaten, derived from this same
+            // netting — but only when every movement shares one unit (-net is then a displayable
+            // magnitude); a dish whose movements span more than one unit (a multi-lot eat/undo, each
+            // lot in its own unit — see MealPlanEatWriterAdapter's doc comment) renders no quantity
+            // at all rather than a number that could be wrong.
+            var distinctUnitIds = movements.Select(m => m.UnitId).Distinct().ToList();
+            decimal? consumedQuantity = null;
+            Guid? consumedUnitId = null;
+            if (distinctUnitIds.Count == 1)
+            {
+                consumedQuantity = -net;
+                consumedUnitId = distinctUnitIds[0];
+            }
+
+            result[dishId] = new DishCookStatus(latestConsumeAt, consumedQuantity, consumedUnitId);
         }
 
         return result;

@@ -3,6 +3,7 @@ using Plantry.MealPlanning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
+using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Web.MealPlanning;
 
@@ -27,7 +28,8 @@ public sealed class RecipeReadModelAdapter(
     RecipesDbContext db,
     RecipeExpansionService expansion,
     FulfillmentService fulfillmentService,
-    CostingService costingService) : IRecipeReadModel
+    CostingService costingService,
+    IClock clock) : IRecipeReadModel
 {
     public async Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
     {
@@ -46,12 +48,42 @@ public sealed class RecipeReadModelAdapter(
                 TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
                 r.DefaultServings,
                 HasPhoto = r.Photo != null,
+                r.CookTimeMinutes,
             })
             .FirstOrDefaultAsync(ct);
 
         if (row is null) return null;
 
-        return new RecipeReadModel(row.Id.Value, row.Name, row.TagIds, row.DefaultServings, row.HasPhoto);
+        return new RecipeReadModel(
+            row.Id.Value, row.Name, row.TagIds, row.DefaultServings, row.HasPhoto, row.CookTimeMinutes);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<Guid, RecipeReadModel>> GetByIdsAsync(
+        IReadOnlyCollection<Guid> recipeIds, CancellationToken ct = default)
+    {
+        if (recipeIds.Count == 0) return new Dictionary<Guid, RecipeReadModel>();
+
+        // Use the strongly-typed RecipeId set in the predicate — same rationale as GetByIdAsync
+        // above: accessing .Value directly on a converted-type column in a LINQ predicate fails to
+        // translate when combined with this DbContext's HouseholdId-based HasQueryFilter.
+        var ids = recipeIds.Select(RecipeId.From).ToHashSet();
+        var rows = await db.Recipes
+            .Where(r => r.ArchivedAt == null && ids.Contains(r.Id))
+            .Select(r => new
+            {
+                r.Id,
+                r.Name,
+                TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                r.DefaultServings,
+                HasPhoto = r.Photo != null,
+                r.CookTimeMinutes,
+            })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(
+            r => r.Id.Value,
+            r => new RecipeReadModel(r.Id.Value, r.Name, r.TagIds, r.DefaultServings, r.HasPhoto, r.CookTimeMinutes));
     }
 
     public async Task<IReadOnlyList<RecipeReadModel>> SearchAsync(
@@ -192,7 +224,7 @@ public sealed class RecipeReadModelAdapter(
 
         if (recipe is null) return [];
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = clock.ToLocalDate(clock.UtcNow);
 
         // Expand to the flat product-level view (D4 choke point) and compute shortfall over the expanded set,
         // so ShopForWeek buys for included recipes' products too. Delegate to the shared shortfall calculator

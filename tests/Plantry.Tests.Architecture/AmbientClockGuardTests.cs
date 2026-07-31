@@ -17,14 +17,21 @@ namespace Plantry.Tests.Architecture;
 /// as expired, and recipes as not cookable, a day early on any server west of UTC, and the same class of bug
 /// recurring via <c>.LocalDateTime</c> at eleven further call sites (plantry-l639).
 ///
-/// <para>This test reads the C# source of the domain/application bounded contexts under <c>src/Plantry.*</c>,
-/// <b>derived</b> at scan time via <see cref="DiscoverScannedProjects"/> rather than hardcoded, minus
-/// <see cref="ExcludedProjects"/> — the same domain-purity boundary <see cref="BoundaryTests"/> already
-/// enforces (deliberately excluding every <c>*.Infrastructure</c> project, <c>Plantry.Web</c>,
-/// <c>Plantry.Composition</c>, <c>Plantry.Migration.Grocy</c>, <c>Plantry.AppHost</c>, <c>Plantry.Migrator</c>,
-/// and <c>Plantry.ServiceDefaults</c> — widening reach to those is a separate, unadjudicated decision, not this
-/// guard's). A new bounded context added under <c>src/</c> is scanned automatically instead of silently
-/// falling outside a hardcoded list.</para>
+/// <para>This test reads the C# and Razor (<c>*.cshtml</c>) source of the domain/application bounded contexts
+/// under <c>src/Plantry.*</c>, <b>derived</b> at scan time via <see cref="DiscoverScannedProjects"/> rather than
+/// hardcoded, minus <see cref="ExcludedProjects"/> — the same domain-purity boundary <see cref="BoundaryTests"/>
+/// already enforces for <c>*.Infrastructure</c> projects. <c>Plantry.Web</c> and <c>Plantry.Composition</c>
+/// (missing-seam:iclock-web, plantry-4tb4) are scanned too — the type-qualified/member-name patterns are
+/// equally precise in Razor code, and the display paths where this guard's exact bug class recurred
+/// (<c>ToLocalTime()</c> in a page model, ambient <c>DateTime.UtcNow</c> "today" reads) live in Web and
+/// Composition, not the excluded infra layer. The sole Web exemption is <c>Program.cs</c> (see
+/// <see cref="IsCompositionRootFile"/>), which legitimately binds the ambient <c>TimeProvider.System</c> singleton
+/// at the composition root. <c>Plantry.Migration.Grocy</c> (a throwaway one-shot migration CLI whose ambient
+/// <c>UtcNow</c> reads are recorded-at metadata, not domain "today" logic), <c>Plantry.AppHost</c>,
+/// <c>Plantry.Migrator</c>, and <c>Plantry.ServiceDefaults</c> stay excluded — all four are currently clean of
+/// the forbidden shapes and carry no display-path "today" logic this guard's bug class would recur in; adjudicated
+/// 2026-07-30 (plantry-4tb4 spec triage). A new bounded context added under <c>src/</c> is scanned automatically
+/// instead of silently falling outside a hardcoded list.</para>
 ///
 /// <para><b>Precision is the point.</b> Six forbidden shapes are <i>type-qualified</i> forms —
 /// <c>DateTime.UtcNow</c>, <c>DateTime.Now</c>, <c>DateTime.Today</c>, <c>DateTimeOffset.UtcNow</c>,
@@ -45,18 +52,19 @@ namespace Plantry.Tests.Architecture;
 /// </summary>
 public sealed class AmbientClockGuardTests
 {
-    /// <summary>The domain/application bounded-context projects this guard scans (the same boundary
-    /// <see cref="BoundaryTests"/> enforces), <b>derived</b> from every <c>src/Plantry.*</c> directory minus
-    /// <see cref="ExcludedProjects"/> — not hardcoded (plantry-vgze). A newly added bounded context under
+    /// <summary>The bounded-context projects this guard scans (the same boundary <see cref="BoundaryTests"/>
+    /// enforces for <c>*.Infrastructure</c> projects), <b>derived</b> from every <c>src/Plantry.*</c> directory
+    /// minus <see cref="ExcludedProjects"/> — not hardcoded (plantry-vgze). A newly added bounded context under
     /// <c>src/</c> is covered by default instead of silently unscanned; a new non-domain project must be added
     /// to <see cref="ExcludedProjects"/> explicitly or it becomes scanned. Removal of a project this guard is
     /// currently scanning (rename, move, or newly matching an exclusion rule) is caught loudly by
     /// <see cref="RequiredProjects"/>, not silently absorbed here — unpoliced domain code is the failure this
-    /// guard exists to prevent, in either direction.</summary>
+    /// guard exists to prevent, in either direction. <c>Plantry.Migration.Grocy</c> (throwaway one-shot
+    /// migration CLI; its ambient <c>UtcNow</c> reads are recorded-at metadata), <c>Plantry.AppHost</c>,
+    /// <c>Plantry.Migrator</c>, and <c>Plantry.ServiceDefaults</c> stay excluded — all four are currently clean
+    /// and carry no display-path "today" logic (adjudicated 2026-07-30, plantry-4tb4).</summary>
     private static readonly string[] ExcludedProjects =
     [
-        "Plantry.Web",
-        "Plantry.Composition",
         "Plantry.Migration.Grocy",
         "Plantry.AppHost",
         "Plantry.Migrator",
@@ -67,17 +75,19 @@ public sealed class AmbientClockGuardTests
     /// (<see cref="DiscoverScannedProjects"/>) remains the source of truth — a NEW context is still
     /// covered automatically — but a known one silently dropping out (renamed, moved, or newly
     /// matching an exclusion rule) fails loudly instead of shrinking the guard's reach in silence.
-    /// On an intentional rename, update this list in the same commit.</summary>
+    /// On an intentional rename, update this list in the same commit. <c>Plantry.Web</c> and
+    /// <c>Plantry.Composition</c> were admitted 2026-07-30 (plantry-4tb4) — the guard widening that closed
+    /// the unpoliced reintroduction path for this bug class in display code.</summary>
     private static readonly string[] RequiredProjects =
     [
-        "Plantry.Catalog", "Plantry.Deals", "Plantry.Housekeeping", "Plantry.Identity",
+        "Plantry.Catalog", "Plantry.Composition", "Plantry.Deals", "Plantry.Housekeeping", "Plantry.Identity",
         "Plantry.Intake", "Plantry.Inventory", "Plantry.MealPlanning", "Plantry.Pricing",
-        "Plantry.Recipes", "Plantry.SharedKernel", "Plantry.Shopping",
+        "Plantry.Recipes", "Plantry.SharedKernel", "Plantry.Shopping", "Plantry.Web",
     ];
 
     /// <summary>Enumerates <c>src/Plantry.*</c>, drops every <c>*.Infrastructure</c> project and everything in
-    /// <see cref="ExcludedProjects"/>, and returns what's left — the domain/application bounded contexts this
-    /// guard scans. Reach is identical to the formerly hardcoded eleven-project list.</summary>
+    /// <see cref="ExcludedProjects"/>, and returns what's left — the domain/application bounded contexts plus
+    /// <c>Plantry.Web</c>/<c>Plantry.Composition</c> (plantry-4tb4) this guard scans.</summary>
     private static string[] DiscoverScannedProjects(string repoRoot) =>
         Directory.EnumerateDirectories(Path.Combine(repoRoot, "src"), "Plantry.*")
             .Select(Path.GetFileName)
@@ -144,10 +154,12 @@ public sealed class AmbientClockGuardTests
 
             foreach (var file in EnumerateSourceFiles(projectRoot))
             {
-                // The sole sanctioned ambient reads: SystemClock's own IClock implementation — UtcNow's real
+                // The sanctioned ambient reads: SystemClock's own IClock implementation — UtcNow's real
                 // wall-clock read (plantry-lgbu) and Zone's TimeZoneInfo.Local (plantry-l639) — which exist
-                // precisely so no other caller has to make either read.
-                if (IsSystemClockFile(file))
+                // precisely so no other caller has to make either read; and Plantry.Web/Program.cs, the
+                // composition root, which legitimately binds the ambient TimeProvider.System singleton for DI
+                // (plantry-4tb4) — every other Web/Composition file must still route through the injected clock.
+                if (IsSystemClockFile(file) || IsCompositionRootFile(file))
                     continue;
 
                 var lines = File.ReadAllLines(file);
@@ -182,6 +194,7 @@ public sealed class AmbientClockGuardTests
     [InlineData(@"var today = DateOnly.FromDateTime(clock.UtcNow.LocalDateTime);")] // the machine-zone read plantry-l639 abolished — use clock.ToLocalDate(...)
     [InlineData(@"var local = TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.Local);")] // the machine-zone read the IClock.Zone seam replaces
     [InlineData(@"var today = DateOnly.FromDateTime(clock.UtcNow.ToLocalTime());")] // the machine-zone conversion the ClockExtensions seam replaces — use clock.ToLocal(...)
+    [InlineData(@"var timeLabel = cookedAt.ToLocalTime().ToString(""h:mm tt"");")]  // Razor-shaped (plantry-4tb4): the exact _MealCard.cshtml bug — *.cshtml is scanned too
     public void Positive_ForbiddenPatterns_AreDetected(string line) =>
         Assert.True(IsOffendingLine(line), $"Guard should have flagged: {line}");
 
@@ -200,16 +213,27 @@ public sealed class AmbientClockGuardTests
     public void Negative_BenignPatterns_AreNotFlagged(string line) =>
         Assert.False(IsOffendingLine(line), $"Guard should NOT have flagged: {line}");
 
-    /// <summary>True for <c>src/Plantry.SharedKernel/Domain/IClock.cs</c> — the sole exemption, matched by file
-    /// path (mirrors how <c>MoneyFormattingGuardTests</c> exempts <c>MoneyDisplay.cs</c>). <c>SystemClock</c>
-    /// lives in this same file and is where the ambient reads (wall clock and machine zone) legitimately
-    /// happen.</summary>
+    /// <summary>True for <c>src/Plantry.SharedKernel/Domain/IClock.cs</c> — one of this guard's two path
+    /// exemptions (the other is <see cref="IsCompositionRootFile"/>), matched by file path (mirrors how
+    /// <c>MoneyFormattingGuardTests</c> exempts <c>MoneyDisplay.cs</c>). <c>SystemClock</c> lives in this same
+    /// file and is where the ambient reads (wall clock and machine zone) legitimately happen.</summary>
     private static bool IsSystemClockFile(string file) =>
         Path.GetFileName(file).Equals("IClock.cs", StringComparison.OrdinalIgnoreCase)
         && Path.GetFullPath(file).Replace('\\', '/').Contains("/Plantry.SharedKernel/Domain/IClock.cs");
 
+    /// <summary>True for <c>src/Plantry.Web/Program.cs</c> (plantry-4tb4) — the Web composition root, matched
+    /// by file path exactly like <see cref="IsSystemClockFile"/>. It legitimately binds the ambient
+    /// <c>TimeProvider.System</c> singleton via <c>AddSingleton(TimeProvider.System)</c> so DI has something to
+    /// hand out; every other file across Web and Composition must still resolve time through the injected
+    /// clock. This is the only exemption the Web/Composition widening added — a new false positive elsewhere is
+    /// resolved by rewording the offending prose, not by adding another exemption.</summary>
+    private static bool IsCompositionRootFile(string file) =>
+        Path.GetFileName(file).Equals("Program.cs", StringComparison.OrdinalIgnoreCase)
+        && Path.GetFullPath(file).Replace('\\', '/').Contains("/Plantry.Web/Program.cs");
+
     private static IEnumerable<string> EnumerateSourceFiles(string root) =>
         Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(root, "*.cshtml", SearchOption.AllDirectories))
             // obj/ holds generated build artifacts; Migrations/ holds EF-generated snapshots — neither is
             // hand-authored domain/application code this guard is meant to police.
             .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")

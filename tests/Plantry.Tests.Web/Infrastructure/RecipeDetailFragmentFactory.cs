@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Shopping.Domain;
 
@@ -80,7 +81,12 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
 
     public Guid RecipeId => Recipe.Id.Value;
 
-    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
+    // Fixed instant, not a live clock read (plantry-3orq arbiter FIX-IN-CASE — the same unpinned-clock
+    // seam plantry-4tb4 opened on the Recipe Details page's "today" derivation, closed here by mirroring
+    // the pin RecipeDetailExpiredBadgeTests.cs already ships). Pinning the SUT's IClock (below) to this
+    // exact instance keeps the fixture's Today and the SUT's clock.ToLocalDate(clock.UtcNow) in agreement.
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 3, 10, 12, 0, 0, TimeSpan.Zero));
+    protected static readonly DateOnly Today = Clock.ToLocalDate(Clock.UtcNow);
 
     /// <summary>
     /// Price points the Detail page costs against. Default is Partial (Garlic un-priced).
@@ -112,6 +118,13 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             // a real Identity DB (the page GET now reads IDisplayCurrency).
             services.AddFakeDisplayCurrency(DisplayCurrency);
             services.AddFakeExpiringSoonHorizon();
+
+            // Pin the host clock to the same fixed instant Today is derived from, so the SUT's
+            // clock.ToLocalDate(clock.UtcNow) and this fixture's Today always agree (see comment on
+            // the Today field above).
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock>(Clock);
+
             // Auth: header-driven test scheme mirrors ReviewFragmentFactory.
             services.AddAuthentication(opts =>
                 {
@@ -233,7 +246,6 @@ public sealed class RecipeDetailUntrackedQuantityFactory : RecipeDetailFragmentF
 /// </summary>
 public sealed class RecipeDetailUnitGapFactory : RecipeDetailFragmentFactory
 {
-    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
     protected override IReadOnlyDictionary<Guid, ProductStock> Stock => RecipeDetailFixture.StockWithUnitGap(Today);
 }
 

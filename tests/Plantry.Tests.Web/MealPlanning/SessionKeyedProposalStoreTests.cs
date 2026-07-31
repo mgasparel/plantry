@@ -488,4 +488,4 @@ internal sealed class SessionKeyedMealPlanRepo : IMealPlanRepository
     private static string PlanKey(HouseholdId h, DateOnly w) => $"{h.Value:N}_{w:yyyyMMdd}";
 }
 
-// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).
+// NullTagReader is defined in Infrastructure/WeekGridFixture.cs (shared across the MealPlanning test namespace, plantry-ej84).

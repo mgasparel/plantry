@@ -6,7 +6,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Infrastructure;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.Preferences;
 
 namespace Plantry.Tests.Web.MealPlanning;
 

@@ -61,12 +61,46 @@ public interface IMealPlanCatalogProductReader
     Task<IReadOnlyDictionary<Guid, string>> ResolveDefaultUnitCodesAsync(
         IReadOnlyList<Guid> productIds, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+    /// <summary>
+    /// Resolves unit ids to their display code (e.g. "g", "ea") in a single round-trip — for
+    /// rendering the meal card's actual-eaten quantity (plantry-vqa7,
+    /// <see cref="Plantry.MealPlanning.Application.DishCookStatus.ConsumedUnitId"/>). Distinct from
+    /// <see cref="ResolveDefaultUnitCodesAsync"/>, which is keyed by PRODUCT and returns that
+    /// product's DEFAULT unit's code — a journal row's unit can differ from it, so that method must
+    /// not be reused here. Ids absent from this household are omitted. Mirrors
+    /// <c>Plantry.Recipes.Application.ICatalogProductReader.ResolveUnitCodesAsync</c>.
+    /// Default implementation returns an empty dictionary so existing implementers/test doubles
+    /// compile unchanged; the production adapter overrides it with one batched query (mirrors
+    /// <see cref="ResolveDefaultUnitCodesAsync"/>).
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyCollection<Guid> unitIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 }
 
 /// <summary>Display facts for a catalog product in the meal editor.</summary>
 /// <param name="UnitCode">
-/// The product's default unit's display code (e.g. "ea", "lb") — plantry-ri26. Defaults to "?" so
-/// existing positional construction sites (only the adapter's SearchAsync today) keep compiling;
-/// the adapter always supplies a resolved code or the same "?" placeholder.
+/// The product's default unit's display code (e.g. "ea", "lb") — plantry-ri26. Defaults to
+/// <see cref="DishDisplayPlaceholders.UnresolvedUnitCode"/> so existing positional construction
+/// sites (only the adapter's SearchAsync today) keep compiling; the adapter always supplies a
+/// resolved code or the same placeholder.
 /// </param>
-public sealed record MealPlanProductReadModel(Guid ProductId, string Name, string UnitCode = "?");
+public sealed record MealPlanProductReadModel(
+    Guid ProductId, string Name, string UnitCode = DishDisplayPlaceholders.UnresolvedUnitCode);
+
+/// <summary>
+/// Shared placeholder text for an unresolvable product-dish name/unit (plantry-r2yf AC7). Both the
+/// Today and MealPlan projections resolve product-dish names/unit codes via a batched
+/// <c>GetValueOrDefault(id, &lt;placeholder&gt;)</c> lookup against <see cref="IMealPlanCatalogProductReader"/>'s
+/// results — hoisting the literal text here means the two surfaces cannot silently drift into
+/// different wording for the same "unresolvable" case.
+/// </summary>
+public static class DishDisplayPlaceholders
+{
+    /// <summary>Shown for a product-dish whose product id could not be resolved to a name.</summary>
+    public const string UnknownProductName = "Unknown product";
+
+    /// <summary>Shown for a product-dish whose default unit code could not be resolved.</summary>
+    public const string UnresolvedUnitCode = "?";
+}

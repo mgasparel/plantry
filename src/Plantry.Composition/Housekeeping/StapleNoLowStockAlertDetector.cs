@@ -15,7 +15,8 @@ namespace Plantry.Web.Housekeeping;
 /// <see cref="MinDistinctPurchaseDates"/> distinct <see cref="StockEntry.PurchasedAt"/> dates within
 /// the last <see cref="LookbackDays"/> days — that has no <see cref="ProductStock.LowStockThreshold"/>
 /// set. The numbers (§6 open question 1, resolved 2026-07-21 with the owner): ≥3 distinct purchase
-/// dates, 90-day lookback from today (via <see cref="IClock"/>, never <c>DateTime.Now</c>).
+/// dates, 90-day lookback from today (resolved via the injected <see cref="IClock"/>, never the ambient
+/// wall clock).
 /// <para>
 /// Counts every <see cref="StockEntry"/> on the product — active <b>and</b> depleted, since frequency is
 /// about purchase history, not current stock — whose <see cref="StockEntry.PurchasedAt"/> is non-null

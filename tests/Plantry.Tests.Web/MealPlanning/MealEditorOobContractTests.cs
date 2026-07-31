@@ -10,7 +10,6 @@ using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
-using Plantry.Tests.Web.Preferences;
 using System.Text;
 using System.Text.Json;
 

@@ -375,4 +375,4 @@ public sealed class RegenerateCellFactory : MealPlanFragmentFactory
     protected override IPendingProposalStore ProposalStore => new PrimedPendingProposalStore();
 }
 
-// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).
+// NullTagReader is defined in Infrastructure/WeekGridFixture.cs (shared across the MealPlanning test namespace, plantry-ej84).

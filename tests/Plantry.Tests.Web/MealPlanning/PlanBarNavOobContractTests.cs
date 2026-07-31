@@ -120,4 +120,4 @@ public sealed class PlanBarNavOobFactory : MealPlanFragmentFactory
     protected override bool StubUserManager => false;
 }
 
-// NullTagReader is defined in ConflictCellFragmentTests.cs (shared across the MealPlanning test namespace).
+// NullTagReader is defined in Infrastructure/WeekGridFixture.cs (shared across the MealPlanning test namespace, plantry-ej84).

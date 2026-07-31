@@ -1,6 +1,7 @@
 @page
 @model Plantry.Web.Pages.Intake.UploadModel
 @using Plantry.Intake.Domain
+@using Plantry.SharedKernel.Domain
 @using static Plantry.Web.Pages.Intake.UploadModel
 @{
     ViewData["Title"] = "Add groceries";
@@ -206,8 +207,8 @@
 @functions {
     private string FormatWhen(DateTimeOffset createdAt, ImportStatus status)
     {
-        var local = createdAt.ToLocalTime();
-        var today = DateTimeOffset.Now.Date;
+        var local = Model.Clock.ToLocal(createdAt);
+        var today = Model.Clock.LocalNow().Date;
         var date = local.Date;
 
         var suffix = status switch

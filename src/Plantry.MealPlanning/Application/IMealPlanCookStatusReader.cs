@@ -24,4 +24,16 @@ public interface IMealPlanCookStatusReader
 
 /// <summary>A planned dish's derived "done" state — presence in the result dictionary IS the signal.</summary>
 /// <param name="At">When the dish was completed (cooked or eaten).</param>
-public sealed record DishCookStatus(DateTimeOffset At);
+/// <param name="ConsumedQuantity">
+/// plantry-vqa7: for a product dish whose journal movements all share one unit, the actual amount
+/// consumed (<c>-net</c>) — the figure the meal card's done row displays instead of the planned
+/// quantity. Null for a recipe dish (always) and for a product dish whose movements span more than
+/// one unit (the raw net is not a displayable magnitude — see <c>MealPlanEatWriterAdapter</c>'s doc
+/// comment on per-lot undo units); the done row falls back to no quantity at all in that case.
+/// </param>
+/// <param name="ConsumedUnitId">
+/// The unit <see cref="ConsumedQuantity"/> is denominated in — set exactly when
+/// <see cref="ConsumedQuantity"/> is. A raw <see cref="Guid"/> soft ref (no Catalog dependency);
+/// the composition-root caller resolves it to a display code.
+/// </param>
+public sealed record DishCookStatus(DateTimeOffset At, decimal? ConsumedQuantity = null, Guid? ConsumedUnitId = null);

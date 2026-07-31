@@ -52,6 +52,14 @@ public sealed class DetailModel(
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
 
+    /// <summary>Journal rows' <c>OccurredAt</c> resolved to a clock-local display string, keyed by
+    /// <see cref="StockJournalRow.JournalId"/> (missing-seam:iclock-web). <c>_StockDetail.cshtml</c> is a
+    /// DI-less partial — it has no clock to convert with — so the owning page resolves the zone conversion
+    /// here and hands the partial a precomputed string; the view must not perform zone conversion itself.</summary>
+    public IReadOnlyDictionary<Guid, string> HistoryWhenLocal =>
+        Detail?.History.ToDictionary(r => r.JournalId, r => clock.ToLocal(r.OccurredAt).ToString("d MMM yyyy HH:mm"))
+        ?? new Dictionary<Guid, string>();
+
     /// <summary>Recipes that directly reference this product (plantry-o0r8) — either as a consumer
     /// ("Used in") or as the recipe's declared cook yield ("Made by"). Loaded once on the initial GET;
     /// no consume/threshold/price action changes this list, so the POST handlers' partial reloads don't
@@ -253,7 +261,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: notice, Chips, AmendableLines));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: notice, Chips, AmendableLines, HistoryWhenLocal));
     }
 
     /// <summary>
@@ -290,7 +298,7 @@ public sealed class DetailModel(
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
         var notice = result.IsFailure ? result.Error.Description : null;
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice, Chips, AmendableLines));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice, Chips, AmendableLines, HistoryWhenLocal));
     }
 
     /// <summary>
@@ -396,7 +404,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines, HistoryWhenLocal));
     }
 
     private async Task<IActionResult> ReloadMoveSheetAsync(Guid id, Guid entryId)
@@ -464,8 +472,8 @@ public sealed class DetailModel(
         // sitting in a frozen location shows when it was frozen; one sitting non-frozen shows when it
         // was thawed. Either can be null (never transitioned).
         var transitionFact = sourceIsFrozen
-            ? (lot.FrozenAt is { } frozenAt ? $"frozen {frozenAt.ToLocalTime():d MMM yyyy}" : null)
-            : (lot.ThawedAt is { } thawedAt ? $"thawed {thawedAt.ToLocalTime():d MMM yyyy}" : null);
+            ? (lot.FrozenAt is { } frozenAt ? $"frozen {clock.ToLocal(frozenAt):d MMM yyyy}" : null)
+            : (lot.ThawedAt is { } thawedAt ? $"thawed {clock.ToLocal(thawedAt):d MMM yyyy}" : null);
 
         return new MoveSheetViewModel(
             entryId,
@@ -476,7 +484,7 @@ public sealed class DetailModel(
             sourceIsFrozen,
             lot.ExpiryDate is { } exp ? exp.ToString("d MMM yyyy") : "No expiry set",
             transitionFact,
-            lot.ThawedAt is { } thawedAtDisplay ? thawedAtDisplay.ToLocalTime().ToString("d MMM yyyy") : null,
+            lot.ThawedAt is { } thawedAtDisplay ? clock.ToLocal(thawedAtDisplay).ToString("d MMM yyyy") : null,
             freezeCandidateDisplay,
             freezeNote,
             thawCandidateDisplay,
@@ -641,7 +649,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines, HistoryWhenLocal));
     }
 
     /// <summary>Opens the Add stock sheet (plantry-sjfn) — the zero-stock landing's primary CTA, also
@@ -683,7 +691,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines));
+        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines, HistoryWhenLocal));
     }
 
     public async Task<IActionResult> OnGetSetPriceSheetAsync(Guid id)
@@ -894,7 +902,11 @@ public sealed record StockDetailPartialModel(
     IReadOnlyDictionary<Guid, ProvenanceChip> Chips,
     /// <summary>Which Purchase rows earn the "Amend" action (ADR-023 §6/A11) — see
     /// <see cref="DetailModel.AmendableLines"/>.</summary>
-    IReadOnlyDictionary<Guid, Guid> AmendableLines);
+    IReadOnlyDictionary<Guid, Guid> AmendableLines,
+    /// <summary>History rows' <c>OccurredAt</c> pre-resolved to clock-local display strings, keyed by
+    /// <see cref="StockJournalRow.JournalId"/> — see <see cref="DetailModel.HistoryWhenLocal"/>
+    /// (missing-seam:iclock-web); this DI-less partial cannot convert zones itself.</summary>
+    IReadOnlyDictionary<Guid, string> HistoryWhenLocal);
 
 /// <summary>View model for the price-line fragment (plantry-3fqm). <see cref="Oob"/> drives the htmx
 /// out-of-band swap after a "Set price" submission — mirrors <see cref="StockDetailPartialModel.Oob"/>'s

@@ -12,8 +12,31 @@ public static class RazorJs
 {
     /// <summary>
     /// Wraps <paramref name="s"/> in single quotes, escaping backslashes and embedded single quotes so
-    /// the result is always a valid JS string literal regardless of the source text.
+    /// the result is always a valid JS string literal, AND escaping every HTML-significant character —
+    /// double quote, ampersand, and the opening angle bracket — as a JS unicode escape so the emitted
+    /// bytes contain none of them. That second property is what makes the result safe to splice — via
+    /// <c>@Html.Raw</c> — into a double-quoted HTML attribute (an Alpine <c>x-text</c>) regardless of
+    /// the input: a raw double quote in the source text would otherwise terminate the attribute early
+    /// and truncate everything after it (plantry-gcpb / plantry-wcmg / plantry-qrg7 / plantry-97jd — the
+    /// same defect class recurring at each new splice site). Escaping the ampersand also preserves
+    /// entity-decode fidelity: a literal HTML entity in the input would otherwise be decoded by the
+    /// browser back into the character it names. The closing angle bracket is deliberately left
+    /// unescaped (not significant in attribute values or JS string literals); non-ASCII glyphs (½, ≈)
+    /// deliberately pass through unescaped for snapshot readability and byte-identity.
     /// </summary>
+    /// <remarks>
+    /// Today's callers only ever feed this numeric-formatter output — <c>QuantityFormatting.Format</c>'s
+    /// vulgar-fraction/decimal amount strings and the constant " serving(s)"/" batch(es)" suffixes —
+    /// whose output alphabet never contains a double quote, ampersand, or angle bracket today. The one
+    /// user-creatable string in these rows, the unit code, is deliberately kept out of this helper and
+    /// rendered Razor-encoded instead (<c>_IngredientRow.cshtml</c>). The escapes above exist so that
+    /// invariant is enforced by the helper itself: a future change that routes user text through
+    /// <see cref="Literal"/> cannot silently recreate the truncation defect class.
+    /// </remarks>
     public static string Literal(string s) =>
-        "'" + s.Replace("\\", "\\\\").Replace("'", "\\'") + "'";
+        "'" + s.Replace("\\", "\\\\")
+               .Replace("'", "\\'")
+               .Replace("\"", "\\u0022")
+               .Replace("&", "\\u0026")
+               .Replace("<", "\\u003C") + "'";
 }

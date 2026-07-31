@@ -53,6 +53,17 @@ public sealed class RecipeInclusionRollupRowTests
 
     private static readonly HtmlParser Parser = new();
 
+    // Fixed instant, not a live clock read (plantry-3orq — regression from plantry-4tb4's switch to
+    // clock.ToLocalDate(clock.UtcNow) for the Details page's "today"). Before plantry-4tb4 the SUT and
+    // this fixture both resolved "today" via UTC independently and stayed in sync by luck; after it the
+    // SUT reads local time while an unpinned fixture stays UTC-anchored, so they silently diverge on any
+    // machine whose local offset shifts the calendar day relative to UTC. Pinning the SUT's IClock
+    // (RollupFactory.ConfigureWebHost, below) to this exact instance — noon UTC, far from any midnight
+    // boundary, matching the house MealPlanningTestClock.Instant / FixedClock convention — makes both
+    // sides agree deterministically.
+    private static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 3, 10, 12, 0, 0, TimeSpan.Zero));
+    private static readonly DateOnly Today = Clock.ToLocalDate(Clock.UtcNow);
+
     // ── Ordinal position: the inclusion sits inside its authored section, sibling ingredient right after ──
 
     [Fact]
@@ -225,7 +236,7 @@ public sealed class RecipeInclusionRollupRowTests
     /// </summary>
     private static Recipe SubRecipe()
     {
-        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+        var clock = Clock;
         var recipe = Recipe.Create(HouseholdId.From(HouseholdGuid), "Marinara Sauce", defaultServings: 6, clock).Value;
         SetId(recipe, RecipeId.From(SubId));
         recipe.ReplaceIngredients(
@@ -246,7 +257,7 @@ public sealed class RecipeInclusionRollupRowTests
     /// </summary>
     private static Recipe ParentRecipe()
     {
-        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+        var clock = Clock;
         var recipe = Recipe.Create(HouseholdId.From(HouseholdGuid), "Nacho Plate", defaultServings: 4, clock).Value;
         SetId(recipe, RecipeId.From(ParentId));
         var lineSet = RecipeLineSet.Create(
@@ -331,6 +342,13 @@ public sealed class RecipeInclusionRollupRowTests
             {
                 services.AddFakeDisplayCurrency();
                 services.AddFakeExpiringSoonHorizon(days: 7); // Basil's 2-day expiry falls inside the horizon.
+
+                // Pin the host clock to the same fixed instant Today is derived from, so the SUT's
+                // clock.ToLocalDate(clock.UtcNow) and this fixture's Today always agree (see comment
+                // on the class-level Clock/Today fields above).
+                services.RemoveAll<IClock>();
+                services.AddSingleton<IClock>(Clock);
+
                 services.AddAuthentication(opts =>
                     {
                         opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -354,7 +372,7 @@ public sealed class RecipeInclusionRollupRowTests
                 {
                     // Tomatoes: no stock record → Missing.
                     [GarlicId] = new(GarlicId, 3m, EachUnitId, SoonestExpiry: null), // < 5.667 ea required → Low
-                    [BasilId] = new(BasilId, 50m, GramUnitId, SoonestExpiry: DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2)),
+                    [BasilId] = new(BasilId, 50m, GramUnitId, SoonestExpiry: Today.AddDays(2)),
                 }));
 
                 services.RemoveAll<IPriceReader>();

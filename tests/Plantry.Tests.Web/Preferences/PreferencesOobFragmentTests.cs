@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -237,32 +236,9 @@ public sealed class PreferencesFragmentFactory : WebApplicationFactory<Program>
 
 // ── fakes ─────────────────────────────────────────────────────────────────────
 
-/// <summary>
-/// Minimal UserManager stub that bypasses Identity infrastructure and always returns the fixture user.
-/// </summary>
-public sealed class FakeUserManager(AppUser fixedUser)
-    : UserManager<AppUser>(
-        new FakeUserStore(),
-        null!, null!, null!, null!, null!, null!, null!, null!)
-{
-    public override Task<AppUser?> GetUserAsync(ClaimsPrincipal principal) =>
-        Task.FromResult<AppUser?>(fixedUser);
-}
-
-public sealed class FakeUserStore : IUserStore<AppUser>
-{
-    public Task<IdentityResult> CreateAsync(AppUser user, CancellationToken ct) => Task.FromResult(IdentityResult.Success);
-    public Task<IdentityResult> DeleteAsync(AppUser user, CancellationToken ct) => Task.FromResult(IdentityResult.Success);
-    public void Dispose() { }
-    public Task<AppUser?> FindByIdAsync(string userId, CancellationToken ct) => Task.FromResult<AppUser?>(null);
-    public Task<AppUser?> FindByNameAsync(string normalizedUserName, CancellationToken ct) => Task.FromResult<AppUser?>(null);
-    public Task<string?> GetNormalizedUserNameAsync(AppUser user, CancellationToken ct) => Task.FromResult<string?>(null);
-    public Task<string> GetUserIdAsync(AppUser user, CancellationToken ct) => Task.FromResult(user.Id);
-    public Task<string?> GetUserNameAsync(AppUser user, CancellationToken ct) => Task.FromResult<string?>(user.UserName);
-    public Task SetNormalizedUserNameAsync(AppUser user, string? normalizedName, CancellationToken ct) => Task.CompletedTask;
-    public Task SetUserNameAsync(AppUser user, string? userName, CancellationToken ct) => Task.CompletedTask;
-    public Task<IdentityResult> UpdateAsync(AppUser user, CancellationToken ct) => Task.FromResult(IdentityResult.Success);
-}
+// FakeUserManager and FakeUserStore moved to Infrastructure/WeekGridFixture.cs (plantry-ej84) — a
+// shared default MealPlanFragmentFactory reaches back into, so they now live alongside the factory
+// instead of being reached for across a feature-namespace `using`.
 
 public sealed class FakePrefsRepository : IUserPreferenceRepository
 {
