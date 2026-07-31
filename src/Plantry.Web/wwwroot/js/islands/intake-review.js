@@ -45,6 +45,7 @@ import {
   buildSaveLineBody,
   commitBarCounts,
   estimateHint,
+  scanViaDisplay,
   decisionVariant,
   deckReasoning,
   optionRankLabel,
@@ -62,7 +63,7 @@ import {
   cardTransform,
   filterStores,
   buildCorrectHeaderBody,
-} from "./intake-review-logic.js?v=5";
+} from "./intake-review-logic.js?v=6";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -792,13 +793,15 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
     return `<span>${parts.join(" · ")} left</span>`;
   });
 
+  const via = scanViaDisplay(session.scanVia);
+
   return html`
     <div class="review">
       <aside class="review__receipt rcpt-pane">
         <div class="rcpt-meta-top">
           <span class="rcpt-via">
-            <svg class="icon" aria-hidden="true"><use href=${session.scanVia === "email" ? "#i-receipt" : "#i-camera"} /></svg>
-            ${session.scanVia === "email" ? "Forwarded by email" : "Receipt photo"}
+            <svg class="icon" aria-hidden="true"><use href=${via.icon} /></svg>
+            ${via.label}
           </span>
           <span style="margin-left:auto">${session.scannedLabel}</span>
         </div>

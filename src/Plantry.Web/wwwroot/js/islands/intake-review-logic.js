@@ -212,6 +212,29 @@ export function estimateHint(estimate) {
     : `Sold by weight (${weight}) · ${count}?`;
 }
 
+// ── scanViaDisplay ───────────────────────────────────────────────────────────────
+
+/**
+ * Maps the server-emitted `ScanVia` tag (plantry-45ba.1: "photo" | "email" | "manual") to the
+ * receipt-pane icon + label. Explicit over all known values — no Receipt/else binary — so a new
+ * ImportSourceType doesn't silently fall back to the Receipt-photo label the way it did before
+ * this helper existed.
+ *
+ * @param {string} scanVia
+ * @returns {{icon: string, label: string}}
+ */
+export function scanViaDisplay(scanVia) {
+  switch (scanVia) {
+    case "email":
+      return { icon: "#i-receipt", label: "Forwarded by email" };
+    case "manual":
+      return { icon: "#i-edit", label: "Entered manually" };
+    case "photo":
+    default:
+      return { icon: "#i-camera", label: "Receipt photo" };
+  }
+}
+
 // ── "sure" predicate (client mirror of the server's ConfirmLines qualification) ──
 
 /**

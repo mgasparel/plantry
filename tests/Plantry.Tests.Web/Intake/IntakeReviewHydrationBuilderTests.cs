@@ -423,6 +423,14 @@ public sealed class IntakeReviewHydrationBuilderTests
         Assert.Equal("photo", h.ScanVia);
     }
 
+    [Fact(DisplayName = "ScanVia maps a Manual source to \"manual\" (plantry-45ba.1 — explicit switch, no Receipt/else branch)")]
+    public void ScanVia_Manual_Is_Manual()
+    {
+        var h = Build(Session([Line()], sourceType: ImportSourceType.Manual));
+
+        Assert.Equal("manual", h.ScanVia);
+    }
+
     [Fact(DisplayName = "Today is emitted as an ISO date and reference data is projected")]
     public void Header_And_Reference_Are_Projected()
     {
