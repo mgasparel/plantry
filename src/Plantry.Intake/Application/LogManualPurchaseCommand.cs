@@ -180,13 +180,18 @@ public sealed class LogManualPurchaseCommand(
     }
 
     /// <summary>
-    /// Validates the typed-line invariants up front, atomically — before a single line is added to the
-    /// session — so a bad line fails the whole submission with no half-built session: at least one line;
+    /// Validates the typed-purchase invariants up front, atomically — before a single line is added to
+    /// the session — so a bad submission fails whole, with no half-built session: a real purchase date
+    /// (not the unset <c>default</c> a page-level guard failing to run would let through — the web layer
+    /// has its own guard too, but this is the load-bearing one for any caller); at least one line;
     /// quantity &gt; 0; a supplied price &gt;= 0; and each line resolves to either an existing product or a
     /// new-product request, never both (an id AND a name), never neither.
     /// </summary>
     private Error? ValidateLines()
     {
+        if (purchaseDate == default)
+            return Error.Custom("Intake.MissingPurchaseDate", "Enter the purchase date.");
+
         if (lines.Count == 0)
             return Error.Custom("Intake.NoLines", "Enter at least one line.");
 

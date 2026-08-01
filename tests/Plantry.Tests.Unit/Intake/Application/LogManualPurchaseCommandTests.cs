@@ -343,6 +343,31 @@ public sealed class LogManualPurchaseCommandTests
     }
 
     [Fact]
+    public async Task Rejects_An_Unset_Purchase_Date()
+    {
+        // The web page guards against a cleared/malformed date, but this is the load-bearing check for
+        // any caller — an omitted key leaves the bound DateOnly at its default with no ModelState error
+        // to catch it, so the command itself must reject default(DateOnly) before starting a session.
+        var productId = Guid.CreateVersion7();
+        var reference = ReferenceWithProduct(productId, "Flour");
+        var lines = new List<ManualPurchaseLineInput> { new(productId, null, null, 1m, _unitId, _locationId, Price: 3.00m) };
+        var repo = new FakeImportSessionRepository();
+
+        var cmd = new LogManualPurchaseCommand(
+            _userId, "Corner Store", null, purchaseDate: default, lines, repo,
+            new FakeCreateProductPort(), new FakeAddStockPort(), new FakeRecordPricePort(),
+            new FakeEnsurePurchaseStorePort(), new FakeReviewReferenceDataProvider(reference),
+            new FakeSeedConversionPort(), Clock, new FakeTenantContext(_household),
+            NullLogger<CommitSessionCommand>.Instance, NullLogger<LogManualPurchaseCommand>.Instance);
+
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.MissingPurchaseDate", result.Error.Code);
+        Assert.Empty(repo.Sessions);
+    }
+
+    [Fact]
     public async Task Fails_When_No_Household_In_Context()
     {
         var repo = new FakeImportSessionRepository();
