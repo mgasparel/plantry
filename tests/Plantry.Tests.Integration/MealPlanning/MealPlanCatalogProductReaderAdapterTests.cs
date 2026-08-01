@@ -208,21 +208,31 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         Assert.Equal(0, counter.CountMatching("units"));
     }
 
-    [Fact(DisplayName = "SearchAsync includes product conversions in reachable unit options, with the default unit first")]
-    public async Task SearchAsync_Includes_ProductConversions_InUnitOptions()
+    [Fact(DisplayName = "Meal editor reachable unit options use canonical dimension/code ordering")]
+    public async Task PlanningInfo_ReachableUnitOptions_UseCanonicalDimensionCodeOrdering()
     {
-        UnitId servingId;
+        UnitId kilogramId, millilitreId, servingId;
         ProductId pastaId;
         await using (var setup = NewCatalogDb())
         {
+            // The default is kg, deliberately not the first Mass code. Product-owned
+            // conversions bridge Mass → Volume and Mass → Count so every canonical group is
+            // reachable while the semantic filter remains UnitConverter-owned.
+            var kilogram = Plantry.Catalog.Domain.Unit.Create(
+                _household, "kg", "kilogram", Dimension.Mass, 1000m);
+            var millilitre = Plantry.Catalog.Domain.Unit.Create(
+                _household, "mL", "millilitre", Dimension.Volume, 1m, isBase: true);
             var serving = Plantry.Catalog.Domain.Unit.Create(
                 _household, "srv", "serving", Dimension.Count, 1m);
-            await setup.Units.AddAsync(serving);
+            await setup.Units.AddRangeAsync(kilogram, millilitre, serving);
             await setup.SaveChangesAsync();
+            kilogramId = kilogram.Id;
+            millilitreId = millilitre.Id;
             servingId = serving.Id;
 
-            var pasta = Product.Create(_household, "Pasta Dry - Spaghetti", _gramsId, Clock);
-            pasta.AddConversion(servingId, _gramsId, 100m, Clock);
+            var pasta = Product.Create(_household, "Pasta Dry - Ordering", kilogramId, Clock);
+            pasta.AddConversion(servingId, kilogramId, 100m, Clock);
+            pasta.AddConversion(millilitreId, kilogramId, 250m, Clock);
             await setup.Products.AddAsync(pasta);
             await setup.SaveChangesAsync();
             pastaId = pasta.Id;
@@ -231,13 +241,19 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         await using var read = NewCatalogDb();
         var reader = new MealPlanCatalogProductReaderAdapter(read);
 
-        var result = Assert.Single(await reader.SearchAsync("Spaghetti"));
+        var result = Assert.Single(await reader.SearchAsync("Ordering"));
         var unitOptions = result.UnitOptions
             ?? throw new InvalidOperationException("Search result did not include unit options.");
 
         Assert.Equal(pastaId.Value, result.ProductId);
-        Assert.Equal(_gramsId.Value, unitOptions[0].UnitId);
-        Assert.Contains(unitOptions, option => option.UnitId == servingId.Value && option.Code == "srv");
+        (string Dimension, string Code)[] expected =
+        [("mass", "g"), ("mass", "kg"), ("volume", "mL"), ("count", "srv")];
+        Assert.Equal(expected, unitOptions.Select(option => (Dimension: option.Dimension, Code: option.Code)));
+
+        // The hydration/read-model batch path must carry exactly the same order as SearchAsync.
+        var planning = await reader.GetPlanningInfoAsync([pastaId.Value]);
+        var planningOptions = planning[pastaId.Value].UnitOptions;
+        Assert.Equal(expected, planningOptions.Select(option => (Dimension: option.Dimension, Code: option.Code)));
     }
 
     [Fact(DisplayName = "ResolveUnitCodesAsync resolves unit ids to display codes directly, omitting unknown ids (plantry-vqa7)")]

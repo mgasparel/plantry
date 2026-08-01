@@ -5250,54 +5250,33 @@ button.sadd svg { width: 13px; height: 13px; }
 .ed-dish .edd-main { flex: 1; min-width: 0; }
 .ed-dish .edd-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
 .ed-dish .edd-meta { font-size: 11.5px; color: var(--color-text-faint); display: flex; align-items: center; gap: 7px; margin-top: 2px; }
-.serv-step { display: flex; align-items: stretch; border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--color-surface); flex: none; }
-.serv-step button { width: 28px; border: none; background: var(--color-surface); color: var(--color-text-muted); font-size: 15px; display: grid; place-items: center; cursor: pointer; }
-.serv-step button:hover { background: var(--color-surface-2); color: var(--color-text); }
-.serv-step .sv { width: 30px; display: grid; place-items: center; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; border-left: 1px solid var(--color-border); border-right: 1px solid var(--color-border); }
-.serv-step .sv small { font-size: 9px; color: var(--color-text-faint); font-weight: 600; }
-/* Product dishes use the shared field control treatment for both quantity and unit.  The
-   pair stays compact by removing the stepper shell and joining the two field borders. */
-.product-quantity {
-  border: 0;
-  border-radius: 0;
-  overflow: visible;
-  background: transparent;
-}
-.product-quantity .field__input {
-  width: auto;
-  min-width: 0;
-  border-radius: 0;
-}
-.product-quantity .sv-input {
-  width: 4.5rem;
-  flex: 0 1 4.5rem;
-  text-align: right;
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-}
-.product-quantity .sv-unit {
+/* Meal Planner product rows compose the canonical island stepper with the
+   reusable unit picker.  The controls sit beside one another while retaining
+   the library's focus rings and native select/optgroup semantics. */
+.product-quantity { display: flex; align-items: stretch; flex: none; min-width: 0; }
+.product-quantity > .stepper { flex: none; }
+.product-quantity .stepper__val:is(input) { width: 4.5rem; flex: 0 1 4.5rem; text-align: right; }
+.product-quantity .meal-unit-picker { display: flex; align-items: stretch; min-width: 0; }
+.product-quantity .meal-unit-picker__select {
   width: auto;
   min-width: 4.5rem;
   flex: 0 0 auto;
   margin-left: -1px;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
-/* Keep the focus ring from being hidden behind the adjacent control. */
-.product-quantity .field__input:focus { position: relative; z-index: 1; }
-.product-quantity .sv-unit-stale {
+.product-quantity .meal-unit-picker__stale {
   display: inline-flex;
   align-items: center;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-radius: 0;
   background: var(--color-surface-2);
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   font-weight: 600;
 }
-.product-quantity .sv-unit-stale + .sv-input {
-  margin-left: -1px;
-  border-radius: 0;
-}
+/* Keep focus rings above the neighbouring field. */
+.product-quantity .field__input:focus { position: relative; z-index: 1; }
 .ed-dish .edd-del { width: 30px; height: 30px; border-radius: 7px; border: 1px solid transparent; background: none; color: var(--color-text-faint); display: grid; place-items: center; flex: none; cursor: pointer; }
 .ed-dish .edd-del:hover { background: var(--color-danger-bg); color: var(--color-danger); }
 .ed-dish .edd-del svg { width: 15px; height: 15px; }

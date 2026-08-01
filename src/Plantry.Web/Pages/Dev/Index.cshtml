@@ -1232,6 +1232,15 @@
                  increase-label="More servings" />
     </div>
     <pre class="code-sample"><code>@("// Input mode (default variant)\n<stepper name=\"Edit.Quantity\" x-model=\"v\"\n         decrease-click=\"v = Math.max(0.001, (parseFloat(v)||0) - 1)\"\n         increase-click=\"v = (parseFloat(v)||0) + 1\"\n         decrease-label=\"Decrease quantity\" increase-label=\"Increase quantity\" />\n\n// Display mode, compact (recipe detail ingredients header)\n<stepper variant=\"compact\" group-label=\"Servings\" x-text=\"servings\" display-fallback=\"4\"\n         decrease-click=\"servings = Math.max(1, servings - 1); refreshFulfilment()\"\n         increase-click=\"servings = Math.min(24, servings + 1); refreshFulfilment()\"\n         decrease-disabled=\"servings <= 1\" increase-disabled=\"servings >= 24\"\n         decrease-label=\"Fewer servings\" increase-label=\"More servings\" />")</code></pre>
+    <p>
+        <strong>Preact island consumer.</strong> Meal Planner imports the reusable
+        <code>QuantityStepper</code> primitive from <code>/js/islands/quantity-stepper.js</code>.
+        It emits this same <code>.stepper</code>, <code>.stepper__btn</code>, and
+        <code>.stepper__val</code> contract; only the callbacks and draft values belong to the island.
+        Use <code>UnitPicker</code> from <code>/js/islands/unit-picker.js</code> beside it when a
+        product quantity also needs the shared reachable-unit optgroups.
+    </p>
+    <pre class="code-sample"><code>@("import { QuantityStepper } from \"./quantity-stepper.js\";\n\n&lt;${QuantityStepper}\n  value={quantity}\n  onInput={setQuantity}\n  onDecrease={() =&gt; adjust(-1)}\n  onIncrease={() =&gt; adjust(1)} /&gt;")</code></pre>
 </section>
 
 @*
