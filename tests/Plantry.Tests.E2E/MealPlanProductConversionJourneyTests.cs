@@ -68,12 +68,27 @@ public sealed class MealPlanProductConversionJourneyTests(AppHostFixture appHost
             await Assertions.Expect(productHit).ToBeVisibleAsync();
             await productHit.ClickAsync();
 
-            var unitSelect = dialog.Locator("select.sv-unit");
+            var quantityInput = dialog.Locator("input.sv-input.field__input");
+            var unitSelect = dialog.Locator("select.sv-unit.field__input");
+            await Assertions.Expect(quantityInput).ToBeVisibleAsync();
             await Assertions.Expect(unitSelect).ToBeVisibleAsync();
+            Assert.Contains("field__input", await quantityInput.GetAttributeAsync("class") ?? string.Empty);
+            Assert.Contains("field__input", await unitSelect.GetAttributeAsync("class") ?? string.Empty);
+
+            // The shared field controls should remain a compact joined pair in the editor row:
+            // equal heights and no visible gap between their borders.
+            var quantityBox = await quantityInput.BoundingBoxAsync();
+            var unitBox = await unitSelect.BoundingBoxAsync();
+            Assert.NotNull(quantityBox);
+            Assert.NotNull(unitBox);
+            Assert.InRange(Math.Abs(quantityBox!.Y - unitBox!.Y), 0, 1.5);
+            Assert.InRange(Math.Abs(quantityBox.Height - unitBox.Height), 0, 1.5);
+            Assert.InRange(Math.Abs(quantityBox.X + quantityBox.Width - unitBox.X), 0, 1.5);
+
             var unitLabels = await unitSelect.Locator("option").AllTextContentsAsync();
             Assert.Contains("srv", unitLabels);
 
-            await dialog.Locator("input.sv-input").FillAsync("2");
+            await quantityInput.FillAsync("2");
             await unitSelect.SelectOptionAsync(new SelectOptionValue { Label = "srv" });
 
             await page.RunAndWaitForResponseAsync(
