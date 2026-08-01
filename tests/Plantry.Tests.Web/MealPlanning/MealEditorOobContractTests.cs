@@ -87,6 +87,54 @@ public sealed class MealEditorOobContractTests : IClassFixture<MealEditorOobCont
         Assert.Contains("A note keeps the slot", htmlEl.GetString() ?? "");
     }
 
+    [Theory(DisplayName = "POST {0} rejects forged or malformed product quantity/unit payloads")]
+    [InlineData("RollupJson", "missing-unit")]
+    [InlineData("RollupJson", "invalid-quantity")]
+    [InlineData("RollupJson", "fractional-count")]
+    [InlineData("RollupJson", "unreachable-unit")]
+    [InlineData("AssignJson", "missing-unit")]
+    [InlineData("AssignJson", "invalid-quantity")]
+    [InlineData("AssignJson", "fractional-count")]
+    [InlineData("AssignJson", "unreachable-unit")]
+    public async Task JsonProductPayloads_AreRejectedBySharedValidation(string handler, string variant)
+    {
+        var client = CreateClient();
+        var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+        var slot = WeekGridFixture.SharedConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
+
+        var dish = variant switch
+        {
+            "missing-unit" => new { kind = "product", itemId = ProductValidationFixture.ProductId, quantity = (decimal?)1m, unitId = (Guid?)null, servings = (int?)null },
+            "invalid-quantity" => new { kind = "product", itemId = ProductValidationFixture.ProductId, quantity = (decimal?)0m, unitId = (Guid?)ProductValidationFixture.CountUnitId, servings = (int?)null },
+            "fractional-count" => new { kind = "product", itemId = ProductValidationFixture.ProductId, quantity = (decimal?)1.5m, unitId = (Guid?)ProductValidationFixture.CountUnitId, servings = (int?)null },
+            "unreachable-unit" => new { kind = "product", itemId = ProductValidationFixture.ProductId, quantity = (decimal?)1m, unitId = (Guid?)ProductValidationFixture.UnreachableUnitId, servings = (int?)null },
+            _ => throw new ArgumentOutOfRangeException(nameof(variant)),
+        };
+
+        object payload = handler == "AssignJson"
+            ? new
+            {
+                date = "2026-06-01",
+                slotId = slot.Id.Value,
+                mode = "dishes",
+                note = (string?)null,
+                dishes = new[] { dish },
+                att = Array.Empty<string>(),
+                attendeesOverridden = false,
+                mealId = (Guid?)null,
+            }
+            : new { mode = "dishes", dishes = new[] { dish } };
+
+        var response = await client.PostAsync(
+            $"/MealPlan?handler={handler}",
+            CreateJsonContent(JsonSerializer.Serialize(payload), token));
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("error", body, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ── 2. OobContract (JSON form): AssignJson and ClearJson carry projections ──
 
     [Fact(DisplayName = "POST AssignJson returns cellHtml + railHtml + barNavHtml (OobContract — island JSON path)")]
@@ -346,6 +394,8 @@ internal static class MealEditorFixture
 /// </summary>
 public sealed class MealEditorOobContractFactory : MealPlanFragmentFactory
 {
+    protected override IMealPlanCatalogProductReader CatalogProductReader => new ProductValidationCatalogReader();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
@@ -363,6 +413,42 @@ public sealed class MealEditorOobContractFactory : MealPlanFragmentFactory
             services.AddScoped<IMealPlanRepository>(_ => new SeededMealEditorRepo());
         });
     }
+}
+
+internal static class ProductValidationFixture
+{
+    public static readonly Guid ProductId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+    public static readonly Guid CountUnitId = Guid.Parse("22222222-3333-4444-5555-666666666666");
+    public static readonly Guid UnreachableUnitId = Guid.Parse("33333333-4444-5555-6666-777777777777");
+}
+
+internal sealed class ProductValidationCatalogReader : IMealPlanCatalogProductReader
+{
+    private static readonly MealPlanProductPlanningInfo PlanningInfo = new(
+        ProductValidationFixture.ProductId,
+        ProductValidationFixture.CountUnitId,
+        "Count",
+        [new MealPlanUnitOption(ProductValidationFixture.CountUnitId, "ea", "Count")]);
+
+    public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult(productId == ProductValidationFixture.ProductId);
+
+    public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult(productId == ProductValidationFixture.ProductId);
+
+    public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(
+        string nameQuery, int maxResults = 20, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<MealPlanProductReadModel>>(
+            [new MealPlanProductReadModel(ProductValidationFixture.ProductId, "Validation product", "ea", ProductValidationFixture.CountUnitId, "Count", PlanningInfo.UnitOptions)]);
+
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(
+            productIds.Where(id => id == ProductValidationFixture.ProductId)
+                .ToDictionary(id => id, _ => "Validation product"));
+
+    public Task<MealPlanProductPlanningInfo?> GetPlanningInfoAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult(productId == ProductValidationFixture.ProductId ? PlanningInfo : null);
 }
 
 /// <summary>

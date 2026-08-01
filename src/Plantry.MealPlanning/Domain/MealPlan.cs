@@ -267,7 +267,7 @@ public sealed class MealPlan : AggregateRoot<MealPlanId>
 
             var dishes = proposal.Dishes
                 .OrderBy(d => d.Ordinal)
-                .Select(d => new DishSpec(DishKind.Recipe, d.RecipeId, d.Servings))
+                .Select(d => DishSpec.ForRecipe(d.RecipeId, d.Servings))
                 .ToList();
 
             AssignMeal(

@@ -90,6 +90,9 @@ internal static class TodayProductBatchingFixture
     public static readonly Guid FlourProductId = Guid.CreateVersion7();
     public static readonly Guid SugarProductId = Guid.CreateVersion7();
     public static readonly Guid ButterProductId = Guid.CreateVersion7();
+    public static readonly Guid FlourUnitId = Guid.CreateVersion7();
+    public static readonly Guid SugarUnitId = Guid.CreateVersion7();
+    public static readonly Guid ButterUnitId = Guid.CreateVersion7();
     public static readonly Guid PancakesRecipeId = Guid.CreateVersion7();
 
     /// <summary>Breakfast=Flour, Lunch=Sugar, Dinner=Butter — one product dish per slot.</summary>
@@ -99,11 +102,11 @@ internal static class TodayProductBatchingFixture
         var plan = MealPlan.Start(HhId, today, Clock);
         var ordered = SlotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).ToList();
 
-        plan.AssignMeal(today, ordered[0].Id, [new DishSpec(DishKind.Product, FlourProductId, 2)],
+        plan.AssignMeal(today, ordered[0].Id, [DishSpec.ForProduct(FlourProductId, 2m, FlourUnitId)],
             null, "test", Guid.Empty, Clock);
-        plan.AssignMeal(today, ordered[1].Id, [new DishSpec(DishKind.Product, SugarProductId, 1)],
+        plan.AssignMeal(today, ordered[1].Id, [DishSpec.ForProduct(SugarProductId, 1m, SugarUnitId)],
             null, "test", Guid.Empty, Clock);
-        plan.AssignMeal(today, ordered[2].Id, [new DishSpec(DishKind.Product, ButterProductId, 3)],
+        plan.AssignMeal(today, ordered[2].Id, [DishSpec.ForProduct(ButterProductId, 3m, ButterUnitId)],
             null, "test", Guid.Empty, Clock);
 
         return plan;
@@ -303,6 +306,15 @@ public sealed class TodayCountingCatalogProductReader : IMealPlanCatalogProductR
         return Task.FromResult<IReadOnlyDictionary<Guid, string>>(
             productIds.ToDictionary(id => id, ResolveUnitCode));
     }
+
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyCollection<Guid> unitIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(
+            unitIds.ToDictionary(
+                id => id,
+                id => id == TodayProductBatchingFixture.FlourUnitId ? "g"
+                    : id == TodayProductBatchingFixture.SugarUnitId ? "kg"
+                    : id == TodayProductBatchingFixture.ButterUnitId ? "ea" : "?"));
 
     private static string ResolveName(Guid id) =>
         id == TodayProductBatchingFixture.FlourProductId ? "Flour"

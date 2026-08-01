@@ -92,7 +92,7 @@ internal sealed class UnresolvedProductMealPlanRepo : IMealPlanRepository
         ThisWeekPlan = MealPlan.Start(hhId, ThisWeekMonday, Clock);
 
         ThisWeekPlan.AssignMeal(ThisWeekMonday, UnresolvedProductFixture.BreakfastSlotId,
-            [new DishSpec(DishKind.Product, UnresolvedProductFixture.MysteryProductId, 2)],
+            [DishSpec.ForProduct(UnresolvedProductFixture.MysteryProductId, 2m, Guid.NewGuid())],
             null, "manual", Guid.Empty, Clock);
     }
 

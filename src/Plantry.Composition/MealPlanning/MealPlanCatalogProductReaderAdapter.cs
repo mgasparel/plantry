@@ -66,10 +66,14 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
         // ProductQueryService's own unitsById pattern — sidesteps the converted-key EF-translation
         // caveat called out on ExistsAsync above, and a household's unit set is small.
         var unitCodes = await GetUnitCodesByIdAsync(ct);
+        var unitRows = await db.Units.AsNoTracking().ToListAsync(ct);
 
         return products
             .Select(p => new MealPlanProductReadModel(
-                p.Id.Value, p.Name, unitCodes.GetValueOrDefault(p.DefaultUnitId, DishDisplayPlaceholders.UnresolvedUnitCode)))
+                p.Id.Value, p.Name, unitCodes.GetValueOrDefault(p.DefaultUnitId, DishDisplayPlaceholders.UnresolvedUnitCode),
+                p.DefaultUnitId.Value,
+                unitRows.FirstOrDefault(u => u.Id == p.DefaultUnitId)?.Dimension.ToDbValue(),
+                BuildUnitOptions(p, unitRows)))
             .ToList();
     }
 
@@ -94,6 +98,54 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
         var product = await db.Products.AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == pid && p.ArchivedAt == null, ct);
         return product?.DefaultUnitId.Value;
+    }
+
+    public async Task<MealPlanProductPlanningInfo?> GetPlanningInfoAsync(Guid productId, CancellationToken ct = default)
+    {
+        var pid = ProductId.From(productId);
+        var product = await db.Products.AsNoTracking()
+            .Include(p => p.Conversions)
+            .FirstOrDefaultAsync(p => p.Id == pid, ct);
+        if (product is null) return null;
+
+        var units = await db.Units.AsNoTracking().ToListAsync(ct);
+        var options = BuildUnitOptions(product, units);
+        var defaultUnit = units.FirstOrDefault(u => u.Id == product.DefaultUnitId);
+        return new MealPlanProductPlanningInfo(
+            product.Id.Value,
+            product.DefaultUnitId.Value,
+            defaultUnit?.Dimension.ToDbValue() ?? string.Empty,
+            options);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, MealPlanProductPlanningInfo>> GetPlanningInfoAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+    {
+        if (productIds.Count == 0) return new Dictionary<Guid, MealPlanProductPlanningInfo>();
+        var wanted = productIds.Select(ProductId.From).ToHashSet();
+        var products = await db.Products.AsNoTracking()
+            .Include(p => p.Conversions)
+            .Where(p => wanted.Contains(p.Id))
+            .ToListAsync(ct);
+        var units = await db.Units.AsNoTracking().ToListAsync(ct);
+        return products.ToDictionary(
+            p => p.Id.Value,
+            p => new MealPlanProductPlanningInfo(
+                p.Id.Value,
+                p.DefaultUnitId.Value,
+                units.FirstOrDefault(u => u.Id == p.DefaultUnitId)?.Dimension.ToDbValue() ?? string.Empty,
+                BuildUnitOptions(p, units)));
+    }
+
+    private static IReadOnlyList<MealPlanUnitOption> BuildUnitOptions(Product product, IReadOnlyList<Unit> units)
+    {
+        var ids = UnitConverter.ReachableUnits(product.DefaultUnitId.Value, units, product.Conversions);
+        var byId = units.ToDictionary(u => u.Id.Value);
+        return ids
+            .Select(id => byId.TryGetValue(id, out var u)
+                ? new MealPlanUnitOption(id, u.Code, u.Dimension.ToDbValue())
+                : new MealPlanUnitOption(id, DishDisplayPlaceholders.UnresolvedUnitCode, string.Empty))
+            .ToList();
     }
 
     public async Task<IReadOnlyDictionary<Guid, string>> ResolveDefaultUnitCodesAsync(

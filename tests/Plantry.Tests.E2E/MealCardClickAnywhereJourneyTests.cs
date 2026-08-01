@@ -77,8 +77,8 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
             await page.ClickAsync("button[type=submit]:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/**");
 
-            var productId = await GetProductIdAsync(productName);
-            Assert.True(productId.HasValue, $"Product '{productName}' not found in catalog.");
+            var product = await GetProductDetailsAsync(productName);
+            Assert.True(product.HasValue, $"Product '{productName}' not found in catalog.");
 
             // ── Assign a two-dish meal: one recipe dish (renders the Cook deep-link) + one
             // product dish (renders the Eat button) — both pending, so both action rows render
@@ -104,7 +104,7 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
                         mode: 'dishes',
                         dishes: [
                             { kind: 'recipe', itemId: '00000000-0000-0000-0000-000000000099', servings: 2 },
-                            { kind: 'product', itemId: args.productId, servings: 1 }
+                            { kind: 'product', itemId: args.productId, quantity: 1, unitId: args.unitId }
                         ],
                         att: null,
                         attendeesOverridden: false,
@@ -122,7 +122,7 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
                         body
                     });
                     return r.status;
-                }", new { url = assignUrl, productId = productId!.Value.ToString(), date, slotId, token });
+                }", new { url = assignUrl, productId = product!.Value.ProductId.ToString(), unitId = product.Value.DefaultUnitId.ToString(), date, slotId, token });
             Assert.Equal(200, assignStatus);
 
             await page.GotoAsync($"{BaseUrl}/MealPlan");
@@ -181,13 +181,17 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private async Task<Guid?> GetProductIdAsync(string productName)
+    private async Task<(Guid ProductId, Guid DefaultUnitId)?> GetProductDetailsAsync(string productName)
     {
         await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "SELECT id FROM catalog.products WHERE name = @n LIMIT 1", conn);
+            "SELECT id, default_unit_id FROM catalog.products WHERE name = @n LIMIT 1", conn);
         cmd.Parameters.AddWithValue("@n", productName);
-        return await cmd.ExecuteScalarAsync() as Guid?;
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return null;
+
+        return (reader.GetGuid(0), reader.GetGuid(1));
     }
 }

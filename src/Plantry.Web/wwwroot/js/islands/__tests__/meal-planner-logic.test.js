@@ -15,7 +15,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { lvl, money, dishMeta, dishUnitLabel } from "../meal-planner-logic.js";
+import { lvl, money, dishMeta, dishUnitLabel, productUnitPicker, dishInput } from "../meal-planner-logic.js";
 
 // ── test helpers ─────────────────────────────────────────────────────────────
 
@@ -37,6 +37,55 @@ function dish(overrides = {}) {
     ...overrides,
   };
 }
+
+describe("dishInput", () => {
+  it("posts recipe dishes with servings only", () => {
+    const result = dishInput(dish({ kind: "recipe", itemId: "r-1", servings: 3, quantity: null, unitId: null }));
+    assert.deepEqual(result, { kind: "recipe", itemId: "r-1", servings: 3 });
+    assert.equal("quantity" in result, false);
+    assert.equal("unitId" in result, false);
+  });
+
+  it("posts product dishes with quantity and unitId only", () => {
+    const result = dishInput(dish({
+      kind: "product", itemId: "p-1", servings: null, quantity: 0.5, unitId: "u-g",
+    }));
+    assert.deepEqual(result, { kind: "product", itemId: "p-1", quantity: 0.5, unitId: "u-g" });
+    assert.equal("servings" in result, false);
+  });
+});
+
+describe("productUnitPicker", () => {
+  it("keeps an unreachable saved unit out of the select and clears its binding", () => {
+    const picker = productUnitPicker(dish({
+      kind: "product",
+      itemId: "p-1",
+      unitId: "u-removed",
+      unitCode: "g",
+      unitOptions: [
+        { unitId: "u-kg", code: "kg", dimension: "Mass" },
+        { unitId: "u-lb", code: "lb", dimension: "Mass" },
+      ],
+    }));
+
+    assert.equal(picker.selectedUnitId, "");
+    assert.equal(picker.staleUnitCode, "g");
+    assert.deepEqual(picker.options.map((o) => o.unitId), ["u-kg", "u-lb"]);
+    assert.equal(picker.options.some((o) => o.unitId === "u-removed"), false);
+  });
+
+  it("keeps a reachable saved unit selected", () => {
+    const picker = productUnitPicker(dish({
+      kind: "product",
+      unitId: "u-kg",
+      unitCode: "kg",
+      unitOptions: [{ unitId: "u-kg", code: "kg", dimension: "Mass" }],
+    }));
+
+    assert.equal(picker.selectedUnitId, "u-kg");
+    assert.equal(picker.staleUnitCode, null);
+  });
+});
 
 // ── lvl ───────────────────────────────────────────────────────────────────────
 

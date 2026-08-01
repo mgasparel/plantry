@@ -1,4 +1,5 @@
 using Plantry.MealPlanning.Application;
+using Plantry.SharedKernel;
 
 namespace Plantry.MealPlanning.Domain;
 
@@ -17,7 +18,8 @@ namespace Plantry.MealPlanning.Domain;
 public sealed class PlanFulfillmentService(
     IRecipeReadModel recipeReader,
     IMealPlanStockReader stockReader,
-    IExpiringSoonHorizonReader horizonReader)
+    IExpiringSoonHorizonReader horizonReader,
+    IMealPlanUnitConverter? unitConverter = null)
 {
     /// <summary>
     /// Computes the rolled-up fulfillment for a single <see cref="PlannedMeal"/>.
@@ -84,7 +86,7 @@ public sealed class PlanFulfillmentService(
         if (dish.RecipeId.HasValue)
         {
             var enrichment = await recipeReader.GetEnrichmentAsync(
-                dish.RecipeId.Value, dish.Servings, today, ct);
+                dish.RecipeId.Value, dish.Servings ?? 0, today, ct);
 
             if (enrichment is null)
                 return new DishFulfillment(0, false); // recipe not found → treat as 0%
@@ -98,7 +100,23 @@ public sealed class PlanFulfillmentService(
             if (stock is null)
                 return new DishFulfillment(0, false); // not tracked → 0% (missing)
 
-            bool inStock = stock.AvailableQuantity >= dish.Servings;
+            var plannedQuantity = dish.Quantity;
+            if (dish.UnitId is not { } plannedUnit || plannedUnit == Guid.Empty || plannedQuantity is not > 0m)
+                return new DishFulfillment(0, false);
+            var available = stock.AvailableQuantity;
+            if (plannedUnit != stock.DefaultUnitId)
+            {
+                var converted = unitConverter is null
+                    ? Result<decimal>.Failure(Error.Custom("MealPlanning.ConversionUnavailable", "No unit converter is configured."))
+                    : await unitConverter.ConvertAsync(
+                        dish.ProductId.Value, available, stock.DefaultUnitId, plannedUnit, ct);
+                if (converted.IsFailure)
+                    available = 0m;
+                else
+                    available = converted.Value;
+            }
+
+            bool inStock = plannedQuantity is > 0m && available >= plannedQuantity.Value;
             bool useSoon = stock.SoonestExpiry.HasValue &&
                            (stock.SoonestExpiry.Value.DayNumber - today.DayNumber) <= expiringSoonDays;
 

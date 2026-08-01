@@ -212,13 +212,13 @@ public sealed class ProductUnitLabelMealPlanRepo : IMealPlanRepository
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductUnitLabelFixture.BreakfastSlotId,
             [
                 new DishSpec(DishKind.Recipe, PancakesRecipeId, 2),
-                new DishSpec(DishKind.Product, ProductUnitLabelFixture.FlourProductId, 3),
+                DishSpec.ForProduct(ProductUnitLabelFixture.FlourProductId, 3m, Guid.NewGuid()),
             ],
             null, "manual", Guid.Empty, _clock);
 
         // Lunch: one still-pending product dish.
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductUnitLabelFixture.LunchSlotId,
-            [new DishSpec(DishKind.Product, ProductUnitLabelFixture.FlourProductId, 5)],
+            [DishSpec.ForProduct(ProductUnitLabelFixture.FlourProductId, 5m, Guid.NewGuid())],
             null, "manual", Guid.Empty, _clock);
 
         var breakfast = ThisWeekPlan.PlannedMeals.Single(m => m.MealSlotId == ProductUnitLabelFixture.BreakfastSlotId);

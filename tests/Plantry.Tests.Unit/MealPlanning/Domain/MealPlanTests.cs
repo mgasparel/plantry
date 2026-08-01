@@ -33,10 +33,10 @@ public sealed class MealPlanTests
         new(DishKind.Recipe, recipeId, servings);
 
     private static DishSpec ProductDish(int servings = 1) =>
-        new(DishKind.Product, Guid.NewGuid(), servings);
+        DishSpec.ForProduct(Guid.NewGuid(), servings, Guid.NewGuid());
 
     private static DishSpec ProductDish(Guid productId, int servings = 1) =>
-        new(DishKind.Product, productId, servings);
+        DishSpec.ForProduct(productId, servings, Guid.NewGuid());
 
     // ── M8 — Monday normalization ─────────────────────────────────────────────
 
@@ -128,6 +128,36 @@ public sealed class MealPlanTests
 
         var result = plan.AssignMeal(Monday, SlotA, [RecipeDish(1)], null, "test", UserId, Clock);
         Assert.Null(result.HardStanceWarning);
+    }
+
+    [Fact]
+    public void AssignMeal_ProductDishStoresQuantityAndUnit_NotRecipeServings()
+    {
+        var productId = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+
+        var plan = CreatePlan();
+        plan.AssignMeal(Monday, SlotA,
+            [DishSpec.ForProduct(productId, 0.5m, unitId)], null, "test", UserId, Clock);
+
+        var dish = Assert.Single(plan.PlannedMeals[0].PlannedDishes);
+        Assert.Equal(productId, dish.ProductId);
+        Assert.Equal(0.5m, dish.Quantity);
+        Assert.Equal(unitId, dish.UnitId);
+        Assert.Null(dish.RecipeId);
+        Assert.Null(dish.Servings);
+    }
+
+    [Fact]
+    public void AssignMeal_ProductDishRejectsNonPositiveQuantityOrMissingUnit()
+    {
+        var plan = CreatePlan();
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            plan.AssignMeal(Monday, SlotA,
+                [DishSpec.ForProduct(Guid.NewGuid(), 0m, Guid.NewGuid())], null, "test", UserId, Clock));
+        Assert.Throws<ArgumentException>(() =>
+            plan.AssignMeal(Monday, SlotA,
+                [DishSpec.ForProduct(Guid.NewGuid(), 1m, Guid.Empty)], null, "test", UserId, Clock));
     }
 
     // ── M13 — dishes XOR note ─────────────────────────────────────────────────
@@ -300,6 +330,29 @@ public sealed class MealPlanTests
         var afterDish = plan.FindById(mealId)!.PlannedDishes.Single();
         Assert.Equal(originalId, afterDish.Id);
         Assert.Equal(6, afterDish.Servings);
+    }
+
+    [Fact]
+    public void UpdateDishes_ProductQuantityAndUnitChangeKeepsIdentity()
+    {
+        var productId = Guid.NewGuid();
+        var firstUnit = Guid.NewGuid();
+        var secondUnit = Guid.NewGuid();
+        var plan = CreatePlan();
+        plan.AssignMeal(Monday, SlotA,
+            [DishSpec.ForProduct(productId, 1m, firstUnit)], null, "test", UserId, Clock);
+        var mealId = plan.PlannedMeals[0].Id;
+        var originalId = plan.PlannedMeals[0].PlannedDishes[0].Id;
+
+        plan.AssignMeal(Monday, SlotA,
+            [DishSpec.ForProduct(productId, 0.5m, secondUnit)], null, "test", UserId, Clock,
+            mealId: mealId);
+
+        var dish = Assert.Single(plan.FindById(mealId)!.PlannedDishes);
+        Assert.Equal(originalId, dish.Id);
+        Assert.Equal(0.5m, dish.Quantity);
+        Assert.Equal(secondUnit, dish.UnitId);
+        Assert.Null(dish.Servings);
     }
 
     [Fact]

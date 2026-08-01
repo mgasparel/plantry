@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Deals.Application;
@@ -56,7 +57,7 @@ public sealed record ReviewBannerItem(
 /// not be resolved. Mirrors the convention MealPlan's <c>MealCardDishVm.UnitCode</c> established
 /// (plantry-ri26).
 /// </param>
-public sealed record PlannedMealDishVm(string Name, DishKind Kind, int Servings, string? UnitCode = null);
+public sealed record PlannedMealDishVm(string Name, DishKind Kind, int Servings, string? UnitCode = null, decimal? Quantity = null);
 
 /// <summary>
 /// View model for a single meal slot in the Today planned-meals band (plantry-zp7).
@@ -290,6 +291,16 @@ public sealed class IndexModel(
         IReadOnlyDictionary<Guid, string> productUnitCodes = allProductIds.Count > 0
             ? await catalogReader.ResolveDefaultUnitCodesAsync(allProductIds, ct)
             : new Dictionary<Guid, string>();
+        var savedUnitIds = slotMeals
+            .Where(sm => sm.Meal is { Note: null })
+            .SelectMany(sm => sm.Meal!.PlannedDishes)
+            .Where(d => d.ProductId.HasValue && d.UnitId.HasValue && d.UnitId.Value != Guid.Empty)
+            .Select(d => d.UnitId!.Value)
+            .Distinct()
+            .ToList();
+        IReadOnlyDictionary<Guid, string> savedUnitCodes = savedUnitIds.Count > 0
+            ? await catalogReader.ResolveUnitCodesAsync(savedUnitIds, ct)
+            : new Dictionary<Guid, string>();
 
         // Batched recipe-dish resolution (plantry-r2yf): one IRecipeReadModel.GetByIdsAsync call for
         // the union of recipe ids across every slot's meal today, up front — the same shape as the
@@ -362,7 +373,7 @@ public sealed class IndexModel(
                         // MealPlanning→Recipes lookups.
                         var recipeModel = recipeModels.GetValueOrDefault(dish.RecipeId.Value);
                         var name = recipeModel?.Name ?? "Unknown recipe";
-                        dishVms.Add(new PlannedMealDishVm(name, DishKind.Recipe, dish.Servings));
+                        dishVms.Add(new PlannedMealDishVm(name, DishKind.Recipe, dish.Servings ?? 0));
 
                         if (!primaryRecipeId.HasValue)
                         {
@@ -374,15 +385,16 @@ public sealed class IndexModel(
                     }
                     else if (dish.ProductId.HasValue)
                     {
-                        // Product-dish: name + default unit code, resolved from the batched pre-pass
-                        // above (never a per-dish call here). Same shared placeholders MealPlan's
+                        // Product-dish: name + saved planned-unit code, resolved from the batched
+                        // pre-pass above (never a per-dish call here). Same shared placeholders MealPlan's
                         // MealCardDishVm projection uses (Index.cshtml.cs), hoisted to
                         // DishDisplayPlaceholders so the two surfaces cannot drift (plantry-r2yf AC7).
                         var name = productNames.GetValueOrDefault(
                             dish.ProductId.Value, DishDisplayPlaceholders.UnknownProductName);
-                        var unitCode = productUnitCodes.GetValueOrDefault(
-                            dish.ProductId.Value, DishDisplayPlaceholders.UnresolvedUnitCode);
-                        dishVms.Add(new PlannedMealDishVm(name, DishKind.Product, dish.Servings, unitCode));
+                        var unitCode = dish.UnitId is { } savedUnit && savedUnit != Guid.Empty
+                            ? savedUnitCodes.GetValueOrDefault(savedUnit, DishDisplayPlaceholders.UnresolvedUnitCode)
+                            : DishDisplayPlaceholders.UnresolvedUnitCode;
+                        dishVms.Add(new PlannedMealDishVm(name, DishKind.Product, dish.Servings ?? 0, unitCode, dish.Quantity));
                     }
                 }
             }
@@ -423,7 +435,7 @@ public sealed class IndexModel(
     /// </summary>
     internal static string FormatDishQuantity(PlannedMealDishVm dish) =>
         dish.Kind == DishKind.Product
-            ? $"{dish.Servings} {dish.UnitCode ?? DishDisplayPlaceholders.UnresolvedUnitCode}"
+            ? $"{dish.Quantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "?"} {dish.UnitCode ?? DishDisplayPlaceholders.UnresolvedUnitCode}"
             : $"{dish.Servings} serving{(dish.Servings == 1 ? "" : "s")}";
 
     /// <summary>

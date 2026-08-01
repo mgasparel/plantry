@@ -126,6 +126,7 @@ public static class TodayDishFidelityFixture
     public static readonly Guid RecipeId = Guid.Parse("bb000002-0000-0000-0000-000000000002");
     public static readonly Guid ChickenThighsProductId = Guid.Parse("cc000002-0000-0000-0000-000000000002");
     public static readonly Guid RiceProductId = Guid.Parse("dd000002-0000-0000-0000-000000000002");
+    public static readonly Guid ChickenUnitId = Guid.Parse("ee000002-0000-0000-0000-000000000002");
 
     public static readonly IClock Clock = new SnapshotFixedClock(new DateOnly(2026, 6, 15));
 
@@ -148,13 +149,13 @@ public static class TodayDishFidelityFixture
 
         plan.AssignMeal(
             today, breakfast.Id,
-            [new DishSpec(DishKind.Product, ChickenThighsProductId, 5)],
+            [DishSpec.ForProduct(ChickenThighsProductId, 5m, ChickenUnitId)],
             attendeesOverride: null, source: "test", createdBy: Guid.Empty, Clock);
 
         plan.AssignMeal(
             today, lunch.Id,
             [
-                new DishSpec(DishKind.Product, RiceProductId, 3),
+                DishSpec.ForProduct(RiceProductId, 3m, Guid.NewGuid()),
                 new DishSpec(DishKind.Recipe, RecipeId, 2),
             ],
             attendeesOverride: null, source: "test", createdBy: Guid.Empty, Clock);
@@ -250,6 +251,12 @@ internal sealed class FixedCatalogProductReader : IMealPlanCatalogProductReader
         return Task.FromResult<IReadOnlyDictionary<Guid, string>>(
             productIds.Where(units.ContainsKey).ToDictionary(id => id, id => units[id]));
     }
+
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyCollection<Guid> unitIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(
+            unitIds.Where(id => id == TodayDishFidelityFixture.ChickenUnitId)
+                .ToDictionary(id => id, _ => "lb"));
 }
 
 // ── AC5 fixture: note-based meal renders unaffected ──────────────────────────────

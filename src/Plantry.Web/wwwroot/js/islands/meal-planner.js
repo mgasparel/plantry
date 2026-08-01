@@ -50,7 +50,7 @@
 
 import { render, html, signal, computed, effect, useSignal, useComputed, useRef } from "./runtime.js?v=1";
 import { readAntiforgeryToken, postJson } from "./helpers.js";
-import { lvl, money, dishMeta, dishUnitLabel } from "./meal-planner-logic.js?v=2";
+import { lvl, money, dishMeta, dishUnitLabel, productUnitPicker, dishInput } from "./meal-planner-logic.js?v=5";
 
 // ── Type documentation ────────────────────────────────────────────────────────
 
@@ -59,11 +59,15 @@ import { lvl, money, dishMeta, dishUnitLabel } from "./meal-planner-logic.js?v=2
  * @property {"recipe"|"product"} kind
  * @property {string} itemId
  * @property {string} name
- * @property {number} servings
+ * @property {number|null} servings        recipe servings (product drafts use quantity)
+ * @property {number|null} quantity       product quantity in unitId (null for recipes)
  * @property {number|null} fulfillment       per-dish fulfillment % from server (display-only)
  * @property {number|null} costPerServing    per-dish cost from server (display-only)
  * @property {boolean} hasPhoto
- * @property {string|null} unitCode          product's default unit code (null for recipe dishes, plantry-ri26)
+ * @property {string|null} unitCode          selected product unit code (null for recipe dishes)
+ * @property {string|null} unitId           selected product unit id (null for recipe dishes)
+ * @property {{unitId:string,code:string,dimension:string}[]|null} unitOptions reachable product units
+ * @property {string|null} dimension       selected product unit dimension
  */
 
 /**
@@ -109,12 +113,16 @@ import { lvl, money, dishMeta, dishUnitLabel } from "./meal-planner-logic.js?v=2
  * @property {"recipe"|"product"} kind
  * @property {string} itemId
  * @property {string} name
- * @property {number} defaultServings
+ * @property {number} defaultServings       recipe default; products still expose 1 for compatibility
+ * @property {number|null} quantity         product default quantity (1 for a new product draft)
  * @property {number|null} fulfillmentPercent
  * @property {number|null} costPerServing
  * @property {boolean} hasPhoto
  * @property {string|null} photoUrl
- * @property {string|null} unitCode          product's default unit code, product hits only (plantry-ri26)
+ * @property {string|null} unitId           product's default unit id, product hits only
+ * @property {string|null} unitCode         product's default unit code, product hits only
+ * @property {string|null} dimension        product default unit dimension
+ * @property {{unitId:string,code:string,dimension:string}[]|null} unitOptions reachable product units
  */
 
 /**
@@ -236,11 +244,15 @@ function DishSearch({ slotIdStr, searchJsonUrl, currencySymbol, onAdd }) {
       kind: r.kind,
       itemId: r.itemId,
       name: r.name,
-      servings: r.defaultServings,
+      servings: r.kind === "recipe" ? r.defaultServings : null,
+      quantity: r.kind === "product" ? (r.quantity ?? 1) : null,
       fulfillment: r.fulfillmentPercent,
       costPerServing: r.costPerServing,
       hasPhoto: r.hasPhoto,
       unitCode: r.unitCode ?? null,
+      unitId: r.unitId ?? null,
+      unitOptions: r.unitOptions ?? null,
+      dimension: r.dimension ?? null,
     });
     query.value = "";
     results.value = [];
@@ -362,11 +374,7 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
       rollupTimerRef.current = null;
       const body = {
         mode: mode.value,
-        dishes: mode.value === "note" ? [] : dishes.value.map((d) => ({
-          kind: d.kind,
-          itemId: d.itemId,
-          servings: d.servings,
-        })),
+        dishes: mode.value === "note" ? [] : dishes.value.map(dishInput),
       };
       try {
         const resp = await postJson(rollupUrl, body, token);
@@ -420,6 +428,21 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
     requestRollup();
   }
 
+  function setProductQuantity(/** @type {DishDraft} */ d, /** @type {string} */ raw) {
+    const parsed = raw.trim() === "" ? null : Number(raw);
+    const quantity = parsed !== null && Number.isFinite(parsed) ? parsed : null;
+    dishes.value = dishes.value.map((x) => x === d ? { ...x, quantity } : x);
+    requestRollup();
+  }
+
+  function setProductUnit(/** @type {DishDraft} */ d, /** @type {string} */ unitId) {
+    const option = productUnitPicker(d).options.find((x) => x.unitId === unitId);
+    dishes.value = dishes.value.map((x) => x === d
+      ? { ...x, unitId, unitCode: option?.code ?? x.unitCode, dimension: option?.dimension ?? x.dimension }
+      : x);
+    requestRollup();
+  }
+
   function switchToNote() {
     mode.value = "note";
     dishes.value = [];
@@ -441,11 +464,7 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
       const body = {
         mode: mode.value,
         note: mode.value === "note" ? note.value : null,
-        dishes: mode.value === "note" ? [] : dishes.value.map((d) => ({
-          kind: d.kind,
-          itemId: d.itemId,
-          servings: d.servings,
-        })),
+        dishes: mode.value === "note" ? [] : dishes.value.map(dishInput),
         att: attOverridden.value ? att.value : null,
         attendeesOverridden: attOverridden.value,
         mealId: state.mealId ?? null,
@@ -558,11 +577,36 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                         <span>${dishMeta(d, currencySymbol)}</span>
                       </div>
                     </div>
-                    <div class="serv-step">
-                      <button type="button" onClick=${() => decServings(d)} aria-label="Fewer">−</button>
-                      <span class="sv"><span>${d.servings}</span><small>${dishUnitLabel(d)}</small></span>
-                      <button type="button" onClick=${() => incServings(d)} aria-label="More">+</button>
-                    </div>
+                    ${d.kind === "recipe"
+                      ? html`<div class="serv-step">
+                          <button type="button" onClick=${() => decServings(d)} aria-label="Fewer">−</button>
+                          <span class="sv"><span>${d.servings}</span><small>${dishUnitLabel(d)}</small></span>
+                          <button type="button" onClick=${() => incServings(d)} aria-label="More">+</button>
+                        </div>`
+                        : html`<div class="serv-step product-quantity" aria-label=${"Quantity for " + d.name}>
+                          ${productUnitPicker(d).staleUnitCode && html`
+                            <span class="sv-unit-stale" aria-disabled="true"
+                                  title="Saved unit is no longer reachable">
+                              ${productUnitPicker(d).staleUnitCode}
+                            </span>
+                          `}
+                          <input class="sv-input" type="number" min="0" step=${d.dimension?.toLowerCase() === "count" ? "1" : "any"}
+                                 aria-label=${"Quantity for " + d.name}
+                                 value=${d.quantity ?? ""}
+                                 onInput=${(/** @type {InputEvent} */ e) =>
+                                   setProductQuantity(d, /** @type {HTMLInputElement} */ (e.target).value)} />
+                          <select class="sv-unit" value=${productUnitPicker(d).selectedUnitId}
+                                  onChange=${(/** @type {Event} */ e) =>
+                                    setProductUnit(d, /** @type {HTMLSelectElement} */ (e.target).value)}
+                                  aria-label="Unit">
+                            ${productUnitPicker(d).selectedUnitId === "" && html`
+                              <option value="" disabled>Choose unit…</option>
+                            `}
+                            ${productUnitPicker(d).options.map((o) => html`
+                              <option key=${o.unitId} value=${o.unitId}>${o.code}</option>
+                            `)}
+                          </select>
+                        </div>`}
                     <button type="button" class="edd-del" onClick=${() => removeDish(idx)} aria-label="Remove dish">
                       <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
                     </button>

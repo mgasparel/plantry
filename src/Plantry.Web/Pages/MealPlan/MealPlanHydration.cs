@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Plantry.MealPlanning.Application;
 
 namespace Plantry.Web.Pages.MealPlan;
 
@@ -73,7 +74,11 @@ public sealed record EditorDishHydrationVm(
     /// keeps rendering its "servings" label (plantry-ri26). "?" when a product dish's unit could
     /// not be resolved.
     /// </summary>
-    string? UnitCode = null);
+    string? UnitCode = null,
+    decimal? Quantity = null,
+    string? UnitId = null,
+    IReadOnlyList<MealPlanUnitOption>? UnitOptions = null,
+    string? Dimension = null);
 
 /// <summary>The exact serializer options the Meal Planner page emits hydration with. Shared so the
 /// consumer-contract test (plantry-eoj5 Phase B) pins the same camelCase / always-emit policy

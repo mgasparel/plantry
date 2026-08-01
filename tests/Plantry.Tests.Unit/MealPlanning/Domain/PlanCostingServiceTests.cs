@@ -96,11 +96,9 @@ public sealed class PlanCostingServiceTests
         // the (wrong) result would be 2m * 3 = 6m.
         var pricePoint = new MealPlanPricePoint(productId, 10m, 1m, unitId, 2m);
         var fakePriceReader = new FakePriceReader(pricePoint);
-        var catalogReader = new FakeMealPlanCatalogProductReader(new Dictionary<Guid, Guid> { [productId] = unitId });
-
-        var svc = BuildService(priceReader: fakePriceReader, catalogReader: catalogReader);
+        var svc = BuildService(priceReader: fakePriceReader);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 3)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 3m, unitId)], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0]);
 
@@ -118,11 +116,9 @@ public sealed class PlanCostingServiceTests
         // Price = $5 for qty 2 → unit price = $2.50; servings = 2 → expected $5
         var pricePoint = new MealPlanPricePoint(productId, 5m, 2m, unitId, null);
         var fakePriceReader = new FakePriceReader(pricePoint);
-        var catalogReader = new FakeMealPlanCatalogProductReader(new Dictionary<Guid, Guid> { [productId] = unitId });
-
-        var svc = BuildService(priceReader: fakePriceReader, catalogReader: catalogReader);
+        var svc = BuildService(priceReader: fakePriceReader);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, unitId)], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0]);
 
@@ -142,11 +138,9 @@ public sealed class PlanCostingServiceTests
         var pricePoint = new MealPlanPricePoint(productId, 12.99m, 1m, kgUnitId, 0.01299m);
         var fakePriceReader = new FakePriceReader(pricePoint);
         // Product's default unit IS the kg the observation was recorded in — identity, no conversion.
-        var catalogReader = new FakeMealPlanCatalogProductReader(new Dictionary<Guid, Guid> { [productId] = kgUnitId });
-
-        var svc = BuildService(priceReader: fakePriceReader, catalogReader: catalogReader);
+        var svc = BuildService(priceReader: fakePriceReader);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, kgUnitId)], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0]);
 
@@ -165,14 +159,13 @@ public sealed class PlanCostingServiceTests
         // Priced per-ea at $1.00; default unit is doz (12 ea). Expected per-doz price = $12.00.
         var pricePoint = new MealPlanPricePoint(productId, 1.00m, 1m, eaUnitId, null);
         var fakePriceReader = new FakePriceReader(pricePoint);
-        var catalogReader = new FakeMealPlanCatalogProductReader(new Dictionary<Guid, Guid> { [productId] = dozUnitId });
         // 1 ea converts to 1/12 doz.
         var converter = new FakeMealPlanUnitConverter((from, to) =>
             from == eaUnitId && to == dozUnitId ? 1m / 12m : null);
 
-        var svc = BuildService(priceReader: fakePriceReader, catalogReader: catalogReader, unitConverter: converter);
+        var svc = BuildService(priceReader: fakePriceReader, unitConverter: converter);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, dozUnitId)], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0]);
 
@@ -180,6 +173,28 @@ public sealed class PlanCostingServiceTests
         // Compared to 2dp: the recurring-decimal 1/12 conversion factor (mirrors a real ea->doz
         // FactorToBase ratio) leaves a sub-cent rounding remainder from the decimal division.
         Assert.Equal(24.00m, result.Amount!.Value, 2); // (1.00 * 12) * 2 servings
+    }
+
+    [Fact]
+    public async Task RollUpMealAsync_ProductDish_UsesSavedUnitAndQuantitySnapshot()
+    {
+        var productId = Guid.NewGuid();
+        var kgUnitId = Guid.NewGuid();
+        var gramUnitId = Guid.NewGuid();
+        var pricePoint = new MealPlanPricePoint(productId, 10m, 1m, kgUnitId, null);
+        var converter = new FakeMealPlanUnitConverter((from, to) =>
+            from == kgUnitId && to == gramUnitId ? 1000m : null);
+        var svc = BuildService(
+            priceReader: new FakePriceReader(pricePoint),
+            unitConverter: converter);
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA,
+            [DishSpec.ForProduct(productId, 500m, gramUnitId)], null, "manual", UserId, Clock);
+
+        var result = await svc.RollUpMealAsync(plan.PlannedMeals[0]);
+
+        Assert.Equal(CostCompleteness.Full, result.Completeness);
+        Assert.Equal(5m, result.Amount);
     }
 
     // ── Product dish — unresolvable conversion returns partial, never fabricated (AC3) ──
@@ -195,16 +210,15 @@ public sealed class PlanCostingServiceTests
         var recipeReader = new FakePriceEnrichmentReader(pricedRecipe, new RecipeDishEnrichment(100, 4m, false, false));
         var pricePoint = new MealPlanPricePoint(productId, 3m, 1m, eaUnitId, null);
         var fakePriceReader = new FakePriceReader(pricePoint);
-        var catalogReader = new FakeMealPlanCatalogProductReader(new Dictionary<Guid, Guid> { [productId] = kgUnitId });
         // No path from ea to kg — no ProductConversion registered for this product.
         var converter = new FakeMealPlanUnitConverter((_, _) => null);
 
         var svc = BuildService(recipeReader: recipeReader, priceReader: fakePriceReader,
-            catalogReader: catalogReader, unitConverter: converter);
+            unitConverter: converter);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignMeal(Monday, SlotA, [
             new DishSpec(DishKind.Recipe, pricedRecipe, 2),
-            new DishSpec(DishKind.Product, productId, 2),
+            DishSpec.ForProduct(productId, 2m, kgUnitId),
         ], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0]);
@@ -220,7 +234,8 @@ public sealed class PlanCostingServiceTests
     {
         var svc = BuildService(priceReader: new FakePriceReader(null));
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, Guid.NewGuid(), 2)], null, "manual", UserId, Clock);
+        var productId = Guid.NewGuid();
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, Guid.NewGuid())], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0]);
 
@@ -313,13 +328,11 @@ public sealed class PlanCostingServiceTests
     private static PlanCostingService BuildService(
         IRecipeReadModel? recipeReader = null,
         IMealPlanPriceReader? priceReader = null,
-        IMealPlanCatalogProductReader? catalogReader = null,
         IMealPlanUnitConverter? unitConverter = null,
         IClock? clock = null)
         => new(
             recipeReader ?? new FakePriceEnrichmentReader(Guid.Empty, null),
             priceReader ?? new FakePriceReader(null),
-            catalogReader ?? new FakeMealPlanCatalogProductReader(new Dictionary<Guid, Guid>()),
             unitConverter ?? new FakeMealPlanUnitConverter((_, _) => null),
             clock ?? Clock);
 }

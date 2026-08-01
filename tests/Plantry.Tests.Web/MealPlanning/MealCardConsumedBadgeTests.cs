@@ -252,7 +252,7 @@ public sealed class ConsumedBadgeMealPlanRepo : IMealPlanRepository
 
         Plan = MealPlan.Start(_household, WeekMonday, clock);
         Plan.AssignMeal(Today, ConsumedBadgeFixture.LunchSlotId,
-            [.. productIds.Select(pid => new DishSpec(DishKind.Product, pid, 2))],
+            [.. productIds.Select(pid => DishSpec.ForProduct(pid, 2m, ExpiringStockReader.UnitId))],
             null, "manual", Guid.Empty, clock);
 
         var meal = Plan.PlannedMeals.Single(m => m.MealSlotId == ConsumedBadgeFixture.LunchSlotId);
@@ -280,7 +280,7 @@ internal sealed class ExpiringStockReader(
     IReadOnlyList<Guid> expiringProductIds,
     IReadOnlyList<Guid> nonExpiringButStockedProductIds) : IMealPlanStockReader
 {
-    private static readonly Guid UnitId = Guid.Parse("aaaaaaaa-0000-0000-0000-00000000000e");
+    internal static readonly Guid UnitId = Guid.Parse("aaaaaaaa-0000-0000-0000-00000000000e");
 
     public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
     {

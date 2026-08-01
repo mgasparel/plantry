@@ -25,8 +25,18 @@ public sealed class PlannedDish : Entity<PlannedDishId>
     /// <summary>Soft ref → catalog.product (DM-10). XOR <see cref="RecipeId"/>.</summary>
     public Guid? ProductId { get; private set; }
 
-    /// <summary>Number of servings; >= 1 (M3).</summary>
-    public int Servings { get; private set; }
+    /// <summary>
+    /// Recipe servings.  Product dishes deliberately do not use this column; their quantity is
+    /// held in <see cref="Quantity"/> and denominated by <see cref="UnitId"/>.  The property is
+    /// nullable so the persisted discriminator can enforce the two complete dish shapes.
+    /// </summary>
+    public int? Servings { get; private set; }
+
+    /// <summary>Planned quantity for a product dish, stored at numeric(12,3) precision.</summary>
+    public decimal? Quantity { get; private set; }
+
+    /// <summary>Soft reference to the unit in which <see cref="Quantity"/> is expressed.</summary>
+    public Guid? UnitId { get; private set; }
 
     /// <summary>Position within the meal; UNIQUE (planned_meal_id, ordinal).</summary>
     public int Ordinal { get; private set; }
@@ -47,6 +57,8 @@ public sealed class PlannedDish : Entity<PlannedDishId>
             RecipeId = recipeId,
             ProductId = null,
             Servings = servings,
+            Quantity = null,
+            UnitId = null,
             Ordinal = ordinal,
         };
     }
@@ -55,10 +67,12 @@ public sealed class PlannedDish : Entity<PlannedDishId>
         HouseholdId householdId,
         PlannedMealId mealId,
         Guid productId,
-        int servings,
+        decimal quantity,
+        Guid unitId,
         int ordinal)
     {
-        if (servings < 1) throw new ArgumentOutOfRangeException(nameof(servings), "Servings must be >= 1 (M3).");
+        if (quantity <= 0m) throw new ArgumentOutOfRangeException(nameof(quantity), "Product quantity must be > 0.");
+        if (unitId == Guid.Empty) throw new ArgumentException("Product unit is required.", nameof(unitId));
         return new PlannedDish
         {
             Id = PlannedDishId.New(),
@@ -66,7 +80,9 @@ public sealed class PlannedDish : Entity<PlannedDishId>
             PlannedMealId = mealId,
             RecipeId = null,
             ProductId = productId,
-            Servings = servings,
+            Servings = null,
+            Quantity = quantity,
+            UnitId = unitId,
             Ordinal = ordinal,
         };
     }
@@ -75,6 +91,17 @@ public sealed class PlannedDish : Entity<PlannedDishId>
     {
         if (servings < 1) throw new ArgumentOutOfRangeException(nameof(servings), "Servings must be >= 1 (M3).");
         Servings = servings;
+        Quantity = null;
+        UnitId = null;
+    }
+
+    internal void SetProductQuantity(decimal quantity, Guid unitId)
+    {
+        if (quantity <= 0m) throw new ArgumentOutOfRangeException(nameof(quantity), "Product quantity must be > 0.");
+        if (unitId == Guid.Empty) throw new ArgumentException("Product unit is required.", nameof(unitId));
+        Servings = null;
+        Quantity = quantity;
+        UnitId = unitId;
     }
 
     /// <summary>

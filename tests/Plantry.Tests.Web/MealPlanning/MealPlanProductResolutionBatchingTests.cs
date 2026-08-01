@@ -211,19 +211,19 @@ public sealed class ProductBatchingMealPlanRepo : IMealPlanRepository
 
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductBatchingFixture.BreakfastSlotId,
             [
-                new DishSpec(DishKind.Product, ProductBatchingFixture.FlourProductId, 2),
-                new DishSpec(DishKind.Product, ProductBatchingFixture.ButterProductId, 2),
+                DishSpec.ForProduct(ProductBatchingFixture.FlourProductId, 2m, ProductBatchingFixture.EachUnitId),
+                DishSpec.ForProduct(ProductBatchingFixture.ButterProductId, 2m, ProductBatchingFixture.EachUnitId),
             ],
             null, "manual", Guid.Empty, _clock);
 
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductBatchingFixture.LunchSlotId,
-            [new DishSpec(DishKind.Product, ProductBatchingFixture.FlourProductId, 1)],
+            [DishSpec.ForProduct(ProductBatchingFixture.FlourProductId, 1m, ProductBatchingFixture.EachUnitId)],
             null, "manual", Guid.Empty, _clock);
 
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductBatchingFixture.DinnerSlotId,
             [
-                new DishSpec(DishKind.Product, ProductBatchingFixture.SugarProductId, 1),
-                new DishSpec(DishKind.Product, ProductBatchingFixture.OilProductId, 1),
+                DishSpec.ForProduct(ProductBatchingFixture.SugarProductId, 1m, ProductBatchingFixture.GramUnitId),
+                DishSpec.ForProduct(ProductBatchingFixture.OilProductId, 1m, ProductBatchingFixture.GramUnitId),
             ],
             null, "manual", Guid.Empty, _clock);
 

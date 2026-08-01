@@ -40,31 +40,18 @@ public sealed class AssignMealService(
         PlannedMealId? mealId = null,
         CancellationToken ct = default)
     {
-        // Validate product dishes exist in catalog and are plannable (plantry-pt79: a parent
-        // (grouping) product has no resolution point for "which variant was consumed" and cannot be
-        // planned as a direct product dish — existing planned parent dishes are grandfathered, but
-        // no new one may be created).
-        foreach (var dish in dishes.Where(d => d.Kind == DishKind.Product))
+        IReadOnlyList<DishSpec> validatedDishes;
+        try
         {
-            var plannable = await catalogReader.IsPlannableAsync(dish.ItemId, ct);
-            if (!plannable)
-            {
-                var exists = await catalogReader.ExistsAsync(dish.ItemId, ct);
-                if (!exists)
-                {
-                    logger.LogWarning(
-                        "AssignDishes failed — product {ProductId} does not exist in catalog for slot {SlotId} on {Date}.",
-                        dish.ItemId, slotId.Value, date);
-                    throw new InvalidOperationException(
-                        $"Product {dish.ItemId} does not exist in the catalog.");
-                }
-
-                logger.LogWarning(
-                    "AssignDishes failed — product {ProductId} is a parent (grouping) product and cannot be planned directly for slot {SlotId} on {Date}.",
-                    dish.ItemId, slotId.Value, date);
-                throw new InvalidOperationException(
-                    $"Product {dish.ItemId} is a parent product group and cannot be planned as a dish directly — choose a specific variant.");
-            }
+            validatedDishes = await ProductDishValidator.NormalizeAsync(catalogReader, dishes, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "AssignDishes validation rejected request for slot {SlotId} on {Date}; reason: {Reason}.",
+                slotId.Value, date, ex.Message);
+            throw;
         }
 
         var plan = await mealPlanRepo.FindOrCreateAsync(householdId, MealPlan.NormalizeToMonday(date), clock, ct);
@@ -99,7 +86,7 @@ public sealed class AssignMealService(
             warning = constraints.HardStanceWarning;
         }
 
-        var result = plan.AssignMeal(date, slotId, dishes, attendeesOverride, "manual", createdBy, clock, warning, mealId);
+        var result = plan.AssignMeal(date, slotId, validatedDishes, attendeesOverride, "manual", createdBy, clock, warning, mealId);
         await mealPlanRepo.SaveChangesAsync(ct);
         if (warning is not null)
             logger.LogWarning(
@@ -108,7 +95,7 @@ public sealed class AssignMealService(
         else
             logger.LogInformation(
                 "Meal assigned to slot {SlotId} on {Date}. Dishes: {DishCount}.",
-                slotId.Value, date, dishes.Count);
+                slotId.Value, date, validatedDishes.Count);
         return result;
     }
 

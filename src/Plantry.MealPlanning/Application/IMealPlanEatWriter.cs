@@ -45,6 +45,16 @@ public interface IMealPlanEatWriter
         Guid userId,
         CancellationToken ct = default);
 
+    /// <summary>Unit-aware overload used by explicit product-dish snapshots.</summary>
+    Task EatAsync(
+        Guid plannedDishId,
+        Guid productId,
+        decimal quantity,
+        Guid unitId,
+        Guid userId,
+        CancellationToken ct = default)
+        => EatAsync(plannedDishId, productId, quantity, userId, ct);
+
     /// <summary>
     /// Reverses the most recent eat for <paramref name="plannedDishId"/> with a compensating journal
     /// ADD of the same product/quantity, so the dish's derived state nets back to pending and a
@@ -59,4 +69,14 @@ public interface IMealPlanEatWriter
         decimal quantity,
         Guid userId,
         CancellationToken ct = default);
+
+    /// <summary>Unit-aware counterpart; undo restores each journal lot in its actual unit.</summary>
+    Task UndoEatAsync(
+        Guid plannedDishId,
+        Guid productId,
+        decimal quantity,
+        Guid unitId,
+        Guid userId,
+        CancellationToken ct = default)
+        => UndoEatAsync(plannedDishId, productId, quantity, userId, ct);
 }

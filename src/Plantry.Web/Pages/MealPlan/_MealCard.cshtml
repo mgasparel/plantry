@@ -259,7 +259,7 @@
                                     hx-swap="@(dish.NeedsEatConfirm ? "innerHTML" : "outerHTML")">
                                 <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
                                 <span class="act-name">@eatLabel</span>
-                                <span class="act-srv">@dish.Servings @dish.UnitCode</span>
+                                <span class="act-srv">@(dish.Quantity?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? "?") @dish.UnitCode</span>
                             </button>
                             <button class="mc-cook-act-adjust" type="button"
                                     hx-get="@eatSheetUrl"

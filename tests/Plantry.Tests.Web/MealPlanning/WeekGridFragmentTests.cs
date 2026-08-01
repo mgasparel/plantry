@@ -209,7 +209,7 @@ public sealed class WeekGridFragmentTests : IClassFixture<MealPlanFragmentFactor
 [Collection(nameof(DishServingsCollection))]
 public sealed class DishServingsAlignmentTests(DishServingsFactory factory)
 {
-    [Fact(DisplayName = "POST AssignJson with mixed recipe+product dishes preserves per-dish servings")]
+    [Fact(DisplayName = "POST AssignJson with mixed recipe+product dishes preserves per-dish quantities")]
     public async Task Assign_MixedDishes_ServingsAreIndexAligned()
     {
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -231,9 +231,9 @@ public sealed class DishServingsAlignmentTests(DishServingsFactory factory)
             dishes = new[]
             {
                 // dish 0: recipe, 3 servings
-                new { kind = "recipe", itemId = recipeId, servings = 3 },
-                // dish 1: product, 7 servings
-                new { kind = "product", itemId = productId, servings = 7 },
+                new { kind = "recipe", itemId = recipeId, servings = (int?)3, quantity = (decimal?)null, unitId = (Guid?)null },
+                // dish 1: product, 7 count in an explicit reachable unit
+                new { kind = "product", itemId = productId, servings = (int?)null, quantity = (decimal?)7m, unitId = (Guid?)DishServingsFactory.ProductUnitId },
             },
         };
         var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
@@ -254,10 +254,12 @@ public sealed class DishServingsAlignmentTests(DishServingsFactory factory)
         Assert.Equal(recipeId, dishes[0].RecipeId!.Value);
         Assert.Equal(3, dishes[0].Servings);
 
-        // dish 1: product with 7 servings
+        // dish 1: product with 7 count in the selected unit
         Assert.NotNull(dishes[1].ProductId);
         Assert.Equal(productId, dishes[1].ProductId!.Value);
-        Assert.Equal(7, dishes[1].Servings);
+        Assert.Null(dishes[1].Servings);
+        Assert.Equal(7m, dishes[1].Quantity);
+        Assert.Equal(DishServingsFactory.ProductUnitId, dishes[1].UnitId);
     }
 
     private static string ExtractAntiforgeryToken(string html)
@@ -274,6 +276,8 @@ public sealed class DishServingsCollection : ICollectionFixture<DishServingsFact
 
 public sealed class DishServingsFactory : MealPlanFragmentFactory
 {
+    public static readonly Guid ProductUnitId = Guid.Parse("77777777-0000-0000-0000-000000000007");
+
     public CapturingMealPlanRepo CapturingRepo { get; } = new();
 
     protected override IMealPlanRepository MealPlanRepo => CapturingRepo;
@@ -314,6 +318,29 @@ internal sealed class FakeCatalogProductReaderW(bool existsResult = true) : IMea
 
     public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+    public Task<IReadOnlyDictionary<Guid, MealPlanProductPlanningInfo>> GetPlanningInfoAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, MealPlanProductPlanningInfo>>(
+            existsResult
+                ? productIds.ToDictionary(
+                    id => id,
+                    id => new MealPlanProductPlanningInfo(
+                        id,
+                        DishServingsFactory.ProductUnitId,
+                        "count",
+                        [new MealPlanUnitOption(DishServingsFactory.ProductUnitId, "ea", "count")]))
+                : new Dictionary<Guid, MealPlanProductPlanningInfo>());
+
+    public Task<MealPlanProductPlanningInfo?> GetPlanningInfoAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult<MealPlanProductPlanningInfo?>(
+            existsResult
+                ? new MealPlanProductPlanningInfo(
+                    productId,
+                    DishServingsFactory.ProductUnitId,
+                    "count",
+                    [new MealPlanUnitOption(DishServingsFactory.ProductUnitId, "ea", "count")])
+                : null);
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────

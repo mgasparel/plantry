@@ -185,7 +185,6 @@ public sealed class DealAwareCostingAdapterTests
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
             new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
-            new FakeMealPlanCatalogProductReader(UnitId),
             new IdentityMealPlanUnitConverter(),
             clock);
 
@@ -204,7 +203,6 @@ public sealed class DealAwareCostingAdapterTests
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
             new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
-            new FakeMealPlanCatalogProductReader(UnitId),
             new IdentityMealPlanUnitConverter(),
             clock);
 
@@ -234,7 +232,6 @@ public sealed class DealAwareCostingAdapterTests
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
             new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
-            new FakeMealPlanCatalogProductReader(UnitId),
             new IdentityMealPlanUnitConverter(),
             clock);
 
@@ -275,7 +272,7 @@ public sealed class DealAwareCostingAdapterTests
         var plan = MealPlan.Start(Household, new DateOnly(2026, 7, 6), SystemClock.Instance);
         plan.AssignMeal(
             new DateOnly(2026, 7, 6), MealSlotId.New(),
-            [new DishSpec(DishKind.Product, productId, 1)], null, "manual", Guid.NewGuid(), SystemClock.Instance);
+            [DishSpec.ForProduct(productId, 1m, UnitId)], null, "manual", Guid.NewGuid(), SystemClock.Instance);
         return plan.PlannedMeals[0];
     }
 

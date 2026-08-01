@@ -1,5 +1,6 @@
 @using Plantry.Web.Pages.Today
 @using Plantry.MealPlanning.Application
+@using Plantry.MealPlanning.Domain
 @model IndexModel
 
 @* Today's planned meals band — Phase-3 (SPEC Page 0 §0c, plantry-zp7).
@@ -145,7 +146,10 @@
                                     @* Meta quantity shows only for a single-dish meal, where it's unambiguous and
                                        matches the headline — a multi-dish meal suppresses it in favour of the
                                        per-dish sub-line above (plantry-nlg4). *@
-                                    @if (slot.Dishes.Count == 1 && slot.Dishes[0].Servings > 0)
+                                    @if (slot.Dishes.Count == 1
+                                         && (slot.Dishes[0].Kind == DishKind.Product
+                                             ? slot.Dishes[0].Quantity is > 0m
+                                             : slot.Dishes[0].Servings > 0))
                                     {
                                         <span class="today-meal-meta-item">
                                             <svg class="icon" aria-hidden="true"><use href="#i-servings" /></svg>

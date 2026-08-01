@@ -49,6 +49,20 @@ public interface IMealPlanCatalogProductReader
         => Task.FromResult<Guid?>(null);
 
     /// <summary>
+    /// Returns the current default unit and the server-authoritative reachable choices used when
+    /// validating a product dish.  This is an additive ACL seam so existing test doubles can keep
+    /// implementing the older reader contract; a null result means the caller must fall back to
+    /// the default-unit existence check.
+    /// </summary>
+    Task<MealPlanProductPlanningInfo?> GetPlanningInfoAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult<MealPlanProductPlanningInfo?>(null);
+
+    Task<IReadOnlyDictionary<Guid, MealPlanProductPlanningInfo>> GetPlanningInfoAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, MealPlanProductPlanningInfo>>(
+            new Dictionary<Guid, MealPlanProductPlanningInfo>());
+
+    /// <summary>
     /// Resolves each product's default unit CODE (e.g. "ea", "lb") by ID in a single round-trip —
     /// the display label for a product-dish quantity (plantry-ri26: product dishes were always
     /// labelled "servings" regardless of the product's configured unit). Distinct from
@@ -87,7 +101,21 @@ public interface IMealPlanCatalogProductReader
 /// resolved code or the same placeholder.
 /// </param>
 public sealed record MealPlanProductReadModel(
-    Guid ProductId, string Name, string UnitCode = DishDisplayPlaceholders.UnresolvedUnitCode);
+    Guid ProductId,
+    string Name,
+    string UnitCode = DishDisplayPlaceholders.UnresolvedUnitCode,
+    Guid? DefaultUnitId = null,
+    string? Dimension = null,
+    IReadOnlyList<MealPlanUnitOption>? UnitOptions = null);
+
+/// <summary>Catalog facts needed to validate and hydrate a product dish without a Catalog dependency.</summary>
+public sealed record MealPlanProductPlanningInfo(
+    Guid ProductId,
+    Guid DefaultUnitId,
+    string Dimension,
+    IReadOnlyList<MealPlanUnitOption> UnitOptions);
+
+public sealed record MealPlanUnitOption(Guid UnitId, string Code, string Dimension);
 
 /// <summary>
 /// Shared placeholder text for an unresolvable product-dish name/unit (plantry-r2yf AC7). Both the

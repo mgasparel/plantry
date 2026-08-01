@@ -158,7 +158,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         // A product dish plan (not a recipe — the product itself is the dish).
         var productPlan = MealPlan.Start(_household, Monday, Clock);
         productPlan.AssignMeal(Monday, _slotId,
-            [new DishSpec(DishKind.Product, _productId, 2)],
+            [DishSpec.ForProduct(_productId, 2m, _unitId)],
             null, "manual", Guid.Empty, Clock);
         await SeedMealPlanAsync(productPlan);
 
