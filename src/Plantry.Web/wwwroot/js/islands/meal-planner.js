@@ -590,12 +590,12 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                               ${productUnitPicker(d).staleUnitCode}
                             </span>
                           `}
-                          <input class="sv-input" type="number" min="0" step=${d.dimension?.toLowerCase() === "count" ? "1" : "any"}
+                          <input class="field__input sv-input" type="number" min="0" step=${d.dimension?.toLowerCase() === "count" ? "1" : "any"}
                                  aria-label=${"Quantity for " + d.name}
                                  value=${d.quantity ?? ""}
                                  onInput=${(/** @type {InputEvent} */ e) =>
                                    setProductQuantity(d, /** @type {HTMLInputElement} */ (e.target).value)} />
-                          <select class="sv-unit" value=${productUnitPicker(d).selectedUnitId}
+                          <select class="field__input sv-unit" value=${productUnitPicker(d).selectedUnitId}
                                   onChange=${(/** @type {Event} */ e) =>
                                     setProductUnit(d, /** @type {HTMLSelectElement} */ (e.target).value)}
                                   aria-label="Unit">

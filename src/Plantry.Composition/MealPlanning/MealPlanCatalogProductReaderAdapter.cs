@@ -53,6 +53,7 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
         var products = await db.Products
             .Where(p => p.ArchivedAt == null && !p.HasVariants &&
                         (q == "" || EF.Functions.ILike(p.Name, $"%{q}%")))
+            .Include(p => p.Conversions)
             .OrderBy(p => p.Name)
             .Take(maxResults)
             .ToListAsync(ct);

@@ -208,6 +208,38 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         Assert.Equal(0, counter.CountMatching("units"));
     }
 
+    [Fact(DisplayName = "SearchAsync includes product conversions in reachable unit options, with the default unit first")]
+    public async Task SearchAsync_Includes_ProductConversions_InUnitOptions()
+    {
+        UnitId servingId;
+        ProductId pastaId;
+        await using (var setup = NewCatalogDb())
+        {
+            var serving = Plantry.Catalog.Domain.Unit.Create(
+                _household, "srv", "serving", Dimension.Count, 1m);
+            await setup.Units.AddAsync(serving);
+            await setup.SaveChangesAsync();
+            servingId = serving.Id;
+
+            var pasta = Product.Create(_household, "Pasta Dry - Spaghetti", _gramsId, Clock);
+            pasta.AddConversion(servingId, _gramsId, 100m, Clock);
+            await setup.Products.AddAsync(pasta);
+            await setup.SaveChangesAsync();
+            pastaId = pasta.Id;
+        }
+
+        await using var read = NewCatalogDb();
+        var reader = new MealPlanCatalogProductReaderAdapter(read);
+
+        var result = Assert.Single(await reader.SearchAsync("Spaghetti"));
+        var unitOptions = result.UnitOptions
+            ?? throw new InvalidOperationException("Search result did not include unit options.");
+
+        Assert.Equal(pastaId.Value, result.ProductId);
+        Assert.Equal(_gramsId.Value, unitOptions[0].UnitId);
+        Assert.Contains(unitOptions, option => option.UnitId == servingId.Value && option.Code == "srv");
+    }
+
     [Fact(DisplayName = "ResolveUnitCodesAsync resolves unit ids to display codes directly, omitting unknown ids (plantry-vqa7)")]
     public async Task ResolveUnitCodesAsync_Resolves_By_Unit_Id_Omits_Unknown()
     {
