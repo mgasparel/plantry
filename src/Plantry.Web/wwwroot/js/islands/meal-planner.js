@@ -41,6 +41,8 @@
 // CONVENTION — when to bump each ?v= query:
 //   ./runtime.js?v=N           bump when runtime.js changes (Preact/htm/signals re-exports)
 //   ./meal-planner-logic.js?v=N  bump when meal-planner-logic.js changes
+//   ./quantity-stepper.js?v=N   bump when the reusable island stepper changes
+//   ./unit-picker.js?v=N        bump when the reusable island unit picker changes
 //   ./helpers.js is imported directly by MealPlan/Index.cshtml with FileVersionProvider,
 //   so it gets a content-hash automatically — no manual token needed here.
 //
@@ -50,7 +52,9 @@
 
 import { render, html, signal, computed, effect, useSignal, useComputed, useRef } from "./runtime.js?v=1";
 import { readAntiforgeryToken, postJson } from "./helpers.js";
-import { lvl, money, dishMeta, dishUnitLabel, productUnitPicker, dishInput } from "./meal-planner-logic.js?v=5";
+import { lvl, money, dishMeta, productUnitPicker, dishInput } from "./meal-planner-logic.js?v=5";
+import { QuantityStepper } from "./quantity-stepper.js?v=1";
+import { UnitPicker } from "./unit-picker.js?v=1";
 
 // ── Type documentation ────────────────────────────────────────────────────────
 
@@ -435,6 +439,11 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
     requestRollup();
   }
 
+  function adjustProductQuantity(/** @type {DishDraft} */ d, /** @type {number} */ delta) {
+    const current = typeof d.quantity === "number" && Number.isFinite(d.quantity) ? d.quantity : 0;
+    setProductQuantity(d, String(Math.max(0, current + delta)));
+  }
+
   function setProductUnit(/** @type {DishDraft} */ d, /** @type {string} */ unitId) {
     const option = productUnitPicker(d).options.find((x) => x.unitId === unitId);
     dishes.value = dishes.value.map((x) => x === d
@@ -578,34 +587,32 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                       </div>
                     </div>
                     ${d.kind === "recipe"
-                      ? html`<div class="serv-step">
-                          <button type="button" onClick=${() => decServings(d)} aria-label="Fewer">−</button>
-                          <span class="sv"><span>${d.servings}</span><small>${dishUnitLabel(d)}</small></span>
-                          <button type="button" onClick=${() => incServings(d)} aria-label="More">+</button>
-                        </div>`
-                        : html`<div class="serv-step product-quantity" aria-label=${"Quantity for " + d.name}>
-                          ${productUnitPicker(d).staleUnitCode && html`
-                            <span class="sv-unit-stale" aria-disabled="true"
-                                  title="Saved unit is no longer reachable">
-                              ${productUnitPicker(d).staleUnitCode}
-                            </span>
-                          `}
-                          <input class="field__input sv-input" type="number" min="0" step=${d.dimension?.toLowerCase() === "count" ? "1" : "any"}
-                                 aria-label=${"Quantity for " + d.name}
-                                 value=${d.quantity ?? ""}
-                                 onInput=${(/** @type {InputEvent} */ e) =>
-                                   setProductQuantity(d, /** @type {HTMLInputElement} */ (e.target).value)} />
-                          <select class="field__input sv-unit" value=${productUnitPicker(d).selectedUnitId}
-                                  onChange=${(/** @type {Event} */ e) =>
-                                    setProductUnit(d, /** @type {HTMLSelectElement} */ (e.target).value)}
-                                  aria-label="Unit">
-                            ${productUnitPicker(d).selectedUnitId === "" && html`
-                              <option value="" disabled>Choose unit…</option>
-                            `}
-                            ${productUnitPicker(d).options.map((o) => html`
-                              <option key=${o.unitId} value=${o.unitId}>${o.code}</option>
-                            `)}
-                          </select>
+                      ? html`<${QuantityStepper}
+                          variant="compact"
+                          display=${true}
+                          value=${d.servings}
+                          ariaLabel=${"Servings for " + d.name}
+                          decreaseLabel="Fewer servings"
+                          increaseLabel="More servings"
+                          decreaseDisabled=${d.servings <= 1}
+                          onDecrease=${() => decServings(d)}
+                          onIncrease=${() => incServings(d)} />`
+                      : html`<div class="product-quantity" aria-label=${"Quantity for " + d.name}>
+                          <${QuantityStepper}
+                            value=${d.quantity}
+                            min="0"
+                            step=${d.dimension?.toLowerCase() === "count" ? "1" : "any"}
+                            ariaLabel=${"Quantity for " + d.name}
+                            decreaseLabel="Decrease quantity"
+                            increaseLabel="Increase quantity"
+                            onInput=${(/** @type {string} */ raw) => setProductQuantity(d, raw)}
+                            onDecrease=${() => adjustProductQuantity(d, -1)}
+                            onIncrease=${() => adjustProductQuantity(d, 1)} />
+                          <${UnitPicker}
+                            options=${productUnitPicker(d).options}
+                            selectedUnitId=${productUnitPicker(d).selectedUnitId}
+                            staleUnitCode=${productUnitPicker(d).staleUnitCode}
+                            onChange=${(/** @type {string} */ unitId) => setProductUnit(d, unitId)} />
                         </div>`}
                     <button type="button" class="edd-del" onClick=${() => removeDish(idx)} aria-label="Remove dish">
                       <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>

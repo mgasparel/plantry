@@ -114,26 +114,6 @@ export function dishMeta(d, symbol = "$") {
   return s;
 }
 
-// ── dishUnitLabel ────────────────────────────────────────────────────────────
-
-/**
- * The small quantity-unit label shown next to a dish's servings stepper/count
- * (plantry-ri26: product dishes were always labelled "servings" regardless of the
- * product's actually configured unit).
- *
- * Format:
- *   - recipe dish → "serv" (unchanged — recipe quantities are always servings)
- *   - product dish → the product's default unit code (e.g. "ea", "lb")
- *   - product dish with no resolvable unitCode → "?" (never a bare/empty label —
- *     a missing unit must stay visibly a gap, not silently disappear)
- *
- * @param {DishDraft} d
- * @returns {string}
- */
-export function dishUnitLabel(d) {
-  return d.kind === "product" ? (d.unitCode || "?") : "serv";
-}
-
 // ── productUnitPicker ───────────────────────────────────────────────────────
 
 /**

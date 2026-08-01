@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.MealPlanning.Application;
@@ -140,13 +141,27 @@ public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : I
 
     private static IReadOnlyList<MealPlanUnitOption> BuildUnitOptions(Product product, IReadOnlyList<Unit> units)
     {
-        var ids = UnitConverter.ReachableUnits(product.DefaultUnitId.Value, units, product.Conversions);
+        var ids = UnitConverter.ReachableUnits(product.DefaultUnitId.Value, units, product.Conversions)
+            .ToHashSet();
         var byId = units.ToDictionary(u => u.Id.Value);
-        return ids
-            .Select(id => byId.TryGetValue(id, out var u)
-                ? new MealPlanUnitOption(id, u.Code, u.Dimension.ToDbValue())
-                : new MealPlanUnitOption(id, DishDisplayPlaceholders.UnresolvedUnitCode, string.Empty))
+
+        // Reachability remains the semantic filter owned by UnitConverter.  Once the
+        // reachable set crosses the ACL boundary, apply the same Mass → Volume → Count,
+        // then-code order used by every server-rendered unit picker (UnitQueries /
+        // UnitSelectListBuilder).  In particular, do not keep ReachableUnits' historical
+        // "default first" order: the selected value is carried separately by the editor draft.
+        var ordered = UnitQueries.OrderForDropdown(units.Where(u => ids.Contains(u.Id.Value)));
+        var options = ordered
+            .Select(u => new MealPlanUnitOption(u.Id.Value, u.Code, u.Dimension.ToDbValue()))
             .ToList();
+
+        // Preserve the old unresolved-id safety path for a partially stale catalog snapshot,
+        // but keep that value outside a dimension group rather than assigning it a false one.
+        options.AddRange(ids
+            .Where(id => !byId.ContainsKey(id))
+            .Select(id => new MealPlanUnitOption(id, DishDisplayPlaceholders.UnresolvedUnitCode, string.Empty)));
+
+        return options;
     }
 
     public async Task<IReadOnlyDictionary<Guid, string>> ResolveDefaultUnitCodesAsync(

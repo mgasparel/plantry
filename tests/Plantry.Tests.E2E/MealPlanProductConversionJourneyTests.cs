@@ -68,22 +68,23 @@ public sealed class MealPlanProductConversionJourneyTests(AppHostFixture appHost
             await Assertions.Expect(productHit).ToBeVisibleAsync();
             await productHit.ClickAsync();
 
-            var quantityInput = dialog.Locator("input.sv-input.field__input");
-            var unitSelect = dialog.Locator("select.sv-unit.field__input");
+            var quantityInput = dialog.Locator(".product-quantity input.stepper__val");
+            var unitSelect = dialog.Locator("select.meal-unit-picker__select");
             await Assertions.Expect(quantityInput).ToBeVisibleAsync();
             await Assertions.Expect(unitSelect).ToBeVisibleAsync();
-            Assert.Contains("field__input", await quantityInput.GetAttributeAsync("class") ?? string.Empty);
+            Assert.Contains("stepper__val", await quantityInput.GetAttributeAsync("class") ?? string.Empty);
             Assert.Contains("field__input", await unitSelect.GetAttributeAsync("class") ?? string.Empty);
 
-            // The shared field controls should remain a compact joined pair in the editor row:
-            // equal heights and no visible gap between their borders.
-            var quantityBox = await quantityInput.BoundingBoxAsync();
+            // The quantity control is the canonical stepper contract; the unit
+            // picker is its neighbouring native select.  Keep a light layout
+            // guard without coupling the journey to incidental button widths.
+            var stepper = dialog.Locator(".product-quantity > .stepper");
+            await Assertions.Expect(stepper).ToBeVisibleAsync();
+            var stepperBox = await stepper.BoundingBoxAsync();
             var unitBox = await unitSelect.BoundingBoxAsync();
-            Assert.NotNull(quantityBox);
+            Assert.NotNull(stepperBox);
             Assert.NotNull(unitBox);
-            Assert.InRange(Math.Abs(quantityBox!.Y - unitBox!.Y), 0, 1.5);
-            Assert.InRange(Math.Abs(quantityBox.Height - unitBox.Height), 0, 1.5);
-            Assert.InRange(Math.Abs(quantityBox.X + quantityBox.Width - unitBox.X), 0, 1.5);
+            Assert.InRange(Math.Abs(stepperBox!.Y - unitBox!.Y), 0, 2);
 
             var unitLabels = await unitSelect.Locator("option").AllTextContentsAsync();
             Assert.Contains("srv", unitLabels);
@@ -104,8 +105,20 @@ public sealed class MealPlanProductConversionJourneyTests(AppHostFixture appHost
             // A fresh server render must still show the selected unit, proving this was not only
             // an island-local draft value.
             await page.ReloadAsync();
-            await Assertions.Expect(page.Locator(".meal-card", new() { HasText = productName })).ToBeVisibleAsync();
-            await Assertions.Expect(page.Locator(".meal-card", new() { HasText = productName })).ToContainTextAsync("2 srv");
+            var savedCard = page.Locator(".meal-card", new() { HasText = productName });
+            await Assertions.Expect(savedCard).ToBeVisibleAsync();
+            await Assertions.Expect(savedCard).ToContainTextAsync("2 srv");
+
+            // Reopen the saved product through its own card. This proves the hydrated
+            // draft preserves both the quantity and the cross-dimension unit selection.
+            await savedCard.Locator(".mc-edit").ClickAsync();
+            await Assertions.Expect(dialog).ToBeVisibleAsync();
+            await Assertions.Expect(dialog.Locator(".product-quantity input.stepper__val"))
+                .ToHaveValueAsync("2");
+            await Assertions.Expect(dialog.Locator("select.meal-unit-picker__select"))
+                .ToHaveValueAsync(product!.Value.ServingUnitId.ToString());
+            await dialog.Locator("button.btn--secondary", new() { HasText = "Cancel" }).ClickAsync();
+            await Assertions.Expect(dialog).ToBeHiddenAsync();
         }
         finally
         {
