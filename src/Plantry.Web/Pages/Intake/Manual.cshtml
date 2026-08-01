@@ -1,0 +1,325 @@
+@page
+@model Plantry.Web.Pages.Intake.ManualModel
+@using Microsoft.AspNetCore.Mvc.Rendering
+@using Plantry.Web.Pages.Shared
+@{
+    ViewData["Title"] = "Enter a purchase";
+    ViewData["ManualLocationOptions"] = Model.LocationOptions;
+
+    var sheetModel = new ProductSearchCreateSheetViewModel
+    {
+        SearchUrl = Url.Page("./Manual", "SearchProducts")!,
+        UnitOptions = Model.UnitOptions,
+        CategoryOptions = Model.CategoryOptions,
+        TrackStock = true,
+        Noun = "line",
+        CreateLabel = "as a new product",
+        StapleNamePlaceholder = "Product name (e.g. Whole milk)",
+        CreateViewTitle = "New product",
+        ShowGroupHeading = false,
+        RequireSelection = true,
+        ExtraFieldsPartial = "Intake/_ManualLineExtraFields",
+        CreateViewLineUnitLabel = "Unit for this line",
+    };
+}
+
+@*
+    Manual intake form (plantry-45ba.3) — /Intake/Manual. Typed purchase entry: no receipt, no
+    review deck, no Preact island. A repeating "rows" Alpine array (dual-rendered to hidden
+    Input.Lines[n] inputs, mirroring Recipes/Edit.cshtml's technique) is edited through the shared
+    add/edit sheet (Shared/_ProductSearchCreateSheet) — the same component Take Stock and Recipes use
+    to pick or inline-create a product. Location/price/expiry are injected into that sheet via its
+    ExtraFieldsPartial slot (Intake/_ManualLineExtraFields.cshtml).
+
+    Store picking is a small client-filtered combobox (household stores are a short list — no htmx
+    round-trip needed), mirroring the pick-or-type-new semantics of the receipt review header's store
+    editor (wwwroot/js/islands/intake-review.js StoreEditor), reimplemented here in Alpine since this
+    page is classic server-rendered Razor, not a Preact island.
+
+    Alpine x-data (top level, on the <form>):
+      storeQuery, storeOpen  : the store combobox's typed text + listbox visibility
+      stores[]               : household stores, [{ id, name }] (server-serialised, filtered client-side)
+      rows[]                 : the typed purchase lines — { _id, productId, productName, newStapleName,
+                                newStapleCategoryId, qty, unitId, locationId, price, expiryDate }
+      sheetOpen, sheetView, editingIdx, draft{}, sheetError : the shared sheet's contract (see
+                                Shared/_ProductSearchCreateSheet.cshtml's doc comment)
+      openAdd() / openEdit(idx) / closeSheet() / saveSheet() / removeRow(idx) : row lifecycle
+*@
+
+<div class="page-header">
+    <div class="page-header__main">
+        <div class="page-header__eyebrow">Intake</div>
+        <h1 class="page-header__title">Enter a purchase</h1>
+        <p class="page-header__subtitle">
+            Log a shop you already made — no receipt needed. Works for a single item, a full cart, or
+            a lost receipt where you only remember a few prices.
+        </p>
+    </div>
+</div>
+
+@*
+    JSON payloads are interpolated WITHOUT Html.Raw — Razor's normal HTML-encoding of the @ expression
+    is required here (the group-options precedent in _ProductSearchCreateSheet.cshtml): the value sits
+    inside a quoted HTML attribute, the browser decodes entities before Alpine ever parses the
+    attribute string, so &quot;/&amp; round-trip correctly. Html.Raw would double up.
+*@
+<form method="post" id="manual-purchase-form"
+      x-data="manualPurchaseForm(@Model.StoresJson, @Model.RowsJson, @Model.HeaderJson, '@Model.CurrencySymbol')"
+      @@submit="if (!onSubmit($event)) $event.preventDefault()">
+    @Html.AntiForgeryToken()
+
+    <div asp-validation-summary="All" class="field__error" role="alert"></div>
+
+    @* ── Header: store + purchase date ─────────────────────────────────────────────── *@
+    <div class="card">
+        <div class="card__body">
+            <div class="form-grid">
+                <div class="form-grid__field form-grid__field--full" @@click.outside="storeOpen = false">
+                    <label class="form-grid__field__label" for="manual-store">Store (optional)</label>
+                    <div class="form-grid__field__control" style="position:relative">
+                        <input type="text" id="manual-store" class="field__input searchable-select"
+                               placeholder="Find or type a new store…"
+                               autocomplete="off"
+                               role="combobox"
+                               aria-controls="manual-store-listbox"
+                               :aria-expanded="storeOpen"
+                               x-model="storeQuery"
+                               @@focus="storeOpen = true"
+                               @@input="storeOpen = true; selectedStoreId = ''"
+                               @@keydown.escape.stop="storeOpen = false"
+                               @@keydown.enter.prevent="storeOpen && filteredStores.length === 1 ? pickStore(filteredStores[0]) : (storeOpen = false)" />
+                        <ul id="manual-store-listbox" class="searchable-select__listbox" role="listbox"
+                            x-show="storeOpen && filteredStores.length > 0" x-cloak style="display:none">
+                            <template x-for="s in filteredStores" :key="s.id">
+                                <li role="option" class="searchable-select__listbox-item"
+                                    @@click="pickStore(s)" x-text="s.name"></li>
+                            </template>
+                        </ul>
+                        <input type="hidden" name="Input.SelectedStoreId" :value="selectedStoreId" />
+                        <input type="hidden" name="Input.MerchantText" :value="storeQuery" />
+                    </div>
+                </div>
+
+                <field asp-for="Input.PurchaseDate" stacked label="Purchase date">
+                    <input asp-for="Input.PurchaseDate" class="field__input" type="date" />
+                </field>
+            </div>
+        </div>
+    </div>
+
+    @* ── Lines ──────────────────────────────────────────────────────────────────────── *@
+    <div class="card">
+        <div class="card__head">
+            <h2>Lines</h2>
+            <button type="button" class="btn btn--secondary btn--sm" @@click="openAdd()">+ Add line</button>
+        </div>
+        <div class="card__body">
+            <p x-show="rows.length === 0" x-cloak style="display:none;color:var(--color-text-muted)">No lines yet — add the first thing you bought.</p>
+
+            <ul class="manual-lines" x-show="rows.length > 0" x-cloak style="display:none">
+                <template x-for="(row, idx) in rows" :key="row._id">
+                    <li class="manual-line-row">
+                        <button type="button" class="manual-line-row__summary" @@click="openEdit(idx)"
+                                x-text="rowSummary(row)"></button>
+                        <button type="button" class="btn btn--ghost btn--sm manual-line-row__remove"
+                                @@click="removeRow(idx)" aria-label="Remove line">&times;</button>
+
+                        @* Dual-render: mirrors row[] into Input.Lines[idx].* hidden inputs so the plain
+                           POST model-binds the same rows the visible list above shows the user. *@
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].NewProductName'" :value="row.newStapleName" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].NewProductCategoryId'" :value="row.newStapleCategoryId" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].LocationId'" :value="row.locationId" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].Price'" :value="row.price" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].ExpiryDate'" :value="row.expiryDate" />
+                    </li>
+                </template>
+            </ul>
+        </div>
+    </div>
+
+    @* commit-bar--flow: render in normal flow at the form foot, not sticky (matches Recipes/Edit's
+       plantry-f7uk fix — a sticky bar pinned to the viewport bottom floats over content on a form
+       taller than the viewport). *@
+    <div class="commit-bar commit-bar--flow">
+        <a href="/Intake/Upload" class="btn btn--ghost commit-bar__cancel">Cancel</a>
+        <span class="commit-bar__spacer"></span>
+        <button type="submit" class="btn btn--primary">Log purchase</button>
+    </div>
+
+    @* ── The shared add/edit sheet, reused as-is (Recipes / Take Stock / Deals) ──────── *@
+    <partial name="Shared/_ProductSearchCreateSheet" model="sheetModel" />
+</form>
+
+@section Scripts {
+    <script>
+        function manualPurchaseForm(initialStores, initialRows, initialHeader, currencySymbol) {
+            return {
+                currencySymbol,
+
+                // The shared sheet's create view renders two unit selects for Manual's single unit
+                // concept — "Unit for this line" (draft.unitId) and Defaults > "Stock unit"
+                // (draft.newStapleUnit) — because LogManualPurchaseCommand only has one UnitId.
+                // RequireSelection gates the Create button on newStapleUnit, so without this watcher a
+                // user who only fills "Unit for this line" finds Create permanently disabled. Mirrors
+                // Recipes/Edit.cshtml's own unitId/newStapleUnit reconciliation (line ~824); saveSheet()'s
+                // own reconcile runs too late to unblock the button, only at submit time.
+                //
+                // Three watchers because the create view has three distinct entry paths and $watch only
+                // fires when its OWN expression changes:
+                //   1. draft.unitId changes while already in create view ("Unit for this line" touched)
+                //      → first watcher.
+                //   2. draft.newStapleUnit changes while in create view (Defaults "Stock unit" touched)
+                //      → second watcher.
+                //   3. sheetView itself flips to 'create' with draft.unitId ALREADY set — the
+                //      pick-then-retype-then-create path (selectProduct() set unitId in search view,
+                //      where the first watcher's gate suppressed it) and the create→back→create-again
+                //      path (Back clears newStapleUnit but not unitId). Neither draft watcher re-fires
+                //      on the view flip → third watcher, on sheetView.
+                //   (openEdit() of an inline-created row also enters create view, but reconciles
+                //   newStapleUnit itself before opening.)
+                init() {
+                    this.$watch('draft.unitId', v => { if (this.sheetView === 'create' && v) this.draft.newStapleUnit = v; });
+                    this.$watch('draft.newStapleUnit', v => { if (this.sheetView === 'create' && v && !this.draft.unitId) this.draft.unitId = v; });
+                    this.$watch('sheetView', v => { if (v === 'create' && this.draft.unitId && !this.draft.newStapleUnit) this.draft.newStapleUnit = this.draft.unitId; });
+                },
+
+                // ── Store picker ─────────────────────────────────────────────────
+                stores: initialStores,
+                storeQuery: initialHeader.storeQuery,
+                selectedStoreId: initialHeader.selectedStoreId,
+                storeOpen: false,
+                get filteredStores() {
+                    const q = this.storeQuery.trim().toLowerCase();
+                    if (!q) return this.stores;
+                    return this.stores.filter(s => s.name.toLowerCase().includes(q));
+                },
+                pickStore(s) {
+                    this.storeQuery = s.name;
+                    this.selectedStoreId = s.id;
+                    this.storeOpen = false;
+                },
+
+                // ── Line rows ────────────────────────────────────────────────────
+                rows: initialRows,
+                _nextId: initialRows.length,
+
+                blankDraft() {
+                    return {
+                        productId: '', productName: '', newStapleName: null, newStapleUnit: '',
+                        newStapleCategoryId: '', qty: '', unitId: '', locationId: '', price: '',
+                        expiryDate: '',
+                    };
+                },
+
+                // ── Shared sheet contract (Shared/_ProductSearchCreateSheet.cshtml) ─
+                sheetOpen: false,
+                sheetView: 'search',
+                editingIdx: null,
+                draft: {},
+                sheetError: '',
+
+                openAdd() {
+                    this.editingIdx = null;
+                    this.sheetView = 'search';
+                    this.sheetError = '';
+                    this.draft = this.blankDraft();
+                    this.sheetOpen = true;
+                    this._syncSearch('');
+                },
+                openEdit(idx) {
+                    this.editingIdx = idx;
+                    const row = this.rows[idx];
+                    this.sheetView = row.newStapleName !== null ? 'create' : 'search';
+                    this.sheetError = '';
+                    this.draft = JSON.parse(JSON.stringify(row));
+                    if (!this.draft.newStapleUnit) this.draft.newStapleUnit = this.draft.unitId;
+                    this.sheetOpen = true;
+                    this._syncSearch(row.productName || row.newStapleName || '');
+                },
+                // The sheet stays mounted (x-show), so the nested searchable-select inits once at page
+                // load; $nextTick lets sheetOpen's x-show update render before the sync event fires
+                // (mirrors Recipes/Edit.cshtml's _syncSearch).
+                _syncSearch(label) {
+                    this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: label || '' })));
+                },
+                closeSheet() {
+                    this.sheetView = 'search';
+                    this.sheetError = '';
+                    this.sheetOpen = false;
+                },
+
+                // Fired by the shared sheet's pick-product event when a product is chosen from search.
+                selectProduct(draft, detail) {
+                    draft.productId = detail.value;
+                    draft.productName = detail.name;
+                    draft.newStapleName = null;
+                    if (detail.defaultUnit) { draft.unitId = detail.defaultUnit; }
+                    if (detail.defaultLocation) { draft.locationId = detail.defaultLocation; }
+                    // Server-computed (ReviewPrefill, via OnGetSearchProductsAsync) — never re-derived here
+                    // from the browser clock, which would drift a day off across timezones/DST.
+                    if (detail.defaultExpiry) { draft.expiryDate = detail.defaultExpiry; }
+                },
+
+                saveSheet() {
+                    const draft = this.draft;
+                    const isCreate = this.sheetView === 'create';
+
+                    if (isCreate) {
+                        // A retype-then-create path (pick a product, then retype and hit "+ Create") leaves
+                        // draft.productId set from the earlier pick — clear it so the row never posts both
+                        // ProductId and NewProductName (LogManualPurchaseCommand.ValidateLines rejects that
+                        // as Intake.InvalidLineProduct, bouncing the whole shop on a confusing error).
+                        draft.productId = '';
+                        draft.productName = '';
+                        draft.newStapleName = (draft.newStapleName || '').trim();
+                        if (!draft.newStapleName) { this.sheetError = 'Name the new product.'; return; }
+                        // A single UnitId serves both the line's quantity unit and the new product's
+                        // stock unit (LogManualPurchaseCommand has no separate "stock unit" concept) —
+                        // reconcile whichever of the two fields the user actually touched.
+                        if (draft.newStapleUnit && !draft.unitId) draft.unitId = draft.newStapleUnit;
+                        else if (draft.unitId && !draft.newStapleUnit) draft.newStapleUnit = draft.unitId;
+                        if (!draft.newStapleCategoryId) { this.sheetError = 'Choose a category for the new product.'; return; }
+                    } else if (!draft.productId) {
+                        this.sheetError = 'Pick a product, or create a new one.';
+                        return;
+                    }
+
+                    if (!draft.qty || Number(draft.qty) <= 0) { this.sheetError = 'Enter a quantity.'; return; }
+                    if (!draft.unitId) { this.sheetError = 'Choose a unit.'; return; }
+                    if (!draft.locationId) { this.sheetError = 'Choose a location.'; return; }
+
+                    if (this.editingIdx === null) {
+                        draft._id = this._nextId++;
+                        this.rows.push(JSON.parse(JSON.stringify(draft)));
+                    } else {
+                        this.rows.splice(this.editingIdx, 1, JSON.parse(JSON.stringify(draft)));
+                    }
+
+                    this.sheetView = 'search';
+                    this.sheetError = '';
+                    this.sheetOpen = false;
+                },
+
+                removeRow(idx) { this.rows.splice(idx, 1); },
+
+                rowSummary(row) {
+                    const name = row.productName || row.newStapleName || '(unnamed)';
+                    const qty = row.qty ? `${row.qty}` : '';
+                    const price = row.price ? ` · ${this.currencySymbol}${Number(row.price).toFixed(2)}` : '';
+                    return qty ? `${name} — ${qty}${price}` : `${name}${price}`;
+                },
+
+                onSubmit() {
+                    if (this.rows.length === 0) {
+                        alert('Add at least one line before logging this purchase.');
+                        return false;
+                    }
+                    return true;
+                },
+            };
+        }
+    </script>
+}

@@ -20,6 +20,7 @@ import {
   buildSaveLineBody,
   commitBarCounts,
   estimateHint,
+  scanViaDisplay,
   decisionVariant,
   deckReasoning,
   optionRankLabel,
@@ -510,6 +511,26 @@ describe("estimateHint", () => {
       estimateHint({ eachCount: 6, weight: 0.9, weightUnit: "kg", confidence: "Low" }),
       "Sold by weight (0.9 kg) · ~6 each?",
     );
+  });
+});
+
+// ── scanViaDisplay (plantry-45ba.1) ───────────────────────────────────────────────
+
+describe("scanViaDisplay", () => {
+  it("photo maps to the camera icon and Receipt photo label", () => {
+    assert.deepEqual(scanViaDisplay("photo"), { icon: "#i-camera", label: "Receipt photo" });
+  });
+
+  it("email maps to the receipt icon and Forwarded by email label", () => {
+    assert.deepEqual(scanViaDisplay("email"), { icon: "#i-receipt", label: "Forwarded by email" });
+  });
+
+  it("manual maps to the edit icon and Entered manually label", () => {
+    assert.deepEqual(scanViaDisplay("manual"), { icon: "#i-edit", label: "Entered manually" });
+  });
+
+  it("an unknown value falls back to the photo display rather than mislabeling as email", () => {
+    assert.deepEqual(scanViaDisplay("something-new"), { icon: "#i-camera", label: "Receipt photo" });
   });
 });
 

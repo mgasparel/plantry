@@ -156,7 +156,12 @@ public sealed class IntakeReviewHydrationBuilder
             Stores: stores,
             Lines: lines,
             // Receipt-panel metadata — via tag reflects the source; the rest is present-only display data.
-            ScanVia: session.SourceType == ImportSourceType.Receipt ? "photo" : "email",
+            ScanVia: session.SourceType switch
+            {
+                ImportSourceType.Receipt => "photo",
+                ImportSourceType.Manual => "manual",
+                _ => throw new ArgumentOutOfRangeException(nameof(session), session.SourceType, "Unknown import source type."),
+            },
             ScannedLabel: RelativeScanLabel(session.CreatedAt, now, zone),
             StoreBranch: NullIfBlank(session.StoreBranch),
             PurchaseDate: session.PurchaseDate is { } pd

@@ -54,6 +54,17 @@ public sealed class UploadHistoryLinksTests : IClassFixture<UploadHistoryLinksFr
     }
 
     [Fact]
+    public async Task Offers_a_no_receipt_manual_entry_link()
+    {
+        // plantry-45ba.4: Upload gets a secondary "No receipt? Enter it manually" link to /Intake/Manual.
+        var resp = await AuthClient().GetAsync("/Intake/Upload");
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("No receipt? Enter it manually", html);
+        Assert.Contains("href=\"/Intake/Manual\"", html);
+    }
+
+    [Fact]
     public async Task Ready_row_resume_link_uses_route_param_not_query_string()
     {
         // Regression for plantry-z3s4: Review.cshtml declares @page "{id:guid}", so the Resume link

@@ -314,7 +314,7 @@
                         TakeStock/Deals create views never render this field and stay byte-identical.
                     *@
                     <div class="form-grid__field">
-                        <label class="form-grid__field__label" for="create-product-recipe-unit">Unit (in this recipe)</label>
+                        <label class="form-grid__field__label" for="create-product-recipe-unit">@Model.CreateViewLineUnitLabel</label>
                         <div class="form-grid__field__control">
                             <select id="create-product-recipe-unit" class="field__input"
                                     x-model="draft.unitId" @@change="draft.recipeUnitPinned = true; sheetError = ''">

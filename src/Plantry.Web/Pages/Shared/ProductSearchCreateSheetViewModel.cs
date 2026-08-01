@@ -189,6 +189,15 @@ public sealed class ProductSearchCreateSheetViewModel
     public bool ShowCreateAndCount { get; init; } = false;
 
     /// <summary>
+    /// Label for the create-view's "Unit (in this recipe)" field (plantry-45ba.3). That wording is
+    /// Recipes-specific — it names the concept of measuring an ingredient in a different unit than the
+    /// product's own stock unit, which a non-recipe host (e.g. Manual intake, a straight purchase entry)
+    /// does not have. Defaults to the historical Recipes/Dev wording so those hosts render byte-identical;
+    /// a non-Recipes host that renders this field (<see cref="TrackStock"/> = true) should override it.
+    /// </summary>
+    public string CreateViewLineUnitLabel { get; init; } = "Unit (in this recipe)";
+
+    /// <summary>
     /// Existing group products (active, <see cref="Plantry.Catalog.Domain.Product.IsParent"/> = true)
     /// for the household, serialised as <c>[{ id, name }]</c> and embedded in the create-view's
     /// Alpine data so the Group combobox can filter client-side without an extra htmx round-trip.

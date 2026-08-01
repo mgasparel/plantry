@@ -31,6 +31,7 @@ public sealed record CommittedLineRow(
 /// <summary>The read-only detail view of one committed intake session (receipt-intake-history.md H7/H8).</summary>
 public sealed record CommittedSessionDetail(
     ImportSessionId Id,
+    ImportSourceType SourceType,
     string? MerchantText,
     DateOnly? PurchaseDate,
     TimeOnly? PurchaseTime,
@@ -88,6 +89,7 @@ public sealed class GetCommittedSessionDetailQuery(
 
         return Task.FromResult<Result<CommittedSessionDetail>>(new CommittedSessionDetail(
             session.Id,
+            session.SourceType,
             session.MerchantText,
             session.PurchaseDate,
             session.PurchaseTime,

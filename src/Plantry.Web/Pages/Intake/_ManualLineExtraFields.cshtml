@@ -1,0 +1,60 @@
+@*
+    Extra-fields slot for the Manual intake line editor (plantry-45ba.3), rendered by
+    _ProductSearchCreateSheet.cshtml between the product-picker block and the action bar via the
+    ExtraFieldsPartial slot. Carries the three fields the shared sheet doesn't: location (required —
+    ManualPurchaseLineInput.LocationId is non-nullable), price (optional — a blank price commits stock
+    only), and expiry (optional).
+
+    Injects into the Alpine draft context the host page (Manual.cshtml) establishes:
+      draft.locationId   — required; ManualPurchaseLineInput.LocationId
+      draft.price         — optional decimal string; ManualPurchaseLineInput.Price
+      draft.expiryDate     — optional yyyy-MM-dd string; ManualPurchaseLineInput.ExpiryDate
+
+    Model access: rendered without an explicit model by the shared sheet partial, so the active
+    ViewData.Model is ProductSearchCreateSheetViewModel, not ManualModel. Manual.cshtml stashes
+    LocationOptions into ViewData["ManualLocationOptions"] before rendering the sheet so this slot
+    can read it back (mirrors _CountLocationFields' ambient-ViewData fallback pattern).
+*@
+@{
+    var locationOptions =
+        ViewContext.ViewData["ManualLocationOptions"] as IReadOnlyList<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>
+        ?? [];
+}
+
+<div class="sheet-slot-group">
+    <div class="form-grid">
+        <div class="form-grid__field form-grid__field--full">
+            <label class="form-grid__field__label" for="manual-line-location">Location</label>
+            <div class="form-grid__field__control">
+                <select id="manual-line-location" class="field__input"
+                        x-model="draft.locationId" @@change="sheetError = ''"
+                        aria-label="Location for this line">
+                    <option value="">— Location —</option>
+                    @foreach (var l in locationOptions)
+                    {
+                        <option value="@l.Value">@l.Text</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="form-grid__field">
+            <label class="form-grid__field__label" for="manual-line-price">Price (optional)</label>
+            <div class="form-grid__field__control">
+                <input type="number" id="manual-line-price" class="field__input" step="any" min="0"
+                       placeholder="e.g. 4.99"
+                       x-model="draft.price"
+                       aria-label="Price paid for this line — leave blank if you don't remember" />
+            </div>
+        </div>
+
+        <div class="form-grid__field">
+            <label class="form-grid__field__label" for="manual-line-expiry">Expiry (optional)</label>
+            <div class="form-grid__field__control">
+                <input type="date" id="manual-line-expiry" class="field__input"
+                       x-model="draft.expiryDate"
+                       aria-label="Expiry date for this line" />
+            </div>
+        </div>
+    </div>
+</div>

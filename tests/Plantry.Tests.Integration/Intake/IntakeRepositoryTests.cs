@@ -65,6 +65,26 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Null(line2.RawParse);
     }
 
+    [Fact(DisplayName = "ImportSession with SourceType Manual round-trips through EF and the DB CHECK (plantry-45ba.1)")]
+    public async Task ImportSession_With_ManualSourceType_RoundTrips()
+    {
+        ImportSessionId sessionId;
+
+        await using (var ctx = NewIntakeDb())
+        {
+            var session = ImportSession.Start(_household, ImportSourceType.Manual, _userId, Clock);
+            sessionId = session.Id;
+
+            await ctx.ImportSessions.AddAsync(session);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var loaded = await ctx2.ImportSessions.SingleAsync(s => s.Id == sessionId);
+
+        Assert.Equal(ImportSourceType.Manual, loaded.SourceType);
+    }
+
     [Fact(DisplayName = "ImportReceipt binary round-trip preserves bytes")]
     public async Task ImportReceipt_BinaryContent_RoundTrips()
     {

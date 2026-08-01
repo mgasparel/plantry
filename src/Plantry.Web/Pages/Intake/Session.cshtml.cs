@@ -51,6 +51,11 @@ public sealed class SessionModel(
     public string DisplayCurrency { get; private set; } = "USD";
     public string ScannedByName { get; private set; } = "someone";
 
+    /// <summary>True for a manual (typed) session — drives the page's receipt-vs-purchase wording
+    /// (plantry-45ba.4): "Typed line" instead of "Receipt line", "Logged by" instead of "Scanned by",
+    /// no receipt-only chrome (receipt #, "≈ each").</summary>
+    public bool IsManual => Detail.SourceType == ImportSourceType.Manual;
+
     /// <summary>Committed (non-dismissed) line count — the receipt-stats strip's "Items added".</summary>
     public int ItemsAdded => Detail.Lines.Count(l => !l.IsDismissed);
 

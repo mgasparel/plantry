@@ -7511,6 +7511,38 @@ input.ing-section__name:focus {
    rules above (moved from Pages/Recipes/Edit.cshtml) — deduplicated, plantry-g29s. The /Dev demo
    is covered by the Edit-block copy since these are global rules, not page-scoped. */
 
+/* ── Manual intake line list (plantry-45ba.3) ──────────────────────────────────
+   /Intake/Manual's repeating-line list. Page-specific layout composing existing
+   primitives (.card, .btn, .form-grid) per .claude/CLAUDE.md's "single-use layout
+   stays on its feature page" guidance — not proposed as a Dev/Index.cshtml library
+   entry since nothing else in the app needs this exact read-only summary-row shape
+   (Recipes' .ingredient-row is drag/section/conversion-aware; this list is neither).
+   Deliberately mirrors .ingredient-row__summary/.ingredient-row__body's "reads as
+   text, clicks like a button" treatment rather than reusing those classes directly —
+   this is a distinct, simpler component (no drag handle, no conversion states). */
+.manual-lines { list-style: none; margin: 0; padding: 0; }
+.manual-line-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--color-border);
+}
+.manual-line-row:last-child { border-bottom: none; }
+.manual-line-row__summary {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: var(--space-2) 0;
+    font: inherit;
+    color: var(--color-text);
+    cursor: pointer;
+}
+.manual-line-row__summary:hover { color: var(--color-accent); }
+.manual-line-row__remove { flex-shrink: 0; }
+
 /* ── Utilities (last in file: a utility must win every equal-specificity tie) ──
    .sr-only — visually hides content while keeping it in the accessibility
    tree (clip/1px form, not display:none or visibility:hidden, both of which
