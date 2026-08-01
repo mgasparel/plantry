@@ -18,7 +18,8 @@ public sealed record IntakeHistoryRow(
     DateOnly Date,
     ImportStatus Status,
     int? ItemCount,
-    decimal? Total);
+    decimal? Total,
+    ImportSourceType SourceType);
 
 /// <summary>One page of history rows plus the cursor for the next "Show earlier" fetch.</summary>
 /// <param name="NextCursor">
@@ -29,9 +30,10 @@ public sealed record IntakeHistoryRow(
 public sealed record IntakeHistoryPage(IReadOnlyList<IntakeHistoryRow> Rows, DateTimeOffset? NextCursor);
 
 /// <summary>
-/// Read query for <c>/Intake/History</c> (receipt-intake-history.md H5): a paged, newest-scan-first log of
-/// every receipt intake regardless of status — Committed, Ready ("being reviewed"), Failed, and Discarded
-/// all appear, so the page is a truthful record of every scan rather than only the successful ones.
+/// Read query for <c>/Intake/History</c> (receipt-intake-history.md H5): a paged, newest-first log of
+/// every intake — receipt or manual (plantry-45ba.4) — regardless of status. Committed, Ready ("being
+/// reviewed"), Failed, and Discarded all appear, so the page is a truthful record of every intake rather
+/// than only the successful ones.
 /// </summary>
 public sealed class GetIntakeHistoryQuery(IImportSessionRepository sessions, IClock clock)
 {
@@ -57,6 +59,6 @@ public sealed class GetIntakeHistoryQuery(IImportSessionRepository sessions, ICl
         var date = s.PurchaseDate ?? clock.ToLocalDate(s.CreatedAt);
         return new IntakeHistoryRow(
             s.Id, s.MerchantText, date, s.Status,
-            IntakeSessionProjection.ItemCount(s), IntakeSessionProjection.Amount(s));
+            IntakeSessionProjection.ItemCount(s), IntakeSessionProjection.Amount(s), s.SourceType);
     }
 }

@@ -58,6 +58,24 @@ public static class IntakeHistoryFixture
         return session;
     }
 
+    /// <summary>One committed Manual session (plantry-45ba.4) — same shape as <see cref="BuildCommitted"/>
+    /// but no receipt metadata (no receipt number/tax/payment descriptor), exercising the Session/History
+    /// pages' source-aware wording (Model.IsManual) and the history grid's Source badge.</summary>
+    public static ImportSession BuildCommittedManual(Guid householdId, Guid existingProductId, Guid unitId)
+    {
+        var session = ImportSession.Start(HouseholdId.From(householdId), ImportSourceType.Manual, Guid.Empty, Clock);
+        var line = session.AddLine(1, "Baby spinach x1", SuggestedConfidence.None, null);
+
+        session.MarkReady("Corner Store", Clock.UtcNow, new ReceiptMetadata(
+            PurchaseDate: new DateOnly(2026, 7, 20), Total: null, Tax: null, ReceiptNumber: null, PaymentDescriptor: null));
+
+        line.Confirm(existingProductId, null, 1m, unitId, LocationId, null, 4.5m);
+        line.MarkCommitted(Guid.NewGuid(), null);
+
+        session.MarkCommitted(Clock.UtcNow);
+        return session;
+    }
+
     public static ImportSession BuildReady(Guid householdId)
     {
         var session = ImportSession.Start(HouseholdId.From(householdId), ImportSourceType.Receipt, Guid.Empty, Clock);
@@ -193,6 +211,7 @@ public sealed class IntakeHistorySessionFragmentFactory : WebApplicationFactory<
     public Product ExistingProduct { get; }
 
     public ImportSession Committed { get; }
+    public ImportSession CommittedManual { get; }
     public ImportSession Ready { get; } = IntakeHistoryFixture.BuildReady(IntakeHistoryFixture.HouseholdAId);
     public ImportSession Failed { get; } = IntakeHistoryFixture.BuildFailed(IntakeHistoryFixture.HouseholdAId);
     public ImportSession Discarded { get; } = IntakeHistoryFixture.BuildDiscarded(IntakeHistoryFixture.HouseholdAId);
@@ -203,6 +222,7 @@ public sealed class IntakeHistorySessionFragmentFactory : WebApplicationFactory<
         ExistingProduct = Product.Create(
             HouseholdId.From(IntakeHistoryFixture.HouseholdAId), "Baby spinach", ExistingUnit.Id, SystemClock.Instance);
         Committed = IntakeHistoryFixture.BuildCommitted(IntakeHistoryFixture.HouseholdAId, ExistingProduct.Id.Value, ExistingUnit.Id.Value);
+        CommittedManual = IntakeHistoryFixture.BuildCommittedManual(IntakeHistoryFixture.HouseholdAId, ExistingProduct.Id.Value, ExistingUnit.Id.Value);
         ForeignCommitted = IntakeHistoryFixture.BuildCommitted(IntakeHistoryFixture.HouseholdBId, ExistingProduct.Id.Value, ExistingUnit.Id.Value);
     }
 
@@ -223,7 +243,7 @@ public sealed class IntakeHistorySessionFragmentFactory : WebApplicationFactory<
 
             services.RemoveAll<IImportSessionRepository>();
             services.AddScoped<IImportSessionRepository>(sp => new MultiSessionImportSessionRepository(
-                sp.GetRequiredService<ITenantContext>(), Committed, Ready, Failed, Discarded, ForeignCommitted));
+                sp.GetRequiredService<ITenantContext>(), Committed, CommittedManual, Ready, Failed, Discarded, ForeignCommitted));
 
             services.RemoveAll<Plantry.Catalog.Domain.IProductRepository>();
             services.AddScoped<Plantry.Catalog.Domain.IProductRepository>(

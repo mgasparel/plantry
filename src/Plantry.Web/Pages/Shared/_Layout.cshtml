@@ -311,7 +311,7 @@
             @* Add — opens the quick-add intake sheet; not a page navigation *@
             <button type="button" class="bottom-nav__item bottom-nav__item--add"
                     x-on:click="open = true"
-                    aria-label="Add stock"
+                    aria-label="Add"
                     aria-haspopup="dialog">
                 <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
                 <span>Add</span>
@@ -327,29 +327,36 @@
         </nav>
 
         @* The quick-add sheet itself *@
-        <div class="sheet" role="dialog" aria-modal="true" aria-label="Add stock"
+        <div class="sheet" role="dialog" aria-modal="true" aria-label="Add"
              x-show="open" x-cloak
              @@keydown.escape.window="open = false">
             <div class="sheet__overlay" x-on:click="open = false"></div>
             <div class="sheet__panel">
                 <header class="sheet__header">
-                    <h2 class="sheet__title">Add stock</h2>
+                    <h2 class="sheet__title">Add</h2>
                     <button type="button" class="sheet__close" aria-label="Close"
                             x-on:click="open = false">&times;</button>
                 </header>
                 <div class="quick-add-options">
-                    <a href="/Pantry" class="quick-add-option" x-on:click="open = false">
-                        <svg class="icon quick-add-option__icon" aria-hidden="true"><use href="#i-plus" /></svg>
-                        <div class="quick-add-option__text">
-                            <span class="quick-add-option__label">Add manually</span>
-                            <span class="quick-add-option__sub">Log a product by name and quantity</span>
-                        </div>
-                    </a>
                     <a href="/Intake/Upload" class="quick-add-option" x-on:click="open = false">
                         <svg class="icon quick-add-option__icon" aria-hidden="true"><use href="#i-camera" /></svg>
                         <div class="quick-add-option__text">
                             <span class="quick-add-option__label">Scan receipt</span>
                             <span class="quick-add-option__sub">Import items from a photo or text</span>
+                        </div>
+                    </a>
+                    <a href="/Intake/Manual" class="quick-add-option" x-on:click="open = false">
+                        <svg class="icon quick-add-option__icon" aria-hidden="true"><use href="#i-edit" /></svg>
+                        <div class="quick-add-option__text">
+                            <span class="quick-add-option__label">Enter a purchase</span>
+                            <span class="quick-add-option__sub">Type what you bought, no receipt needed</span>
+                        </div>
+                    </a>
+                    <a href="/Pantry" class="quick-add-option" x-on:click="open = false">
+                        <svg class="icon quick-add-option__icon" aria-hidden="true"><use href="#i-scale" /></svg>
+                        <div class="quick-add-option__text">
+                            <span class="quick-add-option__label">Count stock</span>
+                            <span class="quick-add-option__sub">Record what you have on hand</span>
                         </div>
                     </a>
                 </div>

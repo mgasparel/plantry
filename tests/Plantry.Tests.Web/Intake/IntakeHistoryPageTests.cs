@@ -31,6 +31,18 @@ public sealed class IntakeHistoryPageTests : IClassFixture<IntakeHistorySessionF
     }
 
     [Fact]
+    public async Task Renders_a_source_badge_for_both_receipt_and_manual_rows()
+    {
+        var resp = await AuthClient().GetAsync("/Intake/History");
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("Costco Wholesale", html); // receipt session
+        Assert.Contains("Corner Store", html);      // manual session
+        Assert.Contains(">Receipt<", html);
+        Assert.Contains(">Manual<", html);
+    }
+
+    [Fact]
     public async Task Committed_store_name_links_to_the_session_detail()
     {
         var resp = await AuthClient().GetAsync("/Intake/History");
@@ -57,6 +69,24 @@ public sealed class IntakeHistoryPageTests : IClassFixture<IntakeHistorySessionF
         var html = await resp.Content.ReadAsStringAsync();
 
         Assert.DoesNotContain(_factory.ForeignCommitted.Id.Value.ToString(), html);
+    }
+
+    [Fact]
+    public async Task Quick_add_sheet_offers_the_three_way_model_distinctly()
+    {
+        // plantry-45ba.4: the mobile quick-add sheet (shared _Layout, rendered on every authenticated
+        // page) must offer scan/enter-a-purchase/count-stock as three distinct options rather than
+        // conflating manual intake with inventory counting.
+        var resp = await AuthClient().GetAsync("/Intake/History");
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("Scan receipt", html);
+        Assert.Contains("Enter a purchase", html);
+        Assert.Contains("Count stock", html);
+        Assert.Contains("href=\"/Intake/Manual\"", html);
+        Assert.Contains("href=\"/Intake/Upload\"", html);
+        Assert.Contains("href=\"/Pantry\"", html);
+        Assert.DoesNotContain("Add manually", html); // old two-way copy that conflated counting with intake
     }
 
     [Fact]

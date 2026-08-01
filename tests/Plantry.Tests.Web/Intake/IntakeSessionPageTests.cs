@@ -69,6 +69,23 @@ public sealed class IntakeSessionPageTests : IClassFixture<IntakeHistorySessionF
         Assert.Contains($"id=\"line-{firstLine.Id.Value}\"", html);
     }
 
+    // ── Manual-session wording (plantry-45ba.4) ────────────────────────────────
+
+    [Fact]
+    public async Task Manual_session_reads_as_a_typed_purchase_not_a_receipt()
+    {
+        var resp = await AuthClient().GetAsync($"/Intake/Session/{_factory.CommittedManual.Id.Value}");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("Corner Store", html);
+        Assert.Contains("Manual intake", html);
+        Assert.Contains("Typed line", html);
+        Assert.DoesNotContain("Receipt line", html);
+        Assert.Contains("Logged by", html);
+        Assert.DoesNotContain("Scanned by", html);
+    }
+
     // ── State guard (H7) ─────────────────────────────────────────────────────
 
     [Fact]

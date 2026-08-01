@@ -2,18 +2,20 @@
 @model Plantry.Web.Pages.Intake.SessionModel
 @using System.Globalization
 @{
-    ViewData["Title"] = Model.Detail.MerchantText ?? "Receipt intake";
+    ViewData["Title"] = Model.Detail.MerchantText ?? (Model.IsManual ? "Manual intake" : "Receipt intake");
     var purchaseDate = Model.ResolvedPurchaseDate;
     var subtitle = $"{purchaseDate:dddd d MMMM yyyy} · {Model.CommitRecencyText()} · {Model.ItemsAdded} items added";
 }
 
 @*
-    SPEC/receipt-intake-history.md H7/H8 — read-only detail view of one committed intake. Deep-linked
-    from a pantry product's history chip via #line-{id} (H9); each row below carries that id, and
-    tr[id]:target (plenish.css) highlights it on arrival with no script needed.
+    SPEC/receipt-intake-history.md H7/H8 — read-only detail view of one committed intake, either kind
+    (plantry-45ba.4): a Manual session has no receipt to scan, so the eyebrow/wording adapts via
+    Model.IsManual rather than assuming Receipt. Deep-linked from a pantry product's history chip via
+    #line-{id} (H9); each row below carries that id, and tr[id]:target (plenish.css) highlights it on
+    arrival with no script needed.
 *@
-<page-header eyebrow="🧾 Receipt intake" title="@(Model.Detail.MerchantText ?? "Unknown store")" subtitle="@subtitle">
-    <a class="btn btn--secondary" href="@Url.Page("/Intake/History")">← All receipts</a>
+<page-header eyebrow="@(Model.IsManual ? "✏️ Manual intake" : "🧾 Receipt intake")" title="@(Model.Detail.MerchantText ?? "Unknown store")" subtitle="@subtitle">
+    <a class="btn btn--secondary" href="@Url.Page("/Intake/History")">← All intakes</a>
 </page-header>
 
 <div class="panel" style="margin-bottom: var(--space-6);">
@@ -28,7 +30,7 @@
         </div>
         <div>
             <div class="stat-num stat-num--mono">@(Model.Detail.Total is { } total ? Model.FormatMoney(total) : "—")</div>
-            <div class="stat-lbl">Receipt total</div>
+            <div class="stat-lbl">@(Model.IsManual ? "Total" : "Receipt total")</div>
         </div>
         <div>
             <div class="stat-num stat-num--mono">@(Model.Detail.Tax is { } tax ? Model.FormatMoney(tax) : "—")</div>
@@ -44,7 +46,7 @@
         {
             <span>Paid&nbsp;·&nbsp;@payment</span>
         }
-        <span>Scanned by @Model.ScannedByName · @Model.ScannedAtLocal.ToString("ddd d MMM, h:mm tt", CultureInfo.InvariantCulture)</span>
+        <span>@(Model.IsManual ? "Logged" : "Scanned") by @Model.ScannedByName · @Model.ScannedAtLocal.ToString("ddd d MMM, h:mm tt", CultureInfo.InvariantCulture)</span>
     </div>
 </div>
 
@@ -54,7 +56,7 @@
         <table class="data-grid__table">
             <thead>
                 <tr>
-                    <th class="data-grid__header">Receipt line</th>
+                    <th class="data-grid__header">@(Model.IsManual ? "Typed line" : "Receipt line")</th>
                     <th class="data-grid__header">Added to pantry as</th>
                     <th class="data-grid__header data-grid__cell--end">Qty</th>
                     <th class="data-grid__header data-grid__cell--end">Price</th>
@@ -97,6 +99,6 @@
     <p class="note">
         Product links go to the pantry product detail (catalog detail when the product isn't currently
         stocked). "New product" marks a line that created its product at commit. Dismissed lines stay
-        visible, struck through — the receipt is a factual record. Rows stay in receipt order.
+        visible, struck through — @(Model.IsManual ? "this is a factual record of what you logged" : "the receipt is a factual record"). Rows stay in @(Model.IsManual ? "entry" : "receipt") order.
     </p>
 </section>

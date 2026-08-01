@@ -19,6 +19,12 @@
         ImportStatus.Discarded => "Discarded",
         _ => status.ToString(),
     };
+
+    static string SourceLabel(ImportSourceType sourceType) => sourceType switch
+    {
+        ImportSourceType.Manual => "Manual",
+        _ => "Receipt",
+    };
 }
 @{
     // Failed/Discarded rows render every cell muted (SPEC H5 — visible but plainly de-emphasised); a
@@ -63,6 +69,7 @@
             new("Store"),
             new("Date"),
             new("Status"),
+            new("Source"),
             new("Items", Align: GridAlign.End),
             new("Total", Align: GridAlign.End),
             new(""),
@@ -72,11 +79,12 @@
             StoreCell(row),
             DateCell(row),
             GridCell.Badge(StatusLabel(row.Status), StatusTone(row.Status)),
+            GridCell.Badge(SourceLabel(row.SourceType), BadgeTone.Neutral),
             ItemsCell(row),
             TotalCell(row),
             ActionCell(row),
         ]))],
-        EmptyMessage: "No receipts yet.");
+        EmptyMessage: "No intakes yet.");
     <partial name="Shared/_DataGrid" model="grid" />
 }
 <div id="show-earlier-slot">
