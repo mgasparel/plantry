@@ -68,10 +68,29 @@ public sealed class MealPlanEatWriterAdapter(
     ILogger<ConsumeStockCommand> consumeLogger,
     ILogger<AddStockCommand> addLogger) : IMealPlanEatWriter
 {
-    public async Task EatAsync(
+    public Task EatAsync(
         Guid plannedDishId, Guid productId, decimal quantity, Guid userId, CancellationToken ct = default)
     {
-        var unitId = await ResolveDefaultUnitAsync(productId, ct);
+        consumeLogger.LogWarning(
+            "Meal plan Eat rejected because the saved planned unit is missing; default-unit inference is not supported. " +
+            "PlannedDishId {PlannedDishId}, ProductId {ProductId}.",
+            plannedDishId, productId);
+        throw new InvalidOperationException(
+            "Product-dish Eat requires the saved planned unit; default-unit inference is not supported.");
+    }
+
+    public async Task EatAsync(
+        Guid plannedDishId, Guid productId, decimal quantity, Guid unitId, Guid userId, CancellationToken ct = default)
+    {
+        if (unitId == Guid.Empty)
+        {
+            consumeLogger.LogWarning(
+                "Meal plan Eat rejected because the saved planned unit is empty. " +
+                "PlannedDishId {PlannedDishId}, ProductId {ProductId}.",
+                plannedDishId, productId);
+            throw new InvalidOperationException("Product-dish Eat requires a non-empty planned unit.");
+        }
+
         var priorEats = await CountEatsAsync(plannedDishId, ct);
         var token = Token(plannedDishId, priorEats + 1, "eat");
 
@@ -181,13 +200,9 @@ public sealed class MealPlanEatWriterAdapter(
         }, ct);
     }
 
-    private async Task<Guid> ResolveDefaultUnitAsync(Guid productId, CancellationToken ct)
-    {
-        var product = await catalog.FindProductAsync(productId, ct);
-        if (product is null)
-            throw new InvalidOperationException($"Eat failed — product {productId} does not exist in Catalog.");
-        return product.DefaultUnitId;
-    }
+    public Task UndoEatAsync(
+        Guid plannedDishId, Guid productId, decimal quantity, Guid unitId, Guid userId, CancellationToken ct = default) =>
+        UndoEatAsync(plannedDishId, productId, quantity, userId, ct);
 
     /// <summary>Count of prior EAT journal rows (negative <c>Delta</c>) for this dish — undo (ADD) rows never count.</summary>
     private async Task<int> CountEatsAsync(Guid plannedDishId, CancellationToken ct)

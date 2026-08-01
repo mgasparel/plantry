@@ -232,7 +232,7 @@ public sealed class EatActionMealPlanRepo : IMealPlanRepository
 
         Plan = MealPlan.Start(_household, WeekMonday, clock);
         Plan.AssignMeal(Today, EatActionFixture.LunchSlotId,
-            [new DishSpec(DishKind.Product, ProductId, 2)],
+            [DishSpec.ForProduct(ProductId, 2m, EatActionFixture.EachUnitId)],
             null, "manual", Guid.Empty, clock);
 
         var meal = Plan.PlannedMeals.Single(m => m.MealSlotId == EatActionFixture.LunchSlotId);

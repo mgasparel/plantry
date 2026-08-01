@@ -161,7 +161,7 @@ public sealed class PlannedMealsBandSlotTests
     [Fact(DisplayName = "PlannedMealDishVm — product dish carries its resolved unit code")]
     public void ProductDish_UnitCodeResolved()
     {
-        var dish = new PlannedMealDishVm("Chicken thighs", DishKind.Product, 5, "lb");
+        var dish = new PlannedMealDishVm("Chicken thighs", DishKind.Product, 0, "lb", 5m);
 
         Assert.Equal("lb", dish.UnitCode);
         Assert.Equal(DishKind.Product, dish.Kind);
@@ -186,7 +186,7 @@ public sealed class PlannedMealsBandSlotTests
     [Fact(DisplayName = "FormatDishQuantity — product dish renders 'N <unit>', not servings")]
     public void FormatDishQuantity_ProductDish_UsesUnitCode()
     {
-        var dish = new PlannedMealDishVm("Chicken thighs", DishKind.Product, 5, "lb");
+        var dish = new PlannedMealDishVm("Chicken thighs", DishKind.Product, 0, "lb", 5m);
 
         Assert.Equal("5 lb", IndexModel.FormatDishQuantity(dish));
     }
@@ -194,7 +194,7 @@ public sealed class PlannedMealsBandSlotTests
     [Fact(DisplayName = "FormatDishQuantity — product dish with unresolved unit renders 'N ?'")]
     public void FormatDishQuantity_ProductDish_UnresolvedUnit()
     {
-        var dish = new PlannedMealDishVm("Mystery product", DishKind.Product, 3, "?");
+        var dish = new PlannedMealDishVm("Mystery product", DishKind.Product, 0, "?", 3m);
 
         Assert.Equal("3 ?", IndexModel.FormatDishQuantity(dish));
     }
@@ -206,7 +206,7 @@ public sealed class PlannedMealsBandSlotTests
         // constructed without a resolved unit code (the UnitCode ctor param left at its null
         // default) must still fall through to the unresolved-unit placeholder, never silently
         // render the recipe-dish "servings" wording.
-        var dish = new PlannedMealDishVm("X", DishKind.Product, 3);
+        var dish = new PlannedMealDishVm("X", DishKind.Product, 0, Quantity: 3m);
 
         Assert.Equal("3 ?", IndexModel.FormatDishQuantity(dish));
         Assert.DoesNotContain("serving", IndexModel.FormatDishQuantity(dish));

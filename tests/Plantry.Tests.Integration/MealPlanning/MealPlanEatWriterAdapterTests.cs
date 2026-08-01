@@ -67,7 +67,7 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         var plannedDishId = Guid.CreateVersion7();
         await SeedStockAsync(4m);
 
-        await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _userId);
+        await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId);
 
         var loaded = await LoadStockAsync();
         var row = Assert.Single(EatRows(loaded));
@@ -101,8 +101,8 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         // token; the loser's ConsumeStockCommand row-lock blocks, then finds the token already
         // recorded and short-circuits to a no-op.
         await Task.WhenAll(
-            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _userId),
-            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _userId));
+            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId),
+            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId));
 
         var loaded = await LoadStockAsync();
         var row = Assert.Single(EatRows(loaded));
@@ -120,8 +120,8 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         await SeedStockAsync(4m);
         var adapter = BuildAdapter();
 
-        await adapter.EatAsync(plannedDishId, _productId, quantity: 1m, _userId);
-        await adapter.UndoEatAsync(plannedDishId, _productId, quantity: 1m, _userId);
+        await adapter.EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId);
+        await adapter.UndoEatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId);
 
         var afterUndo = await LoadStockAsync();
         var afterUndoRows = EatRows(afterUndo);
@@ -136,7 +136,7 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         Assert.Equal(4m, afterUndo.Entries.Where(e => e.IsActive).Sum(e => e.Quantity));
 
         // Re-eat: a fresh token (n=2), a fresh negative journal row — not deduped against eat n=1.
-        await adapter.EatAsync(plannedDishId, _productId, quantity: 1m, _userId);
+        await adapter.EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId);
         var afterReEat = await LoadStockAsync();
         var afterReEatRows = EatRows(afterReEat);
         Assert.Equal(3, afterReEatRows.Count);
@@ -148,14 +148,14 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
     {
         var plannedDishId = Guid.CreateVersion7();
         await SeedStockAsync(4m);
-        await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _userId);
+        await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId);
 
         // The done row only ever renders one "Undo" button — a real double-tap on it is the same
         // overlapping-requests race as the Eat button, so this races two independent adapter instances
         // (separate DbContexts) exactly like Concurrent_Eat_Race_Is_Idempotent above.
         await Task.WhenAll(
-            BuildAdapter().UndoEatAsync(plannedDishId, _productId, quantity: 1m, _userId),
-            BuildAdapter().UndoEatAsync(plannedDishId, _productId, quantity: 1m, _userId));
+            BuildAdapter().UndoEatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId),
+            BuildAdapter().UndoEatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId));
 
         var loaded = await LoadStockAsync();
         Assert.Equal(2, EatRows(loaded).Count); // still just one Consumed + one Correction
@@ -169,12 +169,12 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         await SeedStockAsync(0.5m); // only half a unit in stock
         var adapter = BuildAdapter();
 
-        await adapter.EatAsync(plannedDishId, _productId, quantity: 2m, _userId); // requests 2, only 0.5 available
+        await adapter.EatAsync(plannedDishId, _productId, quantity: 2m, _unitId, _userId); // requests 2, only 0.5 available
 
         var afterEat = await LoadStockAsync();
         Assert.Equal(0m, afterEat.Entries.Sum(e => e.Quantity)); // fully drained, no over-deduction
 
-        await adapter.UndoEatAsync(plannedDishId, _productId, quantity: 2m, _userId);
+        await adapter.UndoEatAsync(plannedDishId, _productId, quantity: 2m, _unitId, _userId);
 
         var afterUndo = await LoadStockAsync();
         // Restored exactly the 0.5 that was actually removed — NOT the full 2 requested.
@@ -187,7 +187,7 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         var plannedDishId = Guid.CreateVersion7();
         await SeedStockAsync(4m);
 
-        await BuildAdapter().UndoEatAsync(plannedDishId, _productId, quantity: 1m, _userId);
+        await BuildAdapter().UndoEatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId);
 
         var loaded = await LoadStockAsync();
         Assert.Empty(EatRows(loaded));
@@ -244,14 +244,14 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
 
         // Eat 2000 g worth, expressed in the product's DEFAULT unit (2 kg or 2000 g).
         var eatQuantity = defaultUnitIsLarger ? 2m : 2000m;
-        await adapter.EatAsync(plannedDishId, productId, eatQuantity, _userId);
+        await adapter.EatAsync(plannedDishId, productId, eatQuantity, defaultUnit.Id.Value, _userId);
 
         var loaded = await LoadStockDirectAsync(productId);
         var eatRow = Assert.Single(EatRows(loaded));
         Assert.Equal(lotUnit.Id.Value, eatRow.UnitId); // written in the LOT's own unit, not the default unit
         Assert.True(EatRows(loaded).Sum(j => j.Delta) < 0m); // net negative — dish reads as "eaten"
 
-        await adapter.UndoEatAsync(plannedDishId, productId, eatQuantity, _userId);
+        await adapter.UndoEatAsync(plannedDishId, productId, eatQuantity, defaultUnit.Id.Value, _userId);
 
         var afterUndo = await LoadStockDirectAsync(productId);
         var undoRows = EatRows(afterUndo);
@@ -275,7 +275,7 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         // No SeedStockAsync call — the product has no ProductStock record at all.
 
         var exception = await Record.ExceptionAsync(() =>
-            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _userId));
+            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId));
 
         Assert.Null(exception);
     }
@@ -286,7 +286,7 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         var plannedDishId = Guid.CreateVersion7();
         await SeedStockAsync(0.5m);
 
-        await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 2m, _userId);
+        await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 2m, _unitId, _userId);
 
         var loaded = await LoadStockAsync();
         var row = Assert.Single(EatRows(loaded));

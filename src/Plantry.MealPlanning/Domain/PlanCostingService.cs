@@ -11,9 +11,9 @@ namespace Plantry.MealPlanning.Domain;
 ///
 /// Recipe dishes: borrows <c>CostPerServing × servings</c> from Recipes' read models via
 /// <see cref="IRecipeReadModel.GetEnrichmentAsync"/>. Product dishes: price × quantity via
-/// <see cref="IMealPlanPriceReader"/>, converting the observation's unit onto the product's default
-/// unit via <see cref="IMealPlanCatalogProductReader.FindDefaultUnitIdAsync"/> +
-/// <see cref="IMealPlanUnitConverter"/> before multiplying by <c>Servings</c> (plantry-9n7l). Note-meals
+/// <see cref="IMealPlanPriceReader"/>, converting the observation's unit onto the product dish's
+/// saved planned unit via <see cref="IMealPlanUnitConverter"/> before multiplying by the saved quantity
+/// (plantry-9n7l). Note-meals
 /// contribute nothing.
 ///
 /// MealPlanning owns no costing engine — it rolls up what Recipes already computes (domain-model §1).
@@ -21,7 +21,6 @@ namespace Plantry.MealPlanning.Domain;
 public sealed class PlanCostingService(
     IRecipeReadModel recipeReader,
     IMealPlanPriceReader priceReader,
-    IMealPlanCatalogProductReader catalogReader,
     IMealPlanUnitConverter unitConverter,
     IClock clock)
 {
@@ -76,7 +75,7 @@ public sealed class PlanCostingService(
         {
             // Borrow cost from Recipes read model — cost is already scaled to the requested servings.
             var enrichment = await recipeReader.GetEnrichmentAsync(
-                dish.RecipeId.Value, dish.Servings, DateOnly.FromDateTime(clock.UtcNow.UtcDateTime), ct);
+                dish.RecipeId.Value, dish.Servings ?? 0, DateOnly.FromDateTime(clock.UtcNow.UtcDateTime), ct);
 
             if (enrichment?.TotalCost is null)
                 return new DishCost(null, false);
@@ -102,37 +101,38 @@ public sealed class PlanCostingService(
 
             var unitPrice = price.Price / price.Quantity;
 
-            // dish.Servings = quantity in the product's DEFAULT unit (domain-model §3.3). A price
-            // observation can be recorded in a different unit than the default (e.g. a weight-priced
-            // Intake line records the receipt's resolved weight unit independent of the product's own
-            // default) — convert price.UnitId -> the default unit, mirroring CostingService's
-            // per-line conversion, before multiplying by Servings.
-            var defaultUnitId = await catalogReader.FindDefaultUnitIdAsync(dish.ProductId.Value, ct);
-            if (defaultUnitId is null)
+            // Product dishes retain the denomination selected in the plan.  A price observation can
+            // be recorded in another unit; convert one observation unit into the planned unit before
+            // deriving the per-planned-unit price, then multiply by the stored quantity.
+            // Persisted product dishes always carry their own unit snapshot.  A malformed
+            // in-memory dish is unpriced rather than silently deriving the current Catalog default.
+            var plannedUnitId = dish.UnitId;
+            var plannedQuantity = dish.Quantity;
+            if (plannedUnitId is not { } savedUnit || savedUnit == Guid.Empty || plannedQuantity is not > 0m)
                 return new DishCost(null, false); // product unresolvable — never fabricate a number
 
-            decimal costPerDefaultUnit;
-            if (price.UnitId == defaultUnitId.Value)
+            decimal costPerPlannedUnit;
+            if (price.UnitId == savedUnit)
             {
-                // Common case: the observation is already in the default unit — no conversion, no
+                // Common case: the observation is already in the saved planned unit — no conversion, no
                 // extra IO round trip.
-                costPerDefaultUnit = unitPrice;
+                costPerPlannedUnit = unitPrice;
             }
             else
             {
                 var conversion = await unitConverter.ConvertAsync(
-                    dish.ProductId.Value, 1m, price.UnitId, defaultUnitId.Value, ct);
+                    dish.ProductId.Value, 1m, price.UnitId, savedUnit, ct);
                 if (conversion.IsFailure || conversion.Value <= 0m)
-                    // No conversion path — e.g. the default unit is mass/volume and the observation
-                    // was recorded in an incompatible unit, so "N default units" has no resolvable
+                    // No conversion path — e.g. the planned unit is mass/volume and the observation
+                    // was recorded in an incompatible unit, so the saved quantity has no resolvable
                     // magnitude. Never fabricate a number; flag the dish as unpriced instead.
                     return new DishCost(null, false);
 
-                // conversion.Value = how many default units 1 price.UnitId converts to.
-                costPerDefaultUnit = unitPrice / conversion.Value;
+                // conversion.Value = how many planned units one observation unit converts to.
+                costPerPlannedUnit = unitPrice / conversion.Value;
             }
 
-            var cost = costPerDefaultUnit * dish.Servings;
+            var cost = costPerPlannedUnit * plannedQuantity.Value;
             return new DishCost(cost, false);
         }
 

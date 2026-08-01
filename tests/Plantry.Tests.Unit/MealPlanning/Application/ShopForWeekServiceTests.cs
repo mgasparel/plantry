@@ -3,6 +3,7 @@ using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.Tests.Unit.MealPlanning.Domain;
 using Xunit;
 
 namespace Plantry.Tests.Unit.MealPlanning.Application;
@@ -94,7 +95,7 @@ public sealed class ShopForWeekServiceTests
 
         var repo = new FakeMealPlanRepository();
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 3)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 3m, unitId)], null, "manual", UserId, Clock);
         repo.Stored = plan;
 
         var writer = new FakeShoppingWriter();
@@ -104,6 +105,56 @@ public sealed class ShopForWeekServiceTests
 
         Assert.Equal(1, result.ItemsAdded);
         Assert.Equal(2m, writer.WrittenItems[0].Quantity); // 3 - 1 = 2
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ConvertsStockAndWritesShortfallInSavedUnit()
+    {
+        var productId = Guid.NewGuid();
+        var kgUnitId = Guid.NewGuid();
+        var gramUnitId = Guid.NewGuid();
+        var fakeStock = new FakeStockReaderForShop(
+            new MealPlanProductStock(productId, 1m, kgUnitId, null));
+        var converter = new FakeMealPlanUnitConverter((from, to) =>
+            from == kgUnitId && to == gramUnitId ? 1000m : null);
+        var repo = new FakeMealPlanRepository();
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA,
+            [DishSpec.ForProduct(productId, 1500m, gramUnitId)], null, "manual", UserId, Clock);
+        repo.Stored = plan;
+        var writer = new FakeShoppingWriter();
+
+        var svc = BuildService(repo: repo, stockReader: fakeStock, writer: writer, unitConverter: converter);
+        await svc.ExecuteAsync(HouseholdId, Monday);
+
+        var item = Assert.Single(writer.WrittenItems);
+        Assert.Equal(500m, item.Quantity);
+        Assert.Equal(gramUnitId, item.UnitId);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ConversionGapAbortsBeforeAnyShoppingWrite()
+    {
+        var recipeId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var kgUnitId = Guid.NewGuid();
+        var gramUnitId = Guid.NewGuid();
+        var reader = new FakeMissingIngredientsReader(
+            recipeId, [new RecipeMissingIngredient(productId, 1m, kgUnitId)]);
+        var repo = new FakeMealPlanRepository();
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA, [
+            new DishSpec(DishKind.Recipe, recipeId, 2),
+            DishSpec.ForProduct(productId, 500m, gramUnitId),
+        ], null, "manual", UserId, Clock);
+        repo.Stored = plan;
+        var writer = new FakeShoppingWriter();
+        var converter = new FakeMealPlanUnitConverter((_, _) => null);
+
+        var svc = BuildService(repo: repo, recipeReader: reader, writer: writer, unitConverter: converter);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => svc.ExecuteAsync(HouseholdId, Monday));
+        Assert.Empty(writer.Calls);
     }
 
     // ── Product dish — never stocked (zero-qty snapshot with real unit) adds full servings ─
@@ -120,7 +171,7 @@ public sealed class ShopForWeekServiceTests
 
         var repo = new FakeMealPlanRepository();
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 3)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 3m, unitId)], null, "manual", UserId, Clock);
         repo.Stored = plan;
 
         var writer = new FakeShoppingWriter();
@@ -146,7 +197,7 @@ public sealed class ShopForWeekServiceTests
 
         var repo = new FakeMealPlanRepository();
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, unitId)], null, "manual", UserId, Clock);
         repo.Stored = plan;
 
         var writer = new FakeShoppingWriter();
@@ -277,13 +328,15 @@ public sealed class ShopForWeekServiceTests
         FakeMealPlanRepository? repo = null,
         IRecipeReadModel? recipeReader = null,
         IMealPlanStockReader? stockReader = null,
-        IMealPlanShoppingWriter? writer = null)
+        IMealPlanShoppingWriter? writer = null,
+        IMealPlanUnitConverter? unitConverter = null)
         => new(
             repo ?? new FakeMealPlanRepository(),
             recipeReader ?? new FakeMissingIngredientsReader(Guid.Empty, []),
             stockReader ?? new FakeStockReaderForShop(null),
             writer ?? new FakeShoppingWriter(),
-            NullLogger<ShopForWeekService>.Instance);
+            NullLogger<ShopForWeekService>.Instance,
+            unitConverter);
 }
 
 // ── test doubles ──────────────────────────────────────────────────────────────

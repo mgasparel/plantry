@@ -189,12 +189,12 @@ public sealed class ProductPhotoMealPlanRepo : IMealPlanRepository
 
         // Breakfast: product-only meal, sole dish is the photo-inheriting product.
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductPhotoFixture.BreakfastSlotId,
-            [new DishSpec(DishKind.Product, ProductPhotoFixture.PhotoInheritingProductId, 2)],
+            [DishSpec.ForProduct(ProductPhotoFixture.PhotoInheritingProductId, 2m, Guid.NewGuid())],
             null, "manual", Guid.Empty, _clock);
 
         // Lunch: product-only meal, sole dish has no inherited photo.
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductPhotoFixture.LunchSlotId,
-            [new DishSpec(DishKind.Product, ProductPhotoFixture.NoInheritanceProductId, 1)],
+            [DishSpec.ForProduct(ProductPhotoFixture.NoInheritanceProductId, 1m, Guid.NewGuid())],
             null, "manual", Guid.Empty, _clock);
 
         // Dinner: a Recipe-kind dish (no photo, absent from the bag) PLUS the photo-inheriting
@@ -202,7 +202,7 @@ public sealed class ProductPhotoMealPlanRepo : IMealPlanRepository
         ThisWeekPlan.AssignMeal(ThisWeekMonday, ProductPhotoFixture.DinnerSlotId,
             [
                 new DishSpec(DishKind.Recipe, ProductPhotoFixture.ControlRecipeId, 2),
-                new DishSpec(DishKind.Product, ProductPhotoFixture.PhotoInheritingProductId, 1),
+                DishSpec.ForProduct(ProductPhotoFixture.PhotoInheritingProductId, 1m, Guid.NewGuid()),
             ],
             null, "manual", Guid.Empty, _clock);
 
@@ -212,8 +212,8 @@ public sealed class ProductPhotoMealPlanRepo : IMealPlanRepository
         // meals above so it lands in its own grid cell.
         ThisWeekPlan.AssignMeal(ThisWeekMonday.AddDays(1), ProductPhotoFixture.BreakfastSlotId,
             [
-                new DishSpec(DishKind.Product, ProductPhotoFixture.NoInheritanceProductId, 1),
-                new DishSpec(DishKind.Product, ProductPhotoFixture.PhotoInheritingProductId, 1),
+                DishSpec.ForProduct(ProductPhotoFixture.NoInheritanceProductId, 1m, Guid.NewGuid()),
+                DishSpec.ForProduct(ProductPhotoFixture.PhotoInheritingProductId, 1m, Guid.NewGuid()),
             ],
             null, "manual", Guid.Empty, _clock);
     }

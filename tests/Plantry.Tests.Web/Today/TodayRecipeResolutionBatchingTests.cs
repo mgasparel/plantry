@@ -122,7 +122,7 @@ internal static class TodayRecipeBatchingFixture
         var plan = MealPlan.Start(HhId, today, Clock);
         var breakfast = SlotConfig.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
 
-        plan.AssignMeal(today, breakfast.Id, [new DishSpec(DishKind.Product, FlourProductId, 2)],
+        plan.AssignMeal(today, breakfast.Id, [DishSpec.ForProduct(FlourProductId, 2m, Guid.NewGuid())],
             null, "test", Guid.Empty, Clock);
 
         return plan;

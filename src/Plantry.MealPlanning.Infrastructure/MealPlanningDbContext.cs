@@ -129,7 +129,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
         // ── PlannedDish ─────────────────────────────────────────────────────────
         builder.Entity<PlannedDish>(b =>
         {
-            b.ToTable("planned_dish");
+            b.ToTable("planned_dish", t => t.HasCheckConstraint(
+                "ck_planned_dish_shape",
+                "((recipe_id IS NOT NULL AND product_id IS NULL AND servings IS NOT NULL AND servings >= 1 AND quantity IS NULL AND unit_id IS NULL) OR " +
+                "(recipe_id IS NULL AND product_id IS NOT NULL AND servings IS NULL AND quantity IS NOT NULL AND quantity > 0 AND unit_id IS NOT NULL AND unit_id <> '00000000-0000-0000-0000-000000000000'))"));
             b.HasKey(pd => pd.Id);
             b.Property(pd => pd.Id)
                 .HasConversion(id => id.Value, v => PlannedDishId.From(v))
@@ -145,7 +148,9 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
                 .IsRequired();
             b.Property(pd => pd.RecipeId).HasColumnName("recipe_id");
             b.Property(pd => pd.ProductId).HasColumnName("product_id");
-            b.Property(pd => pd.Servings).HasColumnName("servings").IsRequired();
+            b.Property(pd => pd.Servings).HasColumnName("servings");
+            b.Property(pd => pd.Quantity).HasColumnName("quantity").HasPrecision(12, 3);
+            b.Property(pd => pd.UnitId).HasColumnName("unit_id");
             b.Property(pd => pd.Ordinal).HasColumnName("ordinal").IsRequired();
 
             // UNIQUE (planned_meal_id, ordinal)

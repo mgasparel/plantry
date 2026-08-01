@@ -97,11 +97,51 @@ public sealed class PlanFulfillmentServiceTests
 
         var svc = BuildService(stockReader: fakeStock);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, unitId)], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0], Today);
 
         Assert.Equal(100, result.FulfillmentPercent);
+    }
+
+    [Fact]
+    public async Task RollUpMealAsync_ConvertsStockIntoSavedPlannedUnit()
+    {
+        var productId = Guid.NewGuid();
+        var kgUnitId = Guid.NewGuid();
+        var gramUnitId = Guid.NewGuid();
+        var fakeStock = new FakeStockReader(
+            new MealPlanProductStock(productId, 1m, kgUnitId, null));
+        var converter = new FakeMealPlanUnitConverter((from, to) =>
+            from == kgUnitId && to == gramUnitId ? 1000m : null);
+
+        var svc = BuildService(stockReader: fakeStock, unitConverter: converter);
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA,
+            [DishSpec.ForProduct(productId, 500m, gramUnitId)], null, "manual", UserId, Clock);
+
+        var result = await svc.RollUpMealAsync(plan.PlannedMeals[0], Today);
+
+        Assert.Equal(100, result.FulfillmentPercent);
+    }
+
+    [Fact]
+    public async Task RollUpMealAsync_ReturnsZero_WhenStockCannotConvertIntoSavedUnit()
+    {
+        var productId = Guid.NewGuid();
+        var kgUnitId = Guid.NewGuid();
+        var gramUnitId = Guid.NewGuid();
+        var fakeStock = new FakeStockReader(
+            new MealPlanProductStock(productId, 1m, kgUnitId, null));
+
+        var svc = BuildService(stockReader: fakeStock, unitConverter: new FakeMealPlanUnitConverter((_, _) => null));
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA,
+            [DishSpec.ForProduct(productId, 500m, gramUnitId)], null, "manual", UserId, Clock);
+
+        var result = await svc.RollUpMealAsync(plan.PlannedMeals[0], Today);
+
+        Assert.Equal(0, result.FulfillmentPercent);
     }
 
     // ── RollUpMealAsync — product dish out of stock ───────────────────────────
@@ -114,7 +154,7 @@ public sealed class PlanFulfillmentServiceTests
 
         var svc = BuildService(stockReader: fakeStock);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, Guid.NewGuid())], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0], Today);
 
@@ -135,7 +175,7 @@ public sealed class PlanFulfillmentServiceTests
 
         var svc = BuildService(stockReader: fakeStock, horizonDays: horizonDays);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, unitId)], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0], Today);
 
@@ -160,7 +200,7 @@ public sealed class PlanFulfillmentServiceTests
 
         var svc = BuildService(stockReader: fakeStock, horizonDays: horizonDays);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
-        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Product, productId, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 2m, unitId)], null, "manual", UserId, Clock);
 
         var result = await svc.RollUpMealAsync(plan.PlannedMeals[0], Today);
 
@@ -232,11 +272,13 @@ public sealed class PlanFulfillmentServiceTests
     private static PlanFulfillmentService BuildService(
         IRecipeReadModel? recipeReader = null,
         IMealPlanStockReader? stockReader = null,
-        int horizonDays = 7)
+        int horizonDays = 7,
+        IMealPlanUnitConverter? unitConverter = null)
         => new(
             recipeReader ?? new FakeEnrichmentRecipeReader(Guid.Empty, null),
             stockReader ?? new FakeStockReader(null),
-            new FakeExpiringSoonHorizonReader(horizonDays));
+            new FakeExpiringSoonHorizonReader(horizonDays),
+            unitConverter);
 }
 
 // ── test doubles ──────────────────────────────────────────────────────────────

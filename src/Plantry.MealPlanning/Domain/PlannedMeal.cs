@@ -88,9 +88,7 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
         for (var i = 0; i < dishes.Count; i++)
         {
             var spec = dishes[i];
-            meal._plannedDishes.Add(spec.Kind == DishKind.Recipe
-                ? PlannedDish.CreateForRecipe(householdId, meal.Id, spec.ItemId, spec.Servings, ordinal: i + 1)
-                : PlannedDish.CreateForProduct(householdId, meal.Id, spec.ItemId, spec.Servings, ordinal: i + 1));
+            meal._plannedDishes.Add(DishSpecExtensions.CreateDish(householdId, meal.Id, spec, i + 1));
         }
 
         return meal;
@@ -202,14 +200,15 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
                 var match = candidates[matchIndex];
                 searchFrom = matchIndex + 1;
                 matchedOld.Add(match);
-                match.SetServings(spec.Servings);
+                if (spec.Kind == DishKind.Recipe)
+                    match.SetServings(spec.RequiredServings());
+                else
+                    match.SetProductQuantity(spec.RequiredQuantity(), spec.RequiredUnitId());
                 match.SetOrdinal(i + 1);
             }
             else
             {
-                added.Add(spec.Kind == DishKind.Recipe
-                    ? PlannedDish.CreateForRecipe(HouseholdId, Id, spec.ItemId, spec.Servings, ordinal: i + 1)
-                    : PlannedDish.CreateForProduct(HouseholdId, Id, spec.ItemId, spec.Servings, ordinal: i + 1));
+                added.Add(DishSpecExtensions.CreateDish(HouseholdId, Id, spec, i + 1));
             }
         }
 
@@ -264,7 +263,52 @@ public sealed class PlannedMeal : Entity<PlannedMealId>
     }
 }
 
-/// <summary>Specifies a single dish to include in a meal.</summary>
-public sealed record DishSpec(DishKind Kind, Guid ItemId, int Servings);
+/// <summary>Specifies one explicitly shaped recipe or product dish.</summary>
+public sealed record DishSpec
+{
+    public DishKind Kind { get; init; }
+    public Guid ItemId { get; init; }
+    public int? Servings { get; init; }
+    public decimal? Quantity { get; init; }
+    public Guid? UnitId { get; init; }
+
+    // Positional construction is retained for recipe callers only; product callers must use the
+    // explicit quantity + unit factory below so an implicit/default unit can never be persisted.
+    public DishSpec(DishKind kind, Guid itemId, int servings)
+    {
+        if (kind != DishKind.Recipe)
+            throw new ArgumentException("Product dishes require an explicit quantity and unit.", nameof(kind));
+        Kind = kind;
+        ItemId = itemId;
+        Servings = servings;
+    }
+
+    public DishSpec(DishKind kind, Guid itemId, decimal quantity, Guid unitId)
+    {
+        if (kind != DishKind.Product) throw new ArgumentException("Decimal dishes must be products.", nameof(kind));
+        if (quantity <= 0m) throw new ArgumentOutOfRangeException(nameof(quantity), "Product quantity must be > 0.");
+        if (unitId == Guid.Empty) throw new ArgumentException("Product unit is required.", nameof(unitId));
+        Kind = kind;
+        ItemId = itemId;
+        Quantity = quantity;
+        UnitId = unitId;
+    }
+
+    public static DishSpec ForRecipe(Guid recipeId, int servings) => new(DishKind.Recipe, recipeId, servings);
+    public static DishSpec ForProduct(Guid productId, decimal quantity, Guid unitId) =>
+        new(DishKind.Product, productId, quantity, unitId);
+
+    public int RequiredServings() => Servings is >= 1 ? Servings.Value : throw new ArgumentOutOfRangeException(nameof(Servings), "Recipe servings must be >= 1.");
+    public decimal RequiredQuantity() => Quantity is > 0m ? Quantity.Value : throw new ArgumentOutOfRangeException(nameof(Quantity), "Product quantity must be > 0.");
+    public Guid RequiredUnitId() => UnitId is { } id && id != Guid.Empty ? id : throw new ArgumentException("Product unit is required.", nameof(UnitId));
+}
 
 public enum DishKind { Recipe, Product }
+
+internal static class DishSpecExtensions
+{
+    internal static PlannedDish CreateDish(HouseholdId householdId, PlannedMealId mealId, DishSpec spec, int ordinal) =>
+        spec.Kind == DishKind.Recipe
+            ? PlannedDish.CreateForRecipe(householdId, mealId, spec.ItemId, spec.RequiredServings(), ordinal)
+            : PlannedDish.CreateForProduct(householdId, mealId, spec.ItemId, spec.RequiredQuantity(), spec.RequiredUnitId(), ordinal);
+}

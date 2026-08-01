@@ -41,11 +41,15 @@
  * @property {"recipe"|"product"} kind
  * @property {string} itemId
  * @property {string} name
- * @property {number} servings
+ * @property {number|null} servings
+ * @property {number|null} quantity
  * @property {number|null} fulfillment       per-dish fulfillment % from server (display-only)
  * @property {number|null} costPerServing    per-dish cost from server (display-only)
  * @property {boolean} hasPhoto
- * @property {string|null} unitCode          product's default unit code (null for recipe dishes, plantry-ri26)
+ * @property {string|null} unitCode          selected product unit code (null for recipe dishes)
+ * @property {string|null} unitId           selected product unit id (null for recipe dishes)
+ * @property {{unitId:string,code:string,dimension:string}[]|null} unitOptions reachable product units
+ * @property {string|null} dimension       selected product unit dimension
  */
 
 // ── lvl ───────────────────────────────────────────────────────────────────────
@@ -128,4 +132,42 @@ export function dishMeta(d, symbol = "$") {
  */
 export function dishUnitLabel(d) {
   return d.kind === "product" ? (d.unitCode || "?") : "serv";
+}
+
+// ── productUnitPicker ───────────────────────────────────────────────────────
+
+/**
+ * Prepare the product-unit picker from the server's reachable options.
+ *
+ * A saved unit can become unreachable after a catalog conversion is removed.  Keep
+ * that saved code available to the UI as a read-only stale indicator, but never add
+ * it to the select's options: a replacement must come from the server-provided
+ * reachable list before the draft can be saved again.
+ *
+ * @param {DishDraft} d
+ * @returns {{options:{unitId:string,code:string,dimension:string}[],selectedUnitId:string,staleUnitCode:string|null}}
+ */
+export function productUnitPicker(d) {
+  const options = [...(d.unitOptions ?? [])];
+  const selectedUnitId = d.unitId && options.some((o) => o.unitId === d.unitId)
+    ? d.unitId
+    : "";
+  const staleUnitCode = d.unitId && selectedUnitId === ""
+    ? (d.unitCode || "?")
+    : null;
+  return { options, selectedUnitId, staleUnitCode };
+}
+
+// ── dishInput ───────────────────────────────────────────────────────────────
+
+/**
+ * Project a draft into the typed island request shape. The server owns validation and
+ * conversion; this pure transform keeps recipe/product wire branches disjoint.
+ * @param {DishDraft} d
+ * @returns {{kind:"recipe",itemId:string,servings:number|null}|{kind:"product",itemId:string,quantity:number|null,unitId:string|null}}
+ */
+export function dishInput(d) {
+  return d.kind === "recipe"
+    ? { kind: "recipe", itemId: d.itemId, servings: d.servings }
+    : { kind: "product", itemId: d.itemId, quantity: d.quantity, unitId: d.unitId };
 }

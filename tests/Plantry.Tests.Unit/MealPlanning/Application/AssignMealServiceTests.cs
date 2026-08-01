@@ -59,26 +59,94 @@ public sealed class AssignMealServiceTests
     {
         var catalogReader = new FakeCatalogProductReader(existsResult: false);
         var svc = BuildService(catalogReader: catalogReader);
+        var productId = Guid.NewGuid();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             svc.AssignDishesAsync(HouseholdId, Monday, SlotA,
-                [new DishSpec(DishKind.Product, Guid.NewGuid(), 1)],
+                [DishSpec.ForProduct(productId, 1m, Guid.NewGuid())],
                 null, UserId));
     }
 
     [Fact]
     public async Task AssignDishesAsync_AcceptsKnownProduct()
     {
-        var catalogReader = new FakeCatalogProductReader(existsResult: true);
+        var productId = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+        var catalogReader = new FakeCatalogProductReader(
+            existsResult: true,
+            planningInfo: new MealPlanProductPlanningInfo(productId, unitId, "Mass",
+                [new MealPlanUnitOption(unitId, "kg", "Mass")]));
         var repo = new FakeMealPlanRepository();
         var svc = BuildService(planRepo: repo, catalogReader: catalogReader);
 
         await svc.AssignDishesAsync(HouseholdId, Monday, SlotA,
-            [new DishSpec(DishKind.Product, Guid.NewGuid(), 1)],
+            [DishSpec.ForProduct(productId, 1m, unitId)],
             null, UserId);
 
         Assert.NotNull(repo.Stored);
         Assert.Single(repo.Stored!.PlannedMeals);
+    }
+
+    [Fact]
+    public async Task AssignDishesAsync_PersistsExplicitProductQuantityAndUnit()
+    {
+        var productId = Guid.NewGuid();
+        var defaultUnit = Guid.NewGuid();
+        var gramUnit = Guid.NewGuid();
+        var catalogReader = new FakeCatalogProductReader(
+            existsResult: true,
+            planningInfo: new MealPlanProductPlanningInfo(
+                productId,
+                defaultUnit,
+                "Mass",
+                [new MealPlanUnitOption(defaultUnit, "kg", "Mass"), new MealPlanUnitOption(gramUnit, "g", "Mass")]));
+        var repo = new FakeMealPlanRepository();
+        var svc = BuildService(planRepo: repo, catalogReader: catalogReader);
+
+        await svc.AssignDishesAsync(HouseholdId, Monday, SlotA,
+            [DishSpec.ForProduct(productId, 0.5m, gramUnit)], null, UserId);
+
+        var dish = Assert.Single(Assert.Single(repo.Stored!.PlannedMeals).PlannedDishes);
+        Assert.Equal(0.5m, dish.Quantity);
+        Assert.Equal(gramUnit, dish.UnitId);
+        Assert.Null(dish.Servings);
+    }
+
+    [Fact]
+    public async Task AssignDishesAsync_RejectsUnreachableProductUnit()
+    {
+        var productId = Guid.NewGuid();
+        var defaultUnit = Guid.NewGuid();
+        var forgedUnit = Guid.NewGuid();
+        var catalogReader = new FakeCatalogProductReader(
+            existsResult: true,
+            planningInfo: new MealPlanProductPlanningInfo(
+                productId, defaultUnit, "Mass", [new MealPlanUnitOption(defaultUnit, "kg", "Mass")]));
+        var svc = BuildService(catalogReader: catalogReader);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.AssignDishesAsync(HouseholdId, Monday, SlotA,
+                [DishSpec.ForProduct(productId, 0.5m, forgedUnit)], null, UserId));
+
+        Assert.Contains("not reachable", ex.Message);
+    }
+
+    [Fact]
+    public async Task AssignDishesAsync_RejectsFractionalCountQuantity()
+    {
+        var productId = Guid.NewGuid();
+        var countUnit = Guid.NewGuid();
+        var catalogReader = new FakeCatalogProductReader(
+            existsResult: true,
+            planningInfo: new MealPlanProductPlanningInfo(
+                productId, countUnit, "Count", [new MealPlanUnitOption(countUnit, "ea", "Count")]));
+        var svc = BuildService(catalogReader: catalogReader);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.AssignDishesAsync(HouseholdId, Monday, SlotA,
+                [DishSpec.ForProduct(productId, 1.5m, countUnit)], null, UserId));
+
+        Assert.Contains("whole numbers", ex.Message);
     }
 
     [Fact]
@@ -91,7 +159,7 @@ public sealed class AssignMealServiceTests
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             svc.AssignDishesAsync(HouseholdId, Monday, SlotA,
-                [new DishSpec(DishKind.Product, Guid.NewGuid(), 1)],
+                [DishSpec.ForProduct(Guid.NewGuid(), 1m, Guid.NewGuid())],
                 null, UserId));
 
         Assert.Contains("parent product group", ex.Message);
@@ -298,7 +366,10 @@ public sealed class FakeRecipeReadModel : IRecipeReadModel
         => Task.FromResult(false);
 }
 
-public sealed class FakeCatalogProductReader(bool existsResult = true, bool plannableResult = true) : IMealPlanCatalogProductReader
+public sealed class FakeCatalogProductReader(
+    bool existsResult = true,
+    bool plannableResult = true,
+    MealPlanProductPlanningInfo? planningInfo = null) : IMealPlanCatalogProductReader
 {
     public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default)
         => Task.FromResult(existsResult);
@@ -311,4 +382,7 @@ public sealed class FakeCatalogProductReader(bool existsResult = true, bool plan
 
     public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+    public Task<MealPlanProductPlanningInfo?> GetPlanningInfoAsync(Guid productId, CancellationToken ct = default)
+        => Task.FromResult(planningInfo?.ProductId == productId ? planningInfo : null);
 }

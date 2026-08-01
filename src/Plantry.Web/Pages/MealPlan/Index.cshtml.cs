@@ -51,7 +51,8 @@ public sealed class IndexModel(
     ITenantContext tenant,
     UserManager<AppUser> userManager,
     IClock clock,
-    ILogger<IndexModel> logger) : PageModel
+    ILogger<IndexModel> logger,
+    IMealPlanUnitConverter? unitConverter = null) : PageModel
 {
     public DateOnly WeekStart { get; private set; }
     public DateOnly PrevWeekStart { get; private set; }
@@ -457,8 +458,13 @@ public sealed class IndexModel(
         if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.ShowCookStrip)
             return BadRequest();
 
+        if (hit.Dish.Quantity is not > 0m
+            || hit.Dish.UnitId is not { } plannedUnit
+            || plannedUnit == Guid.Empty)
+            return BadRequest();
+
         var userId = await GetCurrentUserIdAsync(ct);
-        await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Servings, userId, ct);
+        await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Quantity.Value, plannedUnit, userId, ct);
 
         return await CellFragmentAsync(householdId, parsedDate, sid, ct);
     }
@@ -483,13 +489,25 @@ public sealed class IndexModel(
         if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.ShowCookStrip)
             return BadRequest();
 
+        if (hit.Dish.Quantity is not > 0m
+            || hit.Dish.UnitId is not { } plannedUnit
+            || plannedUnit == Guid.Empty)
+            return BadRequest();
+
         var stock = await stockReader.FindStockAsync(hit.Dish.ItemId, ct);
         var onHand = stock?.AvailableQuantity ?? 0m;
+        if (stock is not null && stock.DefaultUnitId != plannedUnit)
+        {
+            var converted = unitConverter is null
+                ? Result<decimal>.Failure(Error.Custom("MealPlanning.UnitConversionUnavailable", "Stock cannot be converted to the planned unit."))
+                : await unitConverter.ConvertAsync(hit.Dish.ItemId, stock.AvailableQuantity, stock.DefaultUnitId, plannedUnit, ct);
+            onHand = converted.IsSuccess ? converted.Value : 0m;
+        }
         var cellId = $"cell-{sid.Value:N}-{parsedDate:yyyy-MM-dd}";
 
         var vm = new EatSheetVm(
             plannedDishId, date, slotId, cellId, week,
-            hit.Dish.Name, hit.Dish.Servings, onHand,
+            hit.Dish.Name, hit.Dish.Quantity.Value, onHand,
             hit.Dish.UnitCode ?? DishDisplayPlaceholders.UnresolvedUnitCode);
         return Partial("_EatSheet", vm);
     }
@@ -519,11 +537,14 @@ public sealed class IndexModel(
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
 
         var found = FindMealDish(parsedDate, sid, plannedDishId);
-        if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.ShowCookStrip)
+        if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.ShowCookStrip
+            || hit.Dish.Quantity is not > 0m
+            || hit.Dish.UnitId is not { } plannedUnit
+            || plannedUnit == Guid.Empty)
             return BadRequest();
 
         var userId = await GetCurrentUserIdAsync(ct);
-        await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, quantity, userId, ct);
+        await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, quantity, plannedUnit, userId, ct);
 
         return await CellFragmentAsync(householdId, parsedDate, sid, hardStanceWarning: null, closeSheet: true, ct);
     }
@@ -544,11 +565,15 @@ public sealed class IndexModel(
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
 
         var found = FindMealDish(parsedDate, sid, plannedDishId);
-        if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.IsToday)
+        if (found is not { } hit || hit.Dish.Kind != DishKind.Product || !hit.Meal.IsToday
+            || hit.Dish.Quantity is not > 0m
+            || hit.Dish.UnitId is not { } plannedUnit
+            || plannedUnit == Guid.Empty)
             return BadRequest();
 
         var userId = await GetCurrentUserIdAsync(ct);
-        await eatWriter.UndoEatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Servings, userId, ct);
+        await eatWriter.UndoEatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Quantity.Value,
+            plannedUnit, userId, ct);
 
         return await CellFragmentAsync(householdId, parsedDate, sid, ct);
     }
@@ -752,23 +777,43 @@ public sealed class IndexModel(
                     productDishIds.Count > 0
                         ? await catalogReader.ResolveDefaultUnitCodesAsync(productDishIds, ct)
                         : new Dictionary<Guid, string>();
+                var savedUnitIds = meal.PlannedDishes
+                    .Where(d => d.ProductId.HasValue && d.UnitId.HasValue && d.UnitId.Value != Guid.Empty)
+                    .Select(d => d.UnitId!.Value)
+                    .Distinct()
+                    .ToList();
+                IReadOnlyDictionary<Guid, string> savedUnitCodes = savedUnitIds.Count > 0
+                    ? await catalogReader.ResolveUnitCodesAsync(savedUnitIds, ct)
+                    : new Dictionary<Guid, string>();
+                var planningInfo = productDishIds.Count > 0
+                    ? await catalogReader.GetPlanningInfoAsync(productDishIds, ct)
+                    : new Dictionary<Guid, MealPlanProductPlanningInfo>();
 
                 foreach (var d in meal.PlannedDishes.OrderBy(d => d.Ordinal))
                 {
                     if (d.RecipeId.HasValue)
                     {
                         var r = await recipeReader.GetByIdAsync(d.RecipeId.Value, ct);
-                        var enr = await recipeReader.GetEnrichmentAsync(d.RecipeId.Value, d.Servings, today, ct);
+                        var enr = await recipeReader.GetEnrichmentAsync(d.RecipeId.Value, d.Servings ?? 0, today, ct);
                         decimal? costPerServing = enr?.TotalCost is { } total && d.Servings > 0 ? total / d.Servings : null;
                         dishes.Add(new EditorDishVm(DishKind.Recipe, d.RecipeId.Value, r?.Name ?? "Unknown recipe",
-                            d.Servings, d.Ordinal, enr?.FulfillmentPercent, costPerServing, r?.HasPhoto ?? false));
+                            d.Servings ?? 0, d.Ordinal, enr?.FulfillmentPercent, costPerServing, r?.HasPhoto ?? false));
                     }
                     else if (d.ProductId.HasValue)
                     {
                         dishes.Add(new EditorDishVm(DishKind.Product, d.ProductId.Value,
                             productNames.GetValueOrDefault(d.ProductId.Value, DishDisplayPlaceholders.UnknownProductName),
-                            d.Servings, d.Ordinal,
-                            UnitCode: productUnitCodes.GetValueOrDefault(d.ProductId.Value, DishDisplayPlaceholders.UnresolvedUnitCode)));
+                            d.Servings ?? 0, d.Ordinal,
+                            UnitCode: d.UnitId is { } savedUnit
+                                && savedUnit != Guid.Empty
+                                ? savedUnitCodes.GetValueOrDefault(savedUnit, DishDisplayPlaceholders.UnresolvedUnitCode)
+                                : DishDisplayPlaceholders.UnresolvedUnitCode,
+                            Quantity: d.Quantity,
+                            UnitId: d.UnitId is { } unit && unit != Guid.Empty ? unit : null,
+                            UnitOptions: planningInfo.GetValueOrDefault(d.ProductId.Value)?.UnitOptions,
+                            Dimension: planningInfo.GetValueOrDefault(d.ProductId.Value)?.UnitOptions
+                                .FirstOrDefault(o => o.UnitId == d.UnitId)?.Dimension
+                                ?? planningInfo.GetValueOrDefault(d.ProductId.Value)?.Dimension));
                     }
                 }
 
@@ -829,7 +874,11 @@ public sealed class IndexModel(
                 d.FulfillmentPercent,
                 d.CostPerServing,
                 d.HasPhoto,
-                d.UnitCode))
+                d.UnitCode,
+                d.Quantity,
+                d.UnitId?.ToString("D"),
+                d.UnitOptions,
+                d.Dimension))
             .ToList();
 
         var payload = new MealEditorHydrationVm(
@@ -889,10 +938,25 @@ public sealed class IndexModel(
         }
         else
         {
-            var specs = BuildDishSpecsFromJson(input.Dishes);
+            List<DishSpec> specs;
+            try { specs = BuildDishSpecsFromJson(input.Dishes); }
+            catch (InvalidOperationException ex)
+            {
+                logger.LogWarning(ex, "AssignJson rejected malformed dish payload; reason: {Reason}.", ex.Message);
+                return new JsonResult(new { error = ex.Message }) { StatusCode = 400 };
+            }
             if (specs.Count == 0)
                 return new JsonResult(new { error = "At least one dish is required." }) { StatusCode = 400 };
-            var dishResult = await assignService.AssignDishesAsync(householdId, parsedDate, sid, specs, overrideList, userId, mid, ct);
+            AssignMealResult dishResult;
+            try
+            {
+                dishResult = await assignService.AssignDishesAsync(householdId, parsedDate, sid, specs, overrideList, userId, mid, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                logger.LogWarning(ex, "AssignJson rejected dish validation for slot {SlotId}; reason: {Reason}.", sid.Value, ex.Message);
+                return new JsonResult(new { error = ex.Message }) { StatusCode = 400 };
+            }
             hardStanceWarning = dishResult.HardStanceWarning;
         }
 
@@ -952,12 +1016,28 @@ public sealed class IndexModel(
             return new JsonResult(new { html });
         }
 
-        var specs = BuildDishSpecsFromJson(input.Dishes);
+        List<DishSpec> specs;
+        try { specs = BuildDishSpecsFromJson(input.Dishes); }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "RollupJson rejected malformed dish payload; reason: {Reason}.", ex.Message);
+            return new JsonResult(new { error = ex.Message }) { StatusCode = 400 };
+        }
         if (specs.Count == 0)
         {
             var html = await RenderPartialToStringAsync("_EditorRollup",
                 new EditorRollupVm(IsNote: false, HasDishes: false, DisplayCurrency: CurrentDisplayCurrency), ct);
             return new JsonResult(new { html });
+        }
+
+        try
+        {
+            specs = (await ProductDishValidator.NormalizeAsync(catalogReader, specs, ct)).ToList();
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "RollupJson rejected dish validation; reason: {Reason}.", ex.Message);
+            return new JsonResult(new { error = ex.Message }) { StatusCode = 400 };
         }
 
         // Build a transient in-memory meal for rollup projection only.
@@ -1027,7 +1107,11 @@ public sealed class IndexModel(
                 itemId = p.ProductId.ToString("D"),
                 name = p.Name,
                 defaultServings = 1,
+                quantity = 1m,
+                unitId = p.DefaultUnitId,
                 unitCode = p.UnitCode,
+                dimension = p.Dimension,
+                unitOptions = p.UnitOptions,
                 fulfillmentPercent = (object?)null,
                 costPerServing = (object?)null,
                 hasPhoto = false,
@@ -1158,11 +1242,6 @@ public sealed class IndexModel(
                 .Select(id => id!.Value)
                 .Distinct()
                 .ToList();
-            IReadOnlyDictionary<Guid, string> consumedUnitCodes =
-                consumedUnitIds.Count > 0
-                    ? await catalogReader.ResolveUnitCodesAsync(consumedUnitIds, ct)
-                    : new Dictionary<Guid, string>();
-
             // Product dish name/unit resolution (plantry-vj6z): one batched pair of catalogReader
             // calls for every product dish in the whole week, up front — never per-meal. Recipe
             // names come from the in-memory bag (no DB call); product dishes are rare and not on
@@ -1185,6 +1264,24 @@ public sealed class IndexModel(
                 allProductDishIds.Count > 0
                     ? await catalogReader.ResolveDefaultUnitCodesAsync(allProductDishIds, ct)
                     : new Dictionary<Guid, string>();
+            var allSavedUnitIds = loadedPlan.PlannedMeals
+                .SelectMany(m => m.PlannedDishes)
+                .Where(d => d.ProductId.HasValue && d.UnitId.HasValue && d.UnitId.Value != Guid.Empty)
+                .Select(d => d.UnitId!.Value)
+                .Distinct()
+                .ToList();
+            // Saved planned units and consumed journal units share one week-wide lookup. Keeping
+            // both sets in the same batch preserves the one-call invariant while allowing every
+            // product display path to resolve its persisted unit rather than inferring a default.
+            var allUnitIds = consumedUnitIds
+                .Concat(allSavedUnitIds)
+                .Distinct()
+                .ToList();
+            IReadOnlyDictionary<Guid, string> allUnitCodes = allUnitIds.Count > 0
+                ? await catalogReader.ResolveUnitCodesAsync(allUnitIds, ct)
+                : new Dictionary<Guid, string>();
+            var consumedUnitCodes = allUnitCodes;
+            var savedProductUnitCodes = allUnitCodes;
 
             // Product-dish photo inheritance (plantry-f4dt), batched alongside productNames/
             // productUnitCodes above — same O(meals×dishes) hot-path constraint. Maps a product id
@@ -1256,7 +1353,9 @@ public sealed class IndexModel(
                         name = productNames.GetValueOrDefault(d.ProductId.Value, DishDisplayPlaceholders.UnknownProductName);
                         kind = DishKind.Product;
                         itemId = d.ProductId.Value;
-                        unitCode = productUnitCodes.GetValueOrDefault(d.ProductId.Value, DishDisplayPlaceholders.UnresolvedUnitCode);
+                        unitCode = d.UnitId is { } savedUnit && savedUnit != Guid.Empty
+                            ? savedProductUnitCodes.GetValueOrDefault(savedUnit, DishDisplayPlaceholders.UnresolvedUnitCode)
+                            : DishDisplayPlaceholders.UnresolvedUnitCode;
                         // plantry-f4dt: a product-dish photo is inherited from its sole photo-bearing
                         // producer-recipe (see soleYieldPhotoRecipeIds above); absent → no photo,
                         // same gradient-placeholder fallback as before (plantry-tyvg).
@@ -1280,7 +1379,22 @@ public sealed class IndexModel(
                     if (kind == DishKind.Product && showCookStrip && status is null)
                     {
                         var stock = await GetCachedStockAsync(itemId);
-                        needsEatConfirm = stock is not null && UseUpZone.IsInUseUpZone(stock.AvailableQuantity, d.Servings);
+                        if (stock is not null
+                            && d.UnitId is { } plannedUnit
+                            && plannedUnit != Guid.Empty
+                            && d.Quantity is > 0m)
+                        {
+                            var availableInPlannedUnit = stock.AvailableQuantity;
+                            if (stock.DefaultUnitId != plannedUnit)
+                            {
+                                var converted = unitConverter is null
+                                    ? Result<decimal>.Failure(Error.Custom("MealPlanning.UnitConversionUnavailable", "Stock cannot be converted to the planned unit."))
+                                    : await unitConverter.ConvertAsync(itemId, stock.AvailableQuantity, stock.DefaultUnitId, plannedUnit, ct);
+                                availableInPlannedUnit = converted.IsSuccess ? converted.Value : 0m;
+                            }
+                            needsEatConfirm = UseUpZone.IsInUseUpZone(
+                                availableInPlannedUnit, d.Quantity.Value);
+                        }
                     }
 
                     var cookedAtLocalTime = status?.At is { } cookedAt
@@ -1294,9 +1408,9 @@ public sealed class IndexModel(
                         ? consumedUnitCodes.GetValueOrDefault(cuid, DishDisplayPlaceholders.UnresolvedUnitCode)
                         : null;
                     dishVms.Add(new MealCardDishVm(
-                        d.Id.Value, kind, itemId, name, d.Servings, status?.At, hasPhoto, unitCode,
+                        d.Id.Value, kind, itemId, name, d.Servings ?? 0, status?.At, hasPhoto, unitCode,
                         needsEatConfirm, photoRecipeId, cookedAtLocalTime,
-                        status?.ConsumedQuantity, consumedUnitCode));
+                        status?.ConsumedQuantity, consumedUnitCode, d.Quantity, d.UnitId));
                 }
                 var dishNames = dishVms.Select(v => v.Name).ToList();
 
@@ -1325,7 +1439,7 @@ public sealed class IndexModel(
 
                         if (dish.RecipeId.HasValue)
                         {
-                            var dishEnr = enricher.Enrich(dish.RecipeId.Value, dish.Servings, today);
+                            var dishEnr = enricher.Enrich(dish.RecipeId.Value, dish.Servings ?? 0, today);
                             if (dishEnr is not null)
                             {
                                 totalFulfillmentPct += dishEnr.FulfillmentPercent;
@@ -1486,8 +1600,8 @@ public sealed class IndexModel(
     {
         var tempPlan = DomainMealPlan.Start(householdId, DomainMealPlan.NormalizeToMonday(date), clock);
         var spec = dish.ProductId.HasValue
-            ? new DishSpec(DishKind.Product, dish.ProductId.Value, dish.Servings)
-            : new DishSpec(DishKind.Recipe, dish.RecipeId!.Value, dish.Servings);
+            ? DishSpec.ForProduct(dish.ProductId.Value, dish.Quantity ?? 0m, dish.UnitId ?? Guid.Empty)
+            : DishSpec.ForRecipe(dish.RecipeId!.Value, dish.Servings ?? 0);
         tempPlan.AssignMeal(date, slotId, [spec], null, "rollup-single-dish", Guid.Empty, clock);
         return tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == date && m.MealSlotId == slotId);
     }
@@ -1787,16 +1901,35 @@ public sealed class IndexModel(
 
     /// <summary>
     /// Builds DishSpec list from a JSON dish array (island JSON endpoint format).
-    /// JSON carries a typed array of (kind, itemId, servings) objects, so per-dish
-    /// servings can never be mis-mapped the way repeated form keys could collapse.
+    /// JSON carries disjoint typed recipe/product branches; catalog-backed product validation
+    /// (reachability, plannability, and Count granularity) runs in <see cref="ProductDishValidator"/>
+    /// after this shape parse for both assign and rollup.
     /// </summary>
     private static List<DishSpec> BuildDishSpecsFromJson(List<DishJsonItem>? dishes)
     {
         if (dishes is null || dishes.Count == 0) return [];
-        return dishes.Select(d => new DishSpec(
-            d.Kind.Equals("recipe", StringComparison.OrdinalIgnoreCase) ? DishKind.Recipe : DishKind.Product,
-            d.ItemId,
-            Math.Max(1, d.Servings))).ToList();
+        var result = new List<DishSpec>(dishes.Count);
+        foreach (var d in dishes)
+        {
+            if (d.ItemId == Guid.Empty) throw new InvalidOperationException("A dish item is required.");
+            if (d.Kind.Equals("recipe", StringComparison.OrdinalIgnoreCase))
+            {
+                if (d.Servings is not >= 1 || d.Quantity.HasValue || d.UnitId.HasValue)
+                    throw new InvalidOperationException("Recipe dishes require integer servings only.");
+                result.Add(DishSpec.ForRecipe(d.ItemId, d.Servings.Value));
+            }
+            else if (d.Kind.Equals("product", StringComparison.OrdinalIgnoreCase))
+            {
+                if (d.Quantity is not > 0m || d.UnitId is not { } unitId || unitId == Guid.Empty || d.Servings.HasValue)
+                    throw new InvalidOperationException("Product dishes require a positive quantity and unit.");
+                result.Add(DishSpec.ForProduct(d.ItemId, d.Quantity.Value, unitId));
+            }
+            else
+            {
+                throw new InvalidOperationException("Unknown dish kind.");
+            }
+        }
+        return result;
     }
 
     private async Task<IActionResult> CellFragmentAsync(HouseholdId householdId, DateOnly date, MealSlotId slotId, CancellationToken ct)
@@ -1992,7 +2125,11 @@ public sealed class IndexModel(
         /// The display code <see cref="ConsumedQuantity"/> is denominated in — set exactly when
         /// <see cref="ConsumedQuantity"/> is. "?" when the unit id could not be resolved.
         /// </summary>
-        string? ConsumedUnitCode = null);
+        string? ConsumedUnitCode = null,
+        /// <summary>Explicit planned product quantity; null for recipe dishes.</summary>
+        decimal? Quantity = null,
+        /// <summary>Explicit planned product unit; null for recipe dishes.</summary>
+        Guid? UnitId = null);
 
     /// <summary>
     /// View model for the Eat confirm sheet (plantry-yuy3, _EatSheet.cshtml) — the product-dish
@@ -2029,7 +2166,11 @@ public sealed class IndexModel(
         /// <summary>
         /// The product's default unit's display code — null for a recipe dish (plantry-ri26).
         /// </summary>
-        string? UnitCode = null);
+        string? UnitCode = null,
+        decimal? Quantity = null,
+        Guid? UnitId = null,
+        IReadOnlyList<MealPlanUnitOption>? UnitOptions = null,
+        string? Dimension = null);
 
     public sealed record CellFragmentVm(
         DateOnly Date,
@@ -2184,12 +2325,14 @@ public sealed class IndexModel(
 
     // ── Island JSON endpoint input models (ADR-015 amendment) ─────────────────
 
-    /// <summary>A single dish item in a JSON island request (kind + itemId + servings).</summary>
+    /// <summary>A typed dish item in a JSON island request.</summary>
     public sealed class DishJsonItem
     {
         public string Kind { get; set; } = "recipe";
         public Guid ItemId { get; set; }
-        public int Servings { get; set; } = 1;
+        public int? Servings { get; set; }
+        public decimal? Quantity { get; set; }
+        public Guid? UnitId { get; set; }
     }
 
     /// <summary>JSON body for POST AssignJson — the island editor save action.</summary>
