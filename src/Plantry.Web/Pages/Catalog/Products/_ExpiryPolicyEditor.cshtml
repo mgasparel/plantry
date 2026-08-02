@@ -1,0 +1,74 @@
+@model Plantry.Web.Pages.Catalog.Products.ExpiryPolicyEditorViewModel
+@using System.Text.Json
+@{
+    var modeProperty = Model.FieldPrefix == "DefaultDueDaysAfterFreezing"
+        ? "AfterFreezingMode"
+        : "AfterThawingMode";
+    var modeName = $"Input.{modeProperty}";
+    var daysName = $"Input.{Model.FieldPrefix}";
+    var key = Model.FieldPrefix.ToLowerInvariant();
+}
+
+<fieldset class="product-expiry-policy" x-data="{
+    mode: @JsonSerializer.Serialize(Model.Mode.ToString()),
+    days: @JsonSerializer.Serialize(Model.LocalDays),
+    householdDays: @JsonSerializer.Serialize(Model.HouseholdDays),
+    inheritedDays: @JsonSerializer.Serialize(Model.InheritedDays),
+    inheritedNever: @JsonSerializer.Serialize(Model.InheritedNever),
+    get isNever() { return this.mode === 'Never' || (this.mode === 'Inherit' && this.inheritedNever) },
+    get displayDays() {
+        if (this.isNever) return null;
+        if (this.mode === 'SetDays') return this.days;
+        if (this.mode === 'Inherit') return this.inheritedDays;
+        return this.householdDays;
+    }
+}" aria-labelledby="@key-expiry-label">
+    <legend class="field__label" id="@key-expiry-label">@Model.Label</legend>
+    <div class="seg-ctrl" role="radiogroup" aria-label="@Model.Label policy">
+        @if (Model.IsVariant)
+        {
+            <label class="seg-ctrl__item">
+                <input type="radio" name="@modeName" value="Inherit" x-model="mode"
+                       checked="@(Model.Mode == ProductExpiryMode.Inherit ? "checked" : null)" />
+                <span>Inherit</span>
+            </label>
+        }
+        <label class="seg-ctrl__item">
+            <input type="radio" name="@modeName" value="Default" x-model="mode"
+                   checked="@(Model.Mode == ProductExpiryMode.Default ? "checked" : null)" />
+            <span>Default</span>
+        </label>
+        <label class="seg-ctrl__item">
+            <input type="radio" name="@modeName" value="SetDays" x-model="mode"
+                   checked="@(Model.Mode == ProductExpiryMode.SetDays ? "checked" : null)" />
+            <span>Set days</span>
+        </label>
+        <label class="seg-ctrl__item">
+            <input type="radio" name="@modeName" value="Never" x-model="mode"
+                   checked="@(Model.Mode == ProductExpiryMode.Never ? "checked" : null)" />
+            <span>Never</span>
+        </label>
+    </div>
+    @Html.ValidationMessage(modeName, null, new { @class = "field__error" })
+    <div class="product-expiry-policy__days">
+        <label class="field__label" for="@key-expiry-days">Effective days</label>
+        <div class="form-grid__unit-suffix">
+            <input id="@key-expiry-days" name="@daysName" class="field__input" type="number" min="0"
+                   value="@(Model.EffectiveDays?.ToString() ?? "")"
+                   x-bind:value="displayDays === null ? '' : displayDays"
+                   x-on:input="days = $event.target.value === '' ? null : Number($event.target.value)"
+                   x-bind:disabled="mode !== 'SetDays'" />
+            <span class="form-grid__unit-suffix__label">days</span>
+        </div>
+        @Html.ValidationMessage(daysName, null, new { @class = "field__error" })
+    </div>
+    <p class="field__hint" x-show="mode === 'Inherit'" x-cloak>
+        Follows the parent’s Never rule live. The parent can change this behavior without editing the variant.
+    </p>
+    <p class="field__hint" x-show="mode === 'Default'" x-cloak>
+        Uses the household default (@Model.HouseholdDays days) and does not inherit a parent’s Never rule.
+    </p>
+    <p class="field__hint" x-show="mode === 'Never'" x-cloak>
+        The moved lot has no expiry date after this transition.
+    </p>
+</fieldset>

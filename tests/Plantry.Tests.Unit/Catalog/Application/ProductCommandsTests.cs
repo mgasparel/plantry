@@ -20,7 +20,14 @@ public sealed class ProductCommandsTests
 
     private record Fixture(CatalogUnit Unit, FakeProductRepository Products, FakeUnitRepository Units, FakeCategoryRepository Categories, FakeLocationRepository Locations)
     {
-        public UpdateProductCommand BuildCommand(Product product, bool trackStock, string? name = null) =>
+        public UpdateProductCommand BuildCommand(
+            Product product,
+            bool trackStock,
+            string? name = null,
+            int? defaultDueDaysAfterFreezing = null,
+            int? defaultDueDaysAfterThawing = null,
+            bool? neverExpiresAfterFreezing = null,
+            bool? neverExpiresAfterThawing = null) =>
             new(
                 product.Id,
                 name ?? product.Name,
@@ -29,14 +36,16 @@ public sealed class ProductCommandsTests
                 product.DefaultLocationId?.Value,
                 product.DefaultDueDays,
                 product.DefaultDueDaysAfterOpening,
-                product.DefaultDueDaysAfterFreezing,
-                product.DefaultDueDaysAfterThawing,
+                defaultDueDaysAfterFreezing ?? product.DefaultDueDaysAfterFreezing,
+                defaultDueDaysAfterThawing ?? product.DefaultDueDaysAfterThawing,
                 trackStock,
                 Products,
                 Units,
                 Categories,
                 Locations,
-                Clock);
+                Clock,
+                neverExpiresAfterFreezing: neverExpiresAfterFreezing,
+                neverExpiresAfterThawing: neverExpiresAfterThawing);
     }
 
     private static Fixture MakeFixture()
@@ -88,5 +97,28 @@ public sealed class ProductCommandsTests
         // The posted "false" must be ignored entirely — a parent can never hold stock
         // (CanHoldStock is false), so the flag stays at whatever it already was.
         Assert.True(parent.TrackStock);
+    }
+
+    [Fact]
+    public async Task Update_Transitions_Never_Product_To_Set_Days()
+    {
+        var f = MakeFixture();
+        var product = Product.Create(HouseholdId, "Frozen Peas", f.Unit.Id, Clock);
+        product.SetNeverExpiryOverrides(true, true, Clock);
+        f.Products.Items.Add(product);
+
+        var result = await f.BuildCommand(
+            product,
+            trackStock: true,
+            defaultDueDaysAfterFreezing: 90,
+            defaultDueDaysAfterThawing: 14,
+            neverExpiresAfterFreezing: false,
+            neverExpiresAfterThawing: false).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.False(product.NeverExpiresAfterFreezing);
+        Assert.False(product.NeverExpiresAfterThawing);
+        Assert.Equal(90, product.DefaultDueDaysAfterFreezing);
+        Assert.Equal(14, product.DefaultDueDaysAfterThawing);
     }
 }

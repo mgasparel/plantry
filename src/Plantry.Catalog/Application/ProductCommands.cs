@@ -83,7 +83,9 @@ public sealed class UpdateProductCommand(
     ICategoryRepository categories,
     ILocationRepository locations,
     IClock clock,
-    ILogger<UpdateProductCommand>? logger = null)
+    ILogger<UpdateProductCommand>? logger = null,
+    bool? neverExpiresAfterFreezing = null,
+    bool? neverExpiresAfterThawing = null)
 {
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
@@ -113,6 +115,7 @@ public sealed class UpdateProductCommand(
         product.SetDefaultUnit(UnitId.From(defaultUnitId), clock);
         product.SetCategory(categoryId is { } catId ? CategoryId.From(catId) : null, clock);
         product.SetDefaultLocation(defaultLocationId is { } locId ? LocationId.From(locId) : null, clock);
+        product.SetNeverExpiryOverrides(neverExpiresAfterFreezing, neverExpiresAfterThawing, clock);
         product.SetExpiryDefaults(defaultDueDays, defaultDueDaysAfterOpening, defaultDueDaysAfterFreezing, defaultDueDaysAfterThawing, clock);
 
         // A parent product is an abstract grouping that can never hold stock (CanHoldStock is

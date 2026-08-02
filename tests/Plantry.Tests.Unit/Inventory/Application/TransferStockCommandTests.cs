@@ -38,7 +38,8 @@ public sealed class TransferStockCommandTests
         {
             Products = { new CatalogProductInfo(
                 _productId, "Chicken thighs", null, _unitId, "kg", CanHoldStock: true,
-                DefaultDueDaysAfterFreezing: freezeDays, DefaultDueDaysAfterThawing: thawDays) },
+                AfterFreezingPolicy: freezeDays is { } f ? new ExpiryTransitionPolicy.Days(f) : null,
+                AfterThawingPolicy: thawDays is { } t ? new ExpiryTransitionPolicy.Days(t) : null) },
         };
         catalog.LocationFrozenFlags[_fridge] = false;
         catalog.LocationFrozenFlags[_freezer] = true;
@@ -83,11 +84,12 @@ public sealed class TransferStockCommandTests
     }
 
     [Fact]
-    public async Task Transfer_With_No_Catalog_Default_Moves_And_Sets_Timestamp_Leaves_Expiry()
+    public async Task Transfer_With_Missing_Catalog_Product_Moves_And_Sets_Timestamp_Leaves_Expiry()
     {
         var expiry = DateOnly.FromDateTime(Now.UtcDateTime).AddDays(14);
         var (stocks, lotId) = StocksWithLot(_fridge, 1m, expiry);
         var catalog = CatalogWith(freezeDays: null, thawDays: null);
+        catalog.Products.Clear();
 
         var result = await new TransferStockCommand(
             _productId, lotId.Value, _freezer, 1m,
@@ -97,6 +99,29 @@ public sealed class TransferStockCommandTests
         Assert.False(result.Value.DefaultApplied);
         Assert.Equal(expiry, result.Value.ExpiryDate);
         Assert.NotNull(stocks.Items.Single().Entries.Single().FrozenAt);
+    }
+
+    [Fact]
+    public async Task Transfer_Fails_When_Catalog_Product_Has_Unresolved_Policies_Without_SavingOrMutating()
+    {
+        var expiry = DateOnly.FromDateTime(Now.UtcDateTime).AddDays(14);
+        var (stocks, lotId) = StocksWithLot(_fridge, 1m, expiry);
+        var lot = stocks.Items.Single().Entries.Single();
+        var catalog = CatalogWith(freezeDays: null, thawDays: null);
+
+        var result = await new TransferStockCommand(
+            _productId, lotId.Value, _freezer, 1m,
+            stocks, catalog, Clock, new FakeTenantContext(_household)).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Inventory.UnresolvedCatalogPolicy", result.Error.Code);
+        Assert.Equal(0, stocks.SaveChangesCalls);
+        Assert.Single(stocks.Items.Single().Entries);
+        Assert.Equal(1m, lot.Quantity);
+        Assert.Equal(_fridge, lot.LocationId);
+        Assert.Equal(expiry, lot.ExpiryDate);
+        Assert.Null(lot.FrozenAt);
+        Assert.Null(lot.ThawedAt);
     }
 
     [Fact]

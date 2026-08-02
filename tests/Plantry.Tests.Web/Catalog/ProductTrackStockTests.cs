@@ -9,7 +9,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Inventory.Domain;
+using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
+using Plantry.Web.Pages.Catalog.Products;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
 
 namespace Plantry.Tests.Web.Catalog;
@@ -196,6 +198,275 @@ public sealed class ProductDetailTrackStockTests : IDisposable
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal(before, product.TrackStock);
     }
+
+    [Fact(DisplayName = "Edit — root product renders Default for null local freeze/thaw Never decisions")]
+    public async Task Edit_RootProduct_RendersDefaultPolicyModes()
+    {
+        var client = AuthClient();
+        var html = await (await client.GetAsync($"/Catalog/Products/{_factory.TrackedStandaloneId}"))
+            .Content.ReadAsStringAsync();
+
+        Assert.Matches(
+            "name=\"Input\\.AfterFreezingMode\" value=\"Default\"[^>]*checked",
+            html);
+        Assert.Matches(
+            "name=\"Input\\.AfterThawingMode\" value=\"Default\"[^>]*checked",
+            html);
+        Assert.DoesNotContain("value=\"Inherit\"", html);
+        Assert.Equal(2, Regex.Matches(html, "x-bind:disabled=\"mode !== 'SetDays'\"").Count);
+    }
+
+    [Fact(DisplayName = "Edit — root SetDays persists both local day overrides and enables the effective-day mode")]
+    public async Task Edit_RootProduct_SetDays_PersistsDayOverrides()
+    {
+        var client = AuthClient();
+        var productId = _factory.TrackedStandaloneId;
+        var product = _factory.ProductRepo.Items.Single(p => p.Id.Value == productId);
+        var token = await GetAntiforgeryTokenAsync(client, productId);
+
+        var response = await client.PostAsync($"/Catalog/Products/{productId}",
+            PolicyForm(token, product, ProductExpiryMode.SetDays, ProductExpiryMode.SetDays, 14, 6));
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.False(product.NeverExpiresAfterFreezing);
+        Assert.False(product.NeverExpiresAfterThawing);
+        Assert.Equal(14, product.DefaultDueDaysAfterFreezing);
+        Assert.Equal(6, product.DefaultDueDaysAfterThawing);
+
+        var html = await (await client.GetAsync($"/Catalog/Products/{productId}")).Content.ReadAsStringAsync();
+        Assert.Equal(2, Regex.Matches(
+            html, "name=\"Input\\.After(?:Freezing|Thawing)Mode\" value=\"SetDays\"[^>]*checked").Count);
+        Assert.Equal(2, Regex.Matches(html, "x-bind:disabled=\"mode !== 'SetDays'\"").Count);
+    }
+
+    [Fact(DisplayName = "Edit — variant renders live Inherit even when snapshot day defaults exist")]
+    public async Task Edit_VariantProduct_RendersLiveInheritModes()
+    {
+        var client = AuthClient();
+        var parent = _factory.ProductRepo.Items.Single(p => p.Id.Value == _factory.ParentId);
+        parent.SetNeverExpiryOverrides(true, false, ProductDetailTrackStockFactory.Clock);
+        var variant = _factory.ProductRepo.Items.Single(p => p.Id.Value == _factory.VariantId);
+        variant.SetExpiryDefaults(null, null, 90, 3, ProductDetailTrackStockFactory.Clock);
+
+        var html = await (await client.GetAsync($"/Catalog/Products/{_factory.VariantId}"))
+            .Content.ReadAsStringAsync();
+
+        Assert.Equal(2, Regex.Matches(
+            html, "name=\"Input\\.After(?:Freezing|Thawing)Mode\" value=\"Inherit\"[^>]*checked").Count);
+        Assert.Contains("Follows the parent", html);
+        Assert.Contains("Never rule live", html);
+    }
+
+    [Fact(DisplayName = "Edit — variant posts Inherit, Default, SetDays, and Never with the documented persistence semantics")]
+    public async Task Edit_VariantProduct_PostsEveryPolicyMode()
+    {
+        var client = AuthClient();
+        var productId = _factory.VariantId;
+        var product = _factory.ProductRepo.Items.Single(p => p.Id.Value == productId);
+        product.SetExpiryDefaults(null, null, 21, 8, ProductDetailTrackStockFactory.Clock);
+
+        var token = await GetAntiforgeryTokenAsync(client, productId);
+        var inherit = await client.PostAsync($"/Catalog/Products/{productId}",
+            PolicyForm(token, product, ProductExpiryMode.Inherit, ProductExpiryMode.Inherit));
+        Assert.Equal(HttpStatusCode.Redirect, inherit.StatusCode);
+        Assert.Null(product.NeverExpiresAfterFreezing);
+        Assert.Null(product.NeverExpiresAfterThawing);
+        Assert.Equal(21, product.DefaultDueDaysAfterFreezing);
+        Assert.Equal(8, product.DefaultDueDaysAfterThawing);
+        AssertPolicyMode(await GetDetailHtmlAsync(client, productId), ProductExpiryMode.Inherit);
+
+        token = await GetAntiforgeryTokenAsync(client, productId);
+        var @default = await client.PostAsync($"/Catalog/Products/{productId}",
+            PolicyForm(token, product, ProductExpiryMode.Default, ProductExpiryMode.Default));
+        Assert.Equal(HttpStatusCode.Redirect, @default.StatusCode);
+        Assert.False(product.NeverExpiresAfterFreezing);
+        Assert.False(product.NeverExpiresAfterThawing);
+        Assert.Null(product.DefaultDueDaysAfterFreezing);
+        Assert.Null(product.DefaultDueDaysAfterThawing);
+        AssertPolicyMode(await GetDetailHtmlAsync(client, productId), ProductExpiryMode.Default);
+
+        token = await GetAntiforgeryTokenAsync(client, productId);
+        var setDays = await client.PostAsync($"/Catalog/Products/{productId}",
+            PolicyForm(token, product, ProductExpiryMode.SetDays, ProductExpiryMode.SetDays, 17, 4));
+        Assert.Equal(HttpStatusCode.Redirect, setDays.StatusCode);
+        Assert.False(product.NeverExpiresAfterFreezing);
+        Assert.False(product.NeverExpiresAfterThawing);
+        Assert.Equal(17, product.DefaultDueDaysAfterFreezing);
+        Assert.Equal(4, product.DefaultDueDaysAfterThawing);
+        AssertPolicyMode(await GetDetailHtmlAsync(client, productId), ProductExpiryMode.SetDays);
+
+        token = await GetAntiforgeryTokenAsync(client, productId);
+        var never = await client.PostAsync($"/Catalog/Products/{productId}",
+            PolicyForm(token, product, ProductExpiryMode.Never, ProductExpiryMode.Never));
+        Assert.Equal(HttpStatusCode.Redirect, never.StatusCode);
+        Assert.True(product.NeverExpiresAfterFreezing);
+        Assert.True(product.NeverExpiresAfterThawing);
+        Assert.Null(product.DefaultDueDaysAfterFreezing);
+        Assert.Null(product.DefaultDueDaysAfterThawing);
+        AssertPolicyMode(await GetDetailHtmlAsync(client, productId), ProductExpiryMode.Never);
+    }
+
+    [Fact(DisplayName = "Edit — Never policy clears the stored day value and Default clears the Never decision")]
+    public async Task Edit_NeverThenDefault_ClearsEachLocalPolicy()
+    {
+        var client = AuthClient();
+        var productId = _factory.TrackedStandaloneId;
+        var product = _factory.ProductRepo.Items.Single(p => p.Id.Value == productId);
+        product.SetExpiryDefaults(null, null, 14, 7, ProductDetailTrackStockFactory.Clock);
+        var token = await GetAntiforgeryTokenAsync(client, productId);
+
+        var neverResponse = await client.PostAsync($"/Catalog/Products/{productId}",
+            PolicyForm(token, product, ProductExpiryMode.Never, ProductExpiryMode.Never));
+
+        Assert.Equal(HttpStatusCode.Redirect, neverResponse.StatusCode);
+        Assert.True(product.NeverExpiresAfterFreezing);
+        Assert.True(product.NeverExpiresAfterThawing);
+        Assert.Null(product.DefaultDueDaysAfterFreezing);
+        Assert.Null(product.DefaultDueDaysAfterThawing);
+
+        token = await GetAntiforgeryTokenAsync(client, productId);
+        var defaultResponse = await client.PostAsync($"/Catalog/Products/{productId}",
+            PolicyForm(token, product, ProductExpiryMode.Default, ProductExpiryMode.Default));
+
+        Assert.Equal(HttpStatusCode.Redirect, defaultResponse.StatusCode);
+        Assert.Null(product.NeverExpiresAfterFreezing);
+        Assert.Null(product.NeverExpiresAfterThawing);
+        Assert.Null(product.DefaultDueDaysAfterFreezing);
+        Assert.Null(product.DefaultDueDaysAfterThawing);
+    }
+
+    [Theory(DisplayName = "Edit — invalid SetDays values return validation feedback without changing the product")]
+    [InlineData("-1")]
+    [InlineData("not-a-number")]
+    public async Task Edit_SetDays_InvalidValue_ShowsFieldErrorAndDoesNotPersist(string invalidDays)
+    {
+        var client = AuthClient();
+        var productId = _factory.TrackedStandaloneId;
+        var product = _factory.ProductRepo.Items.Single(p => p.Id.Value == productId);
+        var token = await GetAntiforgeryTokenAsync(client, productId);
+
+        var response = await client.PostAsync($"/Catalog/Products/{productId}",
+            RawPolicyForm(token, product, ProductExpiryMode.SetDays, ProductExpiryMode.Default,
+                freezingDays: invalidDays));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("name=\"Input.DefaultDueDaysAfterFreezing\"", html);
+        AssertFieldError(html, "Input.DefaultDueDaysAfterFreezing");
+        Assert.Null(product.NeverExpiresAfterFreezing);
+        Assert.Null(product.DefaultDueDaysAfterFreezing);
+    }
+
+    [Fact(DisplayName = "Edit — empty SetDays value displays a field error and leaves the product unchanged")]
+    public async Task Edit_SetDays_EmptyValue_ShowsFieldErrorAndDoesNotPersist()
+    {
+        var client = AuthClient();
+        var productId = _factory.TrackedStandaloneId;
+        var product = _factory.ProductRepo.Items.Single(p => p.Id.Value == productId);
+        var token = await GetAntiforgeryTokenAsync(client, productId);
+
+        var response = await client.PostAsync($"/Catalog/Products/{productId}",
+            RawPolicyForm(token, product, ProductExpiryMode.SetDays, ProductExpiryMode.Default,
+                freezingDays: string.Empty));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Enter the number of days for a custom expiry policy.", html);
+        AssertFieldError(html, "Input.DefaultDueDaysAfterFreezing");
+        Assert.Null(product.NeverExpiresAfterFreezing);
+        Assert.Null(product.DefaultDueDaysAfterFreezing);
+    }
+
+    [Fact(DisplayName = "Edit — undefined expiry mode returns field validation, reloads the current mode, and does not mutate or redirect")]
+    public async Task Edit_UndefinedExpiryMode_ShowsFieldErrorAndDoesNotMutateOrRedirect()
+    {
+        var client = AuthClient();
+        var productId = _factory.TrackedStandaloneId;
+        var product = _factory.ProductRepo.Items.Single(p => p.Id.Value == productId);
+        product.SetNeverExpiryOverrides(true, false, ProductDetailTrackStockFactory.Clock);
+        product.SetExpiryDefaults(null, null, null, 7, ProductDetailTrackStockFactory.Clock);
+        var beforeName = product.Name;
+        var beforeFreezingNever = product.NeverExpiresAfterFreezing;
+        var beforeThawingNever = product.NeverExpiresAfterThawing;
+        var beforeFreezingDays = product.DefaultDueDaysAfterFreezing;
+        var beforeThawingDays = product.DefaultDueDaysAfterThawing;
+        var token = await GetAntiforgeryTokenAsync(client, productId);
+
+        var response = await client.PostAsync($"/Catalog/Products/{productId}",
+            RawPolicyForm(token, product, freezingMode: "999", thawingMode: "Default",
+                freezingDays: "14", thawingDays: "19"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        AssertFieldError(html, "Input.AfterFreezingMode");
+        Assert.Contains("Select a valid expiry policy.", html, StringComparison.Ordinal);
+        Assert.Matches(
+            "name=\"Input\\.AfterFreezingMode\" value=\"Never\"[^>]*checked",
+            html);
+        Assert.Equal(beforeName, product.Name);
+        Assert.Equal(beforeFreezingNever, product.NeverExpiresAfterFreezing);
+        Assert.Equal(beforeThawingNever, product.NeverExpiresAfterThawing);
+        Assert.Equal(beforeFreezingDays, product.DefaultDueDaysAfterFreezing);
+        Assert.Equal(beforeThawingDays, product.DefaultDueDaysAfterThawing);
+    }
+
+    private static void AssertFieldError(string html, string fieldName) =>
+        Assert.Matches(
+            $"<span(?=[^>]*data-valmsg-for=\"{Regex.Escape(fieldName)}\")(?=[^>]*class=\"[^\"]*field__error[^\"]*\")[^>]*>",
+            html);
+
+    private async Task<string> GetDetailHtmlAsync(HttpClient client, Guid productId) =>
+        await (await client.GetAsync($"/Catalog/Products/{productId}")).Content.ReadAsStringAsync();
+
+    private static void AssertPolicyMode(string html, ProductExpiryMode expectedMode)
+    {
+        Assert.Equal(2, Regex.Matches(
+            html, $"name=\"Input\\.After(?:Freezing|Thawing)Mode\" value=\"{expectedMode}\"[^>]*checked").Count);
+        Assert.Equal(2, Regex.Matches(html, "x-bind:disabled=\"mode !== 'SetDays'\"").Count);
+    }
+
+    private static FormUrlEncodedContent PolicyForm(
+        string token, Product product, ProductExpiryMode freezingMode, ProductExpiryMode thawingMode,
+        int? freezingDays = null, int? thawingDays = null) =>
+        new(
+        [
+            new KeyValuePair<string, string>("__RequestVerificationToken", token),
+            new KeyValuePair<string, string>("Input.Name", product.Name),
+            new KeyValuePair<string, string>("Input.DefaultUnitId", product.DefaultUnitId.Value.ToString()),
+            new KeyValuePair<string, string>("Input.TrackStock", product.TrackStock ? "true" : "false"),
+            new KeyValuePair<string, string>("Input.AfterFreezingMode", freezingMode.ToString()),
+            new KeyValuePair<string, string>("Input.AfterThawingMode", thawingMode.ToString()),
+            .. freezingDays is { } f
+                ? new[] { new KeyValuePair<string, string>("Input.DefaultDueDaysAfterFreezing", f.ToString()) }
+                : [],
+            .. thawingDays is { } t
+                ? new[] { new KeyValuePair<string, string>("Input.DefaultDueDaysAfterThawing", t.ToString()) }
+                : [],
+        ]);
+
+    private static FormUrlEncodedContent RawPolicyForm(
+        string token, Product product, ProductExpiryMode freezingMode, ProductExpiryMode thawingMode,
+        string? freezingDays = null, string? thawingDays = null) =>
+        RawPolicyForm(token, product, freezingMode.ToString(), thawingMode.ToString(), freezingDays, thawingDays);
+
+    private static FormUrlEncodedContent RawPolicyForm(
+        string token, Product product, string freezingMode, string thawingMode,
+        string? freezingDays = null, string? thawingDays = null) =>
+        new(
+        [
+            new KeyValuePair<string, string>("__RequestVerificationToken", token),
+            new KeyValuePair<string, string>("Input.Name", product.Name),
+            new KeyValuePair<string, string>("Input.DefaultUnitId", product.DefaultUnitId.Value.ToString()),
+            new KeyValuePair<string, string>("Input.TrackStock", product.TrackStock ? "true" : "false"),
+            new KeyValuePair<string, string>("Input.AfterFreezingMode", freezingMode.ToString()),
+            new KeyValuePair<string, string>("Input.AfterThawingMode", thawingMode.ToString()),
+            .. freezingDays is not null
+                ? new[] { new KeyValuePair<string, string>("Input.DefaultDueDaysAfterFreezing", freezingDays) }
+                : [],
+            .. thawingDays is not null
+                ? new[] { new KeyValuePair<string, string>("Input.DefaultDueDaysAfterThawing", thawingDays) }
+                : [],
+        ]);
 }
 
 // ── WAF factories ────────────────────────────────────────────────────────────
@@ -216,6 +487,7 @@ internal sealed class ProductCreateTrackStockFactory : WebApplicationFactory<Pro
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+            services.AddFakeHouseholdExpiryDefaults();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -251,10 +523,12 @@ internal sealed class ProductCreateTrackStockFactory : WebApplicationFactory<Pro
 /// </summary>
 internal sealed class ProductDetailTrackStockFactory : WebApplicationFactory<Program>
 {
+    internal static readonly IClock Clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
     internal FakeProductRepo ProductRepo { get; private set; } = new();
     internal Guid TrackedStandaloneId { get; private set; }
     internal Guid UntrackedStandaloneId { get; private set; }
     internal Guid ParentId { get; private set; }
+    internal Guid VariantId { get; private set; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -262,6 +536,7 @@ internal sealed class ProductDetailTrackStockFactory : WebApplicationFactory<Pro
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+            services.AddFakeHouseholdExpiryDefaults();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -271,7 +546,7 @@ internal sealed class ProductDetailTrackStockFactory : WebApplicationFactory<Pro
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
 
             var household = Plantry.SharedKernel.HouseholdId.From(Guid.Parse("cccccccc-0000-0000-0000-000000000001"));
-            var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+            var clock = Clock;
             var unit = CatalogUnit.Create(household, "ea", "Each", Dimension.Count, 1m, isBase: true);
 
             var tracked = Product.Create(household, "Whole Milk", unit.Id, clock, trackStock: true);
@@ -284,6 +559,7 @@ internal sealed class ProductDetailTrackStockFactory : WebApplicationFactory<Pro
             TrackedStandaloneId = tracked.Id.Value;
             UntrackedStandaloneId = untracked.Id.Value;
             ParentId = parent.Id.Value;
+            VariantId = parentVariant.Id.Value;
 
             var productRepo = new FakeProductRepo();
             productRepo.AddWithId(tracked, TrackedStandaloneId);

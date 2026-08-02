@@ -345,18 +345,10 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     }
 
     /// <summary>
-    /// Moves (all or part of) a lot to a new location (plantry-6owm) — the transfer/freeze/thaw
-    /// primitive. The transition kind is derived implicitly from <paramref name="sourceIsFrozen"/> and
-    /// <paramref name="destinationIsFrozen"/> (rule 2): non-frozen→frozen freezes (expiry recomputed
-    /// via <paramref name="dueDaysAfterFreezing"/>), frozen→non-frozen thaws (via
-    /// <paramref name="dueDaysAfterThawing"/>), same storage type either side is a plain move (expiry
-    /// and timestamps untouched). Both Catalog facts are resolved by the caller — Inventory must not
-    /// reach into Catalog.
-    ///
-    /// <para>Expiry recompute replaces outright, anchored at today (rule 3, DM-11
-    /// materialize-at-event-time): <c>today + dueDays</c> — freezing may legitimately <b>extend</b> the
-    /// date. A null due-days default (rule 6 — nothing configured anywhere) leaves the expiry untouched
-    /// while still recording the transition timestamp.</para>
+    /// Moves (all or part of) a lot to a new location. The transition kind is derived implicitly from
+    /// the source/destination frozen-ness; the caller supplies an exhaustive Catalog policy for each
+    /// boundary transition. A normal policy is always <see cref="ExpiryTransitionPolicy.Days"/> or
+    /// <see cref="ExpiryTransitionPolicy.Never"/>.
     ///
     /// <para><b>Partial transfer splits</b> (rule 1): <paramref name="quantity"/> defaults to the full
     /// lot at the call site: an exact-quantity match moves <paramref name="entryId"/> in place
@@ -369,7 +361,29 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     /// </summary>
     public Result<TransferOutcome> Transfer(
         StockEntryId entryId, Guid destinationLocationId, bool sourceIsFrozen, bool destinationIsFrozen,
-        decimal quantity, IClock clock, int? dueDaysAfterFreezing, int? dueDaysAfterThawing)
+        decimal quantity, IClock clock,
+        ExpiryTransitionPolicy afterFreezingPolicy,
+        ExpiryTransitionPolicy afterThawingPolicy)
+        => TransferCore(
+            entryId, destinationLocationId, sourceIsFrozen, destinationIsFrozen, quantity, clock,
+            afterFreezingPolicy, afterThawingPolicy);
+
+    /// <summary>
+    /// Explicit missing-Catalog fallback. It records the transfer and transition timestamp but leaves
+    /// expiry untouched. This is intentionally a separate operation, not a third resolver policy.
+    /// </summary>
+    public Result<TransferOutcome> TransferWithoutCatalogProduct(
+        StockEntryId entryId, Guid destinationLocationId, bool sourceIsFrozen, bool destinationIsFrozen,
+        decimal quantity, IClock clock)
+        => TransferCore(
+            entryId, destinationLocationId, sourceIsFrozen, destinationIsFrozen, quantity, clock,
+            afterFreezingPolicy: null, afterThawingPolicy: null);
+
+    private Result<TransferOutcome> TransferCore(
+        StockEntryId entryId, Guid destinationLocationId, bool sourceIsFrozen, bool destinationIsFrozen,
+        decimal quantity, IClock clock,
+        ExpiryTransitionPolicy? afterFreezingPolicy,
+        ExpiryTransitionPolicy? afterThawingPolicy)
     {
         var lot = _entries.FirstOrDefault(e => e.Id == entryId);
         if (lot is null)
@@ -390,11 +404,11 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
         var now = clock.UtcNow;
         var today = DateOnly.FromDateTime(now.UtcDateTime);
 
-        var (newExpiry, defaultApplied) = kind switch
+        var (newExpiry, expiryEffect) = kind switch
         {
-            TransferKind.Freeze => (dueDaysAfterFreezing is { } f ? today.AddDays(f) : lot.ExpiryDate, dueDaysAfterFreezing is not null),
-            TransferKind.Thaw => (dueDaysAfterThawing is { } t ? today.AddDays(t) : lot.ExpiryDate, dueDaysAfterThawing is not null),
-            _ => (lot.ExpiryDate, false),
+            TransferKind.Freeze => MaterializeExpiry(afterFreezingPolicy, today, lot.ExpiryDate),
+            TransferKind.Thaw => MaterializeExpiry(afterThawingPolicy, today, lot.ExpiryDate),
+            _ => (lot.ExpiryDate, new TransferExpiryEffect.Unchanged()),
         };
 
         StockEntryId? splitEntryId = null;
@@ -411,7 +425,20 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
         }
 
         UpdatedAt = now;
-        return new TransferOutcome(lot.Id, splitEntryId, quantity, lot.UnitId, destinationLocationId, kind, newExpiry, defaultApplied);
+        return new TransferOutcome(lot.Id, splitEntryId, quantity, lot.UnitId, destinationLocationId, kind, expiryEffect, newExpiry);
+    }
+
+    private static (DateOnly? ExpiryDate, TransferExpiryEffect Effect) MaterializeExpiry(
+        ExpiryTransitionPolicy? policy, DateOnly today, DateOnly? existingExpiry)
+    {
+        return policy switch
+        {
+            ExpiryTransitionPolicy.Never => (null, new TransferExpiryEffect.Never()),
+            ExpiryTransitionPolicy.Days days =>
+                (today.AddDays(days.Value), new TransferExpiryEffect.Days(today.AddDays(days.Value))),
+            null => (existingExpiry, new TransferExpiryEffect.Unchanged()),
+            _ => throw new InvalidOperationException("Unknown expiry transition policy."),
+        };
     }
 
     /// <summary>

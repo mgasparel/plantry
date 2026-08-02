@@ -449,24 +449,10 @@ public sealed class DetailModel(
             ?? Guid.Empty;
         var defaultDestinationName = destinations.FirstOrDefault(d => d.Id == defaultDestinationId)?.Name ?? "—";
 
-        var freezeDays = product?.DefaultDueDaysAfterFreezing;
-        var thawDays = product?.DefaultDueDaysAfterThawing;
-
-        var freezeCandidateDisplay = freezeDays is { } fd ? today.AddDays(fd).ToString("d MMM yyyy") : null;
-        var thawCandidateDisplay = thawDays is { } td ? today.AddDays(td).ToString("d MMM yyyy") : null;
-
-        // Source-neutral wording (plantry-hh1f): freezeDays/thawDays now resolve through the product's
-        // own override OR the household-wide default (ExpiryDefaultResolver), and CatalogProductInfo
-        // doesn't carry which one won — so the copy can no longer claim the value is "from this
-        // product". The null branch is now reachable only when the product itself couldn't be
-        // resolved (FindProductAsync returned null), not "no default configured" (a default always
-        // resolves once the product exists).
-        var freezeNote = freezeDays is { } fdn
-            ? $"{fdn}-day after-freezing default, counted from today."
-            : "This product could not be loaded — the expiry is left as-is. FrozenAt is still recorded.";
-        var thawNote = thawDays is { } tdn
-            ? $"{tdn}-day after-thawing default, counted from today."
-            : "This product could not be loaded — the expiry is left as-is. ThawedAt is still recorded.";
+        var freezePreview = BuildExpiryPreview(
+            product?.AfterFreezingPolicy, today, "freezing", "FrozenAt");
+        var thawPreview = BuildExpiryPreview(
+            product?.AfterThawingPolicy, today, "thawing", "ThawedAt");
 
         // Transition fact (UI spec §1): the fact that matches the lot's CURRENT storage type — a lot
         // sitting in a frozen location shows when it was frozen; one sitting non-frozen shows when it
@@ -485,13 +471,36 @@ public sealed class DetailModel(
             lot.ExpiryDate is { } exp ? exp.ToString("d MMM yyyy") : "No expiry set",
             transitionFact,
             lot.ThawedAt is { } thawedAtDisplay ? clock.ToLocal(thawedAtDisplay).ToString("d MMM yyyy") : null,
-            freezeCandidateDisplay,
-            freezeNote,
-            thawCandidateDisplay,
-            thawNote,
+            freezePreview,
+            thawPreview,
             destinations,
             defaultDestinationId,
             $"Move {lot.Quantity.ToString("0.###")} {lot.UnitCode} → {defaultDestinationName}");
+    }
+
+    private static MoveExpiryPreview BuildExpiryPreview(
+        Plantry.SharedKernel.Domain.ExpiryTransitionPolicy? policy,
+        DateOnly today,
+        string transition,
+        string timestampName)
+    {
+        return policy switch
+        {
+            Plantry.SharedKernel.Domain.ExpiryTransitionPolicy.Never =>
+                new MoveExpiryPreview(
+                    MoveExpiryPreviewKind.Never,
+                    null,
+                    $"This product rule never expires after {transition}.") ,
+            Plantry.SharedKernel.Domain.ExpiryTransitionPolicy.Days days =>
+                new MoveExpiryPreview(
+                    MoveExpiryPreviewKind.Days,
+                    today.AddDays(days.Value).ToString("d MMM yyyy"),
+                    $"{days.Value}-day after-{transition} default, counted from today."),
+            _ => new MoveExpiryPreview(
+                MoveExpiryPreviewKind.Unchanged,
+                null,
+                $"This product could not be loaded — the expiry is left as-is. {timestampName} is still recorded."),
+        };
     }
 
     /// <summary>
@@ -932,15 +941,9 @@ public sealed record MoveDestinationOption(Guid Id, string Name, bool IsFrozen, 
 
 /// <summary>
 /// View model for the Move sheet (plantry-6owm) — everything <c>_MoveSheet.cshtml</c>'s Alpine
-/// component needs for its live split/effect preview, entirely precomputed server-side (see
-/// <see cref="DetailModel.BuildMoveSheetAsync"/>): the freeze/thaw candidate expiry depends only on
-/// "today" plus the product's resolved due-days default, neither of which changes as the shopper
-/// adjusts quantity or destination, so no date arithmetic needs to happen in JS. Since plantry-hh1f, the
-/// product's own override falls back to the household-wide default, so a resolved due-days value (and
-/// therefore a non-null <see cref="FreezeCandidateDisplay"/>/<see cref="ThawCandidateDisplay"/>) is the
-/// normal case — a null candidate now means the product itself could not be resolved (rule 6's original
-/// "no default configured" case no longer applies once a household always has one), and the sheet shows
-/// "(unchanged)" for that transition instead of a recomputed date.
+/// component needs for its live split/effect preview, entirely precomputed server-side. The preview
+/// carries an explicit Days/Never/Unchanged kind so a null date cannot conflate Never with the
+/// missing-Catalog fallback.
 /// </summary>
 public sealed record MoveSheetViewModel(
     Guid EntryId,
@@ -956,10 +959,8 @@ public sealed record MoveSheetViewModel(
     /// <summary>Drives the refreeze warning (UI spec §5) — shown whenever the lot has EVER been
     /// thawed, regardless of <see cref="TransitionFactDisplay"/>'s recency.</summary>
     string? ThawedAtDisplay,
-    string? FreezeCandidateDisplay,
-    string FreezeNote,
-    string? ThawCandidateDisplay,
-    string ThawNote,
+    MoveExpiryPreview FreezePreview,
+    MoveExpiryPreview ThawPreview,
     IReadOnlyList<MoveDestinationOption> Destinations,
     Guid DefaultDestinationId,
     /// <summary>Server-rendered fallback for the submit button's <c>x-text="confirmLabel"</c>
@@ -969,6 +970,18 @@ public sealed record MoveSheetViewModel(
     /// intentionally stays the generic "Move" verb rather than replicating that kind computation
     /// server-side, mirroring <c>_ReviewStep1.cshtml</c>'s render-then-let-Alpine-overwrite pattern.</summary>
     string ConfirmLabelFallback);
+
+public enum MoveExpiryPreviewKind
+{
+    Days,
+    Never,
+    Unchanged,
+}
+
+public sealed record MoveExpiryPreview(
+    MoveExpiryPreviewKind Kind,
+    string? CandidateDisplay,
+    string Note);
 
 /// <summary>
 /// View model for the Amend sheet (ADR-023 §6/A11) — everything <c>_AmendSheet.cshtml</c> needs,

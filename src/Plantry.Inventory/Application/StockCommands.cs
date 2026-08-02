@@ -491,9 +491,15 @@ public sealed class TransferStockCommand(
             // treated as non-frozen rather than failing the whole transfer.
             var sourceIsFrozen = frozenFlags.GetValueOrDefault(lot.LocationId);
 
-            var result = stock.Transfer(
-                entry, destinationLocationId, sourceIsFrozen, destinationIsFrozen, quantity, clock,
-                product?.DefaultDueDaysAfterFreezing, product?.DefaultDueDaysAfterThawing);
+            var result = product is null
+                ? stock.TransferWithoutCatalogProduct(
+                    entry, destinationLocationId, sourceIsFrozen, destinationIsFrozen, quantity, clock)
+                : product.AfterFreezingPolicy is { } afterFreezingPolicy
+                    && product.AfterThawingPolicy is { } afterThawingPolicy
+                    ? stock.Transfer(
+                        entry, destinationLocationId, sourceIsFrozen, destinationIsFrozen, quantity, clock,
+                        afterFreezingPolicy, afterThawingPolicy)
+                    : UnresolvedCatalogPolicy(productId, stockEntryId, logger);
 
             if (result.IsFailure)
             {
@@ -511,5 +517,16 @@ public sealed class TransferStockCommand(
 
             return result;
         }, ct);
+    }
+
+    private static Result<TransferOutcome> UnresolvedCatalogPolicy(
+        Guid productId, Guid stockEntryId, ILogger<TransferStockCommand>? logger)
+    {
+        logger?.LogError(
+            "Transfer failed — catalog returned unresolved expiry policies for product {ProductId}, entry {EntryId}.",
+            productId, stockEntryId);
+        return Result<TransferOutcome>.Failure(Error.Custom(
+            "Inventory.UnresolvedCatalogPolicy",
+            $"Catalog expiry policy could not be resolved for product '{productId}' while moving lot '{stockEntryId}'."));
     }
 }

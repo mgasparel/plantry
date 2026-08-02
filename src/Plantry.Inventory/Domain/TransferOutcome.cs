@@ -1,33 +1,38 @@
 namespace Plantry.Inventory.Domain;
 
+/// <summary>Explicit expiry effect of a transfer.</summary>
+public abstract record TransferExpiryEffect
+{
+    private TransferExpiryEffect() { }
+
+    /// <summary>The transfer was a same-storage move, or the catalog was unavailable; expiry is untouched.</summary>
+    public sealed record Unchanged : TransferExpiryEffect;
+
+    /// <summary>The moved portion receives a date materialized from a day policy.</summary>
+    public sealed record Days(DateOnly ExpiryDate) : TransferExpiryEffect;
+
+    /// <summary>The moved portion receives no expiry date; null is the persisted no-expiry value.</summary>
+    public sealed record Never : TransferExpiryEffect;
+}
+
 /// <summary>
 /// Which storage-type transition a <see cref="ProductStock.Transfer"/> call represents (plantry-6owm
 /// rule 2) — derived implicitly from the source/destination locations' frozen-ness, never a separate
-/// "this is a freeze" input. <see cref="Freeze"/> sets <see cref="StockEntry.FrozenAt"/>;
-/// <see cref="Thaw"/> sets <see cref="StockEntry.ThawedAt"/>; <see cref="Move"/> touches neither.
+/// "this is a freeze" input.
 /// </summary>
 public enum TransferKind
 {
-    /// <summary>Same storage type either side (ambient→ambient or frozen→frozen) — expiry and timestamps untouched.</summary>
     Move,
-
-    /// <summary>Non-frozen → frozen. Recomputes expiry via the after-freezing default (rule 3, replace-outright — may extend).</summary>
     Freeze,
-
-    /// <summary>Frozen → non-frozen. Recomputes expiry via the after-thawing default (rule 3, replace-outright).</summary>
     Thaw,
 }
 
 /// <summary>
-/// The result of <see cref="ProductStock.Transfer"/> — which lot(s) moved and how. A full-lot move
-/// (<paramref name="Quantity"/> == the lot's original quantity) moves <paramref name="SourceEntryId"/>
-/// in place and <paramref name="SplitEntryId"/> is null. A partial move (rule 1) splits: the source
-/// lot keeps its location/expiry with the reduced remainder, and <paramref name="SplitEntryId"/> names
-/// the new lot created at the destination. <paramref name="ExpiryDate"/> is the moved portion's expiry
-/// after the transition's recompute rule (or unchanged, for a plain move or no default configured);
-/// <paramref name="DefaultApplied"/> mirrors <see cref="MarkOpenedOutcome.DefaultApplied"/> — false means
-/// no after-freezing/after-thawing default is configured anywhere, so the timestamp still records but
-/// the expiry is left untouched (rule 6).
+/// The result of a transfer. A full-lot move moves <paramref name="SourceEntryId"/> in place;
+/// a partial move names the new destination lot in <paramref name="SplitEntryId"/>. The
+/// <paramref name="ExpiryEffect"/> is deliberately separate from <paramref name="ExpiryDate"/>:
+/// an unchanged lot with no expiry and a Never rule both have a null date, but are not the same
+/// outcome.
 /// </summary>
 public sealed record TransferOutcome(
     StockEntryId SourceEntryId,
@@ -36,5 +41,9 @@ public sealed record TransferOutcome(
     Guid UnitId,
     Guid DestinationLocationId,
     TransferKind Kind,
-    DateOnly? ExpiryDate,
-    bool DefaultApplied);
+    TransferExpiryEffect ExpiryEffect,
+    DateOnly? ExpiryDate)
+{
+    /// <summary>Compatibility projection for existing callers; inspect <see cref="ExpiryEffect"/> for the reason.</summary>
+    public bool DefaultApplied => ExpiryEffect is not TransferExpiryEffect.Unchanged;
+}

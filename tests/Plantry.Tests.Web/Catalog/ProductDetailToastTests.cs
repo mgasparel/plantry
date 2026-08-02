@@ -320,6 +320,7 @@ internal sealed class ToastFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+            services.AddFakeHouseholdExpiryDefaults();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

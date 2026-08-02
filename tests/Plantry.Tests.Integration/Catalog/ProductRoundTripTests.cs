@@ -76,6 +76,36 @@ public sealed class ProductRoundTripTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(_household, conversion.HouseholdId);
     }
 
+    [Fact(DisplayName = "Nullable Never-expiry overrides round-trip and remain null for an unconfigured product")]
+    public async Task Product_NeverExpiryOverrides_RoundTrip_Without_Backfill()
+    {
+        ProductId unconfiguredId;
+        ProductId configuredId;
+
+        await using (var db1 = NewCatalogDb())
+        {
+            var unconfigured = Product.Create(_household, "Unconfigured yoghurt", _gramsId, SystemClock.Instance);
+            var configured = Product.Create(_household, "Configured yoghurt", _gramsId, SystemClock.Instance);
+            configured.SetNeverExpiryOverrides(true, false, SystemClock.Instance);
+
+            Assert.Null(unconfigured.NeverExpiresAfterFreezing);
+            Assert.Null(unconfigured.NeverExpiresAfterThawing);
+            await db1.Products.AddRangeAsync(unconfigured, configured);
+            await db1.SaveChangesAsync();
+            unconfiguredId = unconfigured.Id;
+            configuredId = configured.Id;
+        }
+
+        await using var db2 = NewCatalogDb();
+        var loadedUnconfigured = await db2.Products.SingleAsync(p => p.Id == unconfiguredId);
+        var loadedConfigured = await db2.Products.SingleAsync(p => p.Id == configuredId);
+
+        Assert.Null(loadedUnconfigured.NeverExpiresAfterFreezing);
+        Assert.Null(loadedUnconfigured.NeverExpiresAfterThawing);
+        Assert.True(loadedConfigured.NeverExpiresAfterFreezing);
+        Assert.False(loadedConfigured.NeverExpiresAfterThawing);
+    }
+
     [Fact(DisplayName = "Conversion provenance (ai_suggested) round-trips through EF")]
     public async Task Conversion_Source_RoundTrips_Through_EfMapping()
     {

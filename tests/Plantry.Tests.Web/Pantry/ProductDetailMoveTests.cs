@@ -168,9 +168,9 @@ public sealed class ProductDetailMoveTests : IDisposable
             1m, ProductDetailMoveFixture.UnitId, ProductDetailMoveFixture.FreezerId,
             Guid.NewGuid(), ProductDetailMoveFixture.Clock,
             expiryDate: DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30));
-        var thawResult = _factory.Stock.Transfer(
+        var thawResult = _factory.Stock.TransferWithoutCatalogProduct(
             thawedLot.Id, ProductDetailMoveFixture.FridgeId, sourceIsFrozen: true, destinationIsFrozen: false,
-            quantity: 1m, ProductDetailMoveFixture.Clock, dueDaysAfterFreezing: null, dueDaysAfterThawing: null);
+            quantity: 1m, ProductDetailMoveFixture.Clock);
         Assert.True(thawResult.IsSuccess);
 
         var response = await client.GetAsync(
@@ -335,16 +335,18 @@ internal sealed class ProductDetailMoveFactory : WebApplicationFactory<Program>
 /// after-thawing defaults can be mutated per-test.</summary>
 internal sealed class FakeMoveCatalogFacade(Guid productId) : ICatalogReadFacade
 {
-    internal int? DefaultDueDaysAfterFreezing { get; set; }
-    internal int? DefaultDueDaysAfterThawing { get; set; }
+    // The real Catalog adapter always resolves an existing product to an explicit policy by
+    // applying the household fallback. Keep the fake at that contract boundary as well.
+    internal int? DefaultDueDaysAfterFreezing { get; set; } = 90;
+    internal int? DefaultDueDaysAfterThawing { get; set; } = 3;
 
     public Task<CatalogProductInfo?> FindProductAsync(Guid id, CancellationToken ct = default) =>
         Task.FromResult<CatalogProductInfo?>(id == productId
             ? new CatalogProductInfo(
                 productId, "Test Product", "Pantry", ProductDetailMoveFixture.UnitId, "kg",
                 CanHoldStock: true,
-                DefaultDueDaysAfterFreezing: DefaultDueDaysAfterFreezing,
-                DefaultDueDaysAfterThawing: DefaultDueDaysAfterThawing)
+                AfterFreezingPolicy: DefaultDueDaysAfterFreezing is { } f ? new ExpiryTransitionPolicy.Days(f) : null,
+                AfterThawingPolicy: DefaultDueDaysAfterThawing is { } t ? new ExpiryTransitionPolicy.Days(t) : null)
             : null);
 
     public Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default) =>
