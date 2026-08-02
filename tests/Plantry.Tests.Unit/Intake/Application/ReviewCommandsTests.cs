@@ -21,6 +21,10 @@ public sealed class ReviewCommandsTests
     private readonly Guid _categoryId = Guid.CreateVersion7();
     private readonly Guid _unitId = Guid.CreateVersion7();
     private readonly Guid _locationId = Guid.CreateVersion7();
+    private static readonly Guid RetryCategoryId = Guid.Parse("11111111-1111-4111-8111-111111111111");
+    private static readonly Guid RetryUnitAId = Guid.Parse("22222222-2222-4222-8222-222222222222");
+    private static readonly Guid RetryUnitBId = Guid.Parse("33333333-3333-4333-8333-333333333333");
+    private static readonly Guid RetryLocationId = Guid.Parse("44444444-4444-4444-8444-444444444444");
 
     /// <summary>A Ready session carrying a single Pending line (the post-parse state edits run against).</summary>
     private (ImportSession Session, ImportLine Line) ReadySessionWithLine()
@@ -158,6 +162,88 @@ public sealed class ReviewCommandsTests
         Assert.Null(line.ProductId);
         Assert.Equal("Artisan sourdough", line.NewProductName);
         Assert.Equal(_categoryId, line.NewProductCategoryId);
+        Assert.Equal(1, repo.SaveChangesCalls);
+    }
+
+    [Fact(DisplayName = "ConfirmAsNew reuses the existing staged alias for the same normalized identity")]
+    public async Task ConfirmAsNew_Reuses_Same_Normalized_Staged_Alias()
+    {
+        var (session, first) = ReadySessionWithLine();
+        var second = session.AddLine(2, "OAT MILK 2L", SuggestedConfidence.None, rawPayload: null);
+        var repo = RepoWith(session);
+
+        var firstResult = await new ConfirmLineAsNewCommand(
+            session.Id, first.Id, " Oat   Milk ", _categoryId, 1m, _unitId, _locationId,
+            expiryDate: null, price: 4.99m, repo, new FakeTenantContext(_household)).ExecuteAsync();
+
+        Assert.True(firstResult.IsSuccess);
+        Assert.NotNull(first.StagedProductId);
+        var stagedId = first.StagedProductId!.Value;
+
+        var secondResult = await new ConfirmLineAsNewCommand(
+            session.Id, second.Id, "oat milk", _categoryId, 2m, _unitId, _locationId,
+            expiryDate: null, price: 9.98m, repo, new FakeTenantContext(_household)).ExecuteAsync();
+
+        Assert.True(secondResult.IsSuccess);
+        Assert.Equal(stagedId, second.StagedProductId);
+        Assert.Equal("Oat Milk", session.StagedProducts.Single().Name);
+        Assert.Equal(2, repo.SaveChangesCalls);
+    }
+
+    [Fact(DisplayName = "ConfirmAsNew rejects a no-ID retry that conflicts with the line's existing staged unit")]
+    public async Task ConfirmAsNew_Rejects_NoId_Retry_With_Conflicting_Staged_Unit()
+    {
+        var (session, line) = ReadySessionWithLine();
+        var repo = RepoWith(session);
+
+        var firstResult = await new ConfirmLineAsNewCommand(
+            session.Id, line.Id, "Oat Milk", RetryCategoryId, 1m, RetryUnitAId, RetryLocationId,
+            expiryDate: null, price: 4.99m, repo, new FakeTenantContext(_household)).ExecuteAsync();
+
+        Assert.True(firstResult.IsSuccess);
+        Assert.NotNull(line.StagedProductId);
+        var stagedId = line.StagedProductId!.Value;
+
+        var retryResult = await new ConfirmLineAsNewCommand(
+            session.Id, line.Id, "Oat Milk", RetryCategoryId, 1m, RetryUnitBId, RetryLocationId,
+            expiryDate: null, price: 4.99m, repo, new FakeTenantContext(_household)).ExecuteAsync();
+
+        Assert.True(retryResult.IsFailure);
+        Assert.Equal("Intake.StagedProductNameConflict", retryResult.Error.Code);
+        Assert.Equal(stagedId, line.StagedProductId);
+        Assert.Equal(RetryUnitAId, line.UnitId);
+        Assert.Equal(LineStatus.Confirmed, line.Status);
+        Assert.Equal(1, repo.SaveChangesCalls);
+    }
+
+    [Fact(DisplayName = "ConfirmAsNew rejects a conflicting same-name staged alias before changing the line")]
+    public async Task ConfirmAsNew_Rejects_Conflicting_Same_Name_Alias()
+    {
+        var (session, first) = ReadySessionWithLine();
+        var categoryConflict = session.AddLine(2, "OAT MILK 2L", SuggestedConfidence.None, rawPayload: null);
+        var unitConflict = session.AddLine(3, "OAT MILK 3L", SuggestedConfidence.None, rawPayload: null);
+        var repo = RepoWith(session);
+
+        var firstResult = await new ConfirmLineAsNewCommand(
+            session.Id, first.Id, "Oat Milk", _categoryId, 1m, _unitId, _locationId,
+            expiryDate: null, price: 4.99m, repo, new FakeTenantContext(_household)).ExecuteAsync();
+        Assert.True(firstResult.IsSuccess);
+
+        var categoryResult = await new ConfirmLineAsNewCommand(
+            session.Id, categoryConflict.Id, " oat milk ", Guid.CreateVersion7(), 2m, _unitId, _locationId,
+            expiryDate: null, price: 9.98m, repo, new FakeTenantContext(_household)).ExecuteAsync();
+        var unitResult = await new ConfirmLineAsNewCommand(
+            session.Id, unitConflict.Id, "OAT   MILK", _categoryId, 3m, Guid.CreateVersion7(), _locationId,
+            expiryDate: null, price: 14.97m, repo, new FakeTenantContext(_household)).ExecuteAsync();
+
+        Assert.True(categoryResult.IsFailure);
+        Assert.Equal("Intake.StagedProductNameConflict", categoryResult.Error.Code);
+        Assert.Contains("existing staged option", categoryResult.Error.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(unitResult.IsFailure);
+        Assert.Equal("Intake.StagedProductNameConflict", unitResult.Error.Code);
+        Assert.Equal(LineStatus.Pending, categoryConflict.Status);
+        Assert.Equal(LineStatus.Pending, unitConflict.Status);
+        Assert.Single(session.StagedProducts);
         Assert.Equal(1, repo.SaveChangesCalls);
     }
 

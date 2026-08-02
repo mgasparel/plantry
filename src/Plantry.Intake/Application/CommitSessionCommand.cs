@@ -59,6 +59,17 @@ public sealed class CommitSessionCommand(
         if (session.Status != ImportStatus.Ready)
             return Error.Custom("Intake.SessionNotReady", $"Cannot commit a session in status '{session.Status}'.");
 
+        // Prevent legacy sessions that contain distinct same-name staged aliases from reaching Catalog
+        // one line at a time. Catalog preserves household-wide product-name uniqueness, so allowing the
+        // first line to commit before the duplicate fails would leave a partial receipt review.
+        if (session.ValidateStagedProductNames() is { } stagedNameError)
+        {
+            logger.LogWarning(
+                "Import session {SessionId} commit blocked — staged product name conflict: {ErrorCode}.",
+                sessionId.Value, stagedNameError.Code);
+            return stagedNameError;
+        }
+
         // The stock lot's dated-as value is the (possibly user-corrected) receipt purchase date — genuine
         // backdating (plantry-yobz). Falls back to commit-time only when no date is available (a receipt with
         // no date, or one the plantry-ag05 plausibility guard nulled that the user never filled in).
@@ -116,7 +127,10 @@ public sealed class CommitSessionCommand(
         var context = new CommitContext(purchasedOn);
         try
         {
-            foreach (var line in session.Lines)
+            // EF does not guarantee collection order when materializing the aggregate. Commit receipt
+            // lines in their user-visible line-number order so resumability and per-line side effects are
+            // deterministic across retries and database plans.
+            foreach (var line in session.Lines.OrderBy(l => l.LineNo))
             {
                 if (line.Status != LineStatus.Confirmed)
                     continue; // skip Pending / Dismissed / already-Committed (resumability)
@@ -146,7 +160,7 @@ public sealed class CommitSessionCommand(
     private async Task<Error?> CommitLineAsync(
         ImportSession session, ImportLine line, CommitContext context, CancellationToken ct)
     {
-        var (productId, createdProductId) = await ResolveProductAsync(line, ct);
+        var (productId, createdProductId) = await ResolveProductAsync(session, line, ct);
 
         // Stock is added in the unit the user actually committed (each-count or weight — their choice).
         // sourceRef = the committing line's own id (receipt-intake-history.md H1) — stamped onto the
@@ -181,17 +195,47 @@ public sealed class CommitSessionCommand(
     }
 
     /// <summary>
-    /// Resolves the line's product, creating it first (Catalog) when the line carries a new-product request
-    /// (plantry-x7j0). Returns the resolved <c>ProductId</c> and the id of any freshly-created product (null
-    /// for an existing product) so <c>MarkCommitted</c> can record the create ref.
+    /// Resolves the line's product, creating it first (Catalog) when the line carries a staged new-product
+    /// request.  A staged alias is materialized once and its Catalog id is persisted before stock/price
+    /// writes begin; retries (including a retry after a mid-batch failure) therefore reuse the same product.
+    /// Returns the resolved <c>ProductId</c> and the materialized id to stamp on the committed line.
     /// </summary>
-    private async Task<(Guid ProductId, Guid? CreatedProductId)> ResolveProductAsync(ImportLine line, CancellationToken ct)
+    private async Task<(Guid ProductId, Guid? CreatedProductId)> ResolveProductAsync(
+        ImportSession session, ImportLine line, CancellationToken ct)
     {
         if (!line.IsNewProduct)
             return (line.ProductId!.Value, null);
 
+        // Sessions created before staged aliases were deployed still carry the legacy name/category
+        // fields. Materialize an alias on first commit so a retry is durable and the migration remains
+        // backwards-compatible. New review writes already carry StagedProductId.
+        var staged = line.StagedProductId is { } stagedId
+            ? session.FindStagedProduct(stagedId)
+            : null;
+        if (staged is null)
+        {
+            var created = session.GetOrCreateStagedProduct(
+                null, line.NewProductName!, line.NewProductCategoryId!.Value, line.UnitId!.Value);
+            if (created.IsFailure)
+                throw new InvalidOperationException(created.Error.Description);
+            staged = created.Value;
+            var attached = line.AttachStagedProduct(staged);
+            if (attached.IsFailure)
+                throw new InvalidOperationException(attached.Error.Description);
+        }
+
+        if (staged.CreatedProductId is { } existingProductId)
+            return (existingProductId, existingProductId);
+
         var productId = await createProduct.CreateAsync(
-            line.NewProductName!, line.NewProductCategoryId!.Value, line.UnitId!.Value, ct);
+            staged.Name, staged.CategoryId, staged.DefaultUnitId, ct);
+        var materialized = staged.MarkMaterialized(productId);
+        if (materialized.IsFailure)
+            throw new InvalidOperationException(materialized.Error.Description);
+
+        // This save is intentionally before add-stock/price. If a later cross-context call fails, the
+        // next attempt sees CreatedProductId and cannot mint a duplicate Catalog row.
+        await sessions.SaveChangesAsync(ct);
         return (productId, productId);
     }
 

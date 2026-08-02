@@ -84,8 +84,32 @@ public sealed class ImportLine : Entity<ImportLineId>
     public string? NewProductName { get; private set; }
     public Guid? NewProductCategoryId { get; private set; }
 
+    /// <summary>
+    /// Session-scoped staged-product identity.  Several lines may point at the same value while the
+    /// review is open; the Catalog product is materialized once at commit.  The legacy name/category
+    /// fields above remain populated for compatibility with older sessions and read projections.
+    /// </summary>
+    public Guid? StagedProductId { get; private set; }
+
     /// <summary>A confirmed line whose product does not yet exist — created at commit time.</summary>
-    public bool IsNewProduct => ProductId is null && NewProductName is not null;
+    public bool IsNewProduct =>
+        ProductId is null && (StagedProductId is not null || NewProductName is not null);
+
+    /// <summary>
+    /// Backfills the staged identity for a legacy line created before staged aliases were introduced.
+    /// This is an internal migration-on-read used by the commit path; it does not alter any user-resolved
+    /// values and therefore preserves the old create-at-commit behaviour for existing sessions.
+    /// </summary>
+    internal Result AttachStagedProduct(StagedProduct staged)
+    {
+        if (ProductId is not null || string.IsNullOrWhiteSpace(NewProductName) || NewProductCategoryId is null)
+            return Error.Custom("Intake.InvalidStagedProduct", "Only a new-product line can attach a staged product.");
+        if (!staged.Matches(NewProductName, NewProductCategoryId.Value, UnitId ?? Guid.Empty))
+            return Error.Custom("Intake.StagedProductMismatch", "The staged product does not match the line's new-product intent.");
+
+        StagedProductId = staged.Id;
+        return Result.Success();
+    }
 
     public LineStatus Status { get; private set; }
 
@@ -166,6 +190,7 @@ public sealed class ImportLine : Entity<ImportLineId>
         // Resolving to an existing product clears any prior new-product intent.
         NewProductName = null;
         NewProductCategoryId = null;
+        StagedProductId = null;
         Status = LineStatus.Confirmed;
         return Result.Success();
     }
@@ -177,7 +202,7 @@ public sealed class ImportLine : Entity<ImportLineId>
     /// </summary>
     public Result ConfirmAsNew(
         string newProductName, Guid newProductCategoryId, decimal quantity, Guid unitId, Guid locationId,
-        DateOnly? expiryDate, decimal? price)
+        DateOnly? expiryDate, decimal? price, Guid? stagedProductId = null)
     {
         if (Status == LineStatus.Dismissed)
             return Error.Custom("Intake.LineAlreadyDismissed", "Cannot confirm a dismissed line.");
@@ -190,6 +215,7 @@ public sealed class ImportLine : Entity<ImportLineId>
         SkuId = null;
         NewProductName = newProductName.Trim();
         NewProductCategoryId = newProductCategoryId;
+        StagedProductId = stagedProductId;
         Quantity = quantity;
         UnitId = unitId;
         LocationId = locationId;
@@ -247,6 +273,7 @@ public sealed class ImportLine : Entity<ImportLineId>
         Price = null;
         NewProductName = null;
         NewProductCategoryId = null;
+        StagedProductId = null;
         Status = LineStatus.Pending;
         return Result.Success();
     }

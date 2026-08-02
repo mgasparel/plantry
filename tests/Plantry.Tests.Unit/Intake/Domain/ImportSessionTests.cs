@@ -9,6 +9,11 @@ public sealed class ImportSessionTests
     private static readonly HouseholdId Household = HouseholdId.New();
     private static readonly Guid UserId = Guid.CreateVersion7();
     private static readonly IClock Clock = SystemClock.Instance;
+    private static readonly Guid CategoryA = Guid.Parse("10000000-0000-0000-0000-000000000001");
+    private static readonly Guid CategoryB = Guid.Parse("10000000-0000-0000-0000-000000000002");
+    private static readonly Guid UnitA = Guid.Parse("20000000-0000-0000-0000-000000000001");
+    private static readonly Guid UnitB = Guid.Parse("20000000-0000-0000-0000-000000000002");
+    private static readonly Guid Location = Guid.Parse("50000000-0000-0000-0000-000000000001");
 
     private static ImportSession Started() =>
         ImportSession.Start(Household, ImportSourceType.Receipt, UserId, Clock);
@@ -38,6 +43,53 @@ public sealed class ImportSessionTests
         Assert.Equal("""{"qty":2}""", line.RawParse);
         Assert.Equal(LineStatus.Pending, line.Status);
         Assert.Equal(session.Id, line.SessionId);
+    }
+
+    [Fact(DisplayName = "Commit validation rejects conflicting legacy new-product identities")]
+    public void ValidateStagedProductNames_Rejects_Conflicting_Legacy_New_Product_Identities()
+    {
+        var session = Started();
+        var first = session.AddLine(1, "OAT MILK", SuggestedConfidence.Low, null);
+        var second = session.AddLine(2, "oat   milk", SuggestedConfidence.Low, null);
+
+        first.ConfirmAsNew("Oat Milk", CategoryA, 1m, UnitA, Location, null, null);
+        second.ConfirmAsNew(" oat milk ", CategoryB, 1m, UnitB, Location, null, null);
+
+        var result = session.ValidateStagedProductNames();
+
+        Assert.NotNull(result);
+        Assert.Equal("Intake.StagedProductNameConflict", result!.Code);
+        Assert.Empty(session.StagedProducts);
+    }
+
+    [Fact(DisplayName = "Commit validation compares legacy lines with a persisted staged identity")]
+    public void ValidateStagedProductNames_Rejects_Legacy_Line_Conflicting_With_Staged_Alias()
+    {
+        var session = Started();
+        var staged = session.GetOrCreateStagedProduct(null, "Oat Milk", CategoryA, UnitA).Value;
+        var legacy = session.AddLine(1, "OAT MILK", SuggestedConfidence.Low, null);
+        legacy.ConfirmAsNew(" oat   milk ", CategoryA, 1m, UnitB, Location, null, null);
+
+        var result = session.ValidateStagedProductNames();
+
+        Assert.NotNull(result);
+        Assert.Equal("Intake.StagedProductNameConflict", result!.Code);
+        Assert.Single(session.StagedProducts);
+        Assert.Equal(staged.Id, session.StagedProducts[0].Id);
+    }
+
+    [Fact]
+    public void ValidateStagedProductNames_Allows_Legacy_Line_Matching_Staged_Alias()
+    {
+        var session = Started();
+        var staged = session.GetOrCreateStagedProduct(null, "Oat Milk", CategoryA, UnitA).Value;
+        var legacy = session.AddLine(1, "OAT  MILK", SuggestedConfidence.Low, null);
+        legacy.ConfirmAsNew(" oat milk ", CategoryA, 1m, UnitA, Location, null, null);
+
+        var result = session.ValidateStagedProductNames();
+
+        Assert.Null(result);
+        Assert.Equal(staged.Id, session.StagedProducts[0].Id);
     }
 
     [Fact]

@@ -40,6 +40,7 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
     private readonly Guid _locationId = Guid.CreateVersion7();
     private UnitId _gramsId;
     private ProductId _productId;
+    private CategoryId _categoryId;
 
     public async Task InitializeAsync()
     {
@@ -52,9 +53,12 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         await catalog.Units.AddAsync(grams);
         var product = Product.Create(_household, "Flour", grams.Id, Clock);
         await catalog.Products.AddAsync(product);
+        var category = Category.Create(_household, "Pantry");
+        await catalog.Categories.AddAsync(category);
         await catalog.SaveChangesAsync();
         _gramsId = grams.Id;
         _productId = product.Id;
+        _categoryId = category.Id;
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -170,6 +174,167 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(0, await otherDb.ImportSessions.CountAsync());
     }
 
+    [Fact(DisplayName = "A failed batch retry after reload reuses one staged Catalog product and preserves both lines")]
+    public async Task Failed_batch_retry_after_reload_reuses_staged_product()
+    {
+        ImportSessionId sessionId;
+        ImportLineId firstLineId;
+        ImportLineId secondLineId;
+
+        // Confirm two receipt lines against one explicit staged alias through the real application command,
+        // then persist the Ready session before the commit attempt.
+        await using (var setup = NewIntakeDb())
+        {
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            var first = session.AddLine(1, "OAT MILK 1L", SuggestedConfidence.None, rawPayload: null);
+            var second = session.AddLine(2, "OAT MILK 2L", SuggestedConfidence.None, rawPayload: null);
+            session.MarkReady("Resilient Grocer", Clock.UtcNow);
+            await setup.ImportSessions.AddAsync(session);
+            await setup.SaveChangesAsync();
+
+            var tenant = new TestTenant(_household.Value);
+            var sessions = new ImportSessionRepository(setup);
+            var firstConfirm = await new ConfirmLineAsNewCommand(
+                session.Id, first.Id, "Shared Oat Milk", _categoryId.Value, 1m, _gramsId.Value, _locationId,
+                expiryDate: null, price: 4.99m, sessions, tenant).ExecuteAsync();
+            Assert.True(firstConfirm.IsSuccess);
+
+            var stagedId = (await setup.StagedProducts.SingleAsync()).Id;
+            var secondConfirm = await new ConfirmLineAsNewCommand(
+                session.Id, second.Id, "Shared Oat Milk", _categoryId.Value, 2m, _gramsId.Value, _locationId,
+                expiryDate: null, price: 9.98m, sessions, tenant, stagedProductId: stagedId).ExecuteAsync();
+            Assert.True(secondConfirm.IsSuccess);
+
+            sessionId = session.Id;
+            firstLineId = first.Id;
+            secondLineId = second.Id;
+        }
+
+        // The first execution fails on line 2 after line 1 has fully committed. The staged alias and its
+        // Catalog id were saved before line 1's stock write, so both survive a context/process boundary.
+        var firstAttempt = await ExecuteCommitWithRealAdaptersAsync(
+            sessionId, failAddStockOnCall: 2);
+        Assert.True(firstAttempt.IsFailure);
+        Assert.Equal("Intake.CommitFailed", firstAttempt.Error.Code);
+
+        await using (var afterFailure = NewIntakeDb())
+        {
+            var persisted = await afterFailure.ImportSessions
+                .Include(s => s.Lines)
+                .Include(s => s.StagedProducts)
+                .SingleAsync(s => s.Id == sessionId);
+            Assert.Equal(ImportStatus.Ready, persisted.Status);
+            Assert.Equal(LineStatus.Committed, persisted.Lines.Single(l => l.Id == firstLineId).Status);
+            Assert.Equal(LineStatus.Confirmed, persisted.Lines.Single(l => l.Id == secondLineId).Status);
+            Assert.Single(persisted.StagedProducts);
+            Assert.NotNull(persisted.StagedProducts.Single().CreatedProductId);
+        }
+
+        var resumed = await ExecuteCommitWithRealAdaptersAsync(sessionId, failAddStockOnCall: null);
+        Assert.True(resumed.IsSuccess);
+
+        await using var verifyIntake = NewIntakeDb();
+        var committed = await verifyIntake.ImportSessions
+            .Include(s => s.Lines)
+            .Include(s => s.StagedProducts)
+            .SingleAsync(s => s.Id == sessionId);
+        Assert.Equal(ImportStatus.Committed, committed.Status);
+        Assert.All(committed.Lines.Where(l => l.Status == LineStatus.Committed), l => Assert.NotNull(l.JournalId));
+        Assert.Equal(2, committed.Lines.Count(l => l.Status == LineStatus.Committed));
+        var createdProductId = Assert.Single(committed.StagedProducts).CreatedProductId!.Value;
+        Assert.Equal(createdProductId, committed.Lines.Single(l => l.Id == firstLineId).CreatedProductId);
+        Assert.Equal(createdProductId, committed.Lines.Single(l => l.Id == secondLineId).CreatedProductId);
+
+        await using var verifyCatalog = NewCatalogDb();
+        Assert.Single(await verifyCatalog.Products.Where(p => p.Id == ProductId.From(createdProductId)).ToListAsync());
+
+        await using var verifyInventory = NewInventoryDb();
+        var stock = await verifyInventory.ProductStocks
+            .Include(p => p.Journal)
+            .SingleAsync(p => p.ProductId == createdProductId);
+        Assert.Equal(2, stock.Journal.Count(j => j.SourceType == StockSourceType.Intake));
+        Assert.Equal(2, stock.Journal.Where(j => j.SourceType == StockSourceType.Intake).Select(j => j.Id).Distinct().Count());
+
+        await using var verifyPricing = NewPricingDb();
+        var observations = await verifyPricing.PriceObservations
+            .Where(p => p.ProductId == createdProductId)
+            .ToListAsync();
+        Assert.Equal(2, observations.Count);
+        Assert.Equal(2, observations.Select(o => o.Id).Distinct().Count());
+    }
+
+    [Fact(DisplayName = "Discarding a staged new product never creates a Catalog row")]
+    public async Task Discard_before_commit_does_not_materialize_staged_product()
+    {
+        ImportSessionId sessionId;
+        await using (var setup = NewIntakeDb())
+        {
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            var line = session.AddLine(1, "ORPHAN OAT MILK", SuggestedConfidence.None, rawPayload: null);
+            session.MarkReady("Discarded Grocer", Clock.UtcNow);
+            await setup.ImportSessions.AddAsync(session);
+            await setup.SaveChangesAsync();
+
+            var tenant = new TestTenant(_household.Value);
+            var sessions = new ImportSessionRepository(setup);
+            var confirm = await new ConfirmLineAsNewCommand(
+                session.Id, line.Id, "Discarded Oat Milk", _categoryId.Value, 1m, _gramsId.Value, _locationId,
+                expiryDate: null, price: 2.99m, sessions, tenant).ExecuteAsync();
+            Assert.True(confirm.IsSuccess);
+            session.Discard();
+            await setup.SaveChangesAsync();
+            sessionId = session.Id;
+        }
+
+        await using var verifyIntake = NewIntakeDb();
+        var discarded = await verifyIntake.ImportSessions
+            .Include(s => s.StagedProducts)
+            .SingleAsync(s => s.Id == sessionId);
+        Assert.Equal(ImportStatus.Discarded, discarded.Status);
+        Assert.Single(discarded.StagedProducts);
+        Assert.Null(discarded.StagedProducts.Single().CreatedProductId);
+
+        await using var verifyCatalog = NewCatalogDb();
+        Assert.Empty(await verifyCatalog.Products.Where(p => p.Name == "Discarded Oat Milk").ToListAsync());
+    }
+
+    private async Task<Result> ExecuteCommitWithRealAdaptersAsync(ImportSessionId sessionId, int? failAddStockOnCall)
+    {
+        await using var catalogDb = NewCatalogDb();
+        await using var inventoryDb = NewInventoryDb();
+        await using var pricingDb = NewPricingDb();
+        await using var intakeDb = NewIntakeDb();
+
+        var tenant = new TestTenant(_household.Value);
+        var products = new ProductRepository(catalogDb);
+        var units = new UnitRepository(catalogDb);
+        var categories = new CategoryRepository(catalogDb);
+        var locations = new LocationRepository(catalogDb);
+        var catalogFacade = new CatalogReadFacade(
+            products, new UnitCodesAccessor(units), categories, locations,
+            new FakeHouseholdExpiryDefaultsReader());
+        var realAddStock = new AddStockAdapter(
+            new ProductStockRepository(inventoryDb), catalogFacade, Clock, tenant);
+        IAddStockPort addStock = failAddStockOnCall is { } fail
+            ? new FailOnCallAddStockPort(realAddStock, fail)
+            : realAddStock;
+
+        var command = new CommitSessionCommand(
+            sessionId,
+            new ImportSessionRepository(intakeDb),
+            new CreateProductAdapter(products, units, categories, locations, Clock, tenant),
+            addStock,
+            new RecordPriceAdapter(
+                new PriceObservationRepository(pricingDb), new UnitPriceCalculatorAdapter(units), tenant,
+                NullLogger<RecordObservationCommand>.Instance),
+            new EnsurePurchaseStoreAdapter(new StoreRepository(catalogDb), tenant, Clock),
+            new ReviewReferenceDataProvider(products, units, locations, categories, new StoreRepository(catalogDb)),
+            new SeedConversionAdapter(products, Clock, NullLogger<SeedConversionAdapter>.Instance),
+            Clock, tenant, NullLogger<CommitSessionCommand>.Instance);
+
+        return await command.ExecuteAsync();
+    }
+
     private CatalogDbContext NewCatalogDb()
     {
         var ctx = new CatalogDbContext(
@@ -225,6 +390,22 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         {
             Events.Add(domainEvent);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FailOnCallAddStockPort(IAddStockPort inner, int failOnCall) : IAddStockPort
+    {
+        private int _calls;
+
+        public Task<Guid> AddStockAsync(
+            Guid productId, Guid? skuId, decimal quantity, Guid unitId, Guid locationId,
+            DateOnly? expiryDate, DateOnly? purchasedAt, Guid userId, Guid? sourceRef = null,
+            CancellationToken ct = default)
+        {
+            if (++_calls == failOnCall)
+                throw new InvalidOperationException("synthetic mid-batch failure");
+            return inner.AddStockAsync(productId, skuId, quantity, unitId, locationId, expiryDate, purchasedAt,
+                userId, sourceRef, ct);
         }
     }
 }

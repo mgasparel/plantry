@@ -47,6 +47,11 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
     private readonly List<ImportLine> _lines = [];
     public IReadOnlyList<ImportLine> Lines => _lines.AsReadOnly();
 
+    // Session-scoped deferred catalog decisions.  These are intentionally part of the Intake
+    // aggregate rather than Catalog: abandoning a review must not leave an orphan Product behind.
+    private readonly List<StagedProduct> _stagedProducts = [];
+    public IReadOnlyList<StagedProduct> StagedProducts => _stagedProducts.AsReadOnly();
+
     private ImportSession() { } // EF
 
     public static ImportSession Start(HouseholdId householdId, ImportSourceType sourceType, Guid userId, IClock clock) =>
@@ -98,6 +103,109 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
         _lines.Add(line);
         return line;
     }
+
+    /// <summary>
+    /// Resolves a staged product decision for a new line. Reuse is explicit through
+    /// <paramref name="stagedProductId"/> when the user selects an existing option. A request without an id
+    /// may reuse the one same-name alias only when its category and default unit also match; a conflicting
+    /// second alias is rejected before the line is changed.
+    /// </summary>
+    internal Result<StagedProduct> GetOrCreateStagedProduct(
+        Guid? stagedProductId,
+        string name,
+        Guid categoryId,
+        Guid defaultUnitId)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return Error.Custom("Intake.MissingProductName", "A new product needs a name.");
+
+        if (stagedProductId is { } requestedId)
+        {
+            var existing = _stagedProducts.SingleOrDefault(p => p.Id == requestedId);
+            if (existing is null)
+                return Error.NotFound;
+            // The alias's default unit is a Catalog decision made by the first line. Reusing the alias
+            // does not force later purchase lines to use that unit (a purchase can legitimately be in a
+            // different unit); only the name/category identity fields must match.
+            if (!existing.MatchesIdentity(name, categoryId))
+                return Error.Custom(
+                    "Intake.StagedProductMismatch",
+                    "The selected staged product no longer matches the supplied name or category.");
+            return existing;
+        }
+
+        var sameName = _stagedProducts
+            .Where(p => p.HasSameNormalizedName(name))
+            .ToList();
+        if (sameName.Count > 0)
+        {
+            // A matching no-id request is the server-side equivalent of selecting the existing staged
+            // option. A category/default-unit mismatch is conflicting input, so leave the line untouched
+            // and direct the user to Change match where the existing option is visible.
+            if (sameName.Count == 1 && sameName[0].Matches(name, categoryId, defaultUnitId))
+                return sameName[0];
+
+            return Error.Custom(
+                "Intake.StagedProductNameConflict",
+                $"A staged product named '{sameName[0].Name}' already exists in this review. " +
+                "Use Change match to select the existing staged option instead of creating another.");
+        }
+
+        var created = StagedProduct.Create(Id, HouseholdId, name, categoryId, defaultUnitId);
+        _stagedProducts.Add(created);
+        return created;
+    }
+
+    /// <summary>
+    /// Defensive commit guard for sessions written before the staged-name invariant existed. It prevents
+    /// legacy duplicate aliases from reaching Catalog one line at a time and leaving a partially committed batch.
+    /// </summary>
+    internal Error? ValidateStagedProductNames()
+    {
+        var duplicate = _stagedProducts
+            .GroupBy(p => p.NormalizedName, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+            return StagedProductNameConflict(duplicate.First().Name);
+
+        var legacyNewProducts = _lines
+            .Where(line => line.Status == LineStatus.Confirmed &&
+                           line.StagedProductId is null &&
+                           line.IsNewProduct)
+            .Select(line => new
+            {
+                Name = line.NewProductName!,
+                NormalizedName = StagedProduct.NormalizeNameKey(line.NewProductName!),
+                CategoryId = line.NewProductCategoryId!.Value,
+                DefaultUnitId = line.UnitId!.Value,
+            })
+            .ToList();
+
+        foreach (var group in legacyNewProducts.GroupBy(line => line.NormalizedName, StringComparer.Ordinal))
+        {
+            if (group.Select(line => (line.CategoryId, line.DefaultUnitId)).Distinct().Count() > 1)
+                return StagedProductNameConflict(group.First().Name);
+
+            var staged = _stagedProducts.SingleOrDefault(product => product.NormalizedName == group.Key);
+            if (staged is not null &&
+                group.Any(line => !staged.Matches(line.Name, line.CategoryId, line.DefaultUnitId)))
+            {
+                return StagedProductNameConflict(staged.Name);
+            }
+        }
+
+        return null;
+    }
+
+    private static Error StagedProductNameConflict(string name) =>
+        Error.Custom(
+            "Intake.StagedProductNameConflict",
+            $"A staged product named '{name}' already exists in this review. " +
+            "Use Change match to select the existing staged option before committing.");
+
+    /// <summary>Returns a staged alias by id, or null when the id is not part of this session.</summary>
+    internal StagedProduct? FindStagedProduct(Guid stagedProductId) =>
+        _stagedProducts.SingleOrDefault(p => p.Id == stagedProductId);
 
     public Result MarkParsingFailed(string error)
     {

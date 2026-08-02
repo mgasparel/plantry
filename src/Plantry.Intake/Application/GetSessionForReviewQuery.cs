@@ -41,7 +41,8 @@ public sealed record ReviewLineView(
     decimal? ReceiptWeight = null,
     string? ReceiptWeightUnitLabel = null,
     decimal? EstimatedEachCount = null,
-    SuggestedConfidence? EstimatedEachConfidence = null)
+    SuggestedConfidence? EstimatedEachConfidence = null,
+    Guid? StagedProductId = null)
 {
     /// <summary>
     /// Projects a domain <see cref="ImportLine"/> onto its read view — the single mapping point shared by
@@ -83,9 +84,17 @@ public sealed record ReviewLineView(
             l.ReceiptWeight,
             l.ReceiptWeightUnitLabel,
             l.EstimatedEachCount,
-            l.EstimatedEachConfidence);
+            l.EstimatedEachConfidence,
+            l.StagedProductId);
     }
 }
+
+/// <summary>A session-scoped new-product decision available to every line in the review island.</summary>
+public sealed record ReviewStagedProductView(
+    Guid Id,
+    string Name,
+    Guid CategoryId,
+    Guid DefaultUnitId);
 
 /// <summary>
 /// The session header plus its lines and the Catalog reference data (dropdown options) needed to render
@@ -111,7 +120,8 @@ public sealed record SessionReviewView(
     decimal? Tax = null,
     decimal? Total = null,
     string? PaymentDescriptor = null,
-    string? ReceiptNumber = null);
+    string? ReceiptNumber = null,
+    IReadOnlyList<ReviewStagedProductView>? StagedProducts = null);
 
 /// <summary>
 /// Read query (SPEC §2e): loads a <see cref="ImportSession"/> with its lines and the household's Catalog
@@ -158,6 +168,9 @@ public sealed class GetSessionForReviewQuery(
             session.Tax,
             session.Total,
             session.PaymentDescriptor,
-            session.ReceiptNumber);
+            session.ReceiptNumber,
+            session.StagedProducts
+                .Select(p => new ReviewStagedProductView(p.Id, p.Name, p.CategoryId, p.DefaultUnitId))
+                .ToList());
     }
 }

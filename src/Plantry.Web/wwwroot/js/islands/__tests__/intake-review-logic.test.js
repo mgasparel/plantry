@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 
 import {
   makeLine,
+  mergeStagedProductOption,
   lineSection,
   isSurePending,
   isPrefillComplete,
@@ -66,6 +67,7 @@ function lineSeed(overrides = {}) {
     isNewProduct: false,
     newProductName: null,
     newProductCategoryId: null,
+    stagedProductId: null,
     suggestedPrice: 3.99,
     ...overrides,
   };
@@ -144,9 +146,20 @@ describe("buildSaveLineBody", () => {
     assert.equal(body.skuId, null);
     assert.equal(body.newProductName, "Oat Milk");
     assert.equal(body.newProductCategoryId, "cat-dairy");
+    assert.equal(body.stagedProductId, null);
 
     ls.draftNewCategoryId.value = "";
     assert.equal(buildSaveLineBody(ls).newProductCategoryId, null);
+  });
+
+  it("createNew branch carries the explicit staged-product identity", () => {
+    const ls = makeState(
+      { isNewProduct: true, newProductName: "Oat Milk", newProductCategoryId: "cat-dairy", stagedProductId: "stage-1" },
+      { productId: null, productName: null },
+    );
+    ls.createNew.value = true;
+    assert.equal(buildSaveLineBody(ls).productId, null);
+    assert.equal(buildSaveLineBody(ls).stagedProductId, "stage-1");
   });
 
   it("existing-product branch: empty productId/skuId/unit/location become null", () => {
@@ -182,6 +195,32 @@ describe("buildSaveLineBody", () => {
     assert.equal(buildSaveLineBody(ls).price, 5.49);
     ls.draftPrice.value = "";
     assert.equal(buildSaveLineBody(ls).price, null);
+  });
+});
+
+describe("mergeStagedProductOption", () => {
+  const alias = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L" };
+
+  it("appends a newly returned staged option", () => {
+    const existing = [{ id: "stage-0", name: "Flour", categoryId: "cat-grain", defaultUnitId: "unit-kg" }];
+    const merged = mergeStagedProductOption(existing, alias);
+    assert.deepEqual(merged, [...existing, alias]);
+    assert.notEqual(merged, existing);
+  });
+
+  it("replays the same id in place without duplicating it", () => {
+    const first = mergeStagedProductOption([], alias);
+    const replay = mergeStagedProductOption(first, { ...alias, name: "Oat Milk (updated)" });
+    assert.equal(replay.length, 1);
+    assert.equal(replay[0].id, alias.id);
+    assert.equal(replay[0].name, "Oat Milk (updated)");
+  });
+
+  it("ignores an empty response without mutating the existing options", () => {
+    const existing = [alias];
+    const merged = mergeStagedProductOption(existing, null);
+    assert.deepEqual(merged, existing);
+    assert.notEqual(merged, existing);
   });
 });
 

@@ -1,8 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging.Abstractions;
+using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Intake.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
 using Xunit;
 
@@ -63,6 +67,119 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
 
         var line2 = loaded.Lines.Single(l => l.LineNo == 2);
         Assert.Null(line2.RawParse);
+    }
+
+    [Fact(DisplayName = "Concurrent same-name ConfirmAsNew requests reuse one persisted staged alias")]
+    public async Task Concurrent_ConfirmAsNew_Requests_Reuse_One_Staged_Alias()
+    {
+        ImportSessionId sessionId;
+        ImportLineId firstLineId;
+        ImportLineId secondLineId;
+        var categoryId = Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        var unitId = Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+        var locationId = Guid.Parse("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+
+        await using (var setup = NewIntakeDb())
+        {
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            var first = session.AddLine(1, "OAT MILK FIRST", SuggestedConfidence.None, rawPayload: null);
+            var second = session.AddLine(2, "OAT MILK SECOND", SuggestedConfidence.None, rawPayload: null);
+            session.MarkReady("Concurrent Grocer", Clock.UtcNow);
+            await setup.ImportSessions.AddAsync(session);
+            await setup.SaveChangesAsync();
+            sessionId = session.Id;
+            firstLineId = first.Id;
+            secondLineId = second.Id;
+        }
+
+        using var bothRequestsLoaded = new Barrier(2);
+        await using var contextA = NewIntakeDb(new FirstSaveBarrierInterceptor(bothRequestsLoaded));
+        await using var contextB = NewIntakeDb(new FirstSaveBarrierInterceptor(bothRequestsLoaded));
+        var tenant = new TestTenant(_household.Value);
+
+        var results = await Task.WhenAll(
+            new ConfirmLineAsNewCommand(
+                sessionId, firstLineId, " Oat   Milk ", categoryId, 1m, unitId, locationId,
+                expiryDate: null, price: 4.99m, new ImportSessionRepository(contextA), tenant,
+                NullLogger<ConfirmLineAsNewCommand>.Instance).ExecuteAsync(),
+            new ConfirmLineAsNewCommand(
+                sessionId, secondLineId, "oat milk", categoryId, 2m, unitId, locationId,
+                expiryDate: null, price: 9.98m, new ImportSessionRepository(contextB), tenant,
+                NullLogger<ConfirmLineAsNewCommand>.Instance).ExecuteAsync());
+
+        Assert.All(results, result =>
+            Assert.True(result.IsSuccess, result.IsFailure ? result.Error.Description : ""));
+
+        await using var verify = NewIntakeDb();
+        var persisted = await verify.ImportSessions
+            .Include(s => s.Lines)
+            .Include(s => s.StagedProducts)
+            .SingleAsync(s => s.Id == sessionId);
+        var staged = Assert.Single(persisted.StagedProducts);
+        Assert.Equal("OAT MILK", staged.NormalizedName);
+        Assert.All(persisted.Lines, line =>
+        {
+            Assert.Equal(LineStatus.Confirmed, line.Status);
+            Assert.Equal(staged.Id, line.StagedProductId);
+        });
+    }
+
+    [Fact(DisplayName = "Concurrent same-line no-ID ConfirmAsNew requests reject a conflicting default unit")]
+    public async Task Concurrent_SameLine_NoId_ConfirmAsNew_Requests_Reject_Conflicting_Unit()
+    {
+        ImportSessionId sessionId;
+        ImportLineId lineId;
+        var categoryId = Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        var firstUnitId = Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+        var secondUnitId = Guid.Parse("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+        var locationId = Guid.Parse("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+
+        await using (var setup = NewIntakeDb())
+        {
+            var session = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            var line = session.AddLine(1, "OAT MILK", SuggestedConfidence.None, rawPayload: null);
+            session.MarkReady("Concurrent Grocer", Clock.UtcNow);
+            await setup.ImportSessions.AddAsync(session);
+            await setup.SaveChangesAsync();
+            sessionId = session.Id;
+            lineId = line.Id;
+        }
+
+        using var bothRequestsSaving = new Barrier(2);
+        await using var contextA = NewIntakeDb(new FirstSaveBarrierInterceptor(bothRequestsSaving));
+        await using var contextB = NewIntakeDb(new FirstSaveBarrierInterceptor(bothRequestsSaving));
+        var tenant = new TestTenant(_household.Value);
+
+        var firstTask = new ConfirmLineAsNewCommand(
+            sessionId, lineId, "Oat Milk", categoryId, 1m, firstUnitId, locationId,
+            expiryDate: null, price: 4.99m, new ImportSessionRepository(contextA), tenant,
+            NullLogger<ConfirmLineAsNewCommand>.Instance).ExecuteAsync();
+        var secondTask = new ConfirmLineAsNewCommand(
+            sessionId, lineId, "Oat Milk", categoryId, 1m, secondUnitId, locationId,
+            expiryDate: null, price: 4.99m, new ImportSessionRepository(contextB), tenant,
+            NullLogger<ConfirmLineAsNewCommand>.Instance).ExecuteAsync();
+
+        await Task.WhenAll(firstTask, secondTask);
+        var firstResult = await firstTask;
+        var secondResult = await secondTask;
+
+        Assert.Equal(1, new[] { firstResult, secondResult }.Count(result => result.IsSuccess));
+        var conflict = Assert.Single(new[] { firstResult, secondResult }, result => result.IsFailure);
+        Assert.Equal("Intake.StagedProductNameConflict", conflict.Error.Code);
+
+        var winningUnitId = firstResult.IsSuccess ? firstUnitId : secondUnitId;
+        await using var verify = NewIntakeDb();
+        var persisted = await verify.ImportSessions
+            .Include(s => s.Lines)
+            .Include(s => s.StagedProducts)
+            .SingleAsync(s => s.Id == sessionId);
+        var persistedLine = Assert.Single(persisted.Lines);
+        var staged = Assert.Single(persisted.StagedProducts);
+        Assert.Equal(LineStatus.Confirmed, persistedLine.Status);
+        Assert.Equal(winningUnitId, persistedLine.UnitId);
+        Assert.Equal(winningUnitId, staged.DefaultUnitId);
+        Assert.Equal("OAT MILK", staged.NormalizedName);
+        Assert.Equal(staged.Id, persistedLine.StagedProductId);
     }
 
     [Fact(DisplayName = "ImportSession with SourceType Manual round-trips through EF and the DB CHECK (plantry-45ba.1)")]
@@ -405,20 +522,43 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         public DateTimeOffset UtcNow { get; } = now;
     }
 
-    private DbContextOptions<IntakeDbContext> IntakeOptions() =>
-        new DbContextOptionsBuilder<IntakeDbContext>().UseNpgsql(db.ConnectionString).Options;
-
-    private IntakeDbContext NewIntakeDb()
+    private IntakeDbContext NewIntakeDb(ISaveChangesInterceptor? interceptor = null)
     {
-        var ctx = new IntakeDbContext(IntakeOptions());
+        var builder = new DbContextOptionsBuilder<IntakeDbContext>().UseNpgsql(db.ConnectionString);
+        if (interceptor is not null)
+            builder.AddInterceptors(interceptor);
+
+        var ctx = new IntakeDbContext(builder.Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }
 
     private IntakeDbContext NewIntakeDbFor(HouseholdId household)
     {
-        var ctx = new IntakeDbContext(IntakeOptions());
+        var ctx = new IntakeDbContext(
+            new DbContextOptionsBuilder<IntakeDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
+    }
+
+    private sealed class TestTenant(Guid household) : ITenantContext
+    {
+        public Guid? HouseholdId { get; } = household;
+    }
+
+    private sealed class FirstSaveBarrierInterceptor(Barrier barrier) : SaveChangesInterceptor
+    {
+        private int _waited;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Exchange(ref _waited, 1) == 0)
+                barrier.SignalAndWait(TimeSpan.FromSeconds(30), cancellationToken);
+
+            return ValueTask.FromResult(result);
+        }
     }
 }

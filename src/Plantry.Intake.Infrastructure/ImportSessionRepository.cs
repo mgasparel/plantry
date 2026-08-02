@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Plantry.Intake.Domain;
 using Plantry.SharedKernel;
 
@@ -15,18 +16,41 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
     public Task<ImportSession?> FindAsync(ImportSessionId sessionId, CancellationToken ct = default) =>
         db.ImportSessions
             .Include(s => s.Lines)
+            .Include(s => s.StagedProducts)
             .FirstOrDefaultAsync(s => s.Id == sessionId, ct);
 
     // Receipt is kept off the hot path — load only on demand.
     public Task<ImportReceipt?> FindReceiptAsync(ImportSessionId sessionId, CancellationToken ct = default) =>
         db.ImportReceipts.FirstOrDefaultAsync(r => r.Id == sessionId, ct);
 
-    public Task SaveChangesAsync(CancellationToken ct = default) =>
-        db.SaveChangesAsync(ct);
+    public async Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsStagedProductNameConflict(ex))
+        {
+            // PostgreSQL has rolled back this SaveChanges transaction, but EF still tracks the losing
+            // Added alias and the line mutation. Clear them before ConfirmLineAsNewCommand reloads the
+            // winner through this repository; otherwise FindAsync would return the stale failed graph.
+            db.ChangeTracker.Clear();
+            throw new StagedProductNameConflictException(ex);
+        }
+    }
+
+    private static bool IsStagedProductNameConflict(DbUpdateException exception) =>
+        exception.InnerException is PostgresException postgres &&
+        postgres.SqlState == PostgresErrorCodes.UniqueViolation &&
+        string.Equals(
+            postgres.ConstraintName,
+            StagedProduct.NormalizedNameUniqueIndexName,
+            StringComparison.Ordinal);
 
     public Task<List<ImportSession>> ListPendingAsync(HouseholdId householdId, CancellationToken ct = default) =>
         db.ImportSessions
             .Include(s => s.Lines)
+            .Include(s => s.StagedProducts)
             .Where(s => s.HouseholdId == householdId && s.Status == ImportStatus.Ready)
             .ToListAsync(ct);
 

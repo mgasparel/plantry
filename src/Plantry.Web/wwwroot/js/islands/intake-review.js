@@ -40,6 +40,7 @@ import { readAntiforgeryToken, postJson } from "./helpers.js";
 import { createToast, createToastHost } from "./toast.js?v=1";
 import {
   makeLine as makeLineFromSeed,
+  mergeStagedProductOption,
   lineSection,
   isSurePending,
   buildSaveLineBody,
@@ -63,7 +64,7 @@ import {
   cardTransform,
   filterStores,
   buildCorrectHeaderBody,
-} from "./intake-review-logic.js?v=6";
+} from "./intake-review-logic.js?v=7";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -95,6 +96,7 @@ import {
  * @property {boolean} isNewProduct
  * @property {string|null} newProductName
  * @property {string|null} newProductCategoryId
+ * @property {string|null} stagedProductId
  * @property {number|null} suggestedPrice
  */
 
@@ -174,6 +176,7 @@ import {
  * @property {string} confirmLinesUrl
  * @property {string} correctHeaderUrl
  * @property {ProductHydration[]} products
+ * @property {{id:string, name:string, categoryId:string, defaultUnitId:string}[]|null} stagedProducts
  * @property {UnitHydration[]} units
  * @property {LocationHydration[]} locations
  * @property {CategoryHydration[]} categories
@@ -305,6 +308,8 @@ function pickAlternative(ls, k) {
   if (!alt) return;
   batch(() => {
     ls.draftProductId.value = alt.productId;
+    ls.stagedProductId.value = "";
+    ls.createNew.value = false;
     ls.draftProductName.value = alt.productName;
     ls.draftSkuId.value = "";
   });
@@ -312,15 +317,18 @@ function pickAlternative(ls, k) {
 
 /**
  * @param {{
- *   ls: LineState, products: ProductHydration[], categories: CategoryHydration[],
+ *   ls: LineState, products: ProductHydration[], stagedProducts: {id:string,name:string,categoryId:string,defaultUnitId:string}[], categories: CategoryHydration[],
  *   skuCount: number,
  * }} props
  */
-function MatchBlock({ ls, products, categories, skuCount }) {
+function MatchBlock({ ls, products, stagedProducts = [], categories, skuCount }) {
   // ── Search mode (M / "Change match") — inline searchable-select with a demoted "+ Create" escape. ──
   if (ls.searchOpen.value) {
     const q = ls.draftProductName.value.trim().toLowerCase();
-    const hits = (q ? products.filter((p) => p.name.toLowerCase().includes(q)) : products).slice(0, 6);
+    const catalogHits = q ? products.filter((p) => p.name.toLowerCase().includes(q)) : products;
+    const stagedHits = q ? stagedProducts.filter((p) => p.name.toLowerCase().includes(q)) : stagedProducts;
+    const hits = catalogHits.slice(0, 6);
+    const aliases = stagedHits.slice(0, 6);
     return html`
       <div class="focus-card__link">Match it yourself</div>
       <div class="focus-card__match focus-card__match--none">
@@ -329,13 +337,18 @@ function MatchBlock({ ls, products, categories, skuCount }) {
           <div class="searchable-select__control">
             <input type="text" class="field__input" id=${`fc-search-${ls.lineId}`} role="combobox" autocomplete="off"
                    aria-expanded="true" placeholder="Find a product…" value=${ls.draftProductName}
-                   onInput=${(/** @type {InputEvent} */ e) => { ls.draftProductName.value = /** @type {HTMLInputElement} */ (e.target).value; ls.draftProductId.value = ""; }} />
+                   onInput=${(/** @type {InputEvent} */ e) => { ls.draftProductName.value = /** @type {HTMLInputElement} */ (e.target).value; ls.draftProductId.value = ""; ls.stagedProductId.value = ""; }} />
           </div>
           <ul class="searchable-select__listbox searchable-select__listbox--inline" role="listbox">
             ${hits.map((p, i) => html`
               <li key=${p.id} role="option"
                   onMouseDown=${(/** @type {MouseEvent} */ e) => { e.preventDefault(); pickSearchResult(ls, p, products); }}>
                 ${p.name}${q ? html`<span class="rk">${i === 0 ? "best" : Math.max(15, 80 - i * 14) + "%"}</span>` : ""}
+              </li>`)}
+            ${aliases.map((p) => html`
+              <li key=${`staged-${p.id}`} role="option" class="searchable-select__option--staged"
+                  onMouseDown=${(/** @type {MouseEvent} */ e) => { e.preventDefault(); pickStagedSearchResult(ls, p); }}>
+                ${p.name}<span class="rk">new in this review</span>
               </li>`)}
           </ul>
           <button type="button" class=${"btn btn--secondary btn--sm searchable-select__create-btn" + (hits.length ? " btn--demoted" : "")}
@@ -358,6 +371,7 @@ function MatchBlock({ ls, products, categories, skuCount }) {
             <label class="form-grid__field__label">Product name</label>
             <div class="form-grid__field__control">
               <input class="field__input" name="Edit.NewProductName" placeholder=${ls.receiptText} value=${ls.draftNewName}
+                     disabled=${!!ls.stagedProductId.value}
                      onInput=${(/** @type {InputEvent} */ e) => { ls.draftNewName.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
             </div>
           </div>
@@ -365,6 +379,7 @@ function MatchBlock({ ls, products, categories, skuCount }) {
             <label class="form-grid__field__label">Category</label>
             <div class="form-grid__field__control">
               <select class="field__input" name="Edit.NewProductCategoryId" value=${ls.draftNewCategoryId}
+                      disabled=${!!ls.stagedProductId.value}
                       onChange=${(/** @type {Event} */ e) => { ls.draftNewCategoryId.value = /** @type {HTMLSelectElement} */ (e.target).value; }}>
                 <option value="">— Category —</option>
                 ${categories.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
@@ -372,6 +387,7 @@ function MatchBlock({ ls, products, categories, skuCount }) {
             </div>
           </div>
         </div>
+        ${ls.stagedProductId.value && html`<div class="focus-card__reasoning">Using the product you staged earlier in this review.</div>`}
         <div class="focus-card__reasoning">${deckReasoning("create")}</div>
       </div>
     `;
@@ -440,18 +456,20 @@ function displayNameFor(ls, products) {
 let enterCreate = () => {};
 /** @type {(ls: LineState, product: ProductHydration, products: ProductHydration[]) => void} */
 let pickSearchResult = () => {};
+/** @type {(ls: LineState, product: {id:string,name:string,categoryId:string,defaultUnitId:string}) => void} */
+let pickStagedSearchResult = () => {};
 
 // ── DeckCard — the top judgement-call card (.focus-card family) ──────────────────
 
 /**
  * @param {{
- *   ls: LineState, products: ProductHydration[], units: UnitHydration[], locations: LocationHydration[],
+ *   ls: LineState, products: ProductHydration[], stagedProducts: {id:string,name:string,categoryId:string,defaultUnitId:string}[], units: UnitHydration[], locations: LocationHydration[],
  *   categories: CategoryHydration[], today: string, canSkip: boolean, canBack: boolean,
  *   onConfirm: () => void, onReject: () => void, onSkip: () => void, onBack: () => void,
  *   onSearchOn: (ls: LineState) => void, onSearchOff: (ls: LineState) => void,
  * }} props
  */
-function DeckCard({ ls, products, units, locations, categories, today, canSkip, canBack, onConfirm, onReject, onSkip, onBack, onSearchOn, onSearchOff }) {
+function DeckCard({ ls, products, stagedProducts = [], units, locations, categories, today, canSkip, canBack, onConfirm, onReject, onSkip, onBack, onSearchOn, onSearchOff }) {
   const skuCount = (() => {
     const pid = ls.draftProductId.value;
     return products.find((p) => p.id === pid)?.skus?.length ?? 0;
@@ -527,7 +545,7 @@ function DeckCard({ ls, products, units, locations, categories, today, canSkip, 
           <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> ${ls.error.value}
         </div>`}
 
-      <${MatchBlock} ls=${ls} products=${products} categories=${categories} skuCount=${skuCount} />
+      <${MatchBlock} ls=${ls} products=${products} stagedProducts=${stagedProducts} categories=${categories} skuCount=${skuCount} />
       ${!inSearch && html`<${DetailsStrip} ls=${ls} units=${units} locations=${locations} today=${today} />`}
 
       <div class="focus-verbs">
@@ -762,7 +780,7 @@ function HeaderPanel({ header, stores, storeBranch, handlers }) {
  *   order: import("@preact/signals").Signal<string[]>,
  *   skipStack: import("@preact/signals").Signal<string[]>,
  *   baseline: import("@preact/signals").Signal<number>,
- *   products: ProductHydration[], units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
+ *   products: ProductHydration[], stagedProducts: import("@preact/signals").Signal<{id:string,name:string,categoryId:string,defaultUnitId:string}[]>, units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
  *   session: SessionHydration,
  *   header: any,
  *   alert: import("@preact/signals").Signal<string>,
@@ -770,8 +788,9 @@ function HeaderPanel({ header, stores, storeBranch, handlers }) {
  *   handlers: any,
  * }} props
  */
-function App({ lines, order, skipStack, baseline, products, units, locations, categories, session, header, alert, toast, handlers }) {
+function App({ lines, order, skipStack, baseline, products, stagedProducts, units, locations, categories, session, header, alert, toast, handlers }) {
   const allLines = lines.value;
+  const availableStagedProducts = stagedProducts.value;
   const byId = (/** @type {string} */ id) => lines.value.find((l) => l.lineId === id) ?? null;
 
   const bar = computed(() => commitBarCounts(lines.value.map(lineSection)));
@@ -884,7 +903,7 @@ function App({ lines, order, skipStack, baseline, products, units, locations, ca
                       </div>
                       <div class="deck-zone">
                         <${DeckCard} key=${ls.lineId} ls=${ls}
-                          products=${products} units=${units} locations=${locations} categories=${categories} today=${session.today}
+                          products=${products} stagedProducts=${availableStagedProducts} units=${units} locations=${locations} categories=${categories} today=${session.today}
                           canSkip=${n > 1} canBack=${skipStack.value.length > 0}
                           onConfirm=${() => handlers.deckConfirm(ls)} onReject=${() => handlers.deckReject(ls)}
                           onSkip=${handlers.deckSkip} onBack=${handlers.deckBack}
@@ -960,6 +979,9 @@ export function mountIntakeReview(root, hydration) {
 
   const token = readAntiforgeryToken();
   const linesSignal = signal(hydration.lines.map(makeLine));
+  // SaveLine can introduce the first alias after this page was hydrated. Keep the selectable list in a
+  // signal so the next card re-renders with the server-returned staged option immediately.
+  const stagedProductsSignal = signal(hydration.stagedProducts ?? []);
 
   // A still-Pending line with no product match AND no catalog alternatives is a create-only decision —
   // there is nothing to match to. Pre-open its create form so the deck card renders name + category
@@ -1041,10 +1063,16 @@ export function mountIntakeReview(root, hydration) {
   // ── server-state application (server is authoritative — ADR-020 §2/§7) ────────
   /** @param {LineState} ls @param {any} data */
   function applySaved(ls, data) {
+    if (data.stagedProduct) {
+      const incoming = data.stagedProduct;
+      stagedProductsSignal.value = mergeStagedProductOption(stagedProductsSignal.value, incoming);
+    }
     batch(() => {
       ls.status.value = data.status ?? ls.status.value;
       ls.isNewProduct = data.isNewProduct ?? ls.isNewProduct;
       ls.newProductName = data.newProductName ?? ls.newProductName;
+      ls.stagedProductId.value = data.stagedProductId ?? "";
+      ls.createNew.value = !!(data.isNewProduct ?? ls.createNew.value);
       if (typeof data.price === "number") ls.price.value = data.price;
       if (data.productId) ls.draftProductId.value = data.productId;
       if (data.productName) ls.draftProductName.value = data.productName;
@@ -1079,7 +1107,7 @@ export function mountIntakeReview(root, hydration) {
   /** @param {LineState} ls */
   async function postRestore(ls) { const d = await postAction(hydration.restoreLineUrl, ls); if (!d) return false; batch(() => { ls.status.value = d.status ?? "Pending"; ls.demoted.value = false; ls.error.value = null; }); return true; }
   /** @param {LineState} ls */
-  async function postReopen(ls) { const d = await postAction(hydration.reopenLineUrl, ls); if (!d) return false; batch(() => { ls.status.value = d.status ?? "Pending"; ls.error.value = null; }); return true; }
+  async function postReopen(ls) { const d = await postAction(hydration.reopenLineUrl, ls); if (!d) return false; batch(() => { ls.status.value = d.status ?? "Pending"; ls.stagedProductId.value = ""; ls.error.value = null; }); return true; }
 
   // ── client-side validation mirror (server re-validates and is authoritative) ──
   /** @param {LineState} ls @returns {string|null} */
@@ -1141,7 +1169,7 @@ export function mountIntakeReview(root, hydration) {
   }
 
   // Bind the module-scope helpers the components call (search + create mode).
-  enterCreate = (ls) => { batch(() => { ls.createNew.value = true; ls.searchOpen.value = false; }); };
+  enterCreate = (ls) => { batch(() => { ls.createNew.value = true; ls.searchOpen.value = false; ls.stagedProductId.value = ""; }); };
   /** @param {LineState} ls */
   function searchOn(ls) { batch(() => { ls.searchOpen.value = true; ls.createNew.value = false; }); focusSearchInput(ls.lineId); }
   /** @param {LineState} ls */
@@ -1149,12 +1177,29 @@ export function mountIntakeReview(root, hydration) {
   pickSearchResult = (ls, product) => {
     batch(() => {
       ls.draftProductId.value = product.id;
+      ls.stagedProductId.value = "";
+      ls.createNew.value = false;
       ls.draftProductName.value = product.name;
       ls.draftSkuId.value = "";
       ls.searchOpen.value = false;
       if (!ls.draftUnitId.value) ls.draftUnitId.value = product.defaults.unitId;
       if (!ls.draftLocationId.value && product.defaults.locationId) ls.draftLocationId.value = product.defaults.locationId;
       if (ls.draftExpiryMode.value === "never" && product.defaults.expiry) { ls.draftExpiry.value = product.defaults.expiry; ls.draftExpiryMode.value = "has"; }
+    });
+  };
+  pickStagedSearchResult = (ls, staged) => {
+    batch(() => {
+      // A staged alias is still a deferred new-product decision, not a Catalog ProductId. Keep the
+      // catalog id blank and carry the explicit staged id in the SaveLine payload.
+      ls.stagedProductId.value = staged.id;
+      ls.draftProductId.value = "";
+      ls.draftProductName.value = staged.name;
+      ls.draftNewName.value = staged.name;
+      ls.draftNewCategoryId.value = staged.categoryId;
+      ls.draftSkuId.value = "";
+      ls.createNew.value = true;
+      ls.searchOpen.value = false;
+      if (!ls.draftUnitId.value) ls.draftUnitId.value = staged.defaultUnitId;
     });
   };
   /** @param {string} lineId */
@@ -1204,7 +1249,7 @@ export function mountIntakeReview(root, hydration) {
   async function rematch(ls) {
     if (ls.saving.value) return;
     if (ls.status.value === "Confirmed") { if (!(await postReopen(ls))) return; }
-    batch(() => { ls.draftProductId.value = ""; ls.draftSkuId.value = ""; ls.createNew.value = false; ls.demoted.value = false; ls.drawerOpen.value = false; });
+    batch(() => { ls.draftProductId.value = ""; ls.stagedProductId.value = ""; ls.draftSkuId.value = ""; ls.createNew.value = false; ls.demoted.value = false; ls.drawerOpen.value = false; });
     syncDeck();
     moveToDeckTop(ls.lineId);
   }
@@ -1391,7 +1436,7 @@ export function mountIntakeReview(root, hydration) {
   render(
     html`<${App}
       lines=${linesSignal} order=${order} skipStack=${skipStack} baseline=${baseline}
-      products=${hydration.products} units=${hydration.units} locations=${hydration.locations} categories=${hydration.categories}
+      products=${hydration.products} stagedProducts=${stagedProductsSignal} units=${hydration.units} locations=${hydration.locations} categories=${hydration.categories}
       session=${hydration} header=${header} alert=${alertMsg} toast=${toast}
       handlers=${handlers} />`,
     root,

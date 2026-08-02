@@ -87,6 +87,7 @@ public sealed class ReviewModel(
         public Guid? SkuId { get; set; }
         public string? NewProductName { get; set; }
         public Guid? NewProductCategoryId { get; set; }
+        public Guid? StagedProductId { get; set; }
         public decimal? Quantity { get; set; }
         public Guid? UnitId { get; set; }
         public Guid? LocationId { get; set; }
@@ -154,7 +155,8 @@ public sealed class ReviewModel(
                 edit.NewProductName!, edit.NewProductCategoryId!.Value,
                 quantity, unitId, locationId,
                 edit.ExpiryDate, edit.Price,
-                sessions, tenant, confirmAsNewLogger).ExecuteAsync(ct);
+                sessions, tenant, confirmAsNewLogger,
+                stagedProductId: edit.StagedProductId).ExecuteAsync(ct);
         }
         else
         {
@@ -187,6 +189,17 @@ public sealed class ReviewModel(
             productName = updated.ProductId is { } pid
                 ? Session.ReferenceData.Products.FirstOrDefault(p => p.Id == pid)?.Name
                 : null,
+            stagedProductId = updated.StagedProductId?.ToString(),
+            stagedProduct = updated.StagedProductId is { } stagedId &&
+                (Session.StagedProducts ?? []).FirstOrDefault(p => p.Id == stagedId) is { } staged
+                    ? new
+                    {
+                        id = staged.Id.ToString(),
+                        name = staged.Name,
+                        categoryId = staged.CategoryId.ToString(),
+                        defaultUnitId = staged.DefaultUnitId.ToString(),
+                    }
+                    : null,
             price = updated.Price ?? updated.SuggestedPrice,
             error = (string?)null,
         });

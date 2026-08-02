@@ -26,6 +26,10 @@ public sealed class CommitSessionCommandTests
     private readonly Guid _userId = Guid.CreateVersion7();
     private readonly Guid _unitId = Guid.CreateVersion7();
     private readonly Guid _locationId = Guid.CreateVersion7();
+    private static readonly Guid LegacyCategoryA = Guid.Parse("30000000-0000-0000-0000-000000000001");
+    private static readonly Guid LegacyCategoryB = Guid.Parse("30000000-0000-0000-0000-000000000002");
+    private static readonly Guid LegacyUnitA = Guid.Parse("40000000-0000-0000-0000-000000000001");
+    private static readonly Guid LegacyUnitB = Guid.Parse("40000000-0000-0000-0000-000000000002");
 
     private ImportSession ReadySession()
     {
@@ -68,6 +72,69 @@ public sealed class CommitSessionCommandTests
         Assert.NotNull(line.JournalId);
         Assert.NotNull(line.PriceObservationId);
         Assert.Equal(ImportStatus.Committed, session.Status);
+    }
+
+    [Fact(DisplayName = "Shared staged product creates one catalog product and stocks every referring line")]
+    public async Task Shared_Staged_Product_Is_Materialized_Once_For_Multiple_Lines()
+    {
+        var session = ReadySession();
+        var first = session.AddLine(1, "OAT MILK", SuggestedConfidence.Low, null);
+        var second = session.AddLine(2, "OAT MILK", SuggestedConfidence.Low, null);
+        session.MarkReady("Grocer", Clock.UtcNow);
+        var categoryId = Guid.CreateVersion7();
+        var staged = session.GetOrCreateStagedProduct(null, "Oat milk", categoryId, _unitId).Value;
+        first.ConfirmAsNew("Oat milk", categoryId, 1m, _unitId, _locationId, null, 4.99m, staged.Id);
+        second.ConfirmAsNew("Oat milk", categoryId, 2m, _unitId, _locationId, null, 9.98m, staged.Id);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var create = new FakeCreateProductPort();
+        var add = new FakeAddStockPort();
+
+        var result = await Commit(session, repo, create, add, new()).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(create.Calls);
+        var productId = add.ProductIds[0];
+        Assert.Equal(2, add.ProductIds.Count);
+        Assert.Single(add.ProductIds.Distinct());
+        Assert.All(add.ProductIds, id => Assert.Equal(productId, id));
+        Assert.Equal(productId, first.CreatedProductId);
+        Assert.Equal(productId, second.CreatedProductId);
+    }
+
+    [Fact(DisplayName = "A retry after a mid-batch failure reuses the persisted staged product")]
+    public async Task Shared_Staged_Product_Is_Not_Recreated_On_Resume()
+    {
+        var session = ReadySession();
+        var first = session.AddLine(1, "OAT MILK", SuggestedConfidence.Low, null);
+        var second = session.AddLine(2, "OAT MILK", SuggestedConfidence.Low, null);
+        session.MarkReady("Grocer", Clock.UtcNow);
+        var categoryId = Guid.CreateVersion7();
+        var staged = session.GetOrCreateStagedProduct(null, "Oat milk", categoryId, _unitId).Value;
+        first.ConfirmAsNew("Oat milk", categoryId, 1m, _unitId, _locationId, null, 4.99m, staged.Id);
+        second.ConfirmAsNew("Oat milk", categoryId, 2m, _unitId, _locationId, null, 9.98m, staged.Id);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var create = new FakeCreateProductPort();
+        var firstAdd = new FakeAddStockPort { FailOnCall = 2 };
+
+        var failed = await Commit(session, repo, create, firstAdd, new()).ExecuteAsync();
+
+        Assert.True(failed.IsFailure);
+        Assert.Single(create.Calls);
+        Assert.Equal(LineStatus.Committed, first.Status);
+        Assert.Equal(ImportStatus.Ready, session.Status);
+
+        var resumedAdd = new FakeAddStockPort();
+        var resumed = await Commit(session, repo, create, resumedAdd, new()).ExecuteAsync();
+
+        Assert.True(resumed.IsSuccess);
+        Assert.Single(create.Calls); // the staged alias's CreatedProductId was durable before stock writes
+        Assert.Equal(ImportStatus.Committed, session.Status);
+        Assert.Single(resumedAdd.ProductIds);
+        Assert.Equal(first.CreatedProductId, resumedAdd.ProductIds[0]);
     }
 
     [Fact]
@@ -175,6 +242,42 @@ public sealed class CommitSessionCommandTests
         // Stock is added against the just-created product, and the line records the new product id.
         Assert.Equal(Assert.Single(add.ProductIds), line.CreatedProductId);
         Assert.NotNull(line.CreatedProductId);
+    }
+
+    [Fact(DisplayName = "Conflicting legacy new-product lines fail before downstream writes")]
+    public async Task Blocks_Conflicting_Legacy_New_Product_Lines_Before_Downstream_Writes()
+    {
+        var session = ReadySession();
+        var first = session.AddLine(1, "OAT MILK", SuggestedConfidence.Low, null);
+        var second = session.AddLine(2, "oat   milk", SuggestedConfidence.Low, null);
+        session.MarkReady("Grocer", Clock.UtcNow);
+        first.ConfirmAsNew("Oat Milk", LegacyCategoryA, 1m, LegacyUnitA, _locationId, null, 4.99m);
+        second.ConfirmAsNew(" oat milk ", LegacyCategoryB, 2m, LegacyUnitB, _locationId, null, 9.98m);
+
+        var repo = new FakeImportSessionRepository();
+        repo.Sessions.Add(session);
+        var create = new FakeCreateProductPort();
+        var add = new FakeAddStockPort();
+        var price = new FakeRecordPricePort();
+        var store = new FakeEnsurePurchaseStorePort();
+        var reference = new FakeReviewReferenceDataProvider();
+        var seed = new FakeSeedConversionPort();
+
+        var result = await Commit(session, repo, create, add, price, store, reference, seed).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.StagedProductNameConflict", result.Error.Code);
+        Assert.Empty(create.Calls);       // no Catalog product
+        Assert.Empty(add.ProductIds);     // no stock lot or journal
+        Assert.Empty(price.Prices);       // no price observation
+        Assert.Empty(store.Calls);
+        Assert.Equal(0, reference.Calls);
+        Assert.Empty(seed.Seeds);
+        Assert.Equal(0, repo.SaveChangesCalls);
+        Assert.Equal(ImportStatus.Ready, session.Status);
+        Assert.Equal(LineStatus.Confirmed, first.Status);
+        Assert.Equal(LineStatus.Confirmed, second.Status);
+        Assert.Empty(session.StagedProducts);
     }
 
     [Fact]

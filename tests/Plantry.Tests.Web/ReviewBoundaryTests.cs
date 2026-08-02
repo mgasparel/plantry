@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Plantry.Intake.Domain;
 using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web;
@@ -359,6 +360,108 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
         Assert.True(root.GetProperty("isNewProduct").GetBoolean());
         Assert.Equal("Brand New Item", root.GetProperty("newProductName").GetString());
         Assert.Null(root.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task SaveLine_staged_alias_can_be_selected_by_a_second_unmatched_line()
+    {
+        using var f = new ReviewFragmentFactory();
+        // Add two fresh unmatched rows to this Ready session so the test exercises the complete
+        // save-response/reuse boundary rather than relying on the fixture's pre-confirmed new row.
+        var first = f.SessionA.AddLine(9, "UNMATCHED OAT MILK A", SuggestedConfidence.None, rawPayload: null);
+        var second = f.SessionA.AddLine(10, "UNMATCHED OAT MILK B", SuggestedConfidence.None, rawPayload: null);
+
+        var firstResponse = await PostSaveLineAsync(f, new
+        {
+            lineId = first.Id.Value,
+            createNew = true,
+            productId = (Guid?)null,
+            skuId = (Guid?)null,
+            newProductName = "Oat Milk",
+            newProductCategoryId = ReviewSessionFixture.DairyCategoryId,
+            stagedProductId = (Guid?)null,
+            quantity = 1m,
+            unitId = ReviewSessionFixture.LitreUnitId,
+            locationId = ReviewSessionFixture.FridgeLocationId,
+            expiryDate = (string?)null,
+            price = 3.99m,
+        });
+
+        Assert.Equal("Confirmed", firstResponse.GetProperty("status").GetString());
+        var stagedId = firstResponse.GetProperty("stagedProductId").GetGuid();
+        var staged = firstResponse.GetProperty("stagedProduct");
+        Assert.Equal(stagedId, staged.GetProperty("id").GetGuid());
+        Assert.Equal("Oat Milk", staged.GetProperty("name").GetString());
+        Assert.Equal(ReviewSessionFixture.DairyCategoryId, staged.GetProperty("categoryId").GetGuid());
+        Assert.Equal(ReviewSessionFixture.LitreUnitId, staged.GetProperty("defaultUnitId").GetGuid());
+        Assert.Null(firstResponse.GetProperty("error").GetString());
+
+        var secondResponse = await PostSaveLineAsync(f, new
+        {
+            lineId = second.Id.Value,
+            createNew = true,
+            productId = (Guid?)null,
+            skuId = (Guid?)null,
+            newProductName = "Oat Milk",
+            newProductCategoryId = ReviewSessionFixture.DairyCategoryId,
+            stagedProductId = stagedId,
+            quantity = 2m,
+            unitId = ReviewSessionFixture.LitreUnitId,
+            locationId = ReviewSessionFixture.FridgeLocationId,
+            expiryDate = (string?)null,
+            price = 7.98m,
+        });
+
+        Assert.Equal("Confirmed", secondResponse.GetProperty("status").GetString());
+        Assert.Equal(stagedId, secondResponse.GetProperty("stagedProductId").GetGuid());
+        Assert.Equal(stagedId, second.StagedProductId);
+        Assert.Single(f.SessionA.StagedProducts);
+        Assert.Null(secondResponse.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task SaveLine_conflicting_same_name_returns_prompt_to_select_existing_staged_option()
+    {
+        using var f = new ReviewFragmentFactory();
+        var first = f.SessionA.AddLine(9, "UNMATCHED OAT MILK A", SuggestedConfidence.None, rawPayload: null);
+        var second = f.SessionA.AddLine(10, "UNMATCHED OAT MILK B", SuggestedConfidence.None, rawPayload: null);
+
+        var firstResponse = await PostSaveLineAsync(f, new
+        {
+            lineId = first.Id.Value,
+            createNew = true,
+            productId = (Guid?)null,
+            skuId = (Guid?)null,
+            newProductName = "Oat Milk",
+            newProductCategoryId = ReviewSessionFixture.DairyCategoryId,
+            stagedProductId = (Guid?)null,
+            quantity = 1m,
+            unitId = ReviewSessionFixture.LitreUnitId,
+            locationId = ReviewSessionFixture.FridgeLocationId,
+            expiryDate = (string?)null,
+            price = 3.99m,
+        });
+        Assert.Equal("Confirmed", firstResponse.GetProperty("status").GetString());
+
+        var conflict = await PostSaveLineAsync(f, new
+        {
+            lineId = second.Id.Value,
+            createNew = true,
+            productId = (Guid?)null,
+            skuId = (Guid?)null,
+            newProductName = " oat   milk ",
+            newProductCategoryId = ReviewSessionFixture.MilkProductId,
+            stagedProductId = (Guid?)null,
+            quantity = 2m,
+            unitId = ReviewSessionFixture.LitreUnitId,
+            locationId = ReviewSessionFixture.FridgeLocationId,
+            expiryDate = (string?)null,
+            price = 7.98m,
+        });
+
+        AssertErrorContains(conflict, "existing staged option");
+        Assert.Equal(LineStatus.Pending, second.Status);
+        Assert.Single(f.SessionA.StagedProducts);
     }
 
     // ── JSON endpoint: Commit returns redirectUrl ─────────────────────────────────────────────
