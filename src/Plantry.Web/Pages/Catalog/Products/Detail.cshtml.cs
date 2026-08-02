@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,6 +23,7 @@ public sealed class DetailModel(
     ILocationRepository locations,
     IProductStockRepository stocks,
     ProductQueryService queries,
+    IHouseholdExpiryDefaultsReader expiryDefaults,
     IClock clock,
     ITenantContext tenant,
     ILogger<UpdateProductCommand> updateProductLogger,
@@ -55,6 +57,8 @@ public sealed class DetailModel(
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> ParentOptions { get; private set; } = [];
+    public ExpiryPolicyEditorViewModel FreezingPolicy { get; private set; } = null!;
+    public ExpiryPolicyEditorViewModel ThawingPolicy { get; private set; } = null!;
 
     public AddSkuInputModel SkuInput { get; set; } = new();
     public AddConversionInputModel ConversionInput { get; set; } = new();
@@ -92,6 +96,12 @@ public sealed class DetailModel(
         [Range(0, 3650)]
         [Display(Name = "Expiry after thawing (days)")]
         public int? DefaultDueDaysAfterThawing { get; set; }
+
+        /// <summary>The selected local policy mode. Nullable keeps older form posts backward-compatible.</summary>
+        public ProductExpiryMode? AfterFreezingMode { get; set; }
+
+        /// <summary>The selected local policy mode. Nullable keeps older form posts backward-compatible.</summary>
+        public ProductExpiryMode? AfterThawingMode { get; set; }
 
         /// <summary>
         /// Whether this product participates in quantity accounting (Product.TrackStock). Hidden
@@ -168,6 +178,7 @@ public sealed class DetailModel(
         await LoadPantryStockStateAsync();
         var entity = await products.FindAsync(Id);
         PopulateInputFromEntity(entity!);
+        await LoadExpiryPolicyEditorsAsync(entity!);
         SeedAddVariantInput(entity!);
         await LoadOptionsAsync();
         return Page();
@@ -177,13 +188,22 @@ public sealed class DetailModel(
     {
         Id = ProductId.From(id);
         Input = input;
+        var entity = await products.FindAsync(Id, HttpContext.RequestAborted);
+        if (entity is null) return NotFound();
+
+        var afterFreezing = ResolvePostedPolicy(
+            entity, Input.AfterFreezingMode, Input.DefaultDueDaysAfterFreezing, thawing: false);
+        var afterThawing = ResolvePostedPolicy(
+            entity, Input.AfterThawingMode, Input.DefaultDueDaysAfterThawing, thawing: true);
         if (!ModelState.IsValid) return await ReloadAsync(keepInput: true);
 
         var cmd = new UpdateProductCommand(
             Id, Input.Name, Input.DefaultUnitId!.Value, Input.CategoryId, Input.DefaultLocationId,
-            Input.DefaultDueDays, Input.DefaultDueDaysAfterOpening, Input.DefaultDueDaysAfterFreezing,
-            Input.DefaultDueDaysAfterThawing, Input.TrackStock, products, units, categories, locations, clock,
-            logger: updateProductLogger);
+            Input.DefaultDueDays, Input.DefaultDueDaysAfterOpening, afterFreezing.Days,
+            afterThawing.Days, Input.TrackStock, products, units, categories, locations, clock,
+            logger: updateProductLogger,
+            neverExpiresAfterFreezing: afterFreezing.Never,
+            neverExpiresAfterThawing: afterThawing.Never);
 
         var result = await cmd.ExecuteAsync();
         if (result.IsFailure)
@@ -399,6 +419,7 @@ public sealed class DetailModel(
         var entity = await products.FindAsync(Id);
         if (!keepInput)
             PopulateInputFromEntity(entity!);
+        await LoadExpiryPolicyEditorsAsync(entity!);
 
         // Always re-seed the add-variant name from the parent/this product so the field is
         // populated on reload (e.g. validation error on another sub-form).
@@ -435,8 +456,141 @@ public sealed class DetailModel(
             DefaultDueDaysAfterOpening = product.DefaultDueDaysAfterOpening,
             DefaultDueDaysAfterFreezing = product.DefaultDueDaysAfterFreezing,
             DefaultDueDaysAfterThawing = product.DefaultDueDaysAfterThawing,
+            AfterFreezingMode = InitialMode(product, thawing: false),
+            AfterThawingMode = InitialMode(product, thawing: true),
             TrackStock = product.TrackStock,
         };
+    }
+
+    private async Task LoadExpiryPolicyEditorsAsync(Plantry.Catalog.Domain.Product product)
+    {
+        var parent = product.ParentProductId is { } parentId
+            ? await products.FindAsync(parentId, HttpContext.RequestAborted)
+            : null;
+        var household = await expiryDefaults.GetDefaultsAsync(HttpContext.RequestAborted);
+
+        var inheritedFreezing = ExpiryDefaultResolver.ResolveAfterFreezing(product, parent, household.AfterFreezing);
+        var inheritedThawing = ExpiryDefaultResolver.ResolveAfterThawing(product, parent, household.AfterThawing);
+
+        FreezingPolicy = BuildExpiryPolicyEditor(
+            product, inheritedFreezing, household.AfterFreezing, Input.AfterFreezingMode,
+            Input.DefaultDueDaysAfterFreezing, thawing: false);
+        ThawingPolicy = BuildExpiryPolicyEditor(
+            product, inheritedThawing, household.AfterThawing, Input.AfterThawingMode,
+            Input.DefaultDueDaysAfterThawing, thawing: true);
+    }
+
+    private ExpiryPolicyEditorViewModel BuildExpiryPolicyEditor(
+        Plantry.Catalog.Domain.Product product,
+        ExpiryTransitionPolicy inheritedPolicy,
+        int householdDays,
+        ProductExpiryMode? selectedMode,
+        int? localDays,
+        bool thawing)
+    {
+        var mode = selectedMode is { } postedMode
+            && Enum.IsDefined(typeof(ProductExpiryMode), postedMode)
+            ? postedMode
+            : InitialMode(product, thawing);
+        // A rejected form post is re-rendered with the bound value still in the page model. Do
+        // not feed an out-of-range value back into the value object: its constructor deliberately
+        // throws for negative days, while the page needs to survive long enough to show the
+        // field-level validation message. A null display value leaves the Set days input blank;
+        // the household default is only the safe effective-policy fallback for the preview.
+        var safeLocalDays = localDays is >= 0 and <= 3650 ? localDays : null;
+        var effectivePolicy = mode switch
+        {
+            ProductExpiryMode.Never => new ExpiryTransitionPolicy.Never(),
+            ProductExpiryMode.SetDays => new ExpiryTransitionPolicy.Days(safeLocalDays ?? householdDays),
+            ProductExpiryMode.Inherit => inheritedPolicy,
+            _ => new ExpiryTransitionPolicy.Days(householdDays),
+        };
+
+        return new ExpiryPolicyEditorViewModel(
+            FieldPrefix: thawing ? "DefaultDueDaysAfterThawing" : "DefaultDueDaysAfterFreezing",
+            Label: thawing ? "Expiry after thawing" : "Expiry after freezing",
+            IsVariant: product.IsVariant,
+            Mode: mode,
+            HouseholdDays: householdDays,
+            LocalDays: safeLocalDays,
+            InheritedNever: inheritedPolicy is ExpiryTransitionPolicy.Never,
+            InheritedDays: inheritedPolicy is ExpiryTransitionPolicy.Days inheritedDays ? inheritedDays.Value : null,
+            EffectiveNever: effectivePolicy is ExpiryTransitionPolicy.Never,
+            EffectiveDays: effectivePolicy is ExpiryTransitionPolicy.Days effectiveDays ? effectiveDays.Value : null);
+    }
+
+    private (bool? Never, int? Days) ResolvePostedPolicy(
+        Plantry.Catalog.Domain.Product product,
+        ProductExpiryMode? mode,
+        int? days,
+        bool thawing)
+    {
+        var modeFieldName = $"Input.{(thawing ? "AfterThawingMode" : "AfterFreezingMode")}";
+        if (IsUndefinedPostedMode(mode, modeFieldName))
+        {
+            ModelState[modeFieldName]?.Errors.Clear();
+            ModelState.AddModelError(
+                modeFieldName,
+                "Select a valid expiry policy.");
+            return (thawing ? product.NeverExpiresAfterThawing : product.NeverExpiresAfterFreezing, days);
+        }
+
+        if (mode is null)
+        {
+            return thawing
+                ? (product.NeverExpiresAfterThawing, days)
+                : (product.NeverExpiresAfterFreezing, days);
+        }
+
+        if (mode == ProductExpiryMode.SetDays && days is null)
+        {
+            ModelState.AddModelError(
+                $"Input.{(thawing ? "DefaultDueDaysAfterThawing" : "DefaultDueDaysAfterFreezing")}",
+                "Enter the number of days for a custom expiry policy.");
+            return (false, null);
+        }
+
+        if (!product.IsVariant && mode == ProductExpiryMode.Inherit)
+        {
+            ModelState.AddModelError(string.Empty, "A root product cannot inherit an expiry policy.");
+            return (null, days);
+        }
+
+        return mode switch
+        {
+            ProductExpiryMode.Never => (true, null),
+            ProductExpiryMode.SetDays => (false, days),
+            ProductExpiryMode.Default => (product.IsVariant ? false : null, null),
+            // Day-count inheritance remains the Catalog snapshot convention; the new Never decision
+            // is the live nullable contract. Keeping the stored day value here avoids silently
+            // replacing a variant's existing snapshot when only its Never mode is changed.
+            ProductExpiryMode.Inherit => (null, thawing
+                ? product.DefaultDueDaysAfterThawing
+                : product.DefaultDueDaysAfterFreezing),
+            _ => (null, days),
+        };
+    }
+
+    private bool IsUndefinedPostedMode(ProductExpiryMode? mode, string modeFieldName)
+    {
+        if (mode is { } postedMode)
+            return !Enum.IsDefined(typeof(ProductExpiryMode), postedMode);
+
+        var attemptedValue = ModelState[modeFieldName]?.AttemptedValue;
+        return int.TryParse(attemptedValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericValue)
+            && !Enum.IsDefined(typeof(ProductExpiryMode), numericValue);
+    }
+
+    private static ProductExpiryMode InitialMode(Plantry.Catalog.Domain.Product product, bool thawing)
+    {
+        var never = thawing ? product.NeverExpiresAfterThawing : product.NeverExpiresAfterFreezing;
+        var days = thawing ? product.DefaultDueDaysAfterThawing : product.DefaultDueDaysAfterFreezing;
+
+        if (never == true) return ProductExpiryMode.Never;
+        if (product.IsVariant && never is null) return ProductExpiryMode.Inherit;
+        if (never == false && days is not null) return ProductExpiryMode.SetDays;
+        if (days is not null) return ProductExpiryMode.SetDays;
+        return ProductExpiryMode.Default;
     }
 
     private async Task LoadOptionsAsync()
@@ -473,3 +627,23 @@ public sealed class DetailModel(
             .ToList();
     }
 }
+
+public enum ProductExpiryMode
+{
+    Default,
+    SetDays,
+    Never,
+    Inherit,
+}
+
+public sealed record ExpiryPolicyEditorViewModel(
+    string FieldPrefix,
+    string Label,
+    bool IsVariant,
+    ProductExpiryMode Mode,
+    int HouseholdDays,
+    int? LocalDays,
+    bool InheritedNever,
+    int? InheritedDays,
+    bool EffectiveNever,
+    int? EffectiveDays);

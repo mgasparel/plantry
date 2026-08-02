@@ -36,6 +36,8 @@ public sealed class ProductTests
         Assert.True(product.TrackStock); // ordinary goods track stock by default
         Assert.Empty(product.Skus);
         Assert.Empty(product.Conversions);
+        Assert.Null(product.NeverExpiresAfterFreezing);
+        Assert.Null(product.NeverExpiresAfterThawing);
     }
 
     [Fact]
@@ -187,6 +189,50 @@ public sealed class ProductTests
         Assert.Null(product.DefaultDueDaysAfterThawing);
     }
 
+    [Fact]
+    public void SetNeverExpiryOverrides_Stores_The_Two_Independent_Three_State_Values()
+    {
+        var product = NewProduct();
+
+        product.SetNeverExpiryOverrides(true, false, Clock);
+
+        Assert.True(product.NeverExpiresAfterFreezing);
+        Assert.False(product.NeverExpiresAfterThawing);
+
+        product.SetNeverExpiryOverrides(null, null, Clock);
+
+        Assert.Null(product.NeverExpiresAfterFreezing);
+        Assert.Null(product.NeverExpiresAfterThawing);
+    }
+
+    [Fact]
+    public void SetNeverExpiryOverrides_True_Clears_Existing_Transition_Day_Overrides()
+    {
+        var product = NewProduct();
+        product.SetExpiryDefaults(7, 3, 90, 2, Clock);
+
+        product.SetNeverExpiryOverrides(true, true, Clock);
+
+        Assert.Equal(7, product.DefaultDueDays);
+        Assert.Equal(3, product.DefaultDueDaysAfterOpening);
+        Assert.Null(product.DefaultDueDaysAfterFreezing);
+        Assert.Null(product.DefaultDueDaysAfterThawing);
+    }
+
+    [Fact]
+    public void SetExpiryDefaults_DoesNotStore_Transition_Days_While_Never_Is_True()
+    {
+        var product = NewProduct();
+        product.SetNeverExpiryOverrides(true, true, Clock);
+
+        product.SetExpiryDefaults(7, 3, 90, 2, Clock);
+
+        Assert.Equal(7, product.DefaultDueDays);
+        Assert.Equal(3, product.DefaultDueDaysAfterOpening);
+        Assert.Null(product.DefaultDueDaysAfterFreezing);
+        Assert.Null(product.DefaultDueDaysAfterThawing);
+    }
+
     [Theory]
     [InlineData(-1, null, null, null)]
     [InlineData(null, -1, null, null)]
@@ -278,6 +324,19 @@ public sealed class ProductTests
         Assert.Null(variant.DefaultDueDaysAfterFreezing);
         Assert.Null(variant.DefaultDueDaysAfterThawing);
         Assert.Empty(variant.Conversions);
+    }
+
+    [Fact]
+    public void InheritFrom_Does_Not_Copy_Never_Expiry_Overrides()
+    {
+        var parent = NewProduct("Parent");
+        parent.SetNeverExpiryOverrides(true, false, Clock);
+        var variant = NewProduct("Variant");
+
+        variant.InheritFrom(parent, Clock);
+
+        Assert.Null(variant.NeverExpiresAfterFreezing);
+        Assert.Null(variant.NeverExpiresAfterThawing);
     }
 
     // ── SKUs ─────────────────────────────────────────────────────────────────

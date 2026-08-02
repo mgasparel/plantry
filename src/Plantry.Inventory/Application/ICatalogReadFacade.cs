@@ -1,3 +1,5 @@
+using Plantry.SharedKernel.Domain;
+
 namespace Plantry.Inventory.Application;
 
 /// <summary>
@@ -66,17 +68,16 @@ public sealed record CatalogProductInfo(
     /// Catalog. Null means no default is configured.
     /// </summary>
     int? DefaultDueDaysAfterOpening = null,
-    /// <summary>The resolved after-freezing due-days default (plantry-6owm rule 3, plantry-hh1f) —
-    /// <c>ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing</c>, already materialized here so
-    /// <c>TransferStockCommand</c> can pass it straight to <c>ProductStock.Transfer</c> without
-    /// Inventory reaching into Catalog. Falls back product override → household default (plantry-hh1f),
-    /// so this is only ever null when the product itself could not be resolved (e.g.
-    /// <see cref="ICatalogReadFacade.FindProductAsync"/> returned null).</summary>
-    int? DefaultDueDaysAfterFreezing = null,
-    /// <summary>The resolved after-thawing due-days default (plantry-6owm rule 3), mirroring
-    /// <see cref="DefaultDueDaysAfterFreezing"/>.</summary>
-    int? DefaultDueDaysAfterThawing = null,
     /// <summary>True when the product is archived (plantry-lxm2) — only ever true on rows returned by
     /// <see cref="ICatalogReadFacade.ListArchivedProductsAsync"/>; every other source of
     /// <see cref="CatalogProductInfo"/> only ever supplies active products, so this defaults false.</summary>
-    bool IsArchived = false);
+    bool IsArchived = false,
+    /// <summary>
+    /// The normal resolved policy for a future freeze. The Web Catalog adapter always supplies
+    /// <see cref="ExpiryTransitionPolicy.Never"/> or <see cref="ExpiryTransitionPolicy.Days"/> for
+    /// an existing product. Null is retained only for older/test port doubles; the missing-product
+    /// fallback is selected by <see cref="TransferStockCommand"/>, not by a resolver outcome.
+    /// </summary>
+    ExpiryTransitionPolicy? AfterFreezingPolicy = null,
+    /// <summary>The normal resolved policy for a future thaw; see <see cref="AfterFreezingPolicy"/>.</summary>
+    ExpiryTransitionPolicy? AfterThawingPolicy = null);

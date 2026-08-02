@@ -9,12 +9,14 @@ namespace Plantry.Intake.Infrastructure;
 
 /// <summary>
 /// EF DbContext for the Intake bounded context.
-/// Owns: import_session (aggregate root) + import_line (child collection) + import_receipt (1:1, hot-path separated).
+/// Owns: import_session (aggregate root) + import_line (child collection) + staged_product (deferred
+/// catalog decisions) + import_receipt (1:1, hot-path separated).
 /// </summary>
 public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) : DbContext(options)
 {
     public DbSet<ImportSession> ImportSessions => Set<ImportSession>();
     public DbSet<ImportLine> ImportLines => Set<ImportLine>();
+    public DbSet<StagedProduct> StagedProducts => Set<StagedProduct>();
     public DbSet<ImportReceipt> ImportReceipts => Set<ImportReceipt>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -25,6 +27,11 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
         {
             b.ToTable("import_session");
             b.HasKey(s => s.Id);
+            // Every child FK carries the household discriminator as well as the session id. The
+            // alternate key is already present in the initial migration (it was added there via SQL
+            // while the original EF model still used single-column relationships).
+            b.HasAlternateKey(s => new { s.HouseholdId, s.Id })
+                .HasName("uq_import_session_household_session");
             b.Property(s => s.Id)
                 .HasConversion(id => id.Value, v => ImportSessionId.From(v))
                 .HasColumnName("session_id")
@@ -64,12 +71,21 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
 
             b.HasMany(s => s.Lines)
                 .WithOne()
-                .HasForeignKey(l => l.SessionId)
-                .HasPrincipalKey(s => s.Id)
+                .HasForeignKey(l => new { l.HouseholdId, l.SessionId })
+                .HasPrincipalKey(s => new { s.HouseholdId, s.Id })
                 .OnDelete(DeleteBehavior.Cascade);
             b.Navigation(s => s.Lines)
                 .UsePropertyAccessMode(PropertyAccessMode.Field)
                 .HasField("_lines");
+
+            b.HasMany(s => s.StagedProducts)
+                .WithOne()
+                .HasForeignKey(p => new { p.HouseholdId, p.SessionId })
+                .HasPrincipalKey(s => new { s.HouseholdId, s.Id })
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(s => s.StagedProducts)
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .HasField("_stagedProducts");
 
             b.HasIndex(s => s.HouseholdId).HasDatabaseName("ix_import_session_household");
             b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
@@ -137,6 +153,7 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.Price).HasColumnName("price").HasPrecision(12, 2);
             b.Property(l => l.NewProductName).HasColumnName("new_product_name").HasMaxLength(200);
             b.Property(l => l.NewProductCategoryId).HasColumnName("new_product_category_id");
+            b.Property(l => l.StagedProductId).HasColumnName("staged_product_id");
             b.Property(l => l.Status)
                 .HasConversion(s => s.ToDbValue(), v => LineStatusExtensions.Parse(v))
                 .HasColumnName("status")
@@ -149,12 +166,53 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.AmendedAt).HasColumnName("amended_at");
 
             b.HasIndex(l => l.SessionId).HasDatabaseName("ix_import_line_session");
+            b.HasIndex(l => l.StagedProductId).HasDatabaseName("ix_import_line_staged_product");
+            // A nullable alias reference must still carry the line's household/session boundary, so a
+            // line cannot point at a staged decision from a different session or tenant.
+            b.HasOne<StagedProduct>()
+                .WithMany()
+                .HasForeignKey(l => new { l.HouseholdId, l.SessionId, l.StagedProductId })
+                .HasPrincipalKey(p => new { p.HouseholdId, p.SessionId, p.Id })
+                .OnDelete(DeleteBehavior.Restrict);
             // Legacy provenance-chip reverse lookup (receipt-intake-history.md H2): a pre-H1 committed
             // journal row carries no SourceRef, so the reader resolves it by matching the journal row's own
             // id against THIS column instead. Every committed line has written journal_id since the initial
             // schema, so the index gives complete legacy coverage without a backfill migration.
             b.HasIndex(l => new { l.HouseholdId, l.JournalId }).HasDatabaseName("ix_import_line_household_journal");
             b.HasQueryFilter(l => l.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<StagedProduct>(b =>
+        {
+            b.ToTable("staged_product");
+            b.HasKey(p => p.Id);
+            b.HasAlternateKey(p => new { p.HouseholdId, p.SessionId, p.Id })
+                .HasName("uq_staged_product_household_session_id");
+            b.Property(p => p.Id)
+                .HasColumnName("staged_product_id")
+                .ValueGeneratedNever();
+            b.Property(p => p.SessionId)
+                .HasConversion(id => id.Value, v => ImportSessionId.From(v))
+                .HasColumnName("session_id")
+                .IsRequired();
+            b.Property(p => p.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(p => p.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            b.Property(p => p.NormalizedName).HasColumnName("normalized_name").HasMaxLength(200).IsRequired();
+            b.Property(p => p.CategoryId).HasColumnName("category_id").IsRequired();
+            b.Property(p => p.DefaultUnitId).HasColumnName("default_unit_id").IsRequired();
+            b.Property(p => p.CreatedProductId).HasColumnName("created_product_id");
+
+            b.HasIndex(p => new { p.HouseholdId, p.SessionId }).HasDatabaseName("ix_staged_product_session");
+            b.HasIndex(p => new { p.HouseholdId, p.SessionId, p.NormalizedName })
+                .IsUnique()
+                .HasDatabaseName(StagedProduct.NormalizedNameUniqueIndexName);
+            b.HasIndex(p => new { p.HouseholdId, p.Id })
+                .IsUnique()
+                .HasDatabaseName("uq_staged_product_household_id");
+            b.HasQueryFilter(p => p.HouseholdId == HouseholdId.From(_householdId));
         });
 
         builder.Entity<ImportReceipt>(b =>
@@ -178,8 +236,8 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             // 1:1 FK — receipt shares PK with session; cascade so deleting session removes receipt.
             b.HasOne<ImportSession>()
                 .WithOne()
-                .HasForeignKey<ImportReceipt>(r => r.Id)
-                .HasPrincipalKey<ImportSession>(s => s.Id)
+                .HasForeignKey<ImportReceipt>(r => new { r.HouseholdId, r.Id })
+                .HasPrincipalKey<ImportSession>(s => new { s.HouseholdId, s.Id })
                 .OnDelete(DeleteBehavior.Cascade);
 
             b.HasQueryFilter(r => r.HouseholdId == HouseholdId.From(_householdId));

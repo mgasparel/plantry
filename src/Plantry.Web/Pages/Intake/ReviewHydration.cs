@@ -57,7 +57,12 @@ public sealed record SessionHydration(
     // Household display-currency symbol (plantry-2x6e.3), sourced once from MoneyDisplay.Symbol so the island's
     // client-side money formatters (fmtMoney/fmtRcpt) prefix the same glyph the server renders with — no currency
     // map in JS. Does NOT relabel the bare receipt-facsimile column numbers (SUBTOTAL/TAX/TOTAL), which stay bare.
-    string CurrencySymbol);
+    string CurrencySymbol,
+    // Staged aliases are omitted for sessions that have none so the pre-alias wire contract remains
+    // backwards-compatible; a session with an alias emits the list and the island merges it into its
+    // search options.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<StagedProductHydration>? StagedProducts = null);
 
 /// <summary>A catalog product the drawer can resolve a line to, with the defaults the
 /// island applies on (re-)selection (ADR-020 §3 case 2 — single-default fill is UI).</summary>
@@ -98,6 +103,13 @@ public sealed record StoreHydration(
     string Id,
     string Name);
 
+/// <summary>A session-scoped deferred Catalog product decision selectable by later receipt lines.</summary>
+public sealed record StagedProductHydration(
+    string Id,
+    string Name,
+    string CategoryId,
+    string DefaultUnitId);
+
 /// <summary>One review row: the saved/edited line state, the server-computed prefill
 /// (ADR-020 §3 case 1 — the priority chain stays server-side), and resolved alternatives.</summary>
 public sealed record LineHydration(
@@ -133,7 +145,9 @@ public sealed record LineSeed(
     bool IsNewProduct,
     string? NewProductName,
     string? NewProductCategoryId,
-    decimal? SuggestedPrice);
+    decimal? SuggestedPrice,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? StagedProductId = null);
 
 /// <summary>Server-computed prefill values (the priority chain's output) the drawer renders.
 /// The island never re-derives the chain — it consumes these (ADR-020 §3 case 1).</summary>

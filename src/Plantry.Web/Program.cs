@@ -204,7 +204,15 @@ builder.Services.ConfigureApplicationCookie(opts =>
     opts.AccessDeniedPath = "/Account/AccessDenied";
 });
 
-builder.Services.AddScoped<IClock, SystemClock>();
+if (builder.Environment.IsEnvironment("Testing")
+    && DateTimeOffset.TryParse(builder.Configuration["Testing:FixedUtcNow"], out var fixedUtcNow))
+{
+    builder.Services.AddScoped<IClock>(_ => new ConfiguredClock(fixedUtcNow));
+}
+else
+{
+    builder.Services.AddScoped<IClock, SystemClock>();
+}
 builder.Services.AddScoped<IHouseholdRepository, HouseholdRepository>();
 // Per-household "AI assistance" switch (plantry-qll2.1): one settings service backs both the read
 // gate (IAiAssistanceGate — the single point of truth governed call sites query) and the

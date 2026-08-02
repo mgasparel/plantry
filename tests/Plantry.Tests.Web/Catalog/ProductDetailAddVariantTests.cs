@@ -166,6 +166,7 @@ internal sealed class ProductDetailAddVariantFactory : WebApplicationFactory<Pro
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+            services.AddFakeHouseholdExpiryDefaults();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

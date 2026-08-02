@@ -12,6 +12,13 @@ namespace Plantry.Tests.E2E.Infrastructure;
 /// </summary>
 public sealed class AppHostFixture : IAsyncLifetime
 {
+    /// <summary>
+    /// Calendar instant used by the opt-in Testing AppHost clock. Keeping it on the fixture makes
+    /// the E2E input date derive from the same clock the running web process uses.
+    /// </summary>
+    public static readonly DateTimeOffset FixedUtcNow =
+        new(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+
     private DistributedApplication _app = null!;
 
     public string BaseUrl { get; private set; } = null!;
@@ -53,6 +60,7 @@ public sealed class AppHostFixture : IAsyncLifetime
         appHost.CreateResourceBuilder(webResource)
             .WithEnvironment("AI__UseSampleParser", "false")
             .WithEnvironment("AI__UseFakeParser", "true")
+            .WithEnvironment("Testing__FixedUtcNow", FixedUtcNow.ToString("O"))
             // Keep the deterministic canned StubFlyerSourceAdapter for the Stores & Deals journey
             // (StoresAndDealsJourneyTests) so no live Flipp call is made in CI. Honours the
             // Deals:UseStubFlyerSource seam in Program.cs; confined to the test AppHost (production wires

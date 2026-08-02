@@ -174,6 +174,8 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             b.Property(p => p.DefaultDueDaysAfterOpening).HasColumnName("default_due_days_after_opening");
             b.Property(p => p.DefaultDueDaysAfterFreezing).HasColumnName("default_due_days_after_freezing");
             b.Property(p => p.DefaultDueDaysAfterThawing).HasColumnName("default_due_days_after_thawing");
+            b.Property(p => p.NeverExpiresAfterFreezing).HasColumnName("never_expires_after_freezing");
+            b.Property(p => p.NeverExpiresAfterThawing).HasColumnName("never_expires_after_thawing");
             b.Property(p => p.HasVariants).HasColumnName("has_variants");
             b.Property(p => p.ArchivedAt).HasColumnName("archived_at");
             b.Property(p => p.CreatedAt).HasColumnName("created_at");

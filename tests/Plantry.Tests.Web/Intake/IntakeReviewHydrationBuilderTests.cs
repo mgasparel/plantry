@@ -101,7 +101,8 @@ public sealed class IntakeReviewHydrationBuilderTests
     private static SessionReviewView Session(
         IReadOnlyList<ReviewLineView> lines,
         string? merchantText = "Test Grocer",
-        ImportSourceType sourceType = ImportSourceType.Receipt) =>
+        ImportSourceType sourceType = ImportSourceType.Receipt,
+        IReadOnlyList<ReviewStagedProductView>? stagedProducts = null) =>
         new(
             SessionId: Guid.NewGuid(),
             Status: ImportStatus.Ready,
@@ -110,7 +111,8 @@ public sealed class IntakeReviewHydrationBuilderTests
             CreatedAt: Now,
             Lines: lines,
             ReferenceData: Reference(),
-            SourceType: sourceType);
+            SourceType: sourceType,
+            StagedProducts: stagedProducts);
 
     /// <summary>The household display-currency symbol the page resolves (via MoneyDisplay.Symbol) and hands in.</summary>
     private const string Symbol = "$";
@@ -344,6 +346,23 @@ public sealed class IntakeReviewHydrationBuilderTests
         var h = Builder.Build(Session([Line()]), Today, Now, Zone, Urls, "€");
 
         Assert.Equal("€", h.CurrencySymbol);
+    }
+
+    [Fact(DisplayName = "Session-scoped staged products and line aliases are emitted for the island")]
+    public void Staged_Product_Options_Are_Hydrated_With_Explicit_Line_Identity()
+    {
+        var stagedId = UnmappedId;
+        var categoryId = MilkId;
+        var line = Line() with { StagedProductId = stagedId, IsNewProduct = true,
+            NewProductName = "Oat Milk", NewProductCategoryId = categoryId };
+        var h = Build(Session([line], stagedProducts:
+            [new ReviewStagedProductView(stagedId, "Oat Milk", categoryId, EachUnitId)]));
+
+        Assert.Equal(stagedId.ToString(), h.Lines[0].Line.StagedProductId);
+        var staged = Assert.Single(h.StagedProducts!);
+        Assert.Equal(stagedId.ToString(), staged.Id);
+        Assert.Equal(categoryId.ToString(), staged.CategoryId);
+        Assert.Equal(EachUnitId.ToString(), staged.DefaultUnitId);
     }
 
     // ── Editable header (plantry-yobz) ──────────────────────────────────────────────────

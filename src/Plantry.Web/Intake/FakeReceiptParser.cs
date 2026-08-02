@@ -15,7 +15,8 @@ namespace Plantry.Web.Intake;
 ///   <item>a <b>matched</b> line whose <c>SuggestedProductId</c> is the first product in the household's
 ///   catalog hints (high confidence) — drives the resolve-against-existing path;</item>
 ///   <item>an <b>unmatched</b> line with a fixed novel name and no suggested id — drives the
-///   confirm-as-new path.</item>
+///   confirm-as-new path. When the household has no catalog products, a second unmatched line is
+///   emitted as well so the E2E journey exercises staged alias reuse.</item>
 /// </list>
 /// Both lines carry a price so the commit writes price observations against <see cref="FixedMerchant"/>.
 /// </summary>
@@ -26,6 +27,9 @@ public sealed class FakeReceiptParser : IReceiptParser
 
     /// <summary>Receipt text for the unmatched line the test confirms as a brand-new product.</summary>
     public const string UnmatchedReceiptText = "MYSTERY SNACK BAR";
+
+    /// <summary>Receipt text for the second unmatched line used by the staged-alias E2E journey.</summary>
+    public const string SecondUnmatchedReceiptText = "MYSTERY GRANOLA BAR";
 
     public Task<ReceiptParseResult> ParseAsync(
         byte[] imageBytes,
@@ -65,6 +69,23 @@ public sealed class FakeReceiptParser : IReceiptParser
             Price: 1.99m,
             Confidence: "none",
             RawJson: null));
+
+        // A no-catalog household is the isolated two-unmatched-line scenario: no suggested product is
+        // available for either line, so the review must stage the first create decision and explicitly
+        // select it for the second line.
+        if (catalogHints.Count == 0)
+        {
+            lines.Add(new ParsedLine(
+                LineNo: lines.Count + 1,
+                ReceiptText: SecondUnmatchedReceiptText,
+                SuggestedProductName: null,
+                SuggestedProductId: null,
+                Quantity: 2m,
+                UnitLabel: null,
+                Price: 3.98m,
+                Confidence: "none",
+                RawJson: null));
+        }
 
         return Task.FromResult(new ReceiptParseResult(FixedMerchant, lines));
     }

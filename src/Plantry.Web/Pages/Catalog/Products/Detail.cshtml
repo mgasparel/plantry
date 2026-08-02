@@ -69,22 +69,12 @@
                     </div>
                     <span asp-validation-for="Input.DefaultDueDaysAfterOpening" class="field__error"></span>
                 </field>
-                <field asp-for="Input.DefaultDueDaysAfterFreezing" stacked
-                       hint="Leave blank to use the household default (Settings → Expiry).">
-                    <div class="form-grid__unit-suffix">
-                        <input asp-for="Input.DefaultDueDaysAfterFreezing" class="field__input" type="number" min="0" />
-                        <span class="form-grid__unit-suffix__label">days</span>
-                    </div>
-                    <span asp-validation-for="Input.DefaultDueDaysAfterFreezing" class="field__error"></span>
-                </field>
-                <field asp-for="Input.DefaultDueDaysAfterThawing" stacked
-                       hint="Leave blank to use the household default (Settings → Expiry).">
-                    <div class="form-grid__unit-suffix">
-                        <input asp-for="Input.DefaultDueDaysAfterThawing" class="field__input" type="number" min="0" />
-                        <span class="form-grid__unit-suffix__label">days</span>
-                    </div>
-                    <span asp-validation-for="Input.DefaultDueDaysAfterThawing" class="field__error"></span>
-                </field>
+                <div class="form-grid__field form-grid__field--full">
+                    <partial name="_ExpiryPolicyEditor" model="Model.FreezingPolicy" />
+                </div>
+                <div class="form-grid__field form-grid__field--full">
+                    <partial name="_ExpiryPolicyEditor" model="Model.ThawingPolicy" />
+                </div>
                 @* A parent product is an abstract grouping (CanHoldStock is false) — tracking is
                    meaningless there, so the toggle is hidden entirely rather than posting a value
                    for a flag the product can never actually use (plantry-9ndg). *@

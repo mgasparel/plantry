@@ -6,7 +6,7 @@ namespace Plantry.Catalog.Domain;
 /// <summary>
 /// The rich Catalog aggregate root (catalog.md "product"). Owns its <see cref="ProductSku"/>
 /// and <see cref="ProductConversion"/> children, the parent/variant relationship (max depth 1),
-/// and the four expiry-default fields that seed DM-11's fallback chain.
+/// and the expiry-default fields that seed DM-11's fallback chain.
 /// </summary>
 public sealed class Product : AggregateRoot<ProductId>
 {
@@ -29,6 +29,16 @@ public sealed class Product : AggregateRoot<ProductId>
     public int? DefaultDueDaysAfterOpening { get; private set; }
     public int? DefaultDueDaysAfterFreezing { get; private set; }
     public int? DefaultDueDaysAfterThawing { get; private set; }
+
+    /// <summary>
+    /// Nullable local Never-expiry decision for the after-freezing transition. Null means that a
+    /// variant follows its parent live; on a root product, null resolves to not-Never.
+    /// </summary>
+    public bool? NeverExpiresAfterFreezing { get; private set; }
+
+    /// <summary>Nullable local Never-expiry decision for the after-thawing transition; see
+    /// <see cref="NeverExpiresAfterFreezing"/> for the three-state meaning.</summary>
+    public bool? NeverExpiresAfterThawing { get; private set; }
 
     /// <summary>
     /// Denormalized: true once another product has been made a variant of this one. Lets
@@ -124,8 +134,25 @@ public sealed class Product : AggregateRoot<ProductId>
 
         DefaultDueDays = defaultDueDays;
         DefaultDueDaysAfterOpening = defaultDueDaysAfterOpening;
-        DefaultDueDaysAfterFreezing = defaultDueDaysAfterFreezing;
-        DefaultDueDaysAfterThawing = defaultDueDaysAfterThawing;
+        DefaultDueDaysAfterFreezing = NeverExpiresAfterFreezing == true ? null : defaultDueDaysAfterFreezing;
+        DefaultDueDaysAfterThawing = NeverExpiresAfterThawing == true ? null : defaultDueDaysAfterThawing;
+        Touch(clock);
+    }
+
+    /// <summary>
+    /// Sets the two independent local Never-expiry decisions. The nullable values are deliberate:
+    /// null is the live-inherit state for variants, false explicitly suppresses an inherited Never
+    /// rule, and true selects Never locally.
+    /// </summary>
+    public void SetNeverExpiryOverrides(
+        bool? neverExpiresAfterFreezing,
+        bool? neverExpiresAfterThawing,
+        IClock clock)
+    {
+        NeverExpiresAfterFreezing = neverExpiresAfterFreezing;
+        NeverExpiresAfterThawing = neverExpiresAfterThawing;
+        if (neverExpiresAfterFreezing == true) DefaultDueDaysAfterFreezing = null;
+        if (neverExpiresAfterThawing == true) DefaultDueDaysAfterThawing = null;
         Touch(clock);
     }
 

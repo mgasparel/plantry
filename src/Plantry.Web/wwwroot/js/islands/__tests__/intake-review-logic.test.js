@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 
 import {
   makeLine,
+  mergeStagedProductOption,
   lineSection,
   isSurePending,
   isPrefillComplete,
@@ -66,6 +67,7 @@ function lineSeed(overrides = {}) {
     isNewProduct: false,
     newProductName: null,
     newProductCategoryId: null,
+    stagedProductId: null,
     suggestedPrice: 3.99,
     ...overrides,
   };
@@ -144,9 +146,20 @@ describe("buildSaveLineBody", () => {
     assert.equal(body.skuId, null);
     assert.equal(body.newProductName, "Oat Milk");
     assert.equal(body.newProductCategoryId, "cat-dairy");
+    assert.equal(body.stagedProductId, null);
 
     ls.draftNewCategoryId.value = "";
     assert.equal(buildSaveLineBody(ls).newProductCategoryId, null);
+  });
+
+  it("createNew branch carries the explicit staged-product identity", () => {
+    const ls = makeState(
+      { isNewProduct: true, newProductName: "Oat Milk", newProductCategoryId: "cat-dairy", stagedProductId: "stage-1" },
+      { productId: null, productName: null },
+    );
+    ls.createNew.value = true;
+    assert.equal(buildSaveLineBody(ls).productId, null);
+    assert.equal(buildSaveLineBody(ls).stagedProductId, "stage-1");
   });
 
   it("existing-product branch: empty productId/skuId/unit/location become null", () => {
@@ -182,6 +195,85 @@ describe("buildSaveLineBody", () => {
     assert.equal(buildSaveLineBody(ls).price, 5.49);
     ls.draftPrice.value = "";
     assert.equal(buildSaveLineBody(ls).price, null);
+  });
+});
+
+describe("mergeStagedProductOption", () => {
+  const alias = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L" };
+
+  it("appends a newly returned staged option", () => {
+    const existing = [{ id: "stage-0", name: "Flour", categoryId: "cat-grain", defaultUnitId: "unit-kg" }];
+    const merged = mergeStagedProductOption(existing, alias);
+    assert.deepEqual(merged, [...existing, alias]);
+    assert.notEqual(merged, existing);
+  });
+
+  it("replays the same id in place without duplicating it", () => {
+    const first = mergeStagedProductOption([], alias);
+    const replay = mergeStagedProductOption(first, { ...alias, name: "Oat Milk (updated)" });
+    assert.equal(replay.length, 1);
+    assert.equal(replay[0].id, alias.id);
+    assert.equal(replay[0].name, "Oat Milk (updated)");
+  });
+
+  it("ignores an empty response without mutating the existing options", () => {
+    const existing = [alias];
+    const merged = mergeStagedProductOption(existing, null);
+    assert.deepEqual(merged, existing);
+    assert.notEqual(merged, existing);
+  });
+});
+
+describe("same-line staged rematch", () => {
+  it("keeps one staged option through create response, reopen, search, and the next SaveLine body", () => {
+    const staged = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L" };
+    const ls = makeState(
+      { isNewProduct: false, newProductName: null, newProductCategoryId: null },
+      { productId: null, productName: null, quantity: 1, unitId: "unit-L", locationId: "loc-fridge" },
+    );
+
+    // The first create-new SaveLine response stages the alias and makes it available to the island.
+    ls.createNew.value = true;
+    ls.draftNewName.value = staged.name;
+    ls.draftNewCategoryId.value = staged.categoryId;
+    const createResponse = {
+      status: "Confirmed",
+      isNewProduct: true,
+      newProductName: staged.name,
+      stagedProductId: staged.id,
+      stagedProduct: staged,
+    };
+    let stagedOptions = mergeStagedProductOption([], createResponse.stagedProduct);
+    ls.status.value = createResponse.status;
+    ls.isNewProduct = createResponse.isNewProduct;
+    ls.newProductName = createResponse.newProductName;
+    ls.stagedProductId.value = createResponse.stagedProductId;
+
+    // Wrong product — review again clears only this line's selected identity; the live option list stays.
+    ls.status.value = "Pending";
+    ls.draftProductId.value = "";
+    ls.stagedProductId.value = "";
+    ls.draftSkuId.value = "";
+    ls.createNew.value = false;
+
+    // Change match searches the live list and selects the same staged identity, never a Catalog id.
+    const [found] = stagedOptions.filter((option) => option.name.toLowerCase().includes("oat milk"));
+    assert.equal(found?.id, staged.id);
+    ls.stagedProductId.value = found.id;
+    ls.draftProductId.value = "";
+    ls.draftNewName.value = found.name;
+    ls.draftNewCategoryId.value = found.categoryId;
+    ls.createNew.value = true;
+
+    const body = buildSaveLineBody(ls);
+    assert.equal(body.productId, null);
+    assert.equal(body.stagedProductId, staged.id);
+    assert.equal(body.newProductName, staged.name);
+    assert.equal(body.newProductCategoryId, staged.categoryId);
+
+    // Replaying the response is idempotent by staged id, so the picker still has one entry.
+    stagedOptions = mergeStagedProductOption(stagedOptions, createResponse.stagedProduct);
+    assert.equal(stagedOptions.filter((option) => option.id === staged.id).length, 1);
   });
 });
 

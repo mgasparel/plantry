@@ -76,6 +76,11 @@ public sealed class IntakeReviewHydrationBuilder
         var stores = reference.Stores
             .Select(s => new StoreHydration(s.Id.ToString(), s.Name)).ToList();
 
+        var stagedProducts = session.StagedProducts?
+            .Select(p => new StagedProductHydration(
+                p.Id.ToString(), p.Name, p.CategoryId.ToString(), p.DefaultUnitId.ToString()))
+            .ToList();
+
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
         var productNameById = reference.Products.ToDictionary(p => p.Id, p => p.Name);
         var productDefaultLocationById = reference.Products.ToDictionary(p => p.Id, p => p.DefaultLocationId);
@@ -120,7 +125,8 @@ public sealed class IntakeReviewHydrationBuilder
                     IsNewProduct: l.IsNewProduct,
                     NewProductName: l.NewProductName,
                     NewProductCategoryId: l.NewProductCategoryId?.ToString(),
-                    SuggestedPrice: l.SuggestedPrice),
+                    SuggestedPrice: l.SuggestedPrice,
+                    StagedProductId: l.StagedProductId?.ToString()),
                 Prefill: new PrefillData(
                     ProductId: prefillProductId?.ToString(),
                     ProductName: prefillProductName,
@@ -180,7 +186,8 @@ public sealed class IntakeReviewHydrationBuilder
             ReceiptNo: NullIfBlank(session.ReceiptNumber),
             // Household display-currency symbol resolved by the caller (Review.cshtml.cs) via MoneyDisplay.Symbol —
             // the island prefixes it in its money formatters (plantry-2x6e.3).
-            CurrencySymbol: currencySymbol);
+            CurrencySymbol: currencySymbol,
+            StagedProducts: stagedProducts is { Count: > 0 } ? stagedProducts : null);
     }
 
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;

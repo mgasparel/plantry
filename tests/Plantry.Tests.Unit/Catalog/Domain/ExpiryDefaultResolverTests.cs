@@ -102,52 +102,97 @@ public sealed class ExpiryDefaultResolverTests
         Assert.Null(resolved);
     }
 
-    // ── ResolveDefaultDueDaysAfterFreezing / AfterThawing (plantry-hh1f) ──────
-    // Unlike AfterOpening, freeze/thaw now have a backstop: the household-wide default. The product's
-    // own override still wins when set; the household default only applies when it's unset — exactly
-    // the auto-created-leftovers gap plantry-hh1f reported (no category, no per-product override).
+    // ── Freeze/thaw Never policy resolution ───────────────────────────────────
 
     [Fact]
-    public void AfterFreezing_ProductOverride_Wins_Over_HouseholdDefault()
+    public void LocalTrue_Wins_And_Resolves_Never()
+    {
+        var product = Product.Create(HouseholdId, "Chicken thighs", UnitId.New(), Clock);
+        product.SetExpiryDefaults(null, null, defaultDueDaysAfterFreezing: 45, null, Clock);
+        product.SetNeverExpiryOverrides(true, null, Clock);
+
+        var resolved = ExpiryDefaultResolver.ResolveAfterFreezing(product, parent: null, householdDefault: 90);
+
+        Assert.IsType<ExpiryTransitionPolicy.Never>(resolved);
+    }
+
+    [Fact]
+    public void LocalFalse_Suppresses_ParentNever_And_Uses_ProductDays()
+    {
+        var parent = Product.Create(HouseholdId, "Chicken", UnitId.New(), Clock);
+        parent.SetNeverExpiryOverrides(true, null, Clock);
+        var variant = Product.Create(HouseholdId, "Chicken thighs", UnitId.New(), Clock);
+        variant.MakeVariantOf(parent.Id, Clock);
+        variant.SetExpiryDefaults(null, null, defaultDueDaysAfterFreezing: 12, null, Clock);
+        variant.SetNeverExpiryOverrides(false, null, Clock);
+
+        var resolved = ExpiryDefaultResolver.ResolveAfterFreezing(variant, parent, householdDefault: 90);
+
+        Assert.Equal(new ExpiryTransitionPolicy.Days(12), resolved);
+    }
+
+    [Fact]
+    public void NullVariantOverride_InheritsParentNever_Live()
+    {
+        var parent = Product.Create(HouseholdId, "Chicken", UnitId.New(), Clock);
+        var variant = Product.Create(HouseholdId, "Chicken thighs", UnitId.New(), Clock);
+        variant.MakeVariantOf(parent.Id, Clock);
+        variant.SetNeverExpiryOverrides(null, null, Clock);
+
+        parent.SetNeverExpiryOverrides(true, null, Clock);
+        Assert.IsType<ExpiryTransitionPolicy.Never>(
+            ExpiryDefaultResolver.ResolveAfterFreezing(variant, parent, householdDefault: 90));
+
+        parent.SetNeverExpiryOverrides(false, null, Clock);
+        Assert.Equal(new ExpiryTransitionPolicy.Days(90),
+            ExpiryDefaultResolver.ResolveAfterFreezing(variant, parent, householdDefault: 90));
+    }
+
+    [Fact]
+    public void VariantOverride_Detaches_From_Subsequent_ParentChanges()
+    {
+        var parent = Product.Create(HouseholdId, "Chicken", UnitId.New(), Clock);
+        parent.SetNeverExpiryOverrides(true, null, Clock);
+        var variant = Product.Create(HouseholdId, "Chicken thighs", UnitId.New(), Clock);
+        variant.MakeVariantOf(parent.Id, Clock);
+        variant.SetNeverExpiryOverrides(false, null, Clock);
+
+        parent.SetNeverExpiryOverrides(false, null, Clock);
+        Assert.Equal(new ExpiryTransitionPolicy.Days(90),
+            ExpiryDefaultResolver.ResolveAfterFreezing(variant, parent, householdDefault: 90));
+
+        parent.SetNeverExpiryOverrides(true, null, Clock);
+        Assert.Equal(new ExpiryTransitionPolicy.Days(90),
+            ExpiryDefaultResolver.ResolveAfterFreezing(variant, parent, householdDefault: 90));
+    }
+
+    [Fact]
+    public void ProductDays_Beat_HouseholdFallback_When_NotNever()
     {
         var product = Product.Create(HouseholdId, "Chicken thighs", UnitId.New(), Clock);
         product.SetExpiryDefaults(null, null, defaultDueDaysAfterFreezing: 45, null, Clock);
 
-        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing(product, householdDefault: 90);
-
-        Assert.Equal(45, resolved);
+        Assert.Equal(new ExpiryTransitionPolicy.Days(45),
+            ExpiryDefaultResolver.ResolveAfterFreezing(product, parent: null, householdDefault: 90));
     }
 
     [Fact]
-    public void AfterFreezing_Falls_Back_To_HouseholdDefault_When_Product_Has_No_Override()
+    public void RootNullNever_Uses_HouseholdFallback()
     {
-        // No category, no per-product override — the exact shape of an auto-created leftovers product
-        // (CookRecipe.cs:214, categoryId: null) that originally reported this ticket.
         var product = Product.Create(HouseholdId, "Leftover casserole", UnitId.New(), Clock);
 
-        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterFreezing(product, householdDefault: 90);
-
-        Assert.Equal(90, resolved);
+        Assert.Equal(new ExpiryTransitionPolicy.Days(90),
+            ExpiryDefaultResolver.ResolveAfterFreezing(product, parent: null, householdDefault: 90));
     }
 
     [Fact]
-    public void AfterThawing_ProductOverride_Wins_Over_HouseholdDefault()
+    public void Thawing_Uses_IndependentNeverFlag()
     {
         var product = Product.Create(HouseholdId, "Chicken thighs", UnitId.New(), Clock);
         product.SetExpiryDefaults(null, null, null, defaultDueDaysAfterThawing: 5, Clock);
+        product.SetNeverExpiryOverrides(null, true, Clock);
 
-        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterThawing(product, householdDefault: 3);
-
-        Assert.Equal(5, resolved);
-    }
-
-    [Fact]
-    public void AfterThawing_Falls_Back_To_HouseholdDefault_When_Product_Has_No_Override()
-    {
-        var product = Product.Create(HouseholdId, "Leftover casserole", UnitId.New(), Clock);
-
-        var resolved = ExpiryDefaultResolver.ResolveDefaultDueDaysAfterThawing(product, householdDefault: 3);
-
-        Assert.Equal(3, resolved);
+        Assert.IsType<ExpiryTransitionPolicy.Never>(
+            ExpiryDefaultResolver.ResolveAfterThawing(product, parent: null, householdDefault: 3));
     }
 }

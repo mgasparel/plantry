@@ -6,6 +6,7 @@ using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.Tests.Integration.Infrastructure;
 using Testcontainers.PostgreSql;
 using Xunit;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
@@ -302,6 +303,8 @@ public sealed class RemovePackAndDozenUnitsMigrationTests : IAsyncLifetime
         await using var ctx = NewContext(HouseholdId.New());
         var migrator = ctx.GetInfrastructure().GetRequiredService<IMigrator>();
         await migrator.MigrateAsync(targetMigration);
+        if (targetMigration == BaselineMigration)
+            await CatalogMigrationTestCompatibility.AddProductNeverExpiryColumnsAsync(ctx);
     }
 
     private CatalogDbContext NewContext(HouseholdId household)

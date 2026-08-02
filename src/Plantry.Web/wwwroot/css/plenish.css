@@ -1182,6 +1182,16 @@ button { font-family: inherit; cursor: pointer; }
   outline: 2px solid var(--color-accent); outline-offset: -2px;
 }
 
+.product-expiry-policy {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.product-expiry-policy .seg-ctrl { margin-top: var(--space-2); }
+.product-expiry-policy__days { margin-top: var(--space-3); max-width: 14rem; }
+.product-expiry-policy__days .field__label { display: block; margin-bottom: var(--space-1); }
+
 /* ── Toggle switch ─────────────────────────────────────────────────────────────
    Reusable boolean on/off control. A visually-hidden native checkbox drives an
    accessible track+thumb; state colour comes from theme tokens so it themes and

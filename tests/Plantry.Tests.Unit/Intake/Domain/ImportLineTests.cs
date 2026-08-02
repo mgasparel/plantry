@@ -118,6 +118,44 @@ public sealed class ImportLineTests
         Assert.Equal(4.49m, line.Price);
     }
 
+    [Fact(DisplayName = "Two lines can explicitly share one staged product id")]
+    public void ConfirmAsNew_Shared_Staged_Product_Id_Is_Preserved_And_Reopen_Clears_Only_The_Line()
+    {
+        var session = ImportSession.Start(Household, ImportSourceType.Receipt, Guid.CreateVersion7(), Clock);
+        var first = session.AddLine(1, "OAT MILK", SuggestedConfidence.Low, null);
+        var second = session.AddLine(2, "OAT MILK", SuggestedConfidence.Low, null);
+        var categoryId = Guid.CreateVersion7();
+        var staged = session.GetOrCreateStagedProduct(null, "Oat Milk", categoryId, UnitId).Value;
+
+        first.ConfirmAsNew("Oat Milk", categoryId, 1m, UnitId, LocationId, null, null, staged.Id);
+        second.ConfirmAsNew("Oat Milk", categoryId, 2m, UnitId, LocationId, null, null, staged.Id);
+
+        Assert.NotNull(first.StagedProductId);
+        Assert.Equal(first.StagedProductId, second.StagedProductId);
+        Assert.True(first.Reopen().IsSuccess);
+        Assert.Null(first.StagedProductId);
+        Assert.Equal(second.StagedProductId, session.StagedProducts.Single().Id);
+    }
+
+    [Fact(DisplayName = "Same-name new-product decisions reject a conflicting identity before a second alias is added")]
+    public void ConfirmAsNew_Rejects_Conflicting_Same_Name_Identity()
+    {
+        var session = ImportSession.Start(Household, ImportSourceType.Receipt, Guid.CreateVersion7(), Clock);
+        var first = session.AddLine(1, "OAT MILK", SuggestedConfidence.Low, null);
+        var second = session.AddLine(2, "OAT MILK", SuggestedConfidence.Low, null);
+        var categoryId = Guid.CreateVersion7();
+        var firstStaged = session.GetOrCreateStagedProduct(null, "Oat Milk", categoryId, UnitId).Value;
+        var conflict = session.GetOrCreateStagedProduct(null, " OAT   MILK ", Guid.CreateVersion7(), UnitId);
+
+        first.ConfirmAsNew("Oat Milk", firstStaged.CategoryId, 1m, UnitId, LocationId, null, null, firstStaged.Id);
+        second.ConfirmAsNew("Oat Milk", firstStaged.CategoryId, 1m, UnitId, LocationId, null, null, firstStaged.Id);
+
+        Assert.True(conflict.IsFailure);
+        Assert.Equal("Intake.StagedProductNameConflict", conflict.Error.Code);
+        Assert.Equal(first.StagedProductId, second.StagedProductId);
+        Assert.Single(session.StagedProducts);
+    }
+
     [Fact]
     public void ConfirmAsNew_Fails_When_Line_Is_Dismissed()
     {

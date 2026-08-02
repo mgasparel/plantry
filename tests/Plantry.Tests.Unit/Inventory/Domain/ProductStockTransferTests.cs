@@ -1,5 +1,6 @@
 using Plantry.Inventory.Domain;
 using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Tests.Unit.Inventory.Domain;
 
@@ -26,6 +27,8 @@ public sealed class ProductStockTransferTests
     }
 
     private static DateOnly Day(int n) => new DateOnly(2026, 1, 1).AddDays(n);
+    private static ExpiryTransitionPolicy Days(int value) => new ExpiryTransitionPolicy.Days(value);
+    private static ExpiryTransitionPolicy Never() => new ExpiryTransitionPolicy.Never();
 
     // ── Full-lot freeze / thaw ───────────────────────────────────────────────────
 
@@ -37,7 +40,7 @@ public sealed class ProductStockTransferTests
 
         var result = stock.Transfer(
             lot.Id, Freezer, sourceIsFrozen: false, destinationIsFrozen: true,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TransferKind.Freeze, result.Value.Kind);
@@ -57,13 +60,48 @@ public sealed class ProductStockTransferTests
 
         var result = stock.Transfer(
             lot.Id, Fridge, sourceIsFrozen: true, destinationIsFrozen: false,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TransferKind.Thaw, result.Value.Kind);
         Assert.Equal(Fridge, lot.LocationId);
         Assert.NotNull(lot.ThawedAt);
         Assert.Equal(Day(2), lot.ExpiryDate); // tightened from the Day(90) printed date
+        Assert.True(result.Value.DefaultApplied);
+    }
+
+    [Fact(DisplayName = "Full-lot thaw with Never clears expiry and reports a distinct Never effect")]
+    public void FullLot_Thaw_Never_ClearsExpiryAndReportsNeverEffect()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(2m, Unit, Freezer, User, clock, expiryDate: Day(90));
+
+        var result = stock.Transfer(
+            lot.Id, Fridge, sourceIsFrozen: true, destinationIsFrozen: false,
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Never());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TransferKind.Thaw, result.Value.Kind);
+        Assert.Null(lot.ExpiryDate);
+        Assert.IsType<TransferExpiryEffect.Never>(result.Value.ExpiryEffect);
+        Assert.Null(result.Value.ExpiryDate);
+        Assert.True(result.Value.DefaultApplied);
+    }
+
+    [Fact(DisplayName = "Full-lot freeze with Never clears expiry and reports a distinct Never effect")]
+    public void FullLot_Freeze_Never_ClearsExpiryAndReportsNeverEffect()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(2m, Unit, Fridge, User, clock, expiryDate: Day(5));
+
+        var result = stock.Transfer(
+            lot.Id, Freezer, sourceIsFrozen: false, destinationIsFrozen: true,
+            quantity: 2m, clock, afterFreezingPolicy: Never(), afterThawingPolicy: Days(2));
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(lot.ExpiryDate);
+        Assert.IsType<TransferExpiryEffect.Never>(result.Value.ExpiryEffect);
+        Assert.Null(result.Value.ExpiryDate);
         Assert.True(result.Value.DefaultApplied);
     }
 
@@ -77,7 +115,7 @@ public sealed class ProductStockTransferTests
 
         var result = stock.Transfer(
             lot.Id, Freezer, sourceIsFrozen: false, destinationIsFrozen: true,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Value.SplitEntryId);
@@ -111,12 +149,51 @@ public sealed class ProductStockTransferTests
 
         var result = stock.Transfer(
             lot.Id, Fridge, sourceIsFrozen: true, destinationIsFrozen: false,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         var newLot = stock.Entries.Single(e => e.Id == result.Value.SplitEntryId!.Value);
         Assert.NotNull(newLot.ThawedAt);
         Assert.False(newLot.IsOpen);
+    }
+
+    [Fact(DisplayName = "Partial freeze with Never preserves the source expiry and clears only the moved lot")]
+    public void Partial_Freeze_Never_PreservesSourceAndClearsMovedLot()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(5m, Unit, Fridge, User, clock, expiryDate: Day(5));
+
+        var result = stock.Transfer(
+            lot.Id, Freezer, sourceIsFrozen: false, destinationIsFrozen: true,
+            quantity: 2m, clock, afterFreezingPolicy: Never(), afterThawingPolicy: Days(2));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(Day(5), lot.ExpiryDate);
+        var moved = stock.Entries.Single(e => e.Id == result.Value.SplitEntryId!.Value);
+        Assert.Null(moved.ExpiryDate);
+        Assert.IsType<TransferExpiryEffect.Never>(result.Value.ExpiryEffect);
+        Assert.Null(result.Value.ExpiryDate);
+    }
+
+    [Fact(DisplayName = "Partial thaw with Never preserves the source expiry and clears only the moved lot")]
+    public void Partial_Thaw_Never_PreservesSourceAndClearsMovedLot()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(5m, Unit, Freezer, User, clock, expiryDate: Day(90));
+
+        var result = stock.Transfer(
+            lot.Id, Fridge, sourceIsFrozen: true, destinationIsFrozen: false,
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Never());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TransferKind.Thaw, result.Value.Kind);
+        Assert.Equal(Day(90), lot.ExpiryDate);
+        Assert.Equal(3m, lot.Quantity);
+
+        var moved = stock.Entries.Single(e => e.Id == result.Value.SplitEntryId!.Value);
+        Assert.Null(moved.ExpiryDate);
+        Assert.IsType<TransferExpiryEffect.Never>(result.Value.ExpiryEffect);
+        Assert.Null(result.Value.ExpiryDate);
     }
 
     // ── Partial Move split inherits source provenance (plantry-xw4m) ────────────
@@ -130,7 +207,7 @@ public sealed class ProductStockTransferTests
         // Freeze the full lot first so it carries a real FrozenAt.
         stock.Transfer(
             lot.Id, Freezer, sourceIsFrozen: false, destinationIsFrozen: true,
-            quantity: 5m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 5m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
         var frozenAt = lot.FrozenAt;
         Assert.NotNull(frozenAt);
 
@@ -138,7 +215,7 @@ public sealed class ProductStockTransferTests
         var otherFreezer = Guid.NewGuid();
         var result = stock.Transfer(
             lot.Id, otherFreezer, sourceIsFrozen: true, destinationIsFrozen: true,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TransferKind.Move, result.Value.Kind);
@@ -164,14 +241,14 @@ public sealed class ProductStockTransferTests
         // Thaw the full lot first so it carries a real ThawedAt.
         stock.Transfer(
             lot.Id, Fridge, sourceIsFrozen: true, destinationIsFrozen: false,
-            quantity: 5m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 5m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
         var thawedAt = lot.ThawedAt;
         Assert.NotNull(thawedAt);
 
         clock.Advance(TimeSpan.FromMinutes(5));
         var result = stock.Transfer(
             lot.Id, Pantry, sourceIsFrozen: false, destinationIsFrozen: false,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TransferKind.Move, result.Value.Kind);
@@ -191,7 +268,7 @@ public sealed class ProductStockTransferTests
 
         var result = stock.Transfer(
             lot.Id, Pantry, sourceIsFrozen: false, destinationIsFrozen: false,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TransferKind.Move, result.Value.Kind);
@@ -211,7 +288,7 @@ public sealed class ProductStockTransferTests
 
         var result = stock.Transfer(
             lot.Id, Pantry, sourceIsFrozen: false, destinationIsFrozen: false,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TransferKind.Move, result.Value.Kind);
@@ -219,6 +296,23 @@ public sealed class ProductStockTransferTests
         Assert.Equal(Day(10), lot.ExpiryDate);
         Assert.Null(lot.FrozenAt);
         Assert.Null(lot.ThawedAt);
+        Assert.False(result.Value.DefaultApplied);
+    }
+
+    [Fact(DisplayName = "Plain move with Never policies leaves the expiry unchanged")]
+    public void PlainMove_WithNeverPolicies_LeavesExpiryUntouched()
+    {
+        var stock = NewStock(out var clock);
+        var lot = stock.AddStock(2m, Unit, Fridge, User, clock, expiryDate: Day(10));
+
+        var result = stock.Transfer(
+            lot.Id, Pantry, sourceIsFrozen: false, destinationIsFrozen: false,
+            quantity: 2m, clock, afterFreezingPolicy: Never(), afterThawingPolicy: Never());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TransferKind.Move, result.Value.Kind);
+        Assert.Equal(Day(10), lot.ExpiryDate);
+        Assert.IsType<TransferExpiryEffect.Unchanged>(result.Value.ExpiryEffect);
         Assert.False(result.Value.DefaultApplied);
     }
 
@@ -231,7 +325,7 @@ public sealed class ProductStockTransferTests
 
         var result = stock.Transfer(
             lot.Id, otherFreezer, sourceIsFrozen: true, destinationIsFrozen: true,
-            quantity: 2m, clock, dueDaysAfterFreezing: 90, dueDaysAfterThawing: 2);
+            quantity: 2m, clock, afterFreezingPolicy: Days(90), afterThawingPolicy: Days(2));
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TransferKind.Move, result.Value.Kind);
@@ -247,9 +341,9 @@ public sealed class ProductStockTransferTests
         var stock = NewStock(out var clock);
         var lot = stock.AddStock(1m, Unit, Fridge, User, clock, expiryDate: Day(14));
 
-        var result = stock.Transfer(
+        var result = stock.TransferWithoutCatalogProduct(
             lot.Id, Freezer, sourceIsFrozen: false, destinationIsFrozen: true,
-            quantity: 1m, clock, dueDaysAfterFreezing: null, dueDaysAfterThawing: null);
+            quantity: 1m, clock);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(Freezer, lot.LocationId);
@@ -264,9 +358,9 @@ public sealed class ProductStockTransferTests
         var stock = NewStock(out var clock);
         var lot = stock.AddStock(1m, Unit, Freezer, User, clock, expiryDate: Day(14));
 
-        var result = stock.Transfer(
+        var result = stock.TransferWithoutCatalogProduct(
             lot.Id, Fridge, sourceIsFrozen: true, destinationIsFrozen: false,
-            quantity: 1m, clock, dueDaysAfterFreezing: null, dueDaysAfterThawing: null);
+            quantity: 1m, clock);
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(lot.ThawedAt);
@@ -282,12 +376,12 @@ public sealed class ProductStockTransferTests
         var stock = NewStock(out var clock);
         var lot = stock.AddStock(1m, Unit, Freezer, User, clock, expiryDate: Day(90));
 
-        stock.Transfer(lot.Id, Fridge, true, false, 1m, clock, 90, 2); // thaw
+        stock.Transfer(lot.Id, Fridge, true, false, 1m, clock, Days(90), Days(2)); // thaw
         var thawedAt = lot.ThawedAt;
         Assert.NotNull(thawedAt);
 
         clock.Advance(TimeSpan.FromMinutes(5));
-        var result = stock.Transfer(lot.Id, Freezer, false, true, 1m, clock, 90, 2); // refreeze
+        var result = stock.Transfer(lot.Id, Freezer, false, true, 1m, clock, Days(90), Days(2)); // refreeze
 
         Assert.True(result.IsSuccess);
         Assert.Equal(TransferKind.Freeze, result.Value.Kind);
@@ -304,7 +398,7 @@ public sealed class ProductStockTransferTests
         var lot = stock.AddStock(5m, Unit, Fridge, User, clock, expiryDate: Day(14));
         var journalCountBefore = stock.Journal.Count;
 
-        stock.Transfer(lot.Id, Freezer, false, true, 5m, clock, 90, 2);
+        stock.Transfer(lot.Id, Freezer, false, true, 5m, clock, Days(90), Days(2));
 
         Assert.Equal(journalCountBefore, stock.Journal.Count);
         Assert.Equal(5m, lot.Quantity); // full-lot move — no quantity lost
@@ -321,7 +415,7 @@ public sealed class ProductStockTransferTests
         var stock = NewStock(out var clock);
         var lot = stock.AddStock(5m, Unit, Fridge, User, clock, expiryDate: Day(14));
 
-        var result = stock.Transfer(lot.Id, Freezer, false, true, quantity, clock, 90, 2);
+        var result = stock.Transfer(lot.Id, Freezer, false, true, quantity, clock, Days(90), Days(2));
 
         Assert.True(result.IsFailure);
         Assert.Equal("Inventory.InvalidTransferQuantity", result.Error.Code);
@@ -333,7 +427,7 @@ public sealed class ProductStockTransferTests
         var stock = NewStock(out var clock);
         var lot = stock.AddStock(5m, Unit, Fridge, User, clock, expiryDate: Day(14));
 
-        var result = stock.Transfer(lot.Id, Fridge, false, false, 5m, clock, 90, 2);
+        var result = stock.Transfer(lot.Id, Fridge, false, false, 5m, clock, Days(90), Days(2));
 
         Assert.True(result.IsFailure);
         Assert.Equal("Inventory.SameLocation", result.Error.Code);
@@ -344,7 +438,7 @@ public sealed class ProductStockTransferTests
     {
         var stock = NewStock(out var clock);
 
-        var result = stock.Transfer(StockEntryId.New(), Freezer, false, true, 1m, clock, 90, 2);
+        var result = stock.Transfer(StockEntryId.New(), Freezer, false, true, 1m, clock, Days(90), Days(2));
 
         Assert.True(result.IsFailure);
         Assert.Equal("Inventory.LotNotFound", result.Error.Code);
@@ -357,7 +451,7 @@ public sealed class ProductStockTransferTests
         var lot = stock.AddStock(1m, Unit, Fridge, User, clock, expiryDate: Day(1));
         stock.Consume(1m, Unit, StockReason.Consumed, new IdentityQuantityConverter(), User, clock);
 
-        var result = stock.Transfer(lot.Id, Freezer, false, true, 1m, clock, 90, 2);
+        var result = stock.Transfer(lot.Id, Freezer, false, true, 1m, clock, Days(90), Days(2));
 
         Assert.True(result.IsFailure);
         Assert.Equal("Inventory.LotNotActive", result.Error.Code);

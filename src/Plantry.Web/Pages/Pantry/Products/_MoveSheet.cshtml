@@ -19,10 +19,8 @@
         lotQty: @JsonSerializer.Serialize(sheet.LotQuantity),
         unit: @JsonSerializer.Serialize(sheet.UnitCode),
         srcFrozen: @JsonSerializer.Serialize(sheet.SourceIsFrozen),
-        freezeCandidate: @JsonSerializer.Serialize(sheet.FreezeCandidateDisplay),
-        freezeNote: @JsonSerializer.Serialize(sheet.FreezeNote),
-        thawCandidate: @JsonSerializer.Serialize(sheet.ThawCandidateDisplay),
-        thawNote: @JsonSerializer.Serialize(sheet.ThawNote),
+        freezePreview: @JsonSerializer.Serialize(new { kind = sheet.FreezePreview.Kind.ToString(), candidate = sheet.FreezePreview.CandidateDisplay, note = sheet.FreezePreview.Note }),
+        thawPreview: @JsonSerializer.Serialize(new { kind = sheet.ThawPreview.Kind.ToString(), candidate = sheet.ThawPreview.CandidateDisplay, note = sheet.ThawPreview.Note }),
         hasThawedAt: @JsonSerializer.Serialize(sheet.ThawedAtDisplay is not null),
         thawedAtDisplay: @JsonSerializer.Serialize(sheet.ThawedAtDisplay),
 
@@ -40,8 +38,9 @@
             if (this.kind === 'thaw') return this.isPartial ? 'This thaws part of the lot' : 'This thaws the lot'
             return 'This moves the lot'
         },
-        get fxCandidate() { return this.kind === 'freeze' ? this.freezeCandidate : (this.kind === 'thaw' ? this.thawCandidate : null) },
-        get fxNote() { return this.kind === 'freeze' ? this.freezeNote : (this.kind === 'thaw' ? this.thawNote : 'Same storage type — nothing to recompute.') },
+        get fxPreview() { return this.kind === 'move' ? { kind: 'Unchanged', candidate: null, note: 'Same storage type — nothing to recompute.' } : (this.kind === 'freeze' ? this.freezePreview : this.thawPreview) },
+        get fxCandidate() { return this.fxPreview.kind === 'Days' ? this.fxPreview.candidate : null },
+        get fxNote() { return this.fxPreview.note },
         get confirmVerb() { return this.kind === 'freeze' ? 'Freeze' : (this.kind === 'thaw' ? 'Thaw' : 'Move') },
         get confirmLabel() { return this.confirmVerb + ' ' + this.fmtQty(this.qty) + ' → ' + this.destName },
         moveAll() { this.qty = this.lotQty },
@@ -128,10 +127,13 @@
                     <span class="move-preview__v">@sheet.SourceLocationName<span class="move-preview__arrow">→</span><b x-text="destName"></b></span>
                     <span class="move-preview__k">Expiry</span>
                     <span class="move-preview__v">
-                        <template x-if="fxCandidate">
+                        <template x-if="fxPreview.kind === 'Days'">
                             <span><s style="color:var(--color-text-faint)">@sheet.ExistingExpiryDisplay</s><span class="move-preview__arrow">→</span><span class="badge-expiry" :class="{ 'badge-expiry--soon': kind === 'thaw', 'badge-expiry--ok': kind !== 'thaw' }" x-text="fxCandidate"></span></span>
                         </template>
-                        <template x-if="!fxCandidate">
+                        <template x-if="fxPreview.kind === 'Never'">
+                            <span><s style="color:var(--color-text-faint)">@sheet.ExistingExpiryDisplay</s><span class="move-preview__arrow">→</span><span class="badge-expiry badge-expiry--ok">No expiry</span></span>
+                        </template>
+                        <template x-if="fxPreview.kind === 'Unchanged'">
                             <span>@sheet.ExistingExpiryDisplay <span class="move-preview__note">(unchanged)</span></span>
                         </template>
                     </span>

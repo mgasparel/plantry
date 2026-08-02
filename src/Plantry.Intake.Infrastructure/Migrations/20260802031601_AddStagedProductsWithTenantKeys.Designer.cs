@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Plantry.Intake.Infrastructure;
@@ -11,9 +12,11 @@ using Plantry.Intake.Infrastructure;
 namespace Plantry.Intake.Infrastructure.Migrations
 {
     [DbContext(typeof(IntakeDbContext))]
-    partial class IntakeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802031601_AddStagedProductsWithTenantKeys")]
+    partial class AddStagedProductsWithTenantKeys
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -367,12 +370,6 @@ namespace Plantry.Intake.Infrastructure.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
-                    b.Property<string>("NormalizedName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("normalized_name");
-
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid")
                         .HasColumnName("session_id");
@@ -388,10 +385,6 @@ namespace Plantry.Intake.Infrastructure.Migrations
 
                     b.HasIndex("HouseholdId", "SessionId")
                         .HasDatabaseName("ix_staged_product_session");
-
-                    b.HasIndex("HouseholdId", "SessionId", "NormalizedName")
-                        .IsUnique()
-                        .HasDatabaseName("uq_staged_product_household_session_normalized_name");
 
                     b.ToTable("staged_product", "intake");
                 });
