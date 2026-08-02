@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Playwright;
 using Npgsql;
 using Plantry.Tests.E2E.Infrastructure;
@@ -153,10 +154,17 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await Assertions.Expect(newPantryRow).ToContainTextAsync("1 ea");
 
             // ── Assert: price observations were written for this commit ─────────
-            // Asserted directly against the read model (no pantry UI surface for prices). The fake parser
-            // reports a fixed merchant, so the two priced lines must produce two observations for it.
-            var observations = await CountPriceObservationsAsync(FakeReceiptParser.FixedMerchant);
-            Assert.Equal(2, observations);
+            // Asserted directly against the read model (no pantry UI surface for prices). Scope the
+            // checks to this test's uniquely named products because the fake parser uses one merchant
+            // across all receipt-intake journeys in the shared AppHost database.
+            var (matchedProductId, matchedJournalCount) =
+                await FindCatalogProductAndIntakeJournalCountAsync(matchedProductName);
+            var (newProductId, newJournalCount) =
+                await FindCatalogProductAndIntakeJournalCountAsync(newProductName);
+            Assert.Equal(1, matchedJournalCount);
+            Assert.Equal(1, newJournalCount);
+            Assert.Equal(1, await CountPriceObservationsForProductAsync(FakeReceiptParser.FixedMerchant, matchedProductId));
+            Assert.Equal(1, await CountPriceObservationsForProductAsync(FakeReceiptParser.FixedMerchant, newProductId));
         }
         finally
         {
@@ -234,17 +242,103 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
         Assert.Equal(2, await CountPriceObservationsForProductAsync(FakeReceiptParser.FixedMerchant, productId));
     }
 
-    /// <summary>Counts price observations recorded for a merchant. Reads as the database owner, which is
-    /// not subject to RLS, so it sees the rows written by this test's household.</summary>
-    private async Task<int> CountPriceObservationsAsync(string merchantText)
+    [Fact(DisplayName = "Same line can rematch an inline-staged product without navigation")]
+    public async Task SameLineCanReopenAndRematchItsStagedProduct()
     {
-        await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(
-            "SELECT COUNT(*) FROM pricing.price_observation WHERE merchant_text = @m AND source = 'Purchase'",
-            conn);
-        cmd.Parameters.AddWithValue("@m", merchantText);
-        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        var uniqueEmail = $"same-line-staged-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var stagedProductName = $"Same Line Oat Milk {Guid.NewGuid():N}".Substring(0, 28);
+
+        await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        var page = await context.NewPageAsync();
+        page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+        await page.GotoAsync($"{BaseUrl}/Account/Register");
+        await page.FillAsync("[name='Input.HouseholdName']", "Same Line Staged Household");
+        await page.FillAsync("[name='Input.Email']", uniqueEmail);
+        await page.FillAsync("[name='Input.DisplayName']", "Same Line Staged User");
+        await page.FillAsync("[name='Input.Password']", password);
+        await page.ClickAsync("button[type=submit]");
+        await page.WaitForURLAsync("**/Today**");
+
+        await page.GotoAsync($"{BaseUrl}/Intake/Upload");
+        await page.SetInputFilesAsync("input[type=file][name='Receipt']", new FilePayload
+        {
+            Name = "same-line-staged.png",
+            MimeType = "image/png",
+            Buffer = TinyPngBytes(),
+        });
+        await page.WaitForURLAsync("**/Intake/Review/**");
+        await page.EvaluateAsync("() => { window.__plantrySameLineReviewMarker = 'plantry-o0og-review'; }");
+
+        // Confirm the first unmatched line as a deferred staged product.
+        var firstCard = page.Locator(".focus-card");
+        await Assertions.Expect(firstCard).ToBeVisibleAsync();
+        await firstCard.Locator("[name='Edit.NewProductName']").FillAsync(stagedProductName);
+        await firstCard.Locator("[name='Edit.NewProductCategoryId']").SelectOptionAsync(new SelectOptionValue { Index = 1 });
+        await firstCard.Locator("[name='Edit.Quantity']").FillAsync("1");
+        await firstCard.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
+        await firstCard.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
+        var firstSaveResponseTask = page.WaitForResponseAsync(response =>
+            response.Url.Contains("handler=SaveLine", StringComparison.OrdinalIgnoreCase));
+        await firstCard.Locator("button:has-text('Add new & next')").ClickAsync();
+        var firstSaveResponse = await firstSaveResponseTask;
+        using var firstSaveBody = JsonDocument.Parse(await firstSaveResponse.TextAsync());
+        var stagedProductId = firstSaveBody.RootElement.GetProperty("stagedProductId").GetGuid();
+        Assert.NotEqual(Guid.Empty, stagedProductId);
+
+        // SaveLine stages the alias only. No Catalog product exists until the eventual commit.
+        Assert.Equal(0, await CountCatalogProductsAsync(stagedProductName));
+
+        // Reopen the very same confirmed row, then put it back into Change match without a reload.
+        var confirmedRow = page.Locator(".import-row--confirmed", new() { HasText = stagedProductName });
+        await Assertions.Expect(confirmedRow).ToBeVisibleAsync();
+        Assert.Equal(
+            "plantry-o0og-review",
+            await page.EvaluateAsync<string>("() => window.__plantrySameLineReviewMarker"));
+        await confirmedRow.Locator(".import-row__main").ClickAsync();
+        var reopenResponseTask = page.WaitForResponseAsync(response =>
+            response.Url.Contains("handler=ReopenLine", StringComparison.OrdinalIgnoreCase));
+        await confirmedRow.Locator("button:has-text('Wrong product — review again')").ClickAsync();
+        await reopenResponseTask;
+
+        var reopenedCard = page.Locator(".focus-card");
+        await Assertions.Expect(reopenedCard).ToContainTextAsync(FakeReceiptParser.UnmatchedReceiptText);
+        Assert.Equal(
+            "plantry-o0og-review",
+            await page.EvaluateAsync<string>("() => window.__plantrySameLineReviewMarker"));
+        await reopenedCard.Locator("button:has-text('Change match')").ClickAsync();
+        var search = reopenedCard.Locator("input[role='combobox']");
+        await search.FillAsync(stagedProductName);
+        var stagedOption = reopenedCard.Locator(".searchable-select__option--staged", new() { HasText = stagedProductName });
+        await Assertions.Expect(stagedOption).ToBeVisibleAsync();
+        await Assertions.Expect(stagedOption).ToHaveCountAsync(1);
+        await stagedOption.ClickAsync();
+
+        // Selecting the alias keeps ProductId empty and carries the staged identity through SaveLine.
+        var rematchSaveRequestTask = page.WaitForRequestAsync(request =>
+            request.Url.Contains("handler=SaveLine", StringComparison.OrdinalIgnoreCase));
+        await reopenedCard.Locator("button:has-text('Add new & next')").ClickAsync();
+        var rematchSaveRequest = await rematchSaveRequestTask;
+        using var rematchSaveBody = JsonDocument.Parse(rematchSaveRequest.PostData!);
+        var rematchPayload = rematchSaveBody.RootElement;
+        Assert.Equal(JsonValueKind.Null, rematchPayload.GetProperty("productId").ValueKind);
+        Assert.Equal(stagedProductId, rematchPayload.GetProperty("stagedProductId").GetGuid());
+
+        // Finish the review by rejecting the second fake unmatched line; the rematched line is committed normally.
+        var secondCard = page.Locator(".focus-card");
+        await Assertions.Expect(secondCard).ToContainTextAsync(FakeReceiptParser.SecondUnmatchedReceiptText);
+        await secondCard.Locator("button:has-text('Not pantry stock')").ClickAsync();
+
+        var commitButton = page.Locator(".commit-bar button:has-text('Add to pantry')");
+        await Assertions.Expect(commitButton).ToBeEnabledAsync();
+        await commitButton.ClickAsync();
+        await page.WaitForURLAsync("**/Intake/Done/**");
+
+        var (productId, journalCount) = await FindCatalogProductAndIntakeJournalCountAsync(stagedProductName);
+        Assert.NotEqual(Guid.Empty, productId);
+        Assert.Equal(1, journalCount);
+        Assert.Equal(1, await CountPriceObservationsForProductAsync(FakeReceiptParser.FixedMerchant, productId));
     }
 
     private async Task<(Guid ProductId, int JournalCount)> FindCatalogProductAndIntakeJournalCountAsync(string productName)
@@ -268,6 +362,16 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             conn);
         journals.Parameters.AddWithValue("@productId", productId);
         return (productId, Convert.ToInt32(await journals.ExecuteScalarAsync()));
+    }
+
+    private async Task<int> CountCatalogProductsAsync(string productName)
+    {
+        await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
+        await conn.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT COUNT(*) FROM catalog.products WHERE name = @name", conn);
+        command.Parameters.AddWithValue("@name", productName);
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
     private async Task<int> CountPriceObservationsForProductAsync(string merchantText, Guid productId)

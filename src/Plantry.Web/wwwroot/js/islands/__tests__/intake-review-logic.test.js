@@ -224,6 +224,59 @@ describe("mergeStagedProductOption", () => {
   });
 });
 
+describe("same-line staged rematch", () => {
+  it("keeps one staged option through create response, reopen, search, and the next SaveLine body", () => {
+    const staged = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L" };
+    const ls = makeState(
+      { isNewProduct: false, newProductName: null, newProductCategoryId: null },
+      { productId: null, productName: null, quantity: 1, unitId: "unit-L", locationId: "loc-fridge" },
+    );
+
+    // The first create-new SaveLine response stages the alias and makes it available to the island.
+    ls.createNew.value = true;
+    ls.draftNewName.value = staged.name;
+    ls.draftNewCategoryId.value = staged.categoryId;
+    const createResponse = {
+      status: "Confirmed",
+      isNewProduct: true,
+      newProductName: staged.name,
+      stagedProductId: staged.id,
+      stagedProduct: staged,
+    };
+    let stagedOptions = mergeStagedProductOption([], createResponse.stagedProduct);
+    ls.status.value = createResponse.status;
+    ls.isNewProduct = createResponse.isNewProduct;
+    ls.newProductName = createResponse.newProductName;
+    ls.stagedProductId.value = createResponse.stagedProductId;
+
+    // Wrong product — review again clears only this line's selected identity; the live option list stays.
+    ls.status.value = "Pending";
+    ls.draftProductId.value = "";
+    ls.stagedProductId.value = "";
+    ls.draftSkuId.value = "";
+    ls.createNew.value = false;
+
+    // Change match searches the live list and selects the same staged identity, never a Catalog id.
+    const [found] = stagedOptions.filter((option) => option.name.toLowerCase().includes("oat milk"));
+    assert.equal(found?.id, staged.id);
+    ls.stagedProductId.value = found.id;
+    ls.draftProductId.value = "";
+    ls.draftNewName.value = found.name;
+    ls.draftNewCategoryId.value = found.categoryId;
+    ls.createNew.value = true;
+
+    const body = buildSaveLineBody(ls);
+    assert.equal(body.productId, null);
+    assert.equal(body.stagedProductId, staged.id);
+    assert.equal(body.newProductName, staged.name);
+    assert.equal(body.newProductCategoryId, staged.categoryId);
+
+    // Replaying the response is idempotent by staged id, so the picker still has one entry.
+    stagedOptions = mergeStagedProductOption(stagedOptions, createResponse.stagedProduct);
+    assert.equal(stagedOptions.filter((option) => option.id === staged.id).length, 1);
+  });
+});
+
 // ── makeLine ─────────────────────────────────────────────────────────────────
 
 describe("makeLine", () => {
