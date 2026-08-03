@@ -180,6 +180,22 @@
         <symbol id="i-chef-hat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 19h12M7 19v-6.1A4 4 0 1 1 9.3 6a3.5 3.5 0 0 1 5.4 0 4 4 0 1 1 2.3 6.9V19" />
         </symbol>
+        @* Filled (not outline, unlike every symbol above) — recipe ratings (plantry-zlwp.2):
+           filled gold = a person's rating (.star-rating), muted-opacity fill = empty. Both
+           states reuse this one symbol via .star-rating's CSS (see plenish.css). The household
+           .rating-pill is the opposite: ALWAYS outlined except --mine (see i-star-outline
+           below) — the epic's signed-off grammar reserves a filled star for "this is MY
+           rating", so the pill must never show one except in the gallery --mine exception. *@
+        <symbol id="i-star" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8-6.1-3.4-6.1 3.4 1.4-6.8L2.2 9.1l6.9-.8z" />
+        </symbol>
+        @* Outline twin of i-star, same path — the .rating-pill default (household average is
+           always quiet/outlined; see .preview/recipe-rating-display-riffs.html:64). Presentation
+           attributes on a <symbol> beat a CSS fill inherited into the <use> shadow tree, so the
+           filled/outline distinction has to be two symbols, not one symbol + a CSS override. *@
+        <symbol id="i-star-outline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+            <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8-6.1-3.4-6.1 3.4 1.4-6.8L2.2 9.1l6.9-.8z" />
+        </symbol>
     </svg>
 
     @* Desktop sidebar (hidden below md breakpoint via CSS) *@
@@ -379,6 +395,11 @@
     <script src="~/js/searchable-select.js" defer></script>
     <script src="~/js/sortable-list.js" defer></script>
     <script src="~/js/plan-tune.js" defer></script>
+    @* type="module" (not defer, unlike its neighbours): star-rating.js exports createStarRating
+       for __tests__/star-rating.test.js (node --test), and `export` is a SyntaxError in a
+       classic script. Module scripts are deferred by default and execute in document order
+       alongside classic defer scripts, so this still runs before alpine.min.js below. *@
+    <script type="module" src="~/js/star-rating.js"></script>
     <script src="~/js/alpine.min.js" defer></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>

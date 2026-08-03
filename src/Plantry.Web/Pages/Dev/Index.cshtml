@@ -2402,3 +2402,228 @@ if (!resp.ok) { /* handle */ }")</code></pre>
 
     <pre class="code-sample"><code>@("new DataGridViewModel(\n    Columns: [...],\n    Rows: [...],\n    EmptyMessage: \"...\",\n    Caption: \"Grocy unit mapping grid\",\n    CaptionVisuallyHidden: true)")</code></pre>
 </section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Star rating (recipe ratings)</h2>
+    </div>
+    <p>
+        <code>.star-rating</code> is the shared visual grammar for per-user recipe ratings
+        (plantry-zlwp): <strong>filled gold star = a person's rating, always a whole number.</strong>
+        Display and input modes share the one filled <code>#i-star</code> sprite symbol — display
+        just dims the empty stars via colour, no separate outline glyph needed for
+        <code>.star-rating</code> itself. The household <code>.rating-pill</code> below is the
+        opposite case: it uses the outline twin <code>#i-star-outline</code> everywhere except its
+        gallery <code>--mine</code> exception, which reuses <code>#i-star</code> — a presentation
+        attribute set on a sprite <code>&lt;symbol&gt;</code> beats a CSS <code>fill</code>
+        inherited into a <code>&lt;use&gt;</code>'s shadow tree, so filled vs. outline has to be
+        two symbols, not one symbol plus a CSS override.
+    </p>
+
+    <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Display (static, small)</h3>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+        Used wherever a rating is shown read-only — grid rows, the popover per-member breakdown
+        below. Server-rendered: five <code>&lt;svg&gt;</code> uses, <code>.is-filled</code> up to
+        the rating.
+    </p>
+    <div class="demo-surface">
+        <span class="star-rating" role="img" aria-label="4 out of 5 stars">
+            <svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg>
+            <svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg>
+            <svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg>
+            <svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg>
+            <svg class="icon" aria-hidden="true"><use href="#i-star" /></svg>
+        </span>
+    </div>
+    <pre class="code-sample"><code>@("<span class=\"star-rating\" role=\"img\" aria-label=\"@stars of 5 stars\">\n@for (var i = 1; i <= 5; i++)\n{\n    <svg class=\"icon@(i <= stars ? \" is-filled\" : \"\")\" aria-hidden=\"true\"><use href=\"#i-star\" /></svg>\n}\n</span>")</code></pre>
+
+    <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Input (large, tap to rate)</h3>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+        Recipe Details' "your rating" widget. Tap a star to rate 1-5; tap the current rating
+        again to clear it (no opinion = absence of a row — the epic's storage decision). Keyboard
+        accessible: each star is a real <code>&lt;button&gt;</code>, reachable via Tab, activated
+        via Enter/Space. <code>starRatingInput(cfg)</code>
+        (<code>wwwroot/js/star-rating.js</code>) is the reusable Alpine component — it drives the
+        tap/clear interaction and posts the new rating via <code>htmx.ajax()</code>, mirroring the
+        Alpine-drives-DOM / htmx-drives-POST split used by <code>sortableList</code>. This demo
+        omits <code>postUrl</code> (no backing recipe on the library page) so the widget stays
+        fully interactive with no network call — a real caller supplies it to persist.
+    </p>
+    <div class="demo-surface">
+        <div x-data="starRatingInput({ value: 4 })">
+            <div class="star-rating star-rating--input" role="radiogroup" aria-label="Your rating">
+                <template x-for="i in 5" :key="i">
+                    <button type="button" role="radio" :aria-checked="value === i ? 'true' : 'false'"
+                            :aria-label="'Rate ' + i + (i === 1 ? ' star' : ' stars')"
+                            @@click="rate(i)" @@mouseenter="hoverValue = i" @@mouseleave="hoverValue = 0">
+                        <svg class="icon" :class="{ 'is-filled': isFilled(i) }" aria-hidden="true"><use href="#i-star" /></svg>
+                    </button>
+                </template>
+            </div>
+            <span class="star-rating-hint" x-text="hint()"></span>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div x-data=\"starRatingInput({ value: @Model.MyStars, postUrl: '@Url.Page(\"./Details\", \"Rate\", new { id = Model.RecipeId })' })\">\n    <div class=\"star-rating star-rating--input\" role=\"radiogroup\" aria-label=\"Your rating\">\n        <template x-for=\"i in 5\" :key=\"i\">\n            <button type=\"button\" role=\"radio\" :aria-checked=\"value === i ? 'true' : 'false'\"\n                    :aria-label=\"'Rate ' + i + (i === 1 ? ' star' : ' stars')\"\n                    @click=\"rate(i)\" @mouseenter=\"hoverValue = i\" @mouseleave=\"hoverValue = 0\">\n                <svg class=\"icon\" :class=\"{ 'is-filled': isFilled(i) }\" aria-hidden=\"true\"><use href=\"#i-star\" /></svg>\n            </button>\n        </template>\n    </div>\n    <span class=\"star-rating-hint\" x-text=\"hint()\"></span>\n</div>")</code></pre>
+    <p class="alert alert--warning">
+        Handler code in <code>star-rating.js</code> uses <code>let</code>/<code>const</code>
+        only — never <code>var</code> — per house convention for new Alpine components.
+    </p>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Rating pill + popover (household average)</h2>
+    </div>
+    <p>
+        <code>.rating-pill</code> is the household-average counterpart to
+        <code>.star-rating</code> above — <strong>always outlined/quiet, one decimal</strong>
+        (4.3, never "4" — the format alone disambiguates it from a personal rating). It is built
+        on the shared <code>.popover</code> primitive documented earlier on this page: the pill
+        <em>is</em> the <code>.popover__trigger</code> (its rules are declared after
+        <code>.popover__trigger</code>'s base styles in <code>plenish.css</code>, so equal-specificity
+        cascade lets the pill shape win over the stock 1.25rem circular badge), and
+        <code>.popover__content</code> carries the per-member breakdown unchanged — hover, keyboard
+        focus, or hovering the panel itself reveals it, exactly like every other popover on this
+        page. Two quiet flavours encode whether my rating is included in the average:
+    </p>
+    <ul style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0 0 var(--space-3) var(--space-5)">
+        <li><code>--in</code> — warm, gold-dashed outline: my rating is included</li>
+        <li><code>--out</code> — grey ghost: I haven't rated yet (doubles as the nudge)</li>
+        <li><code>--mine</code> — gallery-only exception: filled gold + whole number (my rating, not the decimal average)</li>
+    </ul>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+        Flavours: <code>--card</code> (photo overlay, gallery) and <code>--surface</code> (default,
+        grid/details). Size modifier: <code>--grid</code> (compact, sits under the grid's
+        <code>.star-rating</code> cell). <strong>No ratings at all → render nothing</strong> — no
+        empty-star noise.
+    </p>
+
+    <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Gallery card — one pill, hover for the breakdown</h3>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+        <strong>Touch note:</strong> the gallery card is one big link, so on touch the popover is
+        unavailable there (hover doesn't exist and a nested tappable element inside an
+        <code>&lt;a&gt;</code> would be invalid HTML) — the breakdown lives on Details instead,
+        where the pill is not inside a link and can be a real tappable <code>&lt;button&gt;</code>.
+    </p>
+    <div class="demo-surface">
+        <div style="position: relative; width: 220px; aspect-ratio: 4/3.2; border-radius: var(--radius-md); background: linear-gradient(135deg, #7a8471, #4c5a48); padding: var(--space-3); display: flex; align-items: flex-end">
+            <span class="popover">
+                <span class="popover__trigger rating-pill rating-pill--card rating-pill--mine" tabindex="0" aria-describedby="dev-rating-pop-card-mine">
+                    <svg class="icon" aria-hidden="true"><use href="#i-star" /></svg><span>4</span>
+                </span>
+                <span class="popover__content" id="dev-rating-pop-card-mine" role="tooltip">
+                    <span class="popover__title">Household 4.3 avg</span>
+                    <span class="rating-pop-row rating-pop-row--me"><span class="rating-pop-row__avatar" aria-hidden="true">M</span><span class="rating-pop-row__who">You</span>
+                        <span class="star-rating" role="img" aria-label="4 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon" aria-hidden="true"><use href="#i-star" /></svg></span></span>
+                    <span class="rating-pop-row"><span class="rating-pop-row__avatar" aria-hidden="true">A</span><span class="rating-pop-row__who">Alex</span>
+                        <span class="star-rating" role="img" aria-label="5 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg></span></span>
+                    <span class="rating-pop-row"><span class="rating-pop-row__avatar" aria-hidden="true">S</span><span class="rating-pop-row__who">Sam</span><span class="rating-pop-row__unrated">not rated</span></span>
+                </span>
+            </span>
+        </div>
+        <div style="position: relative; width: 220px; aspect-ratio: 4/3.2; border-radius: var(--radius-md); background: linear-gradient(135deg, #6a7a8a, #43525f); padding: var(--space-3); display: flex; align-items: flex-end">
+            <span class="popover">
+                <span class="popover__trigger rating-pill rating-pill--card rating-pill--out" tabindex="0" aria-describedby="dev-rating-pop-card-out">
+                    <svg class="icon" aria-hidden="true"><use href="#i-star-outline" /></svg><span>5.0</span>
+                </span>
+                <span class="popover__content" id="dev-rating-pop-card-out" role="tooltip">
+                    <span class="popover__title">Household 5.0 avg</span>
+                    <span class="rating-pop-row"><span class="rating-pop-row__avatar" aria-hidden="true">A</span><span class="rating-pop-row__who">Alex</span>
+                        <span class="star-rating" role="img" aria-label="5 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg></span></span>
+                    <span class="rating-pop-row rating-pop-row--me"><span class="rating-pop-row__avatar" aria-hidden="true">M</span><span class="rating-pop-row__who">You</span><span class="rating-pop-row__unrated">not rated</span></span>
+                </span>
+            </span>
+        </div>
+        <div style="position: relative; width: 220px; aspect-ratio: 4/3.2; border-radius: var(--radius-md); background: linear-gradient(135deg, #8a6f5a, #5a4438); padding: var(--space-3); display: flex; align-items: flex-end">
+            <span style="color: rgb(255 255 255 / .75); font-size: var(--font-size-xs)">Weeknight Chili — nobody rated: no pill rendered</span>
+        </div>
+    </div>
+
+    <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Grid — stars + compact household pill</h3>
+    <div class="demo-surface">
+        <div>
+            <span class="star-rating" role="img" aria-label="4 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon" aria-hidden="true"><use href="#i-star" /></svg></span>
+            <div style="margin-top: 3px">
+                <span class="popover">
+                    <span class="popover__trigger rating-pill rating-pill--surface rating-pill--grid rating-pill--in" tabindex="0" aria-describedby="dev-rating-pop-grid-in">
+                        <svg class="icon" aria-hidden="true"><use href="#i-star-outline" /></svg><span>4.3</span>
+                    </span>
+                    <span class="popover__content" id="dev-rating-pop-grid-in" role="tooltip">
+                        <span class="popover__title">Household 4.3 avg</span>
+                        <span class="rating-pop-row rating-pop-row--me"><span class="rating-pop-row__avatar" aria-hidden="true">M</span><span class="rating-pop-row__who">You</span>
+                            <span class="star-rating" role="img" aria-label="4 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon" aria-hidden="true"><use href="#i-star" /></svg></span></span>
+                        <span class="rating-pop-row"><span class="rating-pop-row__avatar" aria-hidden="true">A</span><span class="rating-pop-row__who">Alex</span>
+                            <span class="star-rating" role="img" aria-label="5 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg></span></span>
+                        <span class="rating-pop-row"><span class="rating-pop-row__avatar" aria-hidden="true">S</span><span class="rating-pop-row__who">Sam</span><span class="rating-pop-row__unrated">not rated</span></span>
+                    </span>
+                </span>
+            </div>
+        </div>
+        <div>
+            <span style="color: var(--color-text-faint); font-size: 12.5px">not rated by you</span>
+            <div style="margin-top: 3px">
+                <span class="popover">
+                    <span class="popover__trigger rating-pill rating-pill--surface rating-pill--grid rating-pill--out" tabindex="0" aria-describedby="dev-rating-pop-grid-out">
+                        <svg class="icon" aria-hidden="true"><use href="#i-star-outline" /></svg><span>5.0</span>
+                    </span>
+                    <span class="popover__content" id="dev-rating-pop-grid-out" role="tooltip">
+                        <span class="popover__title">Household 5.0 avg</span>
+                        <span class="rating-pop-row"><span class="rating-pop-row__avatar" aria-hidden="true">A</span><span class="rating-pop-row__who">Alex</span>
+                            <span class="star-rating" role="img" aria-label="5 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg></span></span>
+                        <span class="rating-pop-row rating-pop-row--me"><span class="rating-pop-row__avatar" aria-hidden="true">M</span><span class="rating-pop-row__who">You</span><span class="rating-pop-row__unrated">not rated</span></span>
+                    </span>
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Details — input + household summary line</h3>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+        The household average pill sits on a summary line ("household average · 2 of 3 rated").
+        A single-member household renders no household line at all — there's nothing to average.
+        Here the pill is a real <code>&lt;button&gt;</code> (not inside a link), so it's tappable
+        on touch as well as hoverable/focusable.
+    </p>
+    <div class="demo-surface">
+        <div class="card" style="max-width: 22rem">
+            <div class="card__body">
+                <div x-data="starRatingInput({ value: 4 })">
+                    <div class="star-rating star-rating--input" role="radiogroup" aria-label="Your rating">
+                        <template x-for="i in 5" :key="i">
+                            <button type="button" role="radio" :aria-checked="value === i ? 'true' : 'false'"
+                                    :aria-label="'Rate ' + i + (i === 1 ? ' star' : ' stars')"
+                                    @@click="rate(i)" @@mouseenter="hoverValue = i" @@mouseleave="hoverValue = 0">
+                                <svg class="icon" :class="{ 'is-filled': isFilled(i) }" aria-hidden="true"><use href="#i-star" /></svg>
+                            </button>
+                        </template>
+                    </div>
+                    <span class="star-rating-hint" x-text="hint()"></span>
+                </div>
+                <div style="display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px dashed var(--color-border); font-size: var(--font-size-sm); color: var(--color-text-muted)">
+                    <span class="popover">
+                        <button type="button" class="popover__trigger rating-pill rating-pill--surface rating-pill--in" aria-describedby="dev-rating-pop">
+                            <svg class="icon" aria-hidden="true"><use href="#i-star-outline" /></svg><span>4.5</span>
+                        </button>
+                        <span class="popover__content" id="dev-rating-pop" role="tooltip">
+                            <span class="popover__title">Household 4.5 avg</span>
+                            <span class="rating-pop-row rating-pop-row--me"><span class="rating-pop-row__avatar" aria-hidden="true">M</span><span class="rating-pop-row__who">You</span>
+                                <span class="star-rating" role="img" aria-label="4 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon" aria-hidden="true"><use href="#i-star" /></svg></span></span>
+                            <span class="rating-pop-row"><span class="rating-pop-row__avatar" aria-hidden="true">A</span><span class="rating-pop-row__who">Alex</span>
+                                <span class="star-rating" role="img" aria-label="5 out of 5 stars"><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg><svg class="icon is-filled" aria-hidden="true"><use href="#i-star" /></svg></span></span>
+                            <span class="rating-pop-row"><span class="rating-pop-row__avatar" aria-hidden="true">S</span><span class="rating-pop-row__who">Sam</span><span class="rating-pop-row__unrated">not rated</span></span>
+                        </span>
+                    </span>
+                    <span>household average · 2 of 3 rated</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-sample"><code>@("<span class=\"popover\">\n    <span class=\"popover__trigger rating-pill rating-pill--surface rating-pill--grid rating-pill--in\" tabindex=\"0\" aria-describedby=\"rating-pop-@Model.RecipeId\">\n        <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-star-outline\" /></svg><span>@avg.ToString(\"0.0\")</span>\n    </span>\n    <span class=\"popover__content\" id=\"rating-pop-@Model.RecipeId\" role=\"tooltip\">\n        <span class=\"popover__title\">Household @avg.ToString(\"0.0\") avg</span>\n        @* \"You\" row first, then the rest; unrated members show .rating-pop-row__unrated \"not rated\" instead of stars *@\n        @foreach (var member in Model.Breakdown)\n        {\n            <span class=\"rating-pop-row@(member.IsMe ? \" rating-pop-row--me\" : \"\")\">\n                <span class=\"rating-pop-row__avatar\" aria-hidden=\"true\">@member.Initial</span>\n                <span class=\"rating-pop-row__who\">@(member.IsMe ? \"You\" : member.Name)</span>\n                @if (member.Stars is { } s) { <span class=\"star-rating\" role=\"img\" aria-label=\"@(s) out of 5 stars\">...@* 5 <use href=\"#i-star\">, is-filled up to s *@</span> }\n                else { <span class=\"rating-pop-row__unrated\">not rated</span> }\n            </span>\n        }\n    </span>\n</span>\n\n<!-- Gallery/grid: wrap the pill in a <span tabindex=\"0\"> (hover/focus reveal only — no tap,\n     the card/row is already a link). Details: use a real <button> so touch keeps access too.\n     Give the popover__content its own unique id and point the trigger's aria-describedby at it\n     (the <popover> tag helper does this automatically; hand-rolled pills must wire it by hand). -->")</code></pre>
+
+    <p class="alert alert--info">
+        No feature page consumes these yet — Recipe Details wiring (rating capture + household
+        summary) is plantry-zlwp.3; the gallery pill and grid Rating column/sort are
+        plantry-zlwp.4.
+    </p>
+</section>
