@@ -214,7 +214,7 @@ internal sealed class ProductDetailAddVariantFactory : WebApplicationFactory<Pro
             services.AddScoped<ProductQueryService>();
 
             // Pricing seam: no prices.
-            services.RemoveAll<Plantry.Pricing.Application.PricingQueries>();
+            services.RemoveAll<Plantry.Market.Application.PricingQueries>();
             // PricingQueries is registered but not injected by the Detail page — no action needed.
         });
     }

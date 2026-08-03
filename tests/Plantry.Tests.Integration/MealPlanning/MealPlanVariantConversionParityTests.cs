@@ -2,8 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
-using Plantry.Pricing.Application;
-using Plantry.Pricing.Infrastructure;
+using Plantry.Market.Application;
+using Plantry.Market.Infrastructure;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -15,6 +15,7 @@ using Plantry.Web.MealPlanning;
 using Plantry.Web.Recipes;
 using Xunit;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using ICatalogProductReader = Plantry.Recipes.Application.ICatalogProductReader;
 
 namespace Plantry.Tests.Integration.MealPlanning;
 

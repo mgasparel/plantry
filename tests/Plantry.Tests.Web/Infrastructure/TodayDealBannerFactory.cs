@@ -16,7 +16,7 @@ namespace Plantry.Tests.Web.Infrastructure;
 /// <summary>
 /// L4 WebApplicationFactory for the Today page Phase-5 <b>deal-review</b> banner (plantry-bpw),
 /// in-window variant. Boots the full <c>Plantry.Web</c> pipeline with in-memory fakes for every seam
-/// the Today page touches; the real <see cref="Plantry.Deals.Application.BrowseDeals"/> read service runs
+/// the Today page touches; the real <see cref="Plantry.Market.Application.BrowseDeals"/> read service runs
 /// over an in-memory Deals repository seeded with one <b>Pending, in-window</b> deal.
 ///
 /// Also seeds ONE Ready intake session, so the test can prove the deal banner is <b>additive</b> —
@@ -39,7 +39,7 @@ public sealed class TodayDealBannerFactory : WebApplicationFactory<Program>
 /// <summary>
 /// L4 WebApplicationFactory for the deal-review banner (plantry-bpw), <b>all-expired</b> variant. One
 /// Pending deal whose window has closed (<c>valid_to</c> in the past) and no intake session — so
-/// <see cref="Plantry.Deals.Application.BrowseDeals"/> recomputes zero pending-in-window and the banner
+/// <see cref="Plantry.Market.Application.BrowseDeals"/> recomputes zero pending-in-window and the banner
 /// stack renders nothing. Proves the count is clock-driven (DD14), never a stamped snapshot.
 /// </summary>
 public sealed class TodayDealBannerExpiredFactory : WebApplicationFactory<Program>

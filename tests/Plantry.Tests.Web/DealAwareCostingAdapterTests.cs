@@ -1,7 +1,7 @@
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
-using Plantry.Pricing.Application;
-using Plantry.Pricing.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -10,6 +10,7 @@ using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.MealPlanning;
 using Plantry.Web.Recipes;
 using CostCompleteness = Plantry.Recipes.Domain.CostCompleteness;
+using ICatalogProductReader = Plantry.Recipes.Application.ICatalogProductReader;
 
 namespace Plantry.Tests.Web;
 

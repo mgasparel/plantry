@@ -7,7 +7,7 @@ namespace Plantry.Recipes.Application;
 /// Deal-aware (P5-9b, DJ6): the Web adapter reads Pricing's effective-price read model — cheapest active
 /// in-window deal else latest purchase — so cost reflects live sales without Recipes depending on Deals.
 /// Defined here in Recipes.Application and <b>implemented in Plantry.Web</b> over
-/// <see cref="Plantry.Pricing.Application.PricingQueries"/>, so the Recipes projects keep their
+/// <see cref="Plantry.Market.Application.PricingQueries"/>, so the Recipes projects keep their
 /// <c>→ SharedKernel only</c> dependency. All identifiers cross as raw <see cref="Guid"/> soft refs
 /// (DM-3).
 /// </summary>

@@ -1,21 +1,23 @@
 using Plantry.Catalog.Domain;
-using Plantry.Pricing.Application;
+using Plantry.Market.Application;
 using Plantry.Shopping.Application;
 
 namespace Plantry.Web.Shopping;
 
 /// <summary>
 /// Web-side adapter for <see cref="IShoppingDealReader"/> — supplies the Shopping list read model with the
-/// cheapest active deal per product (P5-9) by delegating to <b>Pricing</b>'s
-/// <see cref="PricingQueries.CheapestActiveDealAsync"/> read model (ADR-010: the "active deal per product"
-/// read model is owned by Pricing; Shopping depends on Pricing, <b>never Deals</b>). The merchant name is
+/// cheapest active deal per product (P5-9) by delegating to <b>Market</b>'s
+/// <see cref="PricingQueries.CheapestActiveDealAsync"/> read model (ADR-010, ADR-024: the "active deal per
+/// product" read model lives on Market's price_observation side (schema <c>pricing</c>); Shopping depends on
+/// that read model, <b>never</b> Market's Deal aggregate (schema <c>deals</c>)). The merchant name is
 /// resolved over Catalog's own <see cref="IStoreRepository"/> (the <c>store_id</c> is a soft-ref to
-/// <c>catalog.store</c>, DM-16) — Shopping never reads Deals' <c>ICatalogStoreReader</c> nor any Deals table.
+/// <c>catalog.store</c>, DM-16) — Shopping never reads Market's Deals-side <c>ICatalogStoreReader</c> nor any
+/// <c>deals</c> schema table.
 ///
-/// <para>Lives in Plantry.Web, the composition root that already references both Pricing and Catalog, so the
+/// <para>Lives in Plantry.Web, the composition root that already references both Market and Catalog, so the
 /// Shopping projects stay <c>→ SharedKernel only</c>. Household scoping is enforced at the Postgres RLS level
-/// (ADR-008) by the <c>HouseholdRlsConnectionInterceptor</c> on both the Pricing and Catalog connections, so
-/// no additional household filter is needed here.</para>
+/// (ADR-008) by the <c>HouseholdRlsConnectionInterceptor</c> on both the Market (Pricing side) and Catalog
+/// connections, so no additional household filter is needed here.</para>
 ///
 /// <para>The read is per-product, mirroring Pricing's per-product read surface (the same shape as the recipe
 /// cost badge's <c>IPriceReader.FindLatestAsync</c>); store names are then resolved in a single batch to

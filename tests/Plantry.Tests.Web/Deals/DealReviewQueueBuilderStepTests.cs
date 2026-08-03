@@ -1,5 +1,5 @@
-using Plantry.Deals.Application;
-using Plantry.Deals.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.Web.Pages.Deals;
 using Xunit;
 

@@ -196,7 +196,7 @@ public sealed class TodayIndexModelTests
 
         // Deals seam (plantry-bpw): empty repo → BrowseDeals reports zero pending → no deal banner.
         // These tests only exercise IsColdStart / greeting / expiring, so an empty board is sufficient.
-        var browseDeals = new Plantry.Deals.Application.BrowseDeals(
+        var browseDeals = new Plantry.Market.Application.BrowseDeals(
             new Plantry.Tests.Web.Infrastructure.FakeDealBrowseRepo(),
             new Plantry.Tests.Web.Infrastructure.FakeDealProductReader(),
             new Plantry.Tests.Web.Infrastructure.FakeDealStoreReader(),
@@ -437,7 +437,7 @@ public sealed class ExpiringWidgetModelTests
         var fulfillmentService = new PlanFulfillmentService(recipeReadModel, new NullMealPlanStockReader2(), new NullExpiringSoonHorizonReader2());
 
         // Deals seam (plantry-bpw): empty repo → BrowseDeals reports zero pending → no deal banner.
-        var browseDeals = new Plantry.Deals.Application.BrowseDeals(
+        var browseDeals = new Plantry.Market.Application.BrowseDeals(
             new Plantry.Tests.Web.Infrastructure.FakeDealBrowseRepo(),
             new Plantry.Tests.Web.Infrastructure.FakeDealProductReader(),
             new Plantry.Tests.Web.Infrastructure.FakeDealStoreReader(),

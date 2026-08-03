@@ -1,6 +1,6 @@
 using Plantry.Catalog.Domain;
-using Plantry.Pricing.Application;
-using Plantry.Pricing.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Web.Shopping;

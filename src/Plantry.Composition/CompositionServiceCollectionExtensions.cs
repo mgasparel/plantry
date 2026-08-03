@@ -1,11 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using Plantry.Catalog.Application;
-using Plantry.Deals.Application;
+using Plantry.Market.Application;
 using Plantry.Housekeeping.Application;
 using Plantry.Intake.Application;
 using Plantry.Inventory.Application;
 using Plantry.MealPlanning.Application;
-using Plantry.Pricing.Application;
 using Plantry.Recipes.Application;
 using Plantry.Shopping.Application;
 using Plantry.SharedKernel.Domain;
@@ -81,12 +80,13 @@ public static class CompositionServiceCollectionExtensions
         // Pricing unit-price calculation ACL.
         services.AddScoped<IUnitPriceCalculator, UnitPriceCalculatorAdapter>();
 
-        // Deals ACLs onto Catalog store reference data, Pricing observation write, Catalog product
-        // existence, Inventory purchase-frequency, and the Shopping list writer.
+        // Deals ACLs onto Catalog store reference data, Catalog product existence, Inventory
+        // purchase-frequency, and the Shopping list writer. The former Deals→Pricing observation-write
+        // seam (RecordDealObservationAdapter) is gone — ConfirmDeal now calls RecordObservationCommand
+        // directly, both halves being intra-context since the Market merge (ADR-024).
         services.AddScoped<ICatalogStoreReader, CatalogStoreReaderAdapter>();
         services.AddScoped<ICatalogStoreWriter, CatalogStoreWriterAdapter>();
-        services.AddScoped<IPriceObservationWriter, RecordDealObservationAdapter>();
-        services.AddScoped<Plantry.Deals.Application.ICatalogProductReader, DealCatalogProductReaderAdapter>();
+        services.AddScoped<Plantry.Market.Application.ICatalogProductReader, DealCatalogProductReaderAdapter>();
         services.AddScoped<IPurchaseFrequencyReader, PurchaseFrequencyReaderAdapter>();
         services.AddScoped<IDealShoppingListWriter, DealShoppingListWriterAdapter>();
 

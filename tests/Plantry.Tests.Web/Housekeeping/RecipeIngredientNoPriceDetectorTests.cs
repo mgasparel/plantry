@@ -1,6 +1,6 @@
 using Plantry.Housekeeping.Domain;
-using Plantry.Pricing.Application;
-using Plantry.Pricing.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -8,6 +8,7 @@ using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Housekeeping;
 using Xunit;
+using ICatalogProductReader = Plantry.Recipes.Application.ICatalogProductReader;
 
 namespace Plantry.Tests.Web.Housekeeping;
 

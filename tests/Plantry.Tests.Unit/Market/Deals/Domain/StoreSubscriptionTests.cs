@@ -1,0 +1,142 @@
+using Plantry.Market.Domain;
+using Plantry.SharedKernel;
+using Xunit;
+
+namespace Plantry.Tests.Unit.Market.Deals.Domain;
+
+/// <summary>L1 unit tests for <see cref="StoreSubscription"/> (§3): subscribe/pause/resume/unsubscribe/record-pull.</summary>
+public sealed class StoreSubscriptionTests
+{
+    private static readonly HouseholdId Household = HouseholdId.New();
+    private static readonly Guid Store = Guid.NewGuid();
+
+    private static StoreSubscription NewSubscription(TestClock clock) =>
+        StoreSubscription.Subscribe(Household, Store, "K1A0B1", clock);
+
+    [Fact(DisplayName = "Subscribe starts active with the captured postal code")]
+    public void Subscribe_StartsActive()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        Assert.True(sub.IsActive);
+        Assert.Equal("K1A0B1", sub.PostalCode);
+        Assert.Equal(Store, sub.StoreId);
+        Assert.Equal(clock.UtcNow, sub.CreatedAt);
+        Assert.Null(sub.LastPulledAt);
+    }
+
+    [Fact(DisplayName = "Subscribe trims the postal code and rejects a blank one")]
+    public void Subscribe_TrimsAndValidatesPostalCode()
+    {
+        var sub = StoreSubscription.Subscribe(Household, Store, "  K1A 0B1  ", new TestClock());
+        Assert.Equal("K1A 0B1", sub.PostalCode);
+
+        Assert.Throws<ArgumentException>(() =>
+            StoreSubscription.Subscribe(Household, Store, "   ", new TestClock()));
+    }
+
+    [Fact(DisplayName = "Pause deactivates; Resume reactivates — history is retained")]
+    public void PauseThenResume_TogglesActive()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        sub.Pause(clock.Advance(TimeSpan.FromMinutes(1)));
+        Assert.False(sub.IsActive);
+        var pausedAt = sub.UpdatedAt;
+
+        sub.Resume(clock.Advance(TimeSpan.FromMinutes(1)));
+        Assert.True(sub.IsActive);
+        Assert.True(sub.UpdatedAt > pausedAt);
+    }
+
+    [Fact(DisplayName = "UpdatePostalCode trims, refreshes the postal, and bumps UpdatedAt; rejects a blank one")]
+    public void UpdatePostalCode_TrimsRefreshesAndValidates()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+        var before = sub.UpdatedAt;
+
+        sub.UpdatePostalCode("  M5V 2T6  ", clock.Advance(TimeSpan.FromMinutes(1)));
+        Assert.Equal("M5V 2T6", sub.PostalCode);
+        Assert.True(sub.UpdatedAt > before);
+
+        Assert.Throws<ArgumentException>(() => sub.UpdatePostalCode("   ", clock));
+    }
+
+    [Fact(DisplayName = "Unsubscribe soft-deactivates without deleting")]
+    public void Unsubscribe_SoftDeactivates()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        sub.Unsubscribe(clock);
+
+        Assert.False(sub.IsActive);
+    }
+
+    [Fact(DisplayName = "RecordPull stamps the last flyer external id and pull time (the dedup anchor)")]
+    public void RecordPull_StampsBookkeeping()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        clock.Advance(TimeSpan.FromHours(1));
+        sub.RecordPull("flyer-abc-123", clock);
+
+        Assert.Equal("flyer-abc-123", sub.LastFlyerExternalId);
+        Assert.Equal(clock.UtcNow, sub.LastPulledAt);
+    }
+
+    [Fact(DisplayName = "RecordPull rejects a blank flyer external id")]
+    public void RecordPull_RejectsBlankId()
+    {
+        var sub = NewSubscription(new TestClock());
+
+        Assert.Throws<ArgumentException>(() => sub.RecordPull("  ", new TestClock()));
+    }
+
+    [Fact(DisplayName = "RecordPull with hasNewContent:false (the DD5 no-op branch) advances LastPulledAt but leaves LastNewContentAt null (plantry-fsmb)")]
+    public void RecordPull_NoOp_AdvancesLastPulledAt_LeavesLastNewContentAtNull()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        clock.Advance(TimeSpan.FromHours(1));
+        sub.RecordPull("flyer-abc-123", clock); // default hasNewContent: false — the dedup no-op path
+
+        Assert.Equal(clock.UtcNow, sub.LastPulledAt);
+        Assert.Null(sub.LastNewContentAt);
+    }
+
+    [Fact(DisplayName = "RecordPull with hasNewContent:true stamps LastNewContentAt alongside LastPulledAt (plantry-fsmb)")]
+    public void RecordPull_NewContent_StampsBoth()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        clock.Advance(TimeSpan.FromHours(1));
+        sub.RecordPull("flyer-abc-123", clock, hasNewContent: true);
+
+        Assert.Equal(clock.UtcNow, sub.LastPulledAt);
+        Assert.Equal(clock.UtcNow, sub.LastNewContentAt);
+    }
+
+    [Fact(DisplayName = "A subsequent no-op re-pull advances LastPulledAt but does NOT shift LastNewContentAt forward (plantry-fsmb)")]
+    public void RecordPull_SubsequentNoOp_DoesNotShiftLastNewContentAt()
+    {
+        var clock = new TestClock();
+        var sub = NewSubscription(clock);
+
+        clock.Advance(TimeSpan.FromHours(1));
+        sub.RecordPull("flyer-abc-123", clock, hasNewContent: true);
+        var newContentAt = sub.LastNewContentAt;
+
+        clock.Advance(TimeSpan.FromDays(1));
+        sub.RecordPull("flyer-abc-123", clock); // next day's no-op re-confirmation
+
+        Assert.Equal(clock.UtcNow, sub.LastPulledAt);       // LastPulledAt DID advance (boot-schedule needs this)
+        Assert.Equal(newContentAt, sub.LastNewContentAt);   // LastNewContentAt did NOT — no-op is not "fresh"
+    }
+}

@@ -1,4 +1,4 @@
-using Plantry.Deals.Application;
+using Plantry.Market.Application;
 
 namespace Plantry.Web.Pages.Deals;
 
@@ -11,7 +11,7 @@ namespace Plantry.Web.Pages.Deals;
 /// <param name="FlyerUrl">
 /// The external "View flyer" URL, or null when no source flyer resolved for this chapter (q9zr.7). Built by
 /// <see cref="FlyerRail.Build"/> from <see cref="FlyerBlock.FlyerExternalId"/>: present only when a Parsed
-/// <see cref="Plantry.Deals.Domain.FlyerImport"/> was resolved for this (store, window), and points at the
+/// <see cref="Plantry.Market.Domain.FlyerImport"/> was resolved for this (store, window), and points at the
 /// verified Flipp store-search fallback (<see cref="FlyerRail.StoreSearchUrl"/>). The rail renders the link
 /// slot — in the big chip's meta or the compact active-flyer line, never per card — only when it is present.
 /// </param>

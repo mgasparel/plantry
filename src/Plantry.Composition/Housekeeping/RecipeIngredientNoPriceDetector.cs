@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Plantry.Housekeeping.Application;
 using Plantry.Housekeeping.Domain;
-using Plantry.Pricing.Application;
+using Plantry.Market.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -22,7 +22,7 @@ namespace Plantry.Web.Housekeeping;
 /// </summary>
 public sealed class RecipeIngredientNoPriceDetector(
     IRecipeRepository recipes,
-    ICatalogProductReader products,
+    Plantry.Recipes.Application.ICatalogProductReader products,
     PricingQueries pricing,
     ITenantContext tenant)
     : IProblemDetector

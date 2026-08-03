@@ -201,8 +201,8 @@ internal sealed class ProvenanceChipHrefFactory : WebApplicationFactory<Program>
             // a live DB even on their "nothing recorded" fallback path, so — like every other seam this
             // DB-less factory fakes — they need a stand-in. Reuses the fakes from
             // ProductDetailSetPriceTests.cs (same namespace).
-            services.RemoveAll<Plantry.Pricing.Domain.IPriceObservationRepository>();
-            services.AddSingleton<Plantry.Pricing.Domain.IPriceObservationRepository>(new FakePriceObservationRepository());
+            services.RemoveAll<Plantry.Market.Domain.IPriceObservationRepository>();
+            services.AddSingleton<Plantry.Market.Domain.IPriceObservationRepository>(new FakePriceObservationRepository());
 
             services.RemoveAll<Plantry.Identity.Application.IDisplayCurrency>();
             services.AddSingleton<Plantry.Identity.Application.IDisplayCurrency>(new FakeDisplayCurrency());

@@ -88,10 +88,10 @@ public static class Extensions
                     // ai.usage.input_tokens / ai.usage.output_tokens attributes.
                     // Error-status spans + LogError fire on failure, timeout, or empty response.
                     .AddSource(AiTelemetry.SourceName)
-                    // Deals' fragile external seam: flyer_directory_search / flyer_pull spans from the
+                    // Market's fragile external seam: flyer_directory_search / flyer_pull spans from the
                     // Flipp FlyerSource (FlyerTelemetry). Carry the store ref + result counts only — no
                     // postal code, PII, or secret. Error-status spans fire on failure/soft-fail.
-                    .AddSource("Plantry.Deals");
+                    .AddSource("Plantry.Market");
             });
 
         builder.AddOpenTelemetryExporters();

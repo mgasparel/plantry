@@ -80,8 +80,8 @@ public sealed class AmbientClockGuardTests
     /// the unpoliced reintroduction path for this bug class in display code.</summary>
     private static readonly string[] RequiredProjects =
     [
-        "Plantry.Catalog", "Plantry.Composition", "Plantry.Deals", "Plantry.Housekeeping", "Plantry.Identity",
-        "Plantry.Intake", "Plantry.Inventory", "Plantry.MealPlanning", "Plantry.Pricing",
+        "Plantry.Catalog", "Plantry.Composition", "Plantry.Housekeeping", "Plantry.Identity",
+        "Plantry.Intake", "Plantry.Inventory", "Plantry.Market", "Plantry.MealPlanning",
         "Plantry.Recipes", "Plantry.SharedKernel", "Plantry.Shopping", "Plantry.Web",
     ];
 

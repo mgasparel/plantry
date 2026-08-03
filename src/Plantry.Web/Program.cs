@@ -7,9 +7,9 @@ using Plantry.Ai.Infrastructure;
 using Plantry.Catalog.Application;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
-using Plantry.Deals.Application;
-using Plantry.Deals.Domain;
-using Plantry.Deals.Infrastructure;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
+using Plantry.Market.Infrastructure;
 using Plantry.Composition;
 using Plantry.Housekeeping.Application;
 using Plantry.Housekeeping.Domain;
@@ -24,9 +24,6 @@ using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Intake.Infrastructure;
 using Plantry.Migration.Grocy;
-using Plantry.Pricing.Application;
-using Plantry.Pricing.Domain;
-using Plantry.Pricing.Infrastructure;
 using Plantry.MealPlanning.Application;
 using Plantry.MealPlanning.Domain;
 using Plantry.MealPlanning.Infrastructure;
@@ -284,7 +281,7 @@ builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 // Pricing context
 builder.Services.AddDbContext<PricingDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Pricing.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Market.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IPriceObservationRepository, PriceObservationRepository>();
 // IUnitPriceCalculator adapter → Plantry.Composition (AddCrossContextAdapters).
@@ -381,7 +378,7 @@ builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>(
 // (plantry-jvzk).
 builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Deals.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Market.Infrastructure"))
         .AddInterceptors(
             sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
             sp.GetRequiredService<DomainEventDispatchInterceptor>(),
@@ -394,12 +391,13 @@ builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
 builder.Services.AddScoped<IStoreSubscriptionRepository, StoreSubscriptionRepository>();
 // ICatalogStoreReader/ICatalogStoreWriter adapters → Plantry.Composition (AddCrossContextAdapters).
 
-// Deals — P5-5 confirm/reject orchestration (DJ4). The Deal + DealMatchMemory repos, the Pricing observation
-// writer (deal-sourced observation over P5-P's RecordObservationCommand; Deals never touches PricingDbContext),
-// and the Catalog product-existence check (ADR-010/DM-3).
+// Deals — P5-5 confirm/reject orchestration (DJ4). The Deal + DealMatchMemory repos, and the Catalog
+// product-existence check (ADR-010/DM-3). ConfirmDeal now calls RecordObservationCommand directly
+// (deal-sourced observation over P5-P's RecordObservationCommand) — both live in Plantry.Market since
+// the Pricing/Deals merge (ADR-024), so the former cross-context observation-writer port is gone.
 builder.Services.AddScoped<IDealRepository, DealRepository>();
 builder.Services.AddScoped<IDealMatchMemoryRepository, DealMatchMemoryRepository>();
-// IPriceObservationWriter + Deals ICatalogProductReader adapters → Plantry.Composition (AddCrossContextAdapters).
+// Deals ICatalogProductReader adapter → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<ConfirmDeal>();
 builder.Services.AddScoped<RejectDeal>();
 
@@ -424,13 +422,13 @@ builder.Services.AddScoped<Plantry.Web.Pages.Deals.DealsReviewFlowSession>();
 
 // Deals — the review queue builder (q9zr.3 + q9zr.13): the presentation orchestration (projection → flyer rail
 // → handoff → step partition/resolution) lifted out of the ReviewModel page so the page stays thin handlers.
-// Web-project presentation only (composes ReviewDeals + FlyerRail + the flow session), never in Plantry.Deals.
+// Web-project presentation only (composes ReviewDeals + FlyerRail + the flow session), never in Plantry.Market.
 builder.Services.AddScoped<Plantry.Web.Pages.Deals.DealReviewQueueBuilder>();
 
 // Deals — P5-10 stock-up alerts (DJ5). StockUpAlerts intersects an active-deal partition the caller supplies
 // (the Deals page's single BrowseDeals read, ADR-010) with Inventory's purchase-journal frequency (IPurchaseFrequencyReader over InventoryQueryService,
 // DL-O4); "Add to list" reuses the P2-4 Shopping AddItems seam via a Deals-side writer port (DM-18). Both
-// adapters live in Web so Plantry.Deals keeps its → SharedKernel-only dependency.
+// adapters live in Web so Plantry.Market keeps its → SharedKernel-only dependency.
 builder.Services.AddScoped<StockUpAlerts>();
 // IPurchaseFrequencyReader + IDealShoppingListWriter adapters → Plantry.Composition (AddCrossContextAdapters).
 

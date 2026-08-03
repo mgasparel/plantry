@@ -7,8 +7,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Catalog.Domain;
-using Plantry.Deals.Application;
-using Plantry.Deals.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
@@ -1214,8 +1214,8 @@ public class DealReviewFactory : WebApplicationFactory<Program>
             services.AddScoped<ICatalogStoreReader>(_ => Stores);
             services.RemoveAll<IDealMatchMemoryRepository>();
             services.AddScoped<IDealMatchMemoryRepository>(_ => Memories);
-            services.RemoveAll<IPriceObservationWriter>();
-            services.AddScoped<IPriceObservationWriter>(_ => Observations);
+            services.RemoveAll<IPriceObservationRepository>();
+            services.AddScoped<IPriceObservationRepository>(_ => Observations);
 
             services.RemoveAll<IUnitRepository>();
             services.AddScoped<IUnitRepository>(_ => Units);
@@ -1277,18 +1277,44 @@ public sealed class FakeReviewMemoryRepo : IDealMatchMemoryRepository
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
-public sealed class FakeReviewObservationWriter : IPriceObservationWriter
+/// <summary>
+/// In-memory <see cref="IPriceObservationRepository"/> for the review page's E2E tests — ConfirmDeal now
+/// writes deal-sourced observations directly against this port (the former IPriceObservationWriter seam
+/// collapsed into an intra-context call once Pricing/Deals merged into Market, ADR-024).
+/// </summary>
+public sealed class FakeReviewObservationWriter : IPriceObservationRepository
 {
     public int Calls { get; set; }
+    public List<PriceObservation> Items { get; } = [];
 
-    public Task<Guid> RecordObservationAsync(
-        Guid productId, decimal price, decimal? quantity, Guid? unitId, Guid storeId,
-        DateOnly validFrom, DateOnly validTo, Guid dealId, Guid? reviewedByUserId,
-        DateTimeOffset observedAt, CancellationToken ct = default)
+    public Task AddAsync(PriceObservation observation, CancellationToken ct = default)
     {
         Calls++;
-        return Task.FromResult(Guid.NewGuid());
+        Items.Add(observation);
+        return Task.CompletedTask;
     }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<PriceObservation?> FindAsync(PriceObservationId id, CancellationToken ct = default) =>
+        Task.FromResult(Items.FirstOrDefault(p => p.Id == id));
+
+    public Task<IReadOnlyList<PriceObservation>> ListPurchasesAwaitingStoreAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>([]);
+
+    public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<PriceObservation?>(null);
+
+    public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
+        Task.FromResult<PriceObservation?>(null);
+
+    public Task<PriceObservation?> CheapestActiveDealForProductAsync(
+        Guid productId, DateOnly today, CancellationToken ct = default) =>
+        Task.FromResult<PriceObservation?>(null);
+
+    public Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
 }
 
 public sealed class FakeReviewUnitRepo : IUnitRepository

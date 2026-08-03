@@ -4,9 +4,9 @@ using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
-using Plantry.Pricing.Application;
-using Plantry.Pricing.Domain;
-using Plantry.Pricing.Infrastructure;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
+using Plantry.Market.Infrastructure;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel;
@@ -766,7 +766,7 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
     }
 
     /// <summary>Binds <c>superseded_by_id</c> on an existing observation (ADR-023 A7) — the raw-SQL
-    /// equivalent of <see cref="Plantry.Pricing.Domain.PriceObservation.Supersede"/>, used to seed the
+    /// equivalent of <see cref="Plantry.Market.Domain.PriceObservation.Supersede"/>, used to seed the
     /// dead half of an amendment pair directly against the schema (mirroring this file's raw-SQL seeding
     /// convention rather than pulling in the EF entity).</summary>
     private async Task SupersedeAsync(Guid observationId, Guid replacementId)

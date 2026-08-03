@@ -1,5 +1,5 @@
 using Plantry.MealPlanning.Application;
-using Plantry.Pricing.Application;
+using Plantry.Market.Application;
 using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Web.MealPlanning;
