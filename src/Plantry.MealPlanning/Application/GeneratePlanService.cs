@@ -140,10 +140,21 @@ public sealed class GeneratePlanService(
         if (emptyCells.Count == 0)
             return new GeneratePlanResult(0, 0, [], []);
 
-        // 5. Load candidate recipes (up to 50)
+        // 5. Load candidate recipes (up to 50), plus their household-wide rating signal in one batched
+        // round-trip (plantry-zlwp.5) — attendee-scoping happens per cell below, since DefaultAttendees
+        // varies per slot but the underlying rating data is invariant across cells within one generate call.
         var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 50, ct);
+        var ratingSummaries = await recipeReader.GetRatingSummariesAsync(
+            recipesReadModels.Select(r => r.RecipeId).ToList(), ct);
         var candidates = recipesReadModels
-            .Select(r => new CandidateRecipe(r.RecipeId, r.Name, r.TagIds, r.DefaultServings, null))
+            .Select(r =>
+            {
+                var summary = ratingSummaries.GetValueOrDefault(r.RecipeId);
+                return new CandidateRecipe(
+                    r.RecipeId, r.Name, r.TagIds, r.DefaultServings, null,
+                    HouseholdAvgRating: summary?.HouseholdAvg,
+                    RatedCount: summary?.RatedCount ?? 0);
+            })
             .ToList();
 
         // 6. Load tag vocabulary once for unfulfillable tag name resolution.
@@ -207,13 +218,33 @@ public sealed class GeneratePlanService(
                 continue;
             }
 
+            // Attendee-aware rating enrichment (plantry-zlwp.5): scope each candidate's AttendeeStars to
+            // THIS cell's effective attendees — a candidate with no attendee-rating still carries
+            // HouseholdAvgRating/RatedCount (set once above) as the fallback signal. Soft signal only:
+            // this never touches ProposalAcl/HardConflictDetector/UnfulfillabilityDetector, all of which
+            // continue to operate on the unscoped `candidates` list above them in this method.
+            var slotCandidates = constraints.EffectiveAttendees.Count == 0
+                ? candidates
+                : candidates
+                    .Select(c =>
+                    {
+                        if (!ratingSummaries.TryGetValue(c.RecipeId, out var summary))
+                            return c;
+                        var attendeeStars = constraints.EffectiveAttendees
+                            .Distinct()
+                            .Where(summary.StarsByUserId.ContainsKey)
+                            .ToDictionary(a => a, a => summary.StarsByUserId[a]);
+                        return attendeeStars.Count == 0 ? c : c with { AttendeeStars = attendeeStars };
+                    })
+                    .ToList();
+
             contexts.Add(new PlannerMealSlotContext(
                 Date: date,
                 MealSlotId: slot.Id,
                 SlotLabel: slot.Label,
                 EffectiveAttendees: constraints.EffectiveAttendees,
                 Constraints: constraints,
-                CandidateRecipes: candidates));
+                CandidateRecipes: slotCandidates));
         }
 
         // 8. Invoke IMealPlanner (UNTRUSTED — output always goes through ACL)

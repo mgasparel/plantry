@@ -96,6 +96,24 @@ public interface IRecipeReadModel
         }
         return result;
     }
+
+    /// <summary>
+    /// Batched lookup of household-wide rating signal for a set of recipe ids (plantry-zlwp.5) — feeds
+    /// <c>GeneratePlanService</c>'s per-slot <see cref="Plantry.MealPlanning.Domain.CandidateRecipe"/>
+    /// enrichment ("same seam as IRecipeReadModel / HouseholdMemberReaderAdapter" per the issue).
+    /// The per-user stars in each <see cref="RecipeRatingSummary"/> are household-wide (every rater, not
+    /// just a given slot's attendees) — the caller narrows to the slot's <c>DefaultAttendees</c> when
+    /// building <c>CandidateRecipe.AttendeeStars</c>. A recipe id with no ratings is simply OMITTED from
+    /// the result (same "absent means unresolved" convention as <see cref="GetByIdsAsync"/> and
+    /// <see cref="FindSoleYieldPhotoRecipeIdsAsync"/>) — callers fall back to "no rating data" rather than
+    /// a default/sentinel summary.
+    /// Default implementation returns an empty dictionary (no rating data) so existing
+    /// <see cref="IRecipeReadModel"/> test doubles do not need to implement this to keep compiling —
+    /// override in any double that specifically exercises rating-aware planning.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, RecipeRatingSummary>> GetRatingSummariesAsync(
+        IReadOnlyCollection<Guid> recipeIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, RecipeRatingSummary>>(new Dictionary<Guid, RecipeRatingSummary>());
 }
 
 /// <summary>Display facts for a recipe in the meal editor.</summary>
@@ -150,3 +168,17 @@ public sealed record RecipeDishEnrichment(
 /// </param>
 /// <param name="UnitId">Soft ref → catalog.unit (DM-3).</param>
 public sealed record RecipeMissingIngredient(Guid ProductId, decimal Quantity, Guid UnitId);
+
+/// <summary>
+/// Household-wide rating signal for one recipe (plantry-zlwp.5) — the raw facts
+/// <see cref="Plantry.MealPlanning.Domain.CandidateRecipe"/>'s per-slot enrichment is built from.
+/// Mirrors <c>BrowseRecipesQuery</c>'s MyStars/HouseholdAvg/RatedCount shape, minus MyStars (the
+/// planner has no single "current user" — it enriches per slot attendee instead).
+/// </summary>
+/// <param name="StarsByUserId">Every household rater's 1-5 stars for this recipe, keyed by user id.</param>
+/// <param name="HouseholdAvg">Average of every rater's stars, rounded to 1dp; null when nobody has rated.</param>
+/// <param name="RatedCount">Count of household members who have rated this recipe.</param>
+public sealed record RecipeRatingSummary(
+    IReadOnlyDictionary<Guid, int> StarsByUserId,
+    decimal? HouseholdAvg,
+    int RatedCount);

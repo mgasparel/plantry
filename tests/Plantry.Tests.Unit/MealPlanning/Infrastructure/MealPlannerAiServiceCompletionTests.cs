@@ -46,7 +46,10 @@ public sealed class MealPlannerAiServiceCompletionTests
             Constraints: GenerationConstraints.Empty,
             CandidateRecipes:
             [
-                new CandidateRecipe(RecipeGuid, "Sheet-Pan Chicken", TagIds: [], DefaultServings: 4, CostPerServing: 3.20m),
+                new CandidateRecipe(
+                    RecipeGuid, "Sheet-Pan Chicken", TagIds: [], DefaultServings: 4, CostPerServing: 3.20m,
+                    HouseholdAvgRating: 4.3m, RatedCount: 3,
+                    AttendeeStars: new Dictionary<Guid, int> { [AttendeeGuid] = 5 }),
             ]),
     ];
 
@@ -111,6 +114,8 @@ public sealed class MealPlannerAiServiceCompletionTests
         Assert.Contains(RecipeGuid.ToString(), call.UserText);         // candidate recipe id, verbatim
         Assert.Contains("Sheet-Pan Chicken", call.UserText);           // candidate recipe name
         Assert.Contains("waste=60, cost=20, variety=20", call.UserText); // planning weights forwarded
+        Assert.Contains("attendee_ratings=[5]", call.UserText);        // attendee's own stars (plantry-zlwp.5)
+        Assert.Contains("household_avg_rating=4.3 rated_by=3", call.UserText); // household fallback signal
     }
 
     [Fact]

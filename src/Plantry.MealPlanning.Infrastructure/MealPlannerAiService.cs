@@ -67,6 +67,11 @@ public sealed class MealPlannerAiService : IMealPlanner
         - NEVER propose a recipe whose tag IDs appear in the restricted_tag_ids list for that slot.
         - ALWAYS prefer recipes that include all required_tag_ids for that slot.
         - Use preferred_tag_weights (positive = preferred, negative = disliked) as soft guidance.
+        - Use attendee_ratings and household_avg_rating as soft guidance, never a hard filter: favour
+          recipes rated highly by THIS slot's attendees (attendee_ratings, 1-5 stars each); when an
+          attendee has not rated, fall back to household_avg_rating for that recipe. A low individual
+          rating should weigh against proposing that recipe for the slot but must never exclude it
+          outright — a recipe with no rating data at all is judged purely on its other merits.
         - Use the planning weights (waste/cost/variety) to prioritise: higher waste weight means
           prefer recipes that use ingredients already on hand; higher cost weight means prefer cheaper
           recipes; higher variety weight means avoid repeating the same recipe across the week.
@@ -167,7 +172,7 @@ public sealed class MealPlannerAiService : IMealPlanner
                 sb.AppendLine($"  restricted_tag_ids: [{string.Join(", ", ctx.Constraints.RestrictedTagIds)}]");
             if (ctx.Constraints.PreferredTagWeights.Count > 0)
             {
-                var biases = string.Join(", ", ctx.Constraints.PreferredTagWeights.Select(kv => $"{kv.Key}:{kv.Value:F2}"));
+                var biases = string.Join(", ", ctx.Constraints.PreferredTagWeights.Select(kv => FormattableString.Invariant($"{kv.Key}:{kv.Value:F2}")));
                 sb.AppendLine($"  preferred_tag_weights: {{{biases}}}");
             }
 
@@ -175,8 +180,19 @@ public sealed class MealPlannerAiService : IMealPlanner
             foreach (var r in ctx.CandidateRecipes)
             {
                 var tags = r.TagIds.Count > 0 ? $" tags=[{string.Join(",", r.TagIds)}]" : "";
-                var cost = r.CostPerServing.HasValue ? $" cost={r.CostPerServing:F2}" : "";
-                sb.AppendLine($"    - [{r.RecipeId}] {r.Name} (servings={r.DefaultServings}{tags}{cost})");
+                var cost = r.CostPerServing.HasValue
+                    ? FormattableString.Invariant($" cost={r.CostPerServing:F2}")
+                    : "";
+                // plantry-zlwp.5: attendee_ratings lists THIS slot's attendees' own stars (identity-free —
+                // the AI reasons over the values, not who gave them); household_avg_rating/rated_by are
+                // the household-wide fallback signal. Both soft guidance only — see SystemPrompt rules.
+                var attendeeRatings = r.AttendeeStars is { Count: > 0 }
+                    ? $" attendee_ratings=[{string.Join(",", r.AttendeeStars.Values)}]"
+                    : "";
+                var householdRating = r.HouseholdAvgRating.HasValue
+                    ? FormattableString.Invariant($" household_avg_rating={r.HouseholdAvgRating:F1} rated_by={r.RatedCount}")
+                    : "";
+                sb.AppendLine($"    - [{r.RecipeId}] {r.Name} (servings={r.DefaultServings}{tags}{cost}{attendeeRatings}{householdRating})");
             }
             sb.AppendLine();
         }

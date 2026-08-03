@@ -124,7 +124,7 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
         var fulfillment = new FulfillmentService(stock, catalog, new IdentityConverter(), new FixedHorizon(7));
         var costing = new CostingService(prices, new IdentityConverter(), catalog);
-        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock);
+        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx));
     }
 
     private RecipesDbContext NewContext()

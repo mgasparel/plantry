@@ -29,12 +29,13 @@ public sealed class GeneratePlanServiceTests
             IReadOnlyList<UserPreference>? prefs = null,
             IReadOnlyList<RecipeReadModel>? recipes = null,
             IMealPlanner? planner = null,
-            ITagReader? tagReader = null)
+            ITagReader? tagReader = null,
+            IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null)
     {
         var config = slotConfig ?? BuildDefaultSlotConfig();
         var slotConfigRepo = new FakeSlotConfigRepo(config);
         var prefRepo = new FakePrefsRepo(prefs ?? []);
-        var recipeReader = new FakeRecipeReader(recipes ?? []);
+        var recipeReader = new FakeRecipeReader(recipes ?? [], ratings ?? new Dictionary<Guid, RecipeRatingSummary>());
         var mealPlanRepo = new FakeMealPlanRepository();
         var sp = new ServiceCollection().AddDistributedMemoryCache().BuildServiceProvider();
         var memoryCache = sp.GetRequiredService<IDistributedCache>();
@@ -395,6 +396,167 @@ public sealed class GeneratePlanServiceTests
         // ProposedCount may be 0 if the FakeMealPlanner returns nothing, but cells WERE submitted.
     }
 
+    // ── Attendee-aware rating enrichment (plantry-zlwp.5) ─────────────────────────
+
+    [Fact(DisplayName = "Execute_RatingEnrichment — candidate carries the slot's attendee stars + household avg/count, scoped per attendee")]
+    public async Task Execute_PassesCorrectRatingData_ForAttendees()
+    {
+        // Arrange: two attendees on every slot. Alice has rated the candidate 5 stars; Bob has not rated
+        // it at all (only a third, non-attendee household member has, contributing to the household avg).
+        var aliceId = Guid.NewGuid();
+        var bobId = Guid.NewGuid();
+        var otherMemberId = Guid.NewGuid();
+        var recipeId = Guid.NewGuid();
+
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [aliceId, bobId], Clock);
+
+        var recipes = new List<RecipeReadModel> { new(recipeId, "Sheet-Pan Chicken", [], DefaultServings: 4) };
+        var ratings = new Dictionary<Guid, RecipeRatingSummary>
+        {
+            [recipeId] = new(
+                StarsByUserId: new Dictionary<Guid, int> { [aliceId] = 5, [otherMemberId] = 3 },
+                HouseholdAvg: 4.0m,
+                RatedCount: 2),
+        };
+
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(
+            slotConfig: config, recipes: recipes, ratings: ratings, planner: planner);
+
+        // Act
+        await generateService.ExecuteAsync(Household, Monday, "rating-enrichment-key", null);
+
+        // Assert: every dispatched cell's candidate carries Alice's own 5-star rating (she's an
+        // attendee and has rated), NOT Bob's (he's an attendee but hasn't rated — absent from the
+        // dictionary, not a zero/default entry), and the household-wide avg/count regardless of
+        // who the attendees are.
+        Assert.NotEmpty(planner.SeenContexts);
+        foreach (var ctx in planner.SeenContexts)
+        {
+            var candidate = Assert.Single(ctx.CandidateRecipes, c => c.RecipeId == recipeId);
+            Assert.NotNull(candidate.AttendeeStars);
+            Assert.Equal(5, candidate.AttendeeStars![aliceId]);
+            Assert.False(candidate.AttendeeStars.ContainsKey(bobId));
+            Assert.False(candidate.AttendeeStars.ContainsKey(otherMemberId)); // not an attendee of this slot
+            Assert.Equal(4.0m, candidate.HouseholdAvgRating);
+            Assert.Equal(2, candidate.RatedCount);
+        }
+    }
+
+    [Fact(DisplayName = "Execute_RatingEnrichment_NoRatings — an unrated candidate carries null AttendeeStars/HouseholdAvgRating and zero RatedCount")]
+    public async Task Execute_UnratedCandidate_CarriesNoRatingData()
+    {
+        var userId = Guid.NewGuid();
+        var recipeId = Guid.NewGuid();
+
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [userId], Clock);
+
+        var recipes = new List<RecipeReadModel> { new(recipeId, "Pasta", [], DefaultServings: 4) };
+
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(
+            slotConfig: config, recipes: recipes, planner: planner); // no ratings passed
+
+        await generateService.ExecuteAsync(Household, Monday, "no-ratings-key", null);
+
+        Assert.NotEmpty(planner.SeenContexts);
+        foreach (var ctx in planner.SeenContexts)
+        {
+            var candidate = Assert.Single(ctx.CandidateRecipes, c => c.RecipeId == recipeId);
+            Assert.Null(candidate.AttendeeStars);
+            Assert.Null(candidate.HouseholdAvgRating);
+            Assert.Equal(0, candidate.RatedCount);
+        }
+    }
+
+    [Fact(DisplayName = "Execute_RatingEnrichment_LowRatingIsSoftSignal — a 1-star candidate still reaches the planner alongside a 5-star one, never filtered out")]
+    public async Task Execute_LowRatedCandidate_StillDispatchedToPlanner()
+    {
+        // Arrange: two candidates for the same slot, rated 1 and 5 stars respectively by the sole
+        // attendee. The ticket's load-bearing distinction is "soft signal, NOT a hard filter" — a low
+        // rating must attach as DATA on the candidate, never remove it from what the planner sees.
+        var userId = Guid.NewGuid();
+        var lowRatedRecipeId = Guid.NewGuid();
+        var highRatedRecipeId = Guid.NewGuid();
+
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [userId], Clock);
+
+        var recipes = new List<RecipeReadModel>
+        {
+            new(lowRatedRecipeId, "Disliked Dish", [], DefaultServings: 4),
+            new(highRatedRecipeId, "Favourite Dish", [], DefaultServings: 4),
+        };
+        var ratings = new Dictionary<Guid, RecipeRatingSummary>
+        {
+            [lowRatedRecipeId] = new(
+                StarsByUserId: new Dictionary<Guid, int> { [userId] = 1 }, HouseholdAvg: 1.0m, RatedCount: 1),
+            [highRatedRecipeId] = new(
+                StarsByUserId: new Dictionary<Guid, int> { [userId] = 5 }, HouseholdAvg: 5.0m, RatedCount: 1),
+        };
+
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(
+            slotConfig: config, recipes: recipes, ratings: ratings, planner: planner);
+
+        // Act
+        await generateService.ExecuteAsync(Household, Monday, "low-rating-soft-signal-key", null);
+
+        // Assert: both candidates are STILL dispatched to the planner for every cell — the 1-star
+        // rating is carried as data on the candidate, never used to drop it from the list.
+        Assert.NotEmpty(planner.SeenContexts);
+        foreach (var ctx in planner.SeenContexts)
+        {
+            Assert.Contains(ctx.CandidateRecipes, c => c.RecipeId == lowRatedRecipeId);
+            Assert.Contains(ctx.CandidateRecipes, c => c.RecipeId == highRatedRecipeId);
+
+            var lowRated = ctx.CandidateRecipes.Single(c => c.RecipeId == lowRatedRecipeId);
+            Assert.Equal(1, lowRated.AttendeeStars![userId]);
+        }
+    }
+
+    [Fact(DisplayName = "Execute_RatingEnrichment_DuplicateAttendee — a repeated attendee id does not throw when building AttendeeStars")]
+    public async Task Execute_DuplicateAttendeeId_DoesNotThrow()
+    {
+        // Arrange: DefaultAttendees carries the SAME user id twice — reachable in production (no dedup
+        // in MealSlot.SetDefaultAttendees / MealConstraintResolver.EffectiveAttendees). Building
+        // AttendeeStars via ToDictionary over a duplicate-bearing list must not throw.
+        var userId = Guid.NewGuid();
+        var recipeId = Guid.NewGuid();
+
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var s in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(s.Id, [userId, userId], Clock);
+
+        var recipes = new List<RecipeReadModel> { new(recipeId, "Chili", [], DefaultServings: 4) };
+        var ratings = new Dictionary<Guid, RecipeRatingSummary>
+        {
+            [recipeId] = new(
+                StarsByUserId: new Dictionary<Guid, int> { [userId] = 4 }, HouseholdAvg: 4.0m, RatedCount: 1),
+        };
+
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(
+            slotConfig: config, recipes: recipes, ratings: ratings, planner: planner);
+
+        // Act — must not throw ArgumentException from a duplicate-key ToDictionary.
+        await generateService.ExecuteAsync(Household, Monday, "duplicate-attendee-key", null);
+
+        // Assert: the duplicate collapses to a single AttendeeStars entry for that user.
+        Assert.NotEmpty(planner.SeenContexts);
+        foreach (var ctx in planner.SeenContexts)
+        {
+            var candidate = Assert.Single(ctx.CandidateRecipes, c => c.RecipeId == recipeId);
+            Assert.Equal(4, candidate.AttendeeStars![userId]);
+            Assert.Single(candidate.AttendeeStars);
+        }
+    }
+
     // ── Per-slot auto-plan opt-out (plantry-av8z) ─────────────────────────────────
 
     [Fact(DisplayName = "Execute_Bulk_SkipsOptedOutSlots — a slot with IncludeInAutoPlan=false is not dispatched")]
@@ -472,7 +634,9 @@ public sealed class GeneratePlanServiceTests
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    private sealed class FakeRecipeReader(IReadOnlyList<RecipeReadModel> recipes) : IRecipeReadModel
+    private sealed class FakeRecipeReader(
+        IReadOnlyList<RecipeReadModel> recipes,
+        IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null) : IRecipeReadModel
     {
         public Task<RecipeReadModel?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
             Task.FromResult(recipes.FirstOrDefault(r => r.RecipeId == id));
@@ -492,6 +656,11 @@ public sealed class GeneratePlanServiceTests
         /// </summary>
         public Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default) =>
             Task.FromResult(recipes.Any(r => r.TagIds.Contains(tagId)));
+
+        /// <summary>plantry-zlwp.5: in-memory rating summaries, keyed by recipe id — unrated ids simply omitted.</summary>
+        public Task<IReadOnlyDictionary<Guid, RecipeRatingSummary>> GetRatingSummariesAsync(
+            IReadOnlyCollection<Guid> recipeIds, CancellationToken ct = default) =>
+            Task.FromResult(ratings ?? new Dictionary<Guid, RecipeRatingSummary>());
     }
 
     /// <summary>Returns empty tag groups; used when tag name resolution is not under test.</summary>
