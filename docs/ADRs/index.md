@@ -13,7 +13,7 @@ Architecture Decision Records for Plantry.
 | [ADR-007](ADR-007.md) | AI orchestration runs server-side in .NET | Accepted · amended 2026-06-06 |
 | [ADR-008](ADR-008.md) | Authentication and household multi-tenancy built in from day one | Accepted · amended 2026-06-06 |
 | [ADR-009](ADR-009.md) | Binary content stored in PostgreSQL | Accepted |
-| [ADR-010](ADR-010.md) | Bounded contexts and aggregate boundaries (modular monolith) | Accepted · amended 2026-06-06 |
+| [ADR-010](ADR-010.md) | Bounded contexts and aggregate boundaries (modular monolith) | Accepted · amended repeatedly, latest 2026-08-03 — context map superseded by [ADR-024](ADR-024.md) |
 | [ADR-011](ADR-011.md) | Single consumption primitive (Inventory `Consume`) | Accepted · amended 2026-06-06 |
 | [ADR-012](ADR-012.md) | Deployment & runtime topology (Docker homelab, Aspire app model) | Superseded by [ADR-016](ADR-016.md) |
 | [ADR-013](ADR-013.md) | Intake review form: targeted out-of-band swaps over full-region re-render | Accepted · amended 2026-06-18, 2026-06-22 · superseded-in-practice on island surfaces by [ADR-020](ADR-020.md) |
@@ -24,6 +24,7 @@ Architecture Decision Records for Plantry.
 | [ADR-018](ADR-018.md) | Fully agentic engineering | Accepted |
 | [ADR-019](ADR-019.md) | Skills until they break: keep agentic tooling minimal, escalate on concrete triggers | Accepted |
 | [ADR-020](ADR-020.md) | Reactive islands for stateful surfaces (Intake, Meal Planner, Take Stock) — amends ADR-005/013/015 | Accepted · amended 2026-06-24 (test-time Node permitted for island tests), 2026-07-07 (fourth island: Deals judgement-call deck, imperative-DOM concession) |
-| [ADR-021](ADR-021.md) | Read paths may cross bounded-context boundaries via read-only cross-schema read models (read-side dual of ADR-014) | Accepted |
+| [ADR-021](ADR-021.md) | Read paths may cross bounded-context boundaries via read-only cross-schema read models (read-side dual of ADR-014) | Accepted · broadened 2026-08-03 by [ADR-024](ADR-024.md) (read models become the default for multi-context page composition) |
 | [ADR-022](ADR-022.md) | AI-suggested conversions are provisional deterministic values, tagged in-place, not a quarantined subsystem | Accepted |
 | [ADR-023](ADR-023.md) | Amendment vs Correction: the ledger distinguishes "the record was wrong" from "reality drifted" | Accepted |
+| [ADR-024](ADR-024.md) | Consolidate bounded contexts: ten fold to six (amends ADR-010, broadens ADR-021) | Accepted |
