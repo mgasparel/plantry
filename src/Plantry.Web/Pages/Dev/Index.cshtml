@@ -2497,6 +2497,14 @@ if (!resp.ok) { /* handle */ }")</code></pre>
         <code>.star-rating</code> cell). <strong>No ratings at all → render nothing</strong> — no
         empty-star noise.
     </p>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+        Don't hand-roll this markup on a new page: <code>Pages/Recipes/_RecipeRatingBreakdown.cshtml</code>
+        renders the whole <code>.popover__content</code> panel (title + per-member rows) from a
+        <code>RecipeRatingBreakdownPopoverView(PopoverId, HouseholdAvg, Breakdown)</code> model, and
+        <code>Pages/Shared/_StarRatingDisplay.cshtml</code> renders one static 5-star row from an
+        <code>int</code>. Details, the gallery card, and the grid cell below all consume the same two
+        partials — see the code sample.
+    </p>
 
     <h3 style="font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2)">Gallery card — one pill, hover for the breakdown</h3>
     <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
@@ -2619,11 +2627,11 @@ if (!resp.ok) { /* handle */ }")</code></pre>
         </div>
     </div>
 
-    <pre class="code-sample"><code>@("<span class=\"popover\">\n    <span class=\"popover__trigger rating-pill rating-pill--surface rating-pill--grid rating-pill--in\" tabindex=\"0\" aria-describedby=\"rating-pop-@Model.RecipeId\">\n        <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-star-outline\" /></svg><span>@avg.ToString(\"0.0\")</span>\n    </span>\n    <span class=\"popover__content\" id=\"rating-pop-@Model.RecipeId\" role=\"tooltip\">\n        <span class=\"popover__title\">Household @avg.ToString(\"0.0\") avg</span>\n        @* \"You\" row first, then the rest; unrated members show .rating-pop-row__unrated \"not rated\" instead of stars *@\n        @foreach (var member in Model.Breakdown)\n        {\n            <span class=\"rating-pop-row@(member.IsMe ? \" rating-pop-row--me\" : \"\")\">\n                <span class=\"rating-pop-row__avatar\" aria-hidden=\"true\">@member.Initial</span>\n                <span class=\"rating-pop-row__who\">@(member.IsMe ? \"You\" : member.Name)</span>\n                @if (member.Stars is { } s) { <span class=\"star-rating\" role=\"img\" aria-label=\"@(s) out of 5 stars\">...@* 5 <use href=\"#i-star\">, is-filled up to s *@</span> }\n                else { <span class=\"rating-pop-row__unrated\">not rated</span> }\n            </span>\n        }\n    </span>\n</span>\n\n<!-- Gallery/grid: wrap the pill in a <span tabindex=\"0\"> (hover/focus reveal only — no tap,\n     the card/row is already a link). Details: use a real <button> so touch keeps access too.\n     Give the popover__content its own unique id and point the trigger's aria-describedby at it\n     (the <popover> tag helper does this automatically; hand-rolled pills must wire it by hand). -->")</code></pre>
+    <pre class="code-sample"><code>@("<span class=\"popover\">\n    <span class=\"popover__trigger rating-pill rating-pill--surface rating-pill--grid rating-pill--in\" tabindex=\"0\" aria-describedby=\"@popId\">\n        <svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-star-outline\" /></svg><span>@avg.ToString(\"0.0\", CultureInfo.InvariantCulture)</span>\n    </span>\n    <partial name=\"_RecipeRatingBreakdown\" model='new RecipeRatingBreakdownPopoverView(popId, avg, Model.Breakdown)' />\n</span>\n\n<!-- Gallery/grid: wrap the pill in a <span tabindex=\"0\"> (hover/focus reveal only — no tap,\n     the card/row is already a link). Details: use a real <button> so touch keeps access too.\n     popId must be unique per rendered instance — per-recipe on Browse (e.g. \"rating-pop-grid-\"\n     + RecipeId), fixed on Details (\"rd-rating-pop\", there's only one). ToString(\"0.0\", ...) MUST\n     carry CultureInfo.InvariantCulture — the app has no InvariantGlobalization/RequestLocalization\n     setup, so a comma-decimal ambient culture would otherwise render \"4,5\". _RecipeRatingBreakdown\n     and Shared/_StarRatingDisplay are the canonical consumption path for the popover content and\n     the 5-star display respectively — never hand-roll either again. -->")</code></pre>
 
     <p class="alert alert--info">
-        No feature page consumes these yet — Recipe Details wiring (rating capture + household
-        summary) is plantry-zlwp.3; the gallery pill and grid Rating column/sort are
-        plantry-zlwp.4.
+        Consumed by Recipe Details (rating capture + household summary, plantry-zlwp.3) and the
+        Browse gallery pill / grid Rating column (plantry-zlwp.4), all three sharing the
+        <code>_RecipeRatingBreakdown</code> + <code>Shared/_StarRatingDisplay</code> partials above.
     </p>
 </section>

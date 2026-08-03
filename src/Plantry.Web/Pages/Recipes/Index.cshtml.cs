@@ -70,6 +70,7 @@ public sealed class IndexModel(BrowseRecipesQuery query, DisplayCurrencyAccessor
             "cooktime"  => BrowseSort.CookTime,
             "recent"  => BrowseSort.RecentlyAdded,
             "name"    => BrowseSort.Name,
+            "rating"  => BrowseSort.Rating,
             _         => BrowseSort.Fulfillment,
         };
 

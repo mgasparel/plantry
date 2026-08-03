@@ -122,6 +122,152 @@ public sealed class RecipeBrowseSnapshotTests(RecipeBrowseFragmentFactory factor
         Assert.DoesNotContain("$", costText, StringComparison.Ordinal);
     }
 
+    // ── Rating pills (plantry-zlwp.4) ─────────────────────────────────────────
+
+    [Fact(DisplayName = "Browse gallery: my rating renders the filled 'mine' pill; others-only renders the grey ghost; unrated renders nothing (plantry-zlwp.4)")]
+    public async Task Browse_gallery_rating_pills()
+    {
+        using var ratedFactory = new RecipeBrowseRatedFactory();
+        var client = ratedFactory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, RecipeBrowseFixture.HouseholdAId.ToString());
+        var response = await client.GetAsync("/Recipes");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        var doc = Parser.ParseDocument(html);
+        var pancakesCard = doc.QuerySelector($"#recipe-card-{ratedFactory.Pancakes.Id.Value}")
+            ?? throw new InvalidOperationException("Expected Pancakes gallery card.");
+        var omeletteCard = doc.QuerySelector($"#recipe-card-{ratedFactory.Omelette.Id.Value}")
+            ?? throw new InvalidOperationException("Expected Omelette gallery card.");
+        var milkShakeCard = doc.QuerySelector($"#recipe-card-{ratedFactory.MilkShake.Id.Value}")
+            ?? throw new InvalidOperationException("Expected Milk Shake gallery card.");
+
+        // Every positive assertion below targets the specific element under test (class list, text
+        // content, or attribute of the element itself) rather than substring-matching InnerHtml — the
+        // popover's nested _RecipeRatingBreakdown markup renders .star-rating rows and rating text of
+        // its own, so an InnerHtml substring check can stay green after the element it documents is
+        // deleted (mutation-blind).
+
+        // Pancakes: I've rated (4) — filled "mine" pill showing my whole number, never the 4.5 decimal
+        // avg. Its popover wires aria-describedby to a matching #rating-pop-card-{id} containing my row.
+        var pancakesPill = pancakesCard.QuerySelector(".rating-pill")
+            ?? throw new InvalidOperationException("Expected Pancakes rating pill.");
+        Assert.Contains("rating-pill--mine", pancakesPill.ClassList);
+        Assert.Equal("4", pancakesPill.TextContent.Trim());
+        var pancakesPopId = $"rating-pop-card-{ratedFactory.Pancakes.Id.Value}";
+        var pancakesTrigger = pancakesCard.QuerySelector(".popover__trigger")
+            ?? throw new InvalidOperationException("Expected Pancakes rating pill trigger.");
+        Assert.Equal(pancakesPopId, pancakesTrigger.GetAttribute("aria-describedby"));
+        var pancakesPopover = pancakesCard.QuerySelector($"#{pancakesPopId}")
+            ?? throw new InvalidOperationException("Expected Pancakes rating popover content.");
+        var pancakesMeRow = pancakesPopover.QuerySelector(".rating-pop-row--me")
+            ?? throw new InvalidOperationException("Expected the current user's row in the Pancakes popover.");
+        var pancakesMeStars = pancakesMeRow.QuerySelector(".star-rating")
+            ?? throw new InvalidOperationException("Expected the current user's stars in the Pancakes popover row.");
+        Assert.Equal("4 out of 5 stars", pancakesMeStars.GetAttribute("aria-label"));
+
+        // Omelette: only Alex rated (5) — grey ghost pill showing the decimal avg.
+        var omelettePill = omeletteCard.QuerySelector(".rating-pill")
+            ?? throw new InvalidOperationException("Expected Omelette rating pill.");
+        Assert.Contains("rating-pill--out", omelettePill.ClassList);
+        Assert.Equal("5.0", omelettePill.TextContent.Trim());
+
+        // Milk Shake: nobody rated — no rating pill at all.
+        Assert.DoesNotContain("rating-pill", milkShakeCard.InnerHtml, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Browse grid: my stars over the household pill; 'not rated by you' when only others have; dash when nobody has (plantry-zlwp.4)")]
+    public async Task Browse_grid_rating_cells()
+    {
+        using var ratedFactory = new RecipeBrowseRatedFactory();
+        var client = ratedFactory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, RecipeBrowseFixture.HouseholdAId.ToString());
+        var response = await client.GetAsync("/Recipes?sort=name&desc=false");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        var doc = Parser.ParseDocument(html);
+        var pancakesRow = doc.QuerySelector($"#recipe-row-{ratedFactory.Pancakes.Id.Value}")
+            ?? throw new InvalidOperationException("Expected Pancakes grid row.");
+        var omeletteRow = doc.QuerySelector($"#recipe-row-{ratedFactory.Omelette.Id.Value}")
+            ?? throw new InvalidOperationException("Expected Omelette grid row.");
+        var milkShakeRow = doc.QuerySelector($"#recipe-row-{ratedFactory.MilkShake.Id.Value}")
+            ?? throw new InvalidOperationException("Expected Milk Shake grid row.");
+
+        // Scope every assertion to the specific ELEMENT under test, not just the rating cell — the cost
+        // cell also renders a bare "—" dash (Milk Shake has no price), and the popover breakdown nested
+        // INSIDE the rating cell renders .star-rating rows and rating text for other members, so even a
+        // cell-scoped InnerHtml/OuterHtml substring check can stay green after the cell's own content
+        // (my stars, the muted text, the household pill) is deleted (mutation-blind).
+        var pancakesRating = pancakesRow.QuerySelector(".recipes-grid__cell--rating")
+            ?? throw new InvalidOperationException("Expected Pancakes rating cell.");
+        var omeletteRating = omeletteRow.QuerySelector(".recipes-grid__cell--rating")
+            ?? throw new InvalidOperationException("Expected Omelette rating cell.");
+        var milkShakeRating = milkShakeRow.QuerySelector(".recipes-grid__cell--rating")
+            ?? throw new InvalidOperationException("Expected Milk Shake rating cell.");
+
+        // Pancakes: my stars (4) — the FIRST child of the cell — over the warm --in household pill
+        // (4.5 avg, my rating included). Popover wires aria-describedby to a matching #rating-pop-grid-{id}
+        // containing my row.
+        var pancakesMyStars = pancakesRating.Children[0];
+        Assert.Contains("star-rating", pancakesMyStars.ClassList);
+        Assert.Equal("4 out of 5 stars", pancakesMyStars.GetAttribute("aria-label"));
+        var pancakesGridPill = pancakesRating.QuerySelector(".rating-pill")
+            ?? throw new InvalidOperationException("Expected Pancakes grid household pill.");
+        Assert.Contains("rating-pill--in", pancakesGridPill.ClassList);
+        Assert.Equal("4.5", pancakesGridPill.TextContent.Trim());
+        var pancakesGridPopId = $"rating-pop-grid-{ratedFactory.Pancakes.Id.Value}";
+        var pancakesGridTrigger = pancakesRating.QuerySelector(".popover__trigger")
+            ?? throw new InvalidOperationException("Expected Pancakes grid rating pill trigger.");
+        Assert.Equal(pancakesGridPopId, pancakesGridTrigger.GetAttribute("aria-describedby"));
+        var pancakesGridPopover = pancakesRating.QuerySelector($"#{pancakesGridPopId}")
+            ?? throw new InvalidOperationException("Expected Pancakes grid rating popover content.");
+        var pancakesGridMeRow = pancakesGridPopover.QuerySelector(".rating-pop-row--me")
+            ?? throw new InvalidOperationException("Expected the current user's row in the Pancakes grid popover.");
+        var pancakesGridMeStars = pancakesGridMeRow.QuerySelector(".star-rating")
+            ?? throw new InvalidOperationException("Expected the current user's stars in the Pancakes grid popover row.");
+        Assert.Equal("4 out of 5 stars", pancakesGridMeStars.GetAttribute("aria-label"));
+
+        // Omelette: "not rated by you" muted text — the FIRST child of the cell, never a star rating —
+        // over the grey --out pill (5.0 avg, my rating excluded).
+        var omeletteSub = omeletteRating.Children[0];
+        Assert.Contains("recipes-grid__cell-sub", omeletteSub.ClassList);
+        Assert.Equal("not rated by you", omeletteSub.TextContent.Trim());
+        var omeletteGridPill = omeletteRating.QuerySelector(".rating-pill")
+            ?? throw new InvalidOperationException("Expected Omelette grid household pill.");
+        Assert.Contains("rating-pill--out", omeletteGridPill.ClassList);
+        Assert.Equal("5.0", omeletteGridPill.TextContent.Trim());
+
+        // Milk Shake: dash, no pill at all — nobody has rated it.
+        Assert.DoesNotContain("rating-pill", milkShakeRating.InnerHtml, StringComparison.Ordinal);
+        Assert.Equal("—", milkShakeRating.TextContent.Trim());
+    }
+
+    [Fact(DisplayName = "Browse grid: Rating column header sorts by household average, unrated recipes always last (plantry-zlwp.4)")]
+    public async Task Browse_grid_rating_sort_nulls_last()
+    {
+        using var ratedFactory = new RecipeBrowseRatedFactory();
+        var client = ratedFactory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, RecipeBrowseFixture.HouseholdAId.ToString());
+
+        // Descending: Omelette (5.0 avg) before Pancakes (4.5 avg) before Milk Shake (unrated, always last).
+        var descResponse = await client.GetAsync("/Recipes?sort=rating&desc=true");
+        var descHtml = await descResponse.Content.ReadAsStringAsync();
+        var descNames = Parser.ParseDocument(descHtml)
+            .QuerySelectorAll(".recipes-grid__name-text b")
+            .Select(e => e.TextContent).ToList();
+        Assert.Equal(["Omelette", "Pancakes", "Milk Shake"], descNames);
+
+        // Ascending: Pancakes (4.5) before Omelette (5.0); Milk Shake (unrated) STILL last, not first —
+        // this is the "nulls last regardless of direction" behaviour the ticket calls for.
+        var ascResponse = await client.GetAsync("/Recipes?sort=rating&desc=false");
+        var ascHtml = await ascResponse.Content.ReadAsStringAsync();
+        var ascNames = Parser.ParseDocument(ascHtml)
+            .QuerySelectorAll(".recipes-grid__name-text b")
+            .Select(e => e.TextContent).ToList();
+        Assert.Equal(["Pancakes", "Omelette", "Milk Shake"], ascNames);
+    }
+
     // ── Toolbar: tag filter chips ─────────────────────────────────────────────
 
     [Fact]

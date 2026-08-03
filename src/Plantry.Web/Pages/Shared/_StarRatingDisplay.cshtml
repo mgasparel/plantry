@@ -1,0 +1,13 @@
+@model int
+@*
+    Static (non-interactive) 5-star display (plantry-zlwp.4 critic FIX — extracted from three call
+    sites: the Details household popover, the Browse gallery/grid popovers, and the Browse grid's
+    "my stars" cell). Filled gold = a person's rating; see plenish.css's ".star-rating" doc comment
+    for the shared visual grammar. Model is the star count, 0-5 (0 renders all-empty).
+*@
+<span class="star-rating" role="img" aria-label="@Model out of 5 stars">
+    @for (var i = 1; i <= 5; i++)
+    {
+        <svg class="icon@(i <= Model ? " is-filled" : "")" aria-hidden="true"><use href="#i-star" /></svg>
+    }
+</span>

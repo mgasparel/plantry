@@ -28,17 +28,40 @@ public sealed class GetRecipeRatingBreakdownQuery(
         RecipeId recipeId, Guid currentUserId, CancellationToken ct = default)
     {
         var ratingRows = await ratings.ListByRecipeAsync(recipeId, ct);
-        var starsByUser = ratingRows.ToDictionary(r => r.UserId, r => r.Stars);
-
         var memberDirectory = await members.ListMembersAsync(ct);
         var memberById = memberDirectory.ToDictionary(m => m.UserId);
+
+        return RecipeRatingBreakdown.Build(memberById, ratingRows, currentUserId);
+    }
+}
+
+/// <summary>
+/// Shared per-member breakdown assembly (plantry-zlwp.1/.4) — used by <see cref="GetRecipeRatingBreakdownQuery"/>
+/// (single-recipe Details popover) AND <see cref="BrowseRecipesQuery"/> (per-row Browse gallery/grid popovers),
+/// so the "union of members ∪ raters, 'You' first, then alphabetical" rule lives in exactly one place.
+/// </summary>
+public static class RecipeRatingBreakdown
+{
+    /// <summary>
+    /// Builds the per-member breakdown rows for one recipe: the UNION of every current household member and
+    /// every user who has rated it — NOT rated-members-only (see <see cref="GetRecipeRatingBreakdownQuery"/>'s
+    /// class doc for why unrated members still need a row). Pure in-memory composition — no I/O — so callers
+    /// that already hold a batched member directory and a per-recipe rating set (Browse) can invoke this
+    /// per row without any extra query.
+    /// </summary>
+    public static IReadOnlyList<RecipeRatingBreakdownRow> Build(
+        IReadOnlyDictionary<Guid, HouseholdMember> memberById,
+        IReadOnlyList<RecipeRating> recipeRatings,
+        Guid? currentUserId)
+    {
+        var starsByUser = recipeRatings.ToDictionary(r => r.UserId, r => r.Stars);
 
         // Union: every directory member ∪ every rater not (any longer) in the directory.
         var participantIds = memberById.Keys.Union(starsByUser.Keys).ToList();
         if (participantIds.Count == 0)
             return [];
 
-        var rows = participantIds
+        return participantIds
             .Select(userId =>
             {
                 memberById.TryGetValue(userId, out var member);
@@ -54,8 +77,6 @@ public sealed class GetRecipeRatingBreakdownQuery(
             .OrderByDescending(r => r.IsCurrentUser)
             .ThenBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        return rows;
     }
 }
 

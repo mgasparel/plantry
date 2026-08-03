@@ -118,6 +118,33 @@ public static class RecipeBrowseFixture
             .GetProperty(nameof(tag.Id), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
         prop?.SetValue(tag, id);
     }
+
+    // ── Ratings (plantry-zlwp.4) ────────────────────────────────────────────────
+
+    /// <summary>The signed-in test user's id — matches <c>TestAuthHandler</c>'s fixed NameIdentifier claim.</summary>
+    public static readonly Guid CurrentUserId = Guid.Parse("00000000-0000-0000-0000-0000000000aa");
+
+    public static readonly Guid AlexId = Guid.Parse("cccccccc-0000-0000-0000-000000000003");
+
+    /// <summary>
+    /// Ratings exercising all three gallery/grid render paths across the fixture's three recipes:
+    /// Pancakes rated by me (4) AND Alex (5) → the "mine" filled-gold pill, warm --in household pill,
+    /// 4.5 avg. Omelette rated by Alex only (5) → the grey --out ghost pill, "not rated by you". Milk
+    /// Shake unrated by anyone → no pill at all (dash in grid).
+    /// </summary>
+    public static IReadOnlyList<RecipeRating> RatedPancakesAndOmelette(RecipeId pancakesId, RecipeId omeletteId) =>
+    [
+        RecipeRating.Create(Household, pancakesId, CurrentUserId, 4, Clock),
+        RecipeRating.Create(Household, pancakesId, AlexId, 5, Clock),
+        RecipeRating.Create(Household, omeletteId, AlexId, 5, Clock),
+    ];
+
+    /// <summary>The two-member household directory backing <see cref="RatedPancakesAndOmelette"/>.</summary>
+    public static IReadOnlyList<HouseholdMember> TwoMemberHousehold() =>
+    [
+        new HouseholdMember(CurrentUserId, "Michael", "M"),
+        new HouseholdMember(AlexId, "Alex", "A"),
+    ];
 }
 
 // ── Browse-specific repository fakes ──────────────────────────────────────────────────────────────

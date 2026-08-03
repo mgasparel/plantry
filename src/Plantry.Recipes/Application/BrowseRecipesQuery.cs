@@ -32,6 +32,7 @@ public sealed class BrowseRecipesQuery(
     IRecipeRepository recipes,
     ITagRepository tags,
     IRecipeRatingRepository ratings,
+    IHouseholdMemberReader members,
     RecipeExpansionService expansion,
     FulfillmentService fulfillment,
     CostingService costing,
@@ -78,6 +79,11 @@ public sealed class BrowseRecipesQuery(
             .GroupBy(r => r.RecipeId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<RecipeRating>)g.ToList());
 
+        // Household member directory (plantry-zlwp.4): ONE call for the whole browse set, mirroring the
+        // ratingsByRecipe batch above — backs each row's per-member popover breakdown (RecipeRatingBreakdown.Build,
+        // pure in-memory, no per-row query) without adding a second N+1 seam alongside the ratings one.
+        var memberById = (await members.ListMembersAsync(ct)).ToDictionary(m => m.UserId);
+
         // Batched in-memory expansion (Option B, recipe-composition.md D4/D5): every non-archived recipe is
         // already loaded (with ingredients + inclusions) by ListForBrowseAsync, so build an id→Recipe map and
         // expand each recipe against the MAP — no per-sub round-trips. Expansion runs through the single
@@ -96,7 +102,7 @@ public sealed class BrowseRecipesQuery(
         foreach (var r in allRecipes)
         {
             var recipeRatings = ratingsByRecipe.GetValueOrDefault(r.Id, []);
-            computed.Add(await BuildRowAsync(r, recipesById, photoIds, recipeRatings, userId, today, ct));
+            computed.Add(await BuildRowAsync(r, recipesById, photoIds, recipeRatings, memberById, userId, today, ct));
         }
 
         var cookableCount = computed.Count(row => row.FullyCookable);
@@ -141,6 +147,13 @@ public sealed class BrowseRecipesQuery(
                 ? filtered.OrderByDescending(r => r.CostPerServing ?? decimal.MaxValue).ToList()
                 : filtered.OrderBy(r => r.CostPerServing ?? decimal.MaxValue).ToList(),
 
+            // Rating: household average, nulls (unrated) always last regardless of direction (plantry-zlwp.4 —
+            // "Column header sort = household average, nulls last") — a two-key sort where the first key
+            // (null-ness) never flips with SortDescending, only the second (the average itself) does.
+            BrowseSort.Rating => filter.SortDescending
+                ? filtered.OrderBy(r => r.HouseholdAvg is null).ThenByDescending(r => r.HouseholdAvg).ToList()
+                : filtered.OrderBy(r => r.HouseholdAvg is null).ThenBy(r => r.HouseholdAvg).ToList(),
+
             // Default: Fulfillment descending (higher pct = more cookable → show first)
             _ => filter.SortDescending
                 ? filtered.OrderByDescending(r => r.FulfillmentPct).ToList()
@@ -162,6 +175,7 @@ public sealed class BrowseRecipesQuery(
         IReadOnlyDictionary<RecipeId, Recipe> recipesById,
         IReadOnlySet<RecipeId> photoIds,
         IReadOnlyList<RecipeRating> recipeRatings,
+        IReadOnlyDictionary<Guid, HouseholdMember> memberById,
         Guid? userId,
         DateOnly today,
         CancellationToken ct)
@@ -185,6 +199,7 @@ public sealed class BrowseRecipesQuery(
                 costResult,
                 photoIds,
                 recipeRatings,
+                memberById,
                 userId);
         }
 
@@ -199,6 +214,7 @@ public sealed class BrowseRecipesQuery(
             flatCost,
             photoIds,
             recipeRatings,
+            memberById,
             userId);
     }
 
@@ -215,6 +231,7 @@ public sealed class BrowseRecipesQuery(
         CostPerServing costResult,
         IReadOnlySet<RecipeId> photoIds,
         IReadOnlyList<RecipeRating> recipeRatings,
+        IReadOnlyDictionary<Guid, HouseholdMember> memberById,
         Guid? userId)
     {
         // inStock = lines that are InStock or Untracked (satisfied)
@@ -240,6 +257,10 @@ public sealed class BrowseRecipesQuery(
             ? Math.Round(recipeRatings.Average(r => (decimal)r.Stars), 1)
             : null;
 
+        // Per-member breakdown for the gallery/grid popover (plantry-zlwp.4) — pure in-memory composition
+        // over the already-batched memberById/recipeRatings, so this costs nothing extra per row.
+        var breakdown = RecipeRatingBreakdown.Build(memberById, recipeRatings, userId);
+
         return new RecipeBrowseRow(
             RecipeId: recipe.Id.Value,
             Name: recipe.Name,
@@ -258,7 +279,8 @@ public sealed class BrowseRecipesQuery(
             HasPhoto: photoIds.Contains(recipe.Id),
             MyStars: myStars,
             HouseholdAvg: householdAvg,
-            RatedCount: ratedCount
+            RatedCount: ratedCount,
+            Breakdown: breakdown
         );
     }
 }
@@ -294,6 +316,8 @@ public enum BrowseSort
     RecentlyAdded,
     /// <summary>Recipe name (A-Z by default).</summary>
     Name,
+    /// <summary>Household average rating descending by default; unrated recipes always sort last.</summary>
+    Rating,
 }
 
 // ── Result ───────────────────────────────────────────────────────────────────
@@ -332,6 +356,12 @@ public sealed record BrowseRecipesResult(
 /// <param name="MyStars">The signed-in member's own 1-5 star rating; null if unrated (or no user was supplied).</param>
 /// <param name="HouseholdAvg">Household average rating (1dp), null when <see cref="RatedCount"/> is zero.</param>
 /// <param name="RatedCount">Count of household members who have rated this recipe.</param>
+/// <param name="Breakdown">
+/// Per-member rating breakdown for the gallery/grid rating pill's hover/focus popover (plantry-zlwp.4) — the
+/// same union-of-members-and-raters shape <see cref="GetRecipeRatingBreakdownQuery"/> returns for the Details
+/// page, computed here in-memory from the already-batched member directory and rating set (no extra query).
+/// Empty when <see cref="RatedCount"/> is zero and the household has no other members.
+/// </param>
 public sealed record RecipeBrowseRow(
     Guid RecipeId,
     string Name,
@@ -350,4 +380,5 @@ public sealed record RecipeBrowseRow(
     bool HasPhoto,
     int? MyStars = null,
     decimal? HouseholdAvg = null,
-    int RatedCount = 0);
+    int RatedCount = 0,
+    IReadOnlyList<RecipeRatingBreakdownRow>? Breakdown = null);
