@@ -1,0 +1,27 @@
+@model Plantry.Web.Pages.Recipes.RecipeRatingBreakdownPopoverView
+@using System.Globalization
+@*
+    Shared per-member rating popover content (plantry-zlwp.4 critic FIX — extracted from three
+    duplicated call sites: Details' _RecipeRatingHouseholdSummary, and Browse's gallery card +
+    grid cell pills). "You" row first (epic visual grammar); ToString uses InvariantCulture so the
+    "N.N avg" figure never renders comma-decimal under a non-'.'-decimal ambient culture (house
+    convention — see MoneyDisplay.cs).
+*@
+<span class="popover__content" id="@Model.PopoverId" role="tooltip">
+    <span class="popover__title">Household @Model.HouseholdAvg.ToString("0.0", CultureInfo.InvariantCulture) avg</span>
+    @foreach (var member in Model.Breakdown)
+    {
+        <span class="rating-pop-row@(member.IsCurrentUser ? " rating-pop-row--me" : "")">
+            <span class="rating-pop-row__avatar" aria-hidden="true">@member.Initials</span>
+            <span class="rating-pop-row__who">@(member.IsCurrentUser ? "You" : member.DisplayName)</span>
+            @if (member.Stars is { } s)
+            {
+                <partial name="Shared/_StarRatingDisplay" model="s" />
+            }
+            else
+            {
+                <span class="rating-pop-row__unrated">not rated</span>
+            }
+        </span>
+    }
+</span>

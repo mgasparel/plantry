@@ -60,6 +60,11 @@ file sealed class NullShoppingListRepository : IShoppingListRepository
 /// <para>Derived factories override <see cref="Prices"/> to exercise the other cost-completeness
 /// render paths: <see cref="RecipeDetailFullCostFactory"/> (Full) and
 /// <see cref="RecipeDetailNoCostFactory"/> (None).</para>
+///
+/// <para>Rating fixtures (plantry-zlwp.3): <see cref="Ratings"/> and <see cref="Members"/> default to
+/// empty (no ratings, single-member household) so the base snapshots exercise the "no ratings
+/// anywhere: just the input with 'Tap to rate' hint" path. <see cref="RecipeDetailRatedMultiMemberFactory"/>
+/// exercises the household-summary-line render path.</para>
 /// </summary>
 public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
 {
@@ -70,6 +75,20 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
     {
         Recipe = BuildRecipe();
     }
+
+    /// <summary>
+    /// Existing <see cref="RecipeRating"/> rows for <see cref="Recipe"/> (plantry-zlwp.3). Default empty —
+    /// no one has rated. A derived factory populates this to exercise the household summary line / popover.
+    /// </summary>
+    protected virtual IReadOnlyList<RecipeRating> Ratings => [];
+
+    /// <summary>
+    /// Household member directory (plantry-zlwp.3) backing <see cref="IHouseholdMemberReader"/> — display
+    /// names/initials for the rating popover. Default empty (a single-member household with no directory
+    /// entries still renders correctly: MyStars falls back to 0, no household line). A derived factory
+    /// populates this to exercise the multi-member household summary line.
+    /// </summary>
+    protected virtual IReadOnlyList<HouseholdMember> Members => [];
 
     /// <summary>
     /// The recipe fixture this factory serves. Default is the mixed-shape fixture
@@ -173,8 +192,96 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             // Shopping DB — the add-to-list buttons render in their default enabled state.
             services.RemoveAll<IShoppingListRepository>();
             services.AddScoped<IShoppingListRepository, NullShoppingListRepository>();
+
+            // Rating repository + household member directory (plantry-zlwp.3): back RateRecipe,
+            // ClearRecipeRating, and GetRecipeRatingBreakdownQuery — all resolved by DetailsModel now —
+            // with an in-memory fake seeded from Ratings/Members, no real RecipesDbContext/Identity
+            // connection required.
+            services.RemoveAll<IRecipeRatingRepository>();
+            services.AddSingleton<IRecipeRatingRepository>(new FakeDetailRatingRepository(Ratings));
+            services.RemoveAll<IHouseholdMemberReader>();
+            services.AddSingleton<IHouseholdMemberReader>(new FakeDetailHouseholdMemberReader(Members));
         });
     }
+}
+
+/// <summary>
+/// Variant (plantry-zlwp.3): three-member household, I've rated 4 stars and Alex rated 5 (Sam hasn't) —
+/// exercises the household summary line, the warm --in pill flavour (my rating is included), and the
+/// popover's "not rated" row.
+/// </summary>
+public sealed class RecipeDetailRatedMultiMemberFactory : RecipeDetailFragmentFactory
+{
+    protected override IReadOnlyList<RecipeRating> Ratings => RecipeDetailFixture.RatedByMeAndAlex(Recipe.Id);
+    protected override IReadOnlyList<HouseholdMember> Members => RecipeDetailFixture.ThreeMemberHousehold();
+}
+
+/// <summary>
+/// Variant (plantry-zlwp.3): three-member household, only Alex has rated (5 stars) — I haven't. Exercises
+/// the grey-ghost --out pill flavour (my rating is NOT included in the average).
+/// </summary>
+public sealed class RecipeDetailRatedByOthersOnlyFactory : RecipeDetailFragmentFactory
+{
+    protected override IReadOnlyList<RecipeRating> Ratings => RecipeDetailFixture.RatedByAlexOnly(Recipe.Id);
+    protected override IReadOnlyList<HouseholdMember> Members => RecipeDetailFixture.ThreeMemberHousehold();
+}
+
+/// <summary>
+/// Variant (plantry-zlwp.3): a single-member household (no directory entries) where that lone member has
+/// rated the recipe — proves the household line stays suppressed even though RatedCount > 0 (epic:
+/// "single-member household: no household line at all" — there's nothing to average).
+/// </summary>
+public sealed class RecipeDetailSingleMemberRatedFactory : RecipeDetailFragmentFactory
+{
+    protected override IReadOnlyList<RecipeRating> Ratings =>
+    [
+        RecipeRating.Create(
+            HouseholdId.From(RecipeDetailFixture.HouseholdAId),
+            Recipe.Id,
+            RecipeDetailFixture.CurrentUserId,
+            5,
+            Plantry.SharedKernel.Domain.SystemClock.Instance),
+    ];
+}
+
+/// <summary>
+/// Seeded, mutable in-memory <see cref="IRecipeRatingRepository"/> for the Detail L4 tests
+/// (plantry-zlwp.3) — supports the full rate/clear round-trip a POST test drives (unlike
+/// <c>FakeBrowseRecipeRatingRepository</c>, which is read-only since Browse never mutates ratings).
+/// </summary>
+internal sealed class FakeDetailRatingRepository(IEnumerable<RecipeRating> seed) : IRecipeRatingRepository
+{
+    private readonly List<RecipeRating> _items = seed.ToList();
+
+    public Task AddAsync(RecipeRating rating, CancellationToken ct = default)
+    {
+        _items.Add(rating);
+        return Task.CompletedTask;
+    }
+
+    public void Remove(RecipeRating rating) => _items.RemoveAll(r => r.Id == rating.Id);
+
+    public Task<RecipeRating?> FindAsync(RecipeId recipeId, Guid userId, CancellationToken ct = default) =>
+        Task.FromResult(_items.SingleOrDefault(r => r.RecipeId == recipeId && r.UserId == userId));
+
+    public Task<IReadOnlyList<RecipeRating>> ListByRecipeAsync(RecipeId recipeId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeRating>>(_items.Where(r => r.RecipeId == recipeId).ToList());
+
+    public Task<IReadOnlyList<RecipeRating>> ListByRecipeIdsAsync(
+        IReadOnlyList<RecipeId> recipeIds, CancellationToken ct = default)
+    {
+        var wanted = recipeIds.ToHashSet();
+        return Task.FromResult<IReadOnlyList<RecipeRating>>(_items.Where(r => wanted.Contains(r.RecipeId)).ToList());
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>Fixed household member directory for the Detail L4 tests (plantry-zlwp.3).</summary>
+internal sealed class FakeDetailHouseholdMemberReader(IReadOnlyList<HouseholdMember> members) : IHouseholdMemberReader
+{
+    public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<HouseholdMember>>(members.OrderBy(m => m.DisplayName).ToList());
 }
 
 /// <summary>

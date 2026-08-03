@@ -1,4 +1,5 @@
 @model Plantry.Web.Pages.Recipes.IndexModel
+@using System.Globalization
 @using Plantry.Recipes.Application
 @using Plantry.Recipes.Domain
 @using Plantry.Web.Pages.Shared
@@ -93,6 +94,24 @@ else
                                 <span class="fulf-pill__dot fulf-@(level)-bg" aria-hidden="true"></span>
                                 @row.FulfillmentPct%
                             </span>
+                            @* Rating pill (plantry-zlwp.4): exactly one, mine if I've rated (filled gold, whole
+                               number), else a grey household ghost (decimal avg) if only others have, else
+                               nothing. Popover shows the household breakdown on hover/focus — a no-op on touch
+                               since the card is one big link; the breakdown also lives on Details. *@
+                            @if (row.MyStars.HasValue || row.RatedCount > 0)
+                            {
+                                var mine = row.MyStars.HasValue;
+                                var flavour = mine ? "rating-pill--mine" : "rating-pill--out";
+                                var iconId = mine ? "i-star" : "i-star-outline";
+                                var display = mine ? row.MyStars!.Value.ToString(CultureInfo.InvariantCulture) : row.HouseholdAvg!.Value.ToString("0.0", CultureInfo.InvariantCulture);
+                                var popId = $"rating-pop-card-{row.RecipeId}";
+                                <span class="popover">
+                                    <span class="popover__trigger rating-pill rating-pill--card @flavour" tabindex="0" aria-describedby="@popId">
+                                        <svg class="icon" aria-hidden="true"><use href="#@iconId" /></svg><span>@display</span>
+                                    </span>
+                                    <partial name="_RecipeRatingBreakdown" model='new RecipeRatingBreakdownPopoverView(popId, row.HouseholdAvg!.Value, row.Breakdown ?? [])' />
+                                </span>
+                            }
                             <span class="recipe-card__signal-meta">
                                 <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
                                 @IndexModel.FmtTime(row.CookTimeMinutes)
@@ -179,6 +198,21 @@ else
                         }
                     </button>
                 </div>
+                <div role="columnheader">
+                    <button type="button"
+                            class="recipes-grid__head-btn @(Model.Sort == "rating" ? "is-active" : "") @(Model.Sort == "rating" && !Model.Desc ? "is-desc" : "")"
+                            hx-get="/Recipes"
+                            hx-target="#recipes-results"
+                            hx-swap="innerHTML"
+                            hx-include="#recipes-filter-form"
+                            hx-vals='{"sort": "rating", "desc": "@(Model.Sort == "rating" ? (!Model.Desc).ToString().ToLower() : "true")"}'>
+                        Rating
+                        @if (Model.Sort == "rating")
+                        {
+                            <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                        }
+                    </button>
+                </div>
                 <div role="columnheader">Serves</div>
                 <div role="columnheader" aria-label="Link"></div>
             </div>
@@ -248,6 +282,35 @@ else
 
                     @* Cook time *@
                     <div class="recipes-grid__cell" role="cell">@IndexModel.FmtTime(row.CookTimeMinutes)</div>
+
+                    @* Rating (plantry-zlwp.4): my stars (filled, static) over the household pill (small
+                       warm/ghost surface flavour) — "not rated by you" when only others have, dash when
+                       nobody has. Popover mirrors the gallery card's household breakdown. *@
+                    <div class="recipes-grid__cell recipes-grid__cell--rating" role="cell">
+                        @if (row.MyStars is { } myStars)
+                        {
+                            <partial name="Shared/_StarRatingDisplay" model="myStars" />
+                        }
+                        else if (row.RatedCount == 0)
+                        {
+                            <span class="recipes-grid__cell-sub">—</span>
+                        }
+                        else
+                        {
+                            <span class="recipes-grid__cell-sub">not rated by you</span>
+                        }
+                        @if (row.RatedCount > 0)
+                        {
+                            var flavour = row.MyStars.HasValue ? "rating-pill--in" : "rating-pill--out";
+                            var popId = $"rating-pop-grid-{row.RecipeId}";
+                            <span class="popover">
+                                <span class="popover__trigger rating-pill rating-pill--surface rating-pill--grid @flavour" tabindex="0" aria-describedby="@popId">
+                                    <svg class="icon" aria-hidden="true"><use href="#i-star-outline" /></svg><span>@row.HouseholdAvg!.Value.ToString("0.0", CultureInfo.InvariantCulture)</span>
+                                </span>
+                                <partial name="_RecipeRatingBreakdown" model='new RecipeRatingBreakdownPopoverView(popId, row.HouseholdAvg!.Value, row.Breakdown ?? [])' />
+                            </span>
+                        }
+                    </div>
 
                     @* Default servings *@
                     <div class="recipes-grid__cell" role="cell">

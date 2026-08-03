@@ -118,6 +118,47 @@ internal sealed class FakeRecipeRepository : IRecipeRepository
     }
 }
 
+internal sealed class FakeRecipeRatingRepository : IRecipeRatingRepository
+{
+    public List<RecipeRating> Items { get; } = [];
+    public int SaveChangesCalls { get; private set; }
+
+    public Task AddAsync(RecipeRating rating, CancellationToken ct = default)
+    {
+        Items.Add(rating);
+        return Task.CompletedTask;
+    }
+
+    public void Remove(RecipeRating rating) => Items.Remove(rating);
+
+    public Task<RecipeRating?> FindAsync(RecipeId recipeId, Guid userId, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(r => r.RecipeId == recipeId && r.UserId == userId));
+
+    public Task<IReadOnlyList<RecipeRating>> ListByRecipeAsync(RecipeId recipeId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeRating>>(Items.Where(r => r.RecipeId == recipeId).ToList());
+
+    public Task<IReadOnlyList<RecipeRating>> ListByRecipeIdsAsync(
+        IReadOnlyList<RecipeId> recipeIds, CancellationToken ct = default)
+    {
+        var wanted = recipeIds.ToHashSet();
+        return Task.FromResult<IReadOnlyList<RecipeRating>>(Items.Where(r => wanted.Contains(r.RecipeId)).ToList());
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveChangesCalls++;
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class FakeHouseholdMemberReader : IHouseholdMemberReader
+{
+    public List<HouseholdMember> Items { get; } = [];
+
+    public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<HouseholdMember>>(Items.OrderBy(m => m.DisplayName).ToList());
+}
+
 internal sealed class FakeTagRepository : ITagRepository
 {
     public List<Tag> Items { get; } = [];

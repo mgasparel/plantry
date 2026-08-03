@@ -275,6 +275,31 @@
                     </div>
                 </div>
 
+                @* ── Rating capture + household summary (plantry-zlwp.3) ──────────
+                   Tap a star to rate 1-5; tap the current rating again to clear (posts stars=0,
+                   mapped server-side to ClearRecipeRating — see OnPostRateAsync). starRatingInput's
+                   persist() posts with swap:'none' (its own design, plantry-zlwp.2), so the ONLY DOM
+                   effect of a rate/clear is the OOB-swapped household summary line below — the piece
+                   of server truth (average / rated count / my-inclusion flavour) the tap alone can't
+                   know. The wrapper is always rendered by the partial itself (even with nothing to
+                   show), so the very first household rating still has a target to swap into. *@
+                <div class="rd-rating">
+                    <h3>Your rating</h3>
+                    <div x-data="starRatingInput({ value: @Model.Rating.MyStars, postUrl: '/Recipes/@recipe.Id?handler=Rate' })">
+                        <div class="star-rating star-rating--input" role="radiogroup" aria-label="Your rating">
+                            <template x-for="i in 5" :key="i">
+                                <button type="button" role="radio" :aria-checked="value === i ? 'true' : 'false'"
+                                        :aria-label="'Rate ' + i + (i === 1 ? ' star' : ' stars')"
+                                        @@click="rate(i)" @@mouseenter="hoverValue = i" @@mouseleave="hoverValue = 0">
+                                    <svg class="icon" :class="{ 'is-filled': isFilled(i) }" aria-hidden="true"><use href="#i-star" /></svg>
+                                </button>
+                            </template>
+                        </div>
+                        <span class="star-rating-hint" x-text="hint()"></span>
+                    </div>
+                    <partial name="_RecipeRatingHouseholdSummary" model="Model.Rating" />
+                </div>
+
                 @* ── Directions: derived steps/sections (C13) ──────────────────── *@
                 @if (recipe.DirectionBlocks.Count > 0)
                 {

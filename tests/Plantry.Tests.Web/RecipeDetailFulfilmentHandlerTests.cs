@@ -179,6 +179,13 @@ public sealed class RecipeDetailAllInStockFactory : WebApplicationFactory<Progra
             // without a real Shopping DB connection.
             services.RemoveAll<IShoppingListRepository>();
             services.AddScoped<IShoppingListRepository, NullShoppingListRepositoryForFulfilment>();
+
+            // Rating seams the Details page now resolves unconditionally (plantry-zlwp.3) — empty
+            // fakes, no ratings/members exercised by these fulfilment-handler assertions.
+            services.RemoveAll<IRecipeRatingRepository>();
+            services.AddSingleton<IRecipeRatingRepository>(new FakeDetailRatingRepository([]));
+            services.RemoveAll<IHouseholdMemberReader>();
+            services.AddSingleton<IHouseholdMemberReader>(new FakeDetailHouseholdMemberReader([]));
         });
     }
 }

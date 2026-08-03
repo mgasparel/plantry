@@ -43,6 +43,10 @@
   /* Warm "cook" callout — distinct from the green primary (proto --accent). */
   --color-cook:        #bd853f;
 
+  /* Star-rating gold — a person's rating, always filled. Constant across all three themes
+     (rating semantics, not brand accent) — see recipe-rating-display-riffs.html. */
+  --color-star:        #c98a1b;
+
   --color-success:     #3d7a4e;
   --color-success-bg:  #e6f0e8;
   --color-warning:     #b0701f;
@@ -2661,7 +2665,11 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   border: none;
   background: var(--color-surface);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* NOT overflow:hidden (plantry-zlwp.4 critic FIX) — the card is a positioning ancestor for the
+     rating pill's hover/focus popover, and overflow:hidden on an ancestor clips an absolutely
+     positioned descendant regardless of z-index. Corner rounding moves to the two elements below
+     that actually need it (the photo and the scrim), so the card still LOOKS rounded without
+     clipping anything that overflows it. */
   box-shadow: var(--shadow-md);
   cursor: pointer;
   text-decoration: none;
@@ -2674,6 +2682,10 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   aspect-ratio: 4 / 3.1;
   background: var(--color-surface-2);
   overflow: hidden;
+  /* The photo IS the card's full visible box (everything else is an absolutely positioned overlay
+     on top of it) — round all four corners, not just the top, now that .recipe-card itself no
+     longer clips (plantry-zlwp.4 critic FIX). */
+  border-radius: var(--radius-lg);
   position: relative;
 }
 .recipe-card__photo img {
@@ -2704,6 +2716,9 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   z-index: 1;
   background: linear-gradient(to top, rgba(18,17,14,.82) 4%, rgba(18,17,14,.42) 42%, transparent 100%);
   pointer-events: none;
+  /* Matches the card's bottom corners now that .recipe-card no longer clips via overflow:hidden
+     (plantry-zlwp.4 critic FIX) — the scrim's bounding box is the same as .recipe-card__photo's. */
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 /* Status flags: top-right */
@@ -2819,13 +2834,16 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* NOT overflow:hidden (plantry-zlwp.4 critic FIX) — clips the rating pill's upward-opening
+     popover on the first rows against the grid's own bounding box. Corner rounding moves onto
+     .recipes-grid__head (top) and .recipes-grid__row:last-child (bottom) instead. */
 }
 
 .recipes-grid__head,
 .recipes-grid__row {
   display: grid;
-  grid-template-columns: minmax(0, 2.5fr) 1.5fr 1fr 0.95fr 0.85fr 26px;
+  /* 7 columns (plantry-zlwp.4 added Rating): name, fulfillment, cost, cooktime, rating, serves, chevron. */
+  grid-template-columns: minmax(0, 2.5fr) 1.5fr 1fr 0.95fr 0.95fr 0.85fr 26px;
   align-items: center;
   gap: 16px;
   padding: 0 18px;
@@ -2840,6 +2858,9 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   text-transform: uppercase;
   font-weight: 700;
   color: var(--color-text-faint);
+  /* Matches .recipes-grid's top corners now that the container no longer clips via
+     overflow:hidden (plantry-zlwp.4 critic FIX). */
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 .recipes-grid__head .num,
 .recipes-grid__row .num { text-align: right; }
@@ -2881,6 +2902,9 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
 }
 .recipes-grid__row:hover { background: var(--color-surface-2); }
 .recipes-grid__row:hover .recipes-grid__chev { color: var(--color-accent); transform: translateX(2px); }
+/* Matches .recipes-grid's bottom corners now that the container no longer clips via
+   overflow:hidden (plantry-zlwp.4 critic FIX) — the hover background must respect them too. */
+.recipes-grid__row:last-child { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 
 /* Recipe name cell */
 .recipes-grid__name-cell { display: flex; align-items: center; gap: 13px; min-width: 0; }
@@ -2950,6 +2974,11 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   color: var(--color-text);
 }
 .recipes-grid__cell-sub { font-size: 11.5px; color: var(--color-text-faint); font-weight: 500; }
+
+/* Rating cell (plantry-zlwp.4): my stars stacked over the household pill, mirroring the riffs prototype's
+   compact grid composition (.preview/recipe-rating-display-riffs.html section D'). */
+.recipes-grid__cell--rating { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; white-space: normal; }
+
 .recipes-grid__cell--cost {
   font-family: var(--font-mono);
   font-size: 13.5px;
@@ -6750,6 +6779,125 @@ tr.line--dismissed .data-grid__cell:first-child {
 }
 .label-hint .popover__trigger:hover { background: transparent; color: var(--color-accent); }
 .label-hint .popover__trigger svg { display: block; width: 1rem; height: 1rem; }
+
+/* ── Star rating (recipe ratings, plantry-zlwp.2) ───────────────────────────── */
+/* Filled gold star = a person's rating. Two modes share the one filled #i-star symbol (see
+   _Layout.cshtml sprite) — display dims the empty stars via colour, input renders them as
+   large tappable buttons:
+     .star-rating         — static, small (grid rows, popover per-member breakdown)
+     .star-rating--input  — large, tap-to-rate, tap current again to clear (Recipe Details) */
+.star-rating { display: inline-flex; align-items: center; gap: 1px; color: var(--color-star); }
+.star-rating .icon { width: 13px; height: 13px; }
+.star-rating .icon:not(.is-filled) { color: color-mix(in srgb, currentColor 30%, transparent); }
+
+.star-rating--input { gap: 3px; }
+.star-rating--input button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 2px;
+  line-height: 0;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.star-rating--input .icon { width: 26px; height: 26px; transition: transform var(--transition-fast); }
+.star-rating--input button:hover .icon,
+.star-rating--input button:focus-visible .icon { transform: scale(1.15); }
+.star-rating--input button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* Sits under the input on Recipe Details: "Tap to rate" / "You rated this N stars — tap again
+   to clear". */
+.star-rating-hint { display: block; font-size: var(--font-size-xs); color: var(--color-text-faint); margin-top: var(--space-2); }
+
+/* ── Rating pill + popover (household average, plantry-zlwp.2) ──────────────────────────────
+   Always outlined/quiet — an aggregate, never a verdict; only the filled stars above are ever
+   "mine". Composed on the shared .popover primitive above: the pill IS the .popover__trigger
+   (these rules override its fixed 1.25rem badge sizing since they're declared after it, so
+   same-specificity cascade favours the pill shape), .popover__content carries the per-member
+   breakdown unchanged. Two quiet flavours encode whether my rating is in the average:
+     --in   (warm, gold-dashed outline) — my rating is included
+     --out  (grey ghost)                — I haven't rated yet — doubles as the nudge
+   --mine is the gallery-only exception: filled gold + WHOLE number (my rating, not the decimal
+   average — that's one hover/tap away). Flavours: --card (photo overlay), --surface (grid /
+   details, default). Size modifier: --grid (compact, sits under the grid's star-rating cell). */
+.rating-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  height: auto;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rating-pill .icon { width: 13px; height: 13px; }
+
+.rating-pill--surface { background: transparent; border: 1px solid var(--color-border); color: var(--color-text-faint); }
+.rating-pill--surface.rating-pill--in { border: 1px dashed color-mix(in srgb, var(--color-star) 50%, var(--color-border)); color: var(--color-text-muted); }
+.rating-pill--surface.rating-pill--in .icon { color: var(--color-star); }
+.rating-pill--surface.rating-pill--out { border-color: var(--color-border); color: var(--color-text-faint); }
+.rating-pill--surface.rating-pill--out .icon { color: var(--color-text-faint); }
+
+.rating-pill--grid { font-size: 11.5px; padding: 1px 7px; gap: 3px; }
+.rating-pill--grid .icon { width: 11px; height: 11px; }
+
+.rating-pill--card { background: rgb(0 0 0 / .22); backdrop-filter: blur(4px); color: rgb(255 255 255 / .85); border: 1px solid rgb(255 255 255 / .32); font-weight: 600; }
+.rating-pill--card.rating-pill--out { color: rgb(255 255 255 / .68); }
+.rating-pill--card.rating-pill--mine { border-color: rgb(242 193 78 / .55); color: #fff; }
+.rating-pill--card.rating-pill--mine .icon { color: #f2c14e; }
+
+/* Keep the quiet pill quiet — .popover__trigger:hover (0,2,0) would otherwise repaint the pill
+   with the stock accent-subtle badge fill (background: var(--color-accent-subtle); color:
+   var(--color-accent)) on the exact state the component exists for (hover opens the popover),
+   turning --card pills' white text unreadable on a near-white chip and making --surface read as
+   a green accent chip — contradicting the epic's "always visually quiet" household pill. Same
+   override pattern as .label-hint .popover__trigger:hover above. */
+.rating-pill--surface:hover { background: transparent; }
+.rating-pill--surface.rating-pill--in:hover { color: var(--color-text-muted); }
+.rating-pill--surface.rating-pill--out:hover { color: var(--color-text-faint); }
+.rating-pill--card:hover { background: rgb(0 0 0 / .22); }
+.rating-pill--card.rating-pill--mine:hover { color: #fff; }
+.rating-pill--card.rating-pill--out:hover { color: rgb(255 255 255 / .68); }
+
+/* Per-member breakdown rows inside the popover content ("You" first, per the epic's visual
+   grammar). Reuses .popover__content / .popover__title for the panel chrome. */
+.rating-pop-row { display: flex; align-items: center; gap: 9px; font-size: var(--font-size-sm); padding: 3px 0; }
+.rating-pop-row__avatar { width: 22px; height: 22px; border-radius: var(--radius-full); background: var(--color-accent-subtle); color: var(--color-accent); display: grid; place-items: center; font-size: 10.5px; font-weight: 700; flex: none; }
+.rating-pop-row__who { width: 62px; color: var(--color-text-muted); font-weight: 600; font-size: 12.5px; flex: none; }
+.rating-pop-row--me .rating-pop-row__who { color: var(--color-text); }
+.rating-pop-row__unrated { color: var(--color-text-faint); font-size: 12.5px; }
+
+/* ── Recipe Details rating widget (plantry-zlwp.3) ───────────────────────────
+   Wires the star-rating input + rating-pill/popover primitives above into the Details page's
+   rd-main column: "Your rating" card with the large tap-to-rate input, plus the household summary
+   line (rendered by _RecipeRatingHouseholdSummary — see .details-hh in the signed-off riffs
+   prototype, renamed rd-rating-hh to match this page's rd- component prefix). */
+.rd-rating {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 18px 26px;
+}
+.rd-rating h3 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--color-text-muted);
+}
+.rd-rating-hh {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
 
 /* ── Demo surface (component library) ──────────────────────────────────────── */
 /* Flex wrapper used on the Dev/Index component library page to display demos   */

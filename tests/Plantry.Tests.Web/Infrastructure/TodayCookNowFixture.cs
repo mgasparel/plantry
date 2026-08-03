@@ -248,8 +248,8 @@ internal static class TodayMealPlanningStubs
         services.RemoveAll<IMealPlanStockReader>();
         services.AddSingleton<IMealPlanStockReader>(new NullTodayMealPlanStockReader());
 
-        services.RemoveAll<IHouseholdMemberReader>();
-        services.AddSingleton<IHouseholdMemberReader>(new NullTodayMemberReader());
+        services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
+        services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new NullTodayMemberReader());
 
         // Product-dish name/unit resolution port (plantry-nlg4) — these factories seed no product
         // dishes, so the batched pre-pass never calls it, but IndexModel still requires an instance.
@@ -294,10 +294,10 @@ internal static class TodayMealPlanningStubs
             => Task.FromResult<MealPlanProductStock?>(null);
     }
 
-    private sealed class NullTodayMemberReader : IHouseholdMemberReader
+    private sealed class NullTodayMemberReader : Plantry.MealPlanning.Application.IHouseholdMemberReader
     {
-        public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<HouseholdMember>>([]);
+        public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
     }
 
     private sealed class NullTodayCatalogProductReader : IMealPlanCatalogProductReader

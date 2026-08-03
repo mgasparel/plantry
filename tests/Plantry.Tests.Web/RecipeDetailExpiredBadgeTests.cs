@@ -225,6 +225,13 @@ public abstract class RecipeDetailExpiredBadgeFactoryBase : WebApplicationFactor
             // (plantry-yt0m) resolves to false without a real Shopping DB.
             services.RemoveAll<IShoppingListRepository>();
             services.AddScoped<IShoppingListRepository, NullShoppingListRepositoryForExpiredBadge>();
+
+            // Rating seams the Details page now resolves unconditionally (plantry-zlwp.3) — empty
+            // fakes, no ratings/members exercised by these expiry-badge assertions.
+            services.RemoveAll<IRecipeRatingRepository>();
+            services.AddSingleton<IRecipeRatingRepository>(new FakeDetailRatingRepository([]));
+            services.RemoveAll<IHouseholdMemberReader>();
+            services.AddSingleton<IHouseholdMemberReader>(new FakeDetailHouseholdMemberReader([]));
         });
     }
 }

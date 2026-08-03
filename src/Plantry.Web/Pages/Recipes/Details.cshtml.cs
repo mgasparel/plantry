@@ -1,9 +1,11 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Catalog.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Shopping.Application;
 
@@ -30,6 +32,9 @@ public sealed class DetailsModel(
     IQuantityFormatter quantityFormatter,
     DisplayCurrencyAccessor displayCurrency,
     ArchiveRecipe archiveRecipe,
+    RateRecipe rateRecipe,
+    ClearRecipeRating clearRecipeRating,
+    GetRecipeRatingBreakdownQuery ratingBreakdownQuery,
     IClock clock) : PageModel
 {
     /// <summary>Household display currency (plantry-2x6e.2) — the recipe cost meta renders through MoneyDisplay with it.</summary>
@@ -63,6 +68,14 @@ public sealed class DetailsModel(
     public IReadOnlyList<Guid> RippleParentIds { get; private set; } = [];
 
     public RecipeDetailView Recipe { get; private set; } = null!;
+
+    /// <summary>
+    /// "Your rating" capture + household summary view model (plantry-zlwp.3). Built once per GET in
+    /// <see cref="LoadDetailAsync"/> alongside the rest of the page; rebuilt (and returned as an OOB
+    /// partial) by <see cref="OnPostRateAsync"/> after a rate/clear so the household line reflects the
+    /// new state without a full reload.
+    /// </summary>
+    public RecipeRatingView Rating { get; private set; } = null!;
 
     /// <summary>
     /// Set when the Archive action is blocked by N5 (recipe-composition.md D12 — "used by N recipes"), so
@@ -105,6 +118,38 @@ public sealed class DetailsModel(
             return NotFound();
         SaveError = result.Error.Description;
         return Page();
+    }
+
+    /// <summary>
+    /// htmx POST handler for the star-rating input (plantry-zlwp.3, <c>star-rating.js</c>'s
+    /// <c>persist()</c>). <paramref name="stars"/> 1-5 upserts via <see cref="RateRecipe"/>; 0 (tap the
+    /// current rating again) clears via <see cref="ClearRecipeRating"/> — the single-handler-URL,
+    /// map-0-to-clear contract <c>star-rating.js</c>'s commit note calls out. The Alpine widget itself
+    /// already updated its own local value (and posts with <c>swap: 'none'</c>, per the widget's own
+    /// design), so this handler's ONLY DOM effect is the OOB-swapped household summary line — the one
+    /// piece of server state the tap alone cannot know (household average / rated count / whether MY
+    /// rating is newly included). Returns 400 for an out-of-range value, 403 when the request carries no
+    /// resolvable user id, 404 if the recipe is gone.
+    /// </summary>
+    public async Task<IActionResult> OnPostRateAsync(int stars, CancellationToken ct)
+    {
+        if (stars is < 0 or > 5) return BadRequest();
+
+        var id = RecipeId.From(Id);
+        var recipe = await recipes.GetByIdAsync(id, ct);
+        if (recipe is null) return NotFound();
+
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdClaim, out var userId)) return Forbid();
+
+        var result = stars == 0
+            ? await clearRecipeRating.ExecuteAsync(new ClearRecipeRatingCommand(id, userId), ct)
+            : await rateRecipe.ExecuteAsync(new RateRecipeCommand(id, userId, stars), ct);
+
+        if (result.IsFailure) return BadRequest();
+
+        var rating = await BuildRatingViewAsync(id, userId, ct) with { Oob = true };
+        return Partial("_RecipeRatingHouseholdSummary", rating);
     }
 
     /// <summary>
@@ -189,7 +234,53 @@ public sealed class DetailsModel(
         Recipe = RecipeDetailView.From(
             recipe, tagLookup, ParseDirections(recipe.Directions), fulfillment, cost, ingredientGroups, missingPriceIngredients);
 
+        // Rating capture + household summary (plantry-zlwp.3) — built from the same current-user id
+        // convention CookRecipe/BrowseRecipesQuery use (claims, not ITenantContext, which only carries
+        // household identity).
+        Rating = await BuildRatingViewAsync(id, CurrentUserId(), ct);
+
         return true;
+    }
+
+    /// <summary>
+    /// Resolves the signed-in member's id from the request principal (mirrors <c>Cook.cshtml.cs</c>'s
+    /// <c>ClaimTypes.NameIdentifier</c> read). Defensive: an absent/malformed claim yields
+    /// <see cref="Guid.Empty"/> rather than throwing — <see cref="LoadDetailAsync"/>'s GET path degrades to
+    /// "no rating is mine" rather than a 500 (the page is <c>[Authorize]</c>, so this should not happen in
+    /// practice); <see cref="OnPostRateAsync"/> separately rejects a missing claim with 403 before writing.
+    /// </summary>
+    private Guid CurrentUserId() =>
+        Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
+
+    /// <summary>
+    /// Builds the "Your rating" + household summary view model (plantry-zlwp.3) from
+    /// <see cref="GetRecipeRatingBreakdownQuery"/> — the SAME per-member breakdown the popover renders, so
+    /// MyStars / HouseholdAvg / RatedCount / MemberCount can never drift from the rows the popover lists.
+    /// The household line is shown only when there is more than one household member AND at least one of
+    /// them has rated (epic: "single-member household: no household line at all"; ticket: "no ratings
+    /// anywhere: just the input with 'Tap to rate' hint" — both gate on this one flag).
+    /// </summary>
+    private async Task<RecipeRatingView> BuildRatingViewAsync(RecipeId id, Guid currentUserId, CancellationToken ct)
+    {
+        var breakdown = await ratingBreakdownQuery.ExecuteAsync(id, currentUserId, ct);
+
+        var myStars = breakdown.FirstOrDefault(r => r.IsCurrentUser)?.Stars ?? 0;
+        var rated = breakdown.Where(r => r.Stars.HasValue).ToList();
+        var ratedCount = rated.Count;
+        decimal? householdAvg = ratedCount > 0
+            ? Math.Round(rated.Average(r => (decimal)r.Stars!.Value), 1)
+            : null;
+        var showHouseholdLine = breakdown.Count > 1 && ratedCount > 0;
+        var includesMe = myStars > 0;
+
+        return new RecipeRatingView(
+            MyStars: myStars,
+            ShowHouseholdLine: showHouseholdLine,
+            HouseholdAvg: householdAvg,
+            RatedCount: ratedCount,
+            MemberCount: breakdown.Count,
+            IncludesMe: includesMe,
+            Breakdown: breakdown);
     }
 
     /// <summary>
@@ -839,6 +930,37 @@ public sealed record RecipeDetailView(
 /// Set-price sheet lives.
 /// </summary>
 public sealed record MissingPriceIngredientView(Guid ProductId, string ProductName);
+
+/// <summary>
+/// View model for the Recipe Details "Your rating" + household summary block (plantry-zlwp.3), backing
+/// both the star-rating input's initial value and the <c>_RecipeRatingHouseholdSummary</c> partial.
+/// </summary>
+/// <param name="MyStars">The signed-in member's own rating, 0-5 (0 = unrated — <c>starRatingInput</c>'s own convention).</param>
+/// <param name="ShowHouseholdLine">
+/// True only when the household has more than one member AND at least one of them has rated (epic:
+/// "single-member household: no household line at all"; ticket: "no ratings anywhere: just the input
+/// with 'Tap to rate' hint"). The <c>_RecipeRatingHouseholdSummary</c> partial's wrapper element is
+/// ALWAYS rendered (even when this is false) so an OOB swap from <see cref="DetailsModel.OnPostRateAsync"/>
+/// always has a matching id to target — mirrors the <c>DetailsFulfilmentCardModel.Oob</c> pattern.
+/// </param>
+/// <param name="HouseholdAvg">Household average (1dp); null when <see cref="RatedCount"/> is zero.</param>
+/// <param name="RatedCount">Count of participants (household members ∪ any rater outside the current directory) who have rated.</param>
+/// <param name="MemberCount">Total participant count — the "of M" in "household average · N of M rated".</param>
+/// <param name="IncludesMe">True when the current user's own rating is part of the average — selects the pill's --in (warm) vs --out (grey ghost) flavour.</param>
+/// <param name="Breakdown">The per-member rows the popover lists, "You" first (see <see cref="GetRecipeRatingBreakdownQuery"/>).</param>
+/// <param name="Oob">
+/// Set <c>true</c> only by <see cref="DetailsModel.OnPostRateAsync"/> so the partial's wrapper carries
+/// <c>hx-swap-oob="true"</c> during the fragment response; <c>false</c> on the initial full-page render.
+/// </param>
+public sealed record RecipeRatingView(
+    int MyStars,
+    bool ShowHouseholdLine,
+    decimal? HouseholdAvg,
+    int RatedCount,
+    int MemberCount,
+    bool IncludesMe,
+    IReadOnlyList<RecipeRatingBreakdownRow> Breakdown,
+    bool Oob = false);
 
 /// <summary>A resolved tag pill for the detail view.</summary>
 public sealed record TagView(Guid Id, string? Name);

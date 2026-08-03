@@ -29,7 +29,8 @@ public sealed class RecipeReadModelAdapter(
     RecipeExpansionService expansion,
     FulfillmentService fulfillmentService,
     CostingService costingService,
-    IClock clock) : IRecipeReadModel
+    IClock clock,
+    IRecipeRatingRepository ratings) : IRecipeReadModel
 {
     public async Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
     {
@@ -250,5 +251,27 @@ public sealed class RecipeReadModelAdapter(
         return shortfallLines
             .Select(s => new RecipeMissingIngredient(s.ProductId, s.ShortfallQuantity, s.UnitId))
             .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<Guid, RecipeRatingSummary>> GetRatingSummariesAsync(
+        IReadOnlyCollection<Guid> recipeIds, CancellationToken ct = default)
+    {
+        if (recipeIds.Count == 0) return new Dictionary<Guid, RecipeRatingSummary>();
+
+        var ids = recipeIds.Select(RecipeId.From).ToList();
+        var rows = await ratings.ListByRecipeIdsAsync(ids, ct);
+
+        // Mirrors BrowseRecipesQuery's MyStars/HouseholdAvg/RatedCount math (plantry-zlwp.1) — same
+        // Math.Round(..., 1) convention so the planner's household-average signal never drifts from
+        // what the household sees on Browse/Details for the same recipe.
+        return rows
+            .GroupBy(r => r.RecipeId.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => new RecipeRatingSummary(
+                    StarsByUserId: g.ToDictionary(r => r.UserId, r => r.Stars),
+                    HouseholdAvg: Math.Round(g.Average(r => (decimal)r.Stars), 1),
+                    RatedCount: g.Count()));
     }
 }

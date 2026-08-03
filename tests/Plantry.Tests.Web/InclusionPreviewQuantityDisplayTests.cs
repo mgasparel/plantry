@@ -273,6 +273,13 @@ public sealed class InclusionPreviewQuantityDisplayTests
                 services.AddSingleton<IShoppingListWriter>(new NullPreviewShoppingWriter());
                 services.RemoveAll<IShoppingListRepository>();
                 services.AddScoped<IShoppingListRepository, NullPreviewShoppingRepo>();
+
+                // Rating seams the Details page now resolves unconditionally (plantry-zlwp.3) — empty
+                // fakes, no ratings/members exercised by these inclusion-preview quantity assertions.
+                services.RemoveAll<IRecipeRatingRepository>();
+                services.AddSingleton<IRecipeRatingRepository>(new FakeDetailRatingRepository([]));
+                services.RemoveAll<IHouseholdMemberReader>();
+                services.AddSingleton<IHouseholdMemberReader>(new FakeDetailHouseholdMemberReader([]));
             });
         }
     }

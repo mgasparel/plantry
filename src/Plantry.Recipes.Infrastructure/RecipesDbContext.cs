@@ -5,10 +5,11 @@ using Plantry.SharedKernel;
 namespace Plantry.Recipes.Infrastructure;
 
 /// <summary>
-/// EF DbContext for the Recipes bounded context (<c>recipes</c> schema). Owns six tables: the
-/// <c>recipe</c> aggregate root + its <c>recipe_ingredient</c> children, the 1:1 <c>recipe_photo</c>
-/// (hot-path separated), and the <c>recipe_tag</c> membership join — plus the standalone <c>tag</c>
-/// vocabulary root and the append-only <c>cook_event</c> root.
+/// EF DbContext for the Recipes bounded context (<c>recipes</c> schema). Owns the <c>recipe</c> aggregate
+/// root + its <c>recipe_ingredient</c> children, the 1:1 <c>recipe_photo</c> (hot-path separated), and the
+/// <c>recipe_tag</c> membership join; the standalone <c>tag</c> vocabulary root; the append-only
+/// <c>cook_event</c> root + its consume/produce lines; and the standalone <c>recipe_rating</c> root
+/// (plantry-zlwp.1 — one household member's 1-5 star rating of a recipe).
 /// <para>
 /// The Recipe aggregate's child collections (_ingredients list, _tags list, _photo reference) are
 /// wired via backing fields and PropertyAccessMode.Field, mirroring IntakeDbContext / InventoryDbContext.
@@ -25,6 +26,7 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
     public DbSet<CookProduceLine> CookProduceLines => Set<CookProduceLine>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
+    public DbSet<RecipeRating> RecipeRatings => Set<RecipeRating>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -368,6 +370,35 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             b.HasIndex(rt => new { rt.HouseholdId, rt.TagId })
                 .HasDatabaseName("ix_recipe_tag_household_tag");
             b.HasQueryFilter(rt => rt.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<RecipeRating>(b =>
+        {
+            b.ToTable("recipe_rating");
+            b.HasKey(r => r.Id);
+            b.Property(r => r.Id)
+                .HasConversion(id => id.Value, v => RecipeRatingId.From(v))
+                .HasColumnName("recipe_rating_id")
+                .ValueGeneratedNever();
+            b.Property(r => r.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(r => r.RecipeId)
+                .HasConversion(id => id.Value, v => RecipeId.From(v))
+                .HasColumnName("recipe_id")
+                .IsRequired();
+            // Soft-ref (DM-3) to the identity user — no FK, bare Guid column, matching UserPreference.UserId.
+            b.Property(r => r.UserId).HasColumnName("user_id").IsRequired();
+            b.Property(r => r.Stars).HasColumnName("stars").IsRequired();
+            b.Property(r => r.CreatedAt).HasColumnName("created_at");
+            b.Property(r => r.UpdatedAt).HasColumnName("updated_at");
+
+            // UNIQUE (household_id, recipe_id, user_id) — one rating per member per recipe (upsert key).
+            b.HasIndex(r => new { r.HouseholdId, r.RecipeId, r.UserId })
+                .IsUnique()
+                .HasDatabaseName("ux_recipe_rating_household_recipe_user");
+            b.HasQueryFilter(r => r.HouseholdId == HouseholdId.From(_householdId));
         });
     }
 

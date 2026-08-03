@@ -364,6 +364,45 @@ namespace Plantry.Recipes.Infrastructure.Migrations
                     b.ToTable("recipe_photo", "recipes");
                 });
 
+            modelBuilder.Entity("Plantry.Recipes.Domain.RecipeRating", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recipe_rating_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("household_id");
+
+                    b.Property<Guid>("RecipeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recipe_id");
+
+                    b.Property<int>("Stars")
+                        .HasColumnType("integer")
+                        .HasColumnName("stars");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HouseholdId", "RecipeId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_recipe_rating_household_recipe_user");
+
+                    b.ToTable("recipe_rating", "recipes");
+                });
+
             modelBuilder.Entity("Plantry.Recipes.Domain.RecipeTag", b =>
                 {
                     b.Property<Guid>("RecipeId")

@@ -24,6 +24,11 @@
 					Time
 				</button>
 			</div>
+			<div role="columnheader">
+				<button type="button" class="recipes-grid__head-btn  " hx-get="/Recipes" hx-target="#recipes-results" hx-swap="innerHTML" hx-include="#recipes-filter-form" hx-vals="{&quot;sort&quot;: &quot;rating&quot;, &quot;desc&quot;: &quot;true&quot;}">
+					Rating
+				</button>
+			</div>
 			<div role="columnheader">Serves</div>
 			<div role="columnheader" aria-label="Link"></div>
 		</div>
@@ -55,6 +60,9 @@
 				<span style="color:var(--color-text-faint);font-family:var(--font-sans)">—</span>
 			</div>
 			<div class="recipes-grid__cell" role="cell">5 min</div>
+			<div class="recipes-grid__cell recipes-grid__cell--rating" role="cell">
+				<span class="recipes-grid__cell-sub">—</span>
+			</div>
 			<div class="recipes-grid__cell" role="cell">
 				2
 				<span class="recipes-grid__cell-sub">serv</span>
@@ -105,6 +113,9 @@
 					/serv</span>
 			</div>
 			<div class="recipes-grid__cell" role="cell">10 min</div>
+			<div class="recipes-grid__cell recipes-grid__cell--rating" role="cell">
+				<span class="recipes-grid__cell-sub">—</span>
+			</div>
 			<div class="recipes-grid__cell" role="cell">
 				2
 				<span class="recipes-grid__cell-sub">serv</span>
@@ -149,6 +160,9 @@
 					/serv</span>
 			</div>
 			<div class="recipes-grid__cell" role="cell">20 min</div>
+			<div class="recipes-grid__cell recipes-grid__cell--rating" role="cell">
+				<span class="recipes-grid__cell-sub">—</span>
+			</div>
 			<div class="recipes-grid__cell" role="cell">
 				4
 				<span class="recipes-grid__cell-sub">serv</span>

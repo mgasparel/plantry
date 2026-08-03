@@ -93,7 +93,8 @@ public static class CompositionServiceCollectionExtensions
         // Meal Planning ACLs onto Recipes (tags, recipe read model), Identity (household members via the
         // ASP.NET-free IHouseholdDirectory port), Catalog, Inventory, Pricing, and Shopping.
         services.AddScoped<ITagReader, TagReaderAdapter>();
-        services.AddScoped<IHouseholdMemberReader, HouseholdMemberReaderAdapter>();
+        services.AddScoped<Plantry.MealPlanning.Application.IHouseholdMemberReader,
+            Plantry.Web.MealPlanning.HouseholdMemberReaderAdapter>();
         services.AddScoped<IRecipeReadModel, RecipeReadModelAdapter>();
         services.AddScoped<IMealPlanCatalogProductReader, MealPlanCatalogProductReaderAdapter>();
         services.AddScoped<IMealPlanStockReader, MealPlanStockReaderAdapter>();
@@ -137,6 +138,11 @@ public static class CompositionServiceCollectionExtensions
             Plantry.Web.Recipes.ExpiringSoonHorizonReaderAdapter>();
         services.AddScoped<IPriceReader, PriceReaderAdapter>();
         services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
+        // Recipes → Identity household-member directory ACL (plantry-zlwp.1): the per-rating-member
+        // breakdown popover's display-name/initials source, a Recipes-local copy of the same
+        // IHouseholdDirectory-backed adapter shape MealPlanning uses above (DM-3).
+        services.AddScoped<Plantry.Recipes.Application.IHouseholdMemberReader,
+            Plantry.Web.Recipes.HouseholdMemberReaderAdapter>();
         // Recipes → Identity assistive-AI gate ACL (plantry-qll2.2): the edit-moment AI features
         // (tag suggestions today; nudge/conversion as qll2.3/qll2.4 land) read the household toggle
         // through this port rather than depending on Identity directly.

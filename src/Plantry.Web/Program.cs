@@ -346,6 +346,8 @@ builder.Services.AddDbContext<RecipesDbContext>((sp, opts) =>
 builder.Services.AddScoped<IRecipeRepository, RecipeRepository>();
 builder.Services.AddScoped<ICookEventRepository, CookEventRepository>();
 builder.Services.AddScoped<ITagRepository, TagRepository>();
+// Per-user recipe ratings (plantry-zlwp.1) — the RecipeRating aggregate's repository.
+builder.Services.AddScoped<IRecipeRatingRepository, RecipeRatingRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
 // Shopping context (P2-S). Mutable working-state context — items edited in place and hard-deleted
@@ -688,6 +690,12 @@ builder.Services.AddSingleton<RecipeConversionBackfillCycle>();
 // Recipe browse query (P2-2c, J1/J2). Assembles the browse view model: lean recipe list + live
 // fulfillment/cost per recipe + filter/sort in the application layer.
 builder.Services.AddScoped<BrowseRecipesQuery>();
+
+// Per-user recipe ratings (plantry-zlwp.1, epic plantry-zlwp): upsert/clear commands over the
+// RecipeRating aggregate, and the per-member breakdown query for the rating popover/Details summary.
+builder.Services.AddScoped<RateRecipe>();
+builder.Services.AddScoped<ClearRecipeRating>();
+builder.Services.AddScoped<GetRecipeRatingBreakdownQuery>();
 
 // Product→recipes cross-context read (plantry-o0r8) — the Pantry product Detail page's "Recipes" section.
 builder.Services.AddScoped<RecipesUsingProductQuery>();

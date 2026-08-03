@@ -233,7 +233,7 @@ public sealed class RecipeReadModelAdapterYieldPhotoTests(PostgresFixture db) : 
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
         var fulfillment = new FulfillmentService(new FakeStock(), new FakeCatalog(), new IdentityConverter(), new FixedHorizon(7));
         var costing = new CostingService(new FakePrices(), new IdentityConverter(), new FakeCatalog());
-        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock);
+        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx));
     }
 
     private RecipesDbContext NewContext()

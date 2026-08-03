@@ -392,10 +392,10 @@ public sealed class TodayIndexModelTests
     }
 
     /// <summary>Null member reader — returns empty list (no attendee avatars in model tests).</summary>
-    private sealed class NullMemberReader : IHouseholdMemberReader
+    private sealed class NullMemberReader : Plantry.MealPlanning.Application.IHouseholdMemberReader
     {
-        public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<HouseholdMember>>([]);
+        public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
     }
 }
 
@@ -708,10 +708,10 @@ public sealed class ExpiringWidgetModelTests
             => Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
     }
 
-    private sealed class NullMemberReader2 : IHouseholdMemberReader
+    private sealed class NullMemberReader2 : Plantry.MealPlanning.Application.IHouseholdMemberReader
     {
-        public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<HouseholdMember>>([]);
+        public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
     }
 }
 

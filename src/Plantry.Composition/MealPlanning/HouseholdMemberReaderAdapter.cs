@@ -6,9 +6,10 @@ namespace Plantry.Web.MealPlanning;
 /// <summary>
 /// Cross-context adapter for <see cref="IHouseholdMemberReader"/> — supplies the MealPlanning context
 /// with household-member display facts from the Identity context, over the ASP.NET-free
-/// <see cref="IHouseholdDirectory"/> port (plantry-m1u). Lives in Plantry.Composition; the Guid parse +
-/// Initials computation are presentation mapping onto MealPlanning's <see cref="HouseholdMember"/>
-/// contract, not an Identity concern, so they stay here.
+/// <see cref="IHouseholdDirectory"/> port (plantry-m1u). Lives in Plantry.Composition; the Guid parse is
+/// presentation mapping onto MealPlanning's <see cref="HouseholdMember"/> contract, not an Identity
+/// concern, so it stays here. The initials computation now lives in the shared
+/// <see cref="HouseholdMemberDisplay"/> helper (also used by Recipes' own adapter).
 /// </summary>
 public sealed class HouseholdMemberReaderAdapter(
     IHouseholdDirectory directory) : IHouseholdMemberReader
@@ -20,16 +21,7 @@ public sealed class HouseholdMemberReaderAdapter(
         return members.Select(m => new HouseholdMember(
             Guid.Parse(m.UserId),
             m.DisplayName,
-            Initials(m.DisplayName)
+            HouseholdMemberDisplay.Initials(m.DisplayName)
         )).ToList();
-    }
-
-    private static string Initials(string displayName)
-    {
-        if (string.IsNullOrWhiteSpace(displayName)) return "?";
-        var parts = displayName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length == 1
-            ? parts[0][0].ToString().ToUpperInvariant()
-            : $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
     }
 }

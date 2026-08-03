@@ -179,6 +179,13 @@ public sealed class QuantityDisplayWiringFactory : WebApplicationFactory<Program
             services.AddSingleton<IShoppingListWriter>(NullShoppingWriter.Instance);
             services.RemoveAll<IShoppingListRepository>();
             services.AddScoped<IShoppingListRepository, NullShoppingRepository>();
+
+            // Rating seams the Details page now resolves unconditionally (plantry-zlwp.3) — empty fakes,
+            // no ratings/members exercised by this file's fraction-display assertions.
+            services.RemoveAll<IRecipeRatingRepository>();
+            services.AddSingleton<IRecipeRatingRepository>(new FakeDetailRatingRepository([]));
+            services.RemoveAll<IHouseholdMemberReader>();
+            services.AddSingleton<IHouseholdMemberReader>(new FakeDetailHouseholdMemberReader([]));
         });
     }
 }

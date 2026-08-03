@@ -62,3 +62,14 @@ public readonly record struct TagId(Guid Value)
     public static TagId From(Guid value) => new(value);
     public override string ToString() => Value.ToString();
 }
+
+/// <summary>
+/// Identity of a <c>RecipeRating</c> — one household member's 1-5 star rating of a recipe
+/// (plantry-zlwp.1). UNIQUE (household_id, recipe_id, user_id) — one row per member per recipe.
+/// </summary>
+public readonly record struct RecipeRatingId(Guid Value)
+{
+    public static RecipeRatingId New() => new(Guid.CreateVersion7());
+    public static RecipeRatingId From(Guid value) => new(value);
+    public override string ToString() => Value.ToString();
+}

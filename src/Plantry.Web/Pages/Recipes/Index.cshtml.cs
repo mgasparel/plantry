@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -69,6 +70,7 @@ public sealed class IndexModel(BrowseRecipesQuery query, DisplayCurrencyAccessor
             "cooktime"  => BrowseSort.CookTime,
             "recent"  => BrowseSort.RecentlyAdded,
             "name"    => BrowseSort.Name,
+            "rating"  => BrowseSort.Rating,
             _         => BrowseSort.Fulfillment,
         };
 
@@ -82,7 +84,13 @@ public sealed class IndexModel(BrowseRecipesQuery query, DisplayCurrencyAccessor
             Sort: sort,
             SortDescending: descending);
 
-        Result = await query.ExecuteAsync(filter, ct);
+        // Signed-in member's id (plantry-zlwp.1) — powers each row's MyStars. Guid.TryParse defensively:
+        // an absent/malformed claim degrades to MyStars=null on every row rather than throwing.
+        Guid? userId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var parsedUserId)
+            ? parsedUserId
+            : null;
+
+        Result = await query.ExecuteAsync(filter, userId, ct);
 
         // Household display currency for the per-recipe cost cells (plantry-2x6e.2); one resolve for the
         // full page and the htmx results-fragment swap below.
