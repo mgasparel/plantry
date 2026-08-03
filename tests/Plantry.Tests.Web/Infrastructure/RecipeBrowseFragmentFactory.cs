@@ -82,6 +82,13 @@ public class RecipeBrowseFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeBrowseUnitConverter());
 
+            // Recipe rating repository (plantry-zlwp.1): BrowseRecipesQuery now batch-loads ratings per
+            // row; the real RecipeRatingRepository needs a live RecipesDbContext/Postgres connection,
+            // so it is replaced here like every other Postgres-backed seam above. Empty by default — no
+            // fixture recipe has been rated, so MyStars/HouseholdAvg/RatedCount are null/0 on every row.
+            services.RemoveAll<IRecipeRatingRepository>();
+            services.AddSingleton<IRecipeRatingRepository>(new FakeBrowseRecipeRatingRepository());
+
             // AuthorRecipe is registered in Program.cs and requires ICatalogWriter — replaced below.
             services.RemoveAll<ICatalogWriter>();
             services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
@@ -133,4 +140,24 @@ internal sealed class FakeBrowseCatalogProductReader(IReadOnlyDictionary<Guid, C
 
     public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
+}
+
+/// <summary>Empty in-memory <see cref="IRecipeRatingRepository"/> — no fixture recipe has been rated.</summary>
+internal sealed class FakeBrowseRecipeRatingRepository : IRecipeRatingRepository
+{
+    public Task AddAsync(RecipeRating rating, CancellationToken ct = default) => Task.CompletedTask;
+
+    public void Remove(RecipeRating rating) { }
+
+    public Task<RecipeRating?> FindAsync(RecipeId recipeId, Guid userId, CancellationToken ct = default) =>
+        Task.FromResult<RecipeRating?>(null);
+
+    public Task<IReadOnlyList<RecipeRating>> ListByRecipeAsync(RecipeId recipeId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeRating>>([]);
+
+    public Task<IReadOnlyList<RecipeRating>> ListByRecipeIdsAsync(
+        IReadOnlyList<RecipeId> recipeIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RecipeRating>>([]);
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

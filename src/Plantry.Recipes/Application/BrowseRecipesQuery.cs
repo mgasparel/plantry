@@ -31,6 +31,7 @@ namespace Plantry.Recipes.Application;
 public sealed class BrowseRecipesQuery(
     IRecipeRepository recipes,
     ITagRepository tags,
+    IRecipeRatingRepository ratings,
     RecipeExpansionService expansion,
     FulfillmentService fulfillment,
     CostingService costing,
@@ -41,7 +42,14 @@ public sealed class BrowseRecipesQuery(
     /// Executes the browse query. Returns <see cref="BrowseRecipesResult"/> with the full tag list
     /// (for filter chips) and the filtered, sorted recipe rows.
     /// </summary>
-    public async Task<BrowseRecipesResult> ExecuteAsync(BrowseRecipesFilter filter, CancellationToken ct = default)
+    /// <param name="filter">Filter/sort parameters.</param>
+    /// <param name="userId">
+    /// The signed-in member's id (plantry-zlwp.1), used to populate each row's <see cref="RecipeBrowseRow.MyStars"/>.
+    /// Null yields <c>MyStars = null</c> on every row (household average/count are still computed) — an
+    /// unauthenticated caller or one that has not yet threaded the acting user through degrades gracefully.
+    /// </param>
+    public async Task<BrowseRecipesResult> ExecuteAsync(
+        BrowseRecipesFilter filter, Guid? userId = null, CancellationToken ct = default)
     {
         // All-tags for the filter chip row — must include tags on ANY recipe, even filtered-out ones
         // (including archived tags so existing recipe-tag associations remain filterable).
@@ -63,6 +71,13 @@ public sealed class BrowseRecipesQuery(
         // Selects only the PK column from recipe_photo — no bytea loaded, honouring resolved call 3.
         var photoIds = await recipes.ListRecipeIdsWithPhotoAsync(ct);
 
+        // Batched rating lookup (plantry-zlwp.1): ONE round-trip for every household rating across the
+        // whole browse set, then grouped by recipe below — mirrors photoIds' batch-then-thread-through
+        // shape so MyStars/HouseholdAvg/RatedCount never cost a per-recipe query in the BuildRow loop.
+        var ratingsByRecipe = (await ratings.ListByRecipeIdsAsync(allRecipes.Select(r => r.Id).ToList(), ct))
+            .GroupBy(r => r.RecipeId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<RecipeRating>)g.ToList());
+
         // Batched in-memory expansion (Option B, recipe-composition.md D4/D5): every non-archived recipe is
         // already loaded (with ingredients + inclusions) by ListForBrowseAsync, so build an id→Recipe map and
         // expand each recipe against the MAP — no per-sub round-trips. Expansion runs through the single
@@ -80,7 +95,8 @@ public sealed class BrowseRecipesQuery(
         var computed = new List<RecipeBrowseRow>(allRecipes.Count);
         foreach (var r in allRecipes)
         {
-            computed.Add(await BuildRowAsync(r, recipesById, photoIds, today, ct));
+            var recipeRatings = ratingsByRecipe.GetValueOrDefault(r.Id, []);
+            computed.Add(await BuildRowAsync(r, recipesById, photoIds, recipeRatings, userId, today, ct));
         }
 
         var cookableCount = computed.Count(row => row.FullyCookable);
@@ -145,6 +161,8 @@ public sealed class BrowseRecipesQuery(
         Recipe recipe,
         IReadOnlyDictionary<RecipeId, Recipe> recipesById,
         IReadOnlySet<RecipeId> photoIds,
+        IReadOnlyList<RecipeRating> recipeRatings,
+        Guid? userId,
         DateOnly today,
         CancellationToken ct)
     {
@@ -165,7 +183,9 @@ public sealed class BrowseRecipesQuery(
                 fulfillmentResult.Lines.Select(l => l.Status).ToList(),
                 fulfillmentResult.Lines.Any(l => l.ExpiresWithinDays.HasValue),
                 costResult,
-                photoIds);
+                photoIds,
+                recipeRatings,
+                userId);
         }
 
         // Defensive flat fallback (Edge 1): compute over the recipe's own direct ingredients only.
@@ -177,7 +197,9 @@ public sealed class BrowseRecipesQuery(
             flatFulfillment.Lines.Select(l => l.Status).ToList(),
             flatFulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue),
             flatCost,
-            photoIds);
+            photoIds,
+            recipeRatings,
+            userId);
     }
 
     /// <summary>
@@ -191,7 +213,9 @@ public sealed class BrowseRecipesQuery(
         IReadOnlyList<IngredientStatus> statuses,
         bool hasExpiringSoon,
         CostPerServing costResult,
-        IReadOnlySet<RecipeId> photoIds)
+        IReadOnlySet<RecipeId> photoIds,
+        IReadOnlyList<RecipeRating> recipeRatings,
+        Guid? userId)
     {
         // inStock = lines that are InStock or Untracked (satisfied)
         var totalTracked = statuses.Count(s => s != IngredientStatus.Untracked);
@@ -204,6 +228,17 @@ public sealed class BrowseRecipesQuery(
             pct = 100;
         else
             pct = (int)Math.Round((double)inStock / statuses.Count * 100);
+
+        // Ratings (plantry-zlwp.1): MyStars from the caller's own row (null if unrated or unauthenticated);
+        // HouseholdAvg/RatedCount over every rating, computed in-memory over the small pre-loaded set —
+        // mirrors this query's own cost/fulfillment computation style rather than a SQL AVG()/COUNT().
+        var myStars = userId is { } uid
+            ? recipeRatings.FirstOrDefault(r => r.UserId == uid)?.Stars
+            : null;
+        var ratedCount = recipeRatings.Count;
+        decimal? householdAvg = ratedCount > 0
+            ? Math.Round(recipeRatings.Average(r => (decimal)r.Stars), 1)
+            : null;
 
         return new RecipeBrowseRow(
             RecipeId: recipe.Id.Value,
@@ -220,7 +255,10 @@ public sealed class BrowseRecipesQuery(
             HasIngredientExpiringSoon: hasExpiringSoon,
             CostPerServing: costResult.Completeness != CostCompleteness.None ? costResult.Amount : null,
             CostCompleteness: costResult.Completeness,
-            HasPhoto: photoIds.Contains(recipe.Id)
+            HasPhoto: photoIds.Contains(recipe.Id),
+            MyStars: myStars,
+            HouseholdAvg: householdAvg,
+            RatedCount: ratedCount
         );
     }
 }
@@ -291,6 +329,9 @@ public sealed record BrowseRecipesResult(
 /// <param name="CostPerServing">Cost per serving; null when <see cref="CostCompleteness"/> is <see cref="CostCompleteness.None"/>.</param>
 /// <param name="CostCompleteness">How complete the cost computation is.</param>
 /// <param name="HasPhoto">True when the recipe has a photo stored (resolved lazily, not loaded in the browse query).</param>
+/// <param name="MyStars">The signed-in member's own 1-5 star rating; null if unrated (or no user was supplied).</param>
+/// <param name="HouseholdAvg">Household average rating (1dp), null when <see cref="RatedCount"/> is zero.</param>
+/// <param name="RatedCount">Count of household members who have rated this recipe.</param>
 public sealed record RecipeBrowseRow(
     Guid RecipeId,
     string Name,
@@ -306,4 +347,7 @@ public sealed record RecipeBrowseRow(
     bool HasIngredientExpiringSoon,
     decimal? CostPerServing,
     CostCompleteness CostCompleteness,
-    bool HasPhoto);
+    bool HasPhoto,
+    int? MyStars = null,
+    decimal? HouseholdAvg = null,
+    int RatedCount = 0);

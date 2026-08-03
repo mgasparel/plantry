@@ -105,8 +105,8 @@ public sealed class TodayDishFidelityFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FixedCatalogProductReader());
 
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
+            services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
+            services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
             TodayDealsStubs.RegisterEmpty(services);
         });
@@ -342,8 +342,8 @@ public sealed class TodayNoteMealDishFidelityFactory : WebApplicationFactory<Pro
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FixedCatalogProductReader());
 
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
+            services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
+            services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
             TodayDealsStubs.RegisterEmpty(services);
         });

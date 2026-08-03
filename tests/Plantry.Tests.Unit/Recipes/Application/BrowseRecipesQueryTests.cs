@@ -117,6 +117,7 @@ public sealed class BrowseRecipesQueryTests
     {
         public readonly FakeRecipeRepository Recipes = new();
         public readonly FakeTagRepository Tags = new();
+        public readonly FakeRecipeRatingRepository Ratings = new();
         public readonly FakeInventoryStockReader Stock = new();
         public readonly FakePriceReader Prices = new();
         public readonly FakeCatalogProductReader Catalog = new();
@@ -132,7 +133,7 @@ public sealed class BrowseRecipesQueryTests
             var expansionSvc = new RecipeExpansionService(Recipes);
             var fulfillmentSvc = new FulfillmentService(Stock, Catalog, Converter, new FakeExpiringSoonHorizonReader());
             var costingSvc = new CostingService(Prices, Converter, Catalog);
-            Query = new BrowseRecipesQuery(Recipes, Tags, expansionSvc, fulfillmentSvc, costingSvc, tenant, queryClock ?? Clock);
+            Query = new BrowseRecipesQuery(Recipes, Tags, Ratings, expansionSvc, fulfillmentSvc, costingSvc, tenant, queryClock ?? Clock);
         }
 
         /// <summary>
@@ -209,6 +210,9 @@ public sealed class BrowseRecipesQueryTests
             Tags.Items.Add(tag);
             return tag;
         }
+
+        public void AddRating(RecipeId recipeId, Guid userId, int stars) =>
+            Ratings.Items.Add(RecipeRating.Create(Household, recipeId, userId, stars, Clock));
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
@@ -645,5 +649,86 @@ public sealed class BrowseRecipesQueryTests
         var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter());
 
         Assert.True(result.Rows[0].HasIngredientExpiringSoon);
+    }
+
+    // ── Ratings (plantry-zlwp.1) ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task Unrated_Recipe_Has_Null_MyStars_And_HouseholdAvg_And_Zero_RatedCount()
+    {
+        var h = new Harness();
+        h.AddRecipe("Pasta");
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter(), userId: Guid.NewGuid());
+
+        var row = Assert.Single(result.Rows);
+        Assert.Null(row.MyStars);
+        Assert.Null(row.HouseholdAvg);
+        Assert.Equal(0, row.RatedCount);
+    }
+
+    [Fact]
+    public async Task MyStars_Reflects_The_Calling_Users_Own_Rating()
+    {
+        var h = new Harness();
+        var recipe = h.AddRecipe("Pasta");
+        var me = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        h.AddRating(recipe.Id, me, 4);
+        h.AddRating(recipe.Id, other, 2);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter(), userId: me);
+
+        var row = Assert.Single(result.Rows);
+        Assert.Equal(4, row.MyStars);
+    }
+
+    [Fact]
+    public async Task Null_UserId_Yields_Null_MyStars_But_Household_Aggregate_Still_Computed()
+    {
+        var h = new Harness();
+        var recipe = h.AddRecipe("Pasta");
+        h.AddRating(recipe.Id, Guid.NewGuid(), 4);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter(), userId: null);
+
+        var row = Assert.Single(result.Rows);
+        Assert.Null(row.MyStars);
+        Assert.Equal(4.0m, row.HouseholdAvg);
+        Assert.Equal(1, row.RatedCount);
+    }
+
+    [Fact]
+    public async Task HouseholdAvg_Is_The_One_Decimal_Average_Across_All_Raters()
+    {
+        var h = new Harness();
+        var recipe = h.AddRecipe("Pasta");
+        h.AddRating(recipe.Id, Guid.NewGuid(), 4);
+        h.AddRating(recipe.Id, Guid.NewGuid(), 5);
+        h.AddRating(recipe.Id, Guid.NewGuid(), 5);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter(), userId: Guid.NewGuid());
+
+        var row = Assert.Single(result.Rows);
+        // (4 + 5 + 5) / 3 = 4.666... -> rounds to 4.7 (1dp).
+        Assert.Equal(4.7m, row.HouseholdAvg);
+        Assert.Equal(3, row.RatedCount);
+    }
+
+    [Fact]
+    public async Task Ratings_On_One_Recipe_Never_Leak_Onto_Another_Recipes_Row()
+    {
+        var h = new Harness();
+        var rated = h.AddRecipe("Rated");
+        var unrated = h.AddRecipe("Unrated");
+        h.AddRating(rated.Id, Guid.NewGuid(), 5);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter(), userId: Guid.NewGuid());
+
+        var ratedRow = result.Rows.Single(r => r.RecipeId == rated.Id.Value);
+        var unratedRow = result.Rows.Single(r => r.RecipeId == unrated.Id.Value);
+        Assert.Equal(1, ratedRow.RatedCount);
+        Assert.Equal(0, unratedRow.RatedCount);
+        Assert.Null(unratedRow.HouseholdAvg);
     }
 }

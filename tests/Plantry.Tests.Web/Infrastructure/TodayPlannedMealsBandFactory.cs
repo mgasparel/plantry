@@ -132,8 +132,8 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
 
             // IHouseholdMemberReader — Today page now loads members for attendee avatars.
             // The fixture household has one member (the registering user — Guid.Empty for simplicity).
-            services.RemoveAll<IHouseholdMemberReader>();
-            services.AddSingleton<IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
+            services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
+            services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
             // Empty Deals seams (plantry-bpw) — Today now consumes BrowseDeals for the deal banner.
             TodayDealsStubs.RegisterEmpty(services);
@@ -438,8 +438,8 @@ internal sealed class FakeTodayNullCatalogProductReader : IMealPlanCatalogProduc
 /// are also empty, so no attendee avatars render — the Today band shows slots without
 /// the attendees section. Inject real members here if an attendee-avatar test is added.
 /// </summary>
-internal sealed class FakeTodayPlannedBandMemberReader : IHouseholdMemberReader
+internal sealed class FakeTodayPlannedBandMemberReader : Plantry.MealPlanning.Application.IHouseholdMemberReader
 {
-    public Task<IReadOnlyList<HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<HouseholdMember>>([]);
+    public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
 }
