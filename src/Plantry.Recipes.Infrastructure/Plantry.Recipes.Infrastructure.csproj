@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <!-- Exposes internal MapResponse/ParseCategory on RecipeTagSuggester to the L1 mapping tests
-         (mirrors Plantry.Deals.Infrastructure → DealMatcher). -->
+         (mirrors Plantry.Market.Infrastructure → DealMatcher). -->
     <InternalsVisibleTo Include="Plantry.Tests.Unit" />
   </ItemGroup>
 

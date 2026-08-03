@@ -8,7 +8,7 @@ namespace Plantry.Shopping.Application;
 /// read-time join, <b>never stored</b> on the item (shopping-domain-model.md R3 / D11).
 ///
 /// <para>Defined here in Shopping.Application (which keeps its <c>→ SharedKernel only</c> dependency) and
-/// <b>implemented in Plantry.Web</b> over <see cref="Plantry.Pricing.Application.PricingQueries"/> for the
+/// <b>implemented in Plantry.Web</b> over <see cref="Plantry.Market.Application.PricingQueries"/> for the
 /// cheapest-active-deal read plus Catalog's <c>IStoreRepository</c> for the merchant name — the same
 /// Port + Web-adapter shape as the recipe cost badge (<c>IPriceReader</c>). All identifiers cross as raw
 /// <see cref="System.Guid"/> soft-refs (DM-3).</para>

@@ -1,5 +1,5 @@
 using Plantry.Catalog.Domain;
-using Plantry.Deals.Domain;
+using Plantry.Market.Domain;
 using Plantry.Shopping.Application;
 
 namespace Plantry.Web.Shopping;

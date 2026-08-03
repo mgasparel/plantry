@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Plantry.Deals.Application;
+using Plantry.Market.Application;
 
 namespace Plantry.Web.Pages.Deals;
 

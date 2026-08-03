@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Plantry.Intake.Application;
-using Plantry.Pricing.Application;
-using Plantry.Pricing.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 

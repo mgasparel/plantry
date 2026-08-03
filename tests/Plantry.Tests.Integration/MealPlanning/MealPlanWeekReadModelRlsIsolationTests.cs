@@ -4,7 +4,7 @@ using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
 using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
-using Plantry.Pricing.Infrastructure;
+using Plantry.Market.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;

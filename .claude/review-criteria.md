@@ -19,8 +19,8 @@ do not duplicate or diverge in either consumer.**
 ## Gate 2 — Bounded-context and aggregate discipline
 
 - **No cross-context table reads.** A context's repository/EF queries touch only its
-  own schema (`identity`, `catalog`, `inventory`, `intake`, `pricing`, `recipes`,
-  `meal_planning`, `shopping`, `deals`). If `Plantry.Recipes` needs Inventory data, it
+  own schema (`identity`, `catalog`, `inventory`, `intake`, `market` (schemas: `pricing`,
+  `deals`), `recipes`, `meal_planning`, `shopping`). If `Plantry.Recipes` needs Inventory data, it
   calls Inventory's application service or reads its read model — it never queries
   `inventory.*` tables directly.
 - **Cross-context references are IDs only, never embedded entities.** A
@@ -76,7 +76,7 @@ do not duplicate or diverge in either consumer.**
 - AI output lands in a **staging aggregate** (`ImportSession`/`ImportLine`,
   `MealPlanProposal`) as a proposal — raw model output kept in `raw_parse` jsonb for
   provenance — and *only* an explicit user confirmation may trigger writes into
-  Inventory/Catalog/Pricing/MealPlan. Any path that lets AI output write straight into
+  Inventory/Catalog/Market/MealPlan. Any path that lets AI output write straight into
   a core aggregate without that review step is a violation, regardless of confidence score.
 - Only user-*resolved*, typed fields commit. Don't promote raw AI fields straight into
   typed columns.

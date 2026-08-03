@@ -1,6 +1,6 @@
 using Plantry.Catalog.Infrastructure;
 using Plantry.Identity.Domain;
-using Plantry.Pricing.Infrastructure;
+using Plantry.Market.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 

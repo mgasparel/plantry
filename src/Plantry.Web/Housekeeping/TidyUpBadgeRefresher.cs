@@ -3,7 +3,7 @@ using Plantry.Catalog.Infrastructure;
 using Plantry.Housekeeping.Application;
 using Plantry.Housekeeping.Infrastructure;
 using Plantry.Inventory.Infrastructure;
-using Plantry.Pricing.Infrastructure;
+using Plantry.Market.Infrastructure;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;

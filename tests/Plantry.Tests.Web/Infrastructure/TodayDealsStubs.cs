@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Deals.Application;
-using Plantry.Deals.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 

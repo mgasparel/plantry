@@ -1,4 +1,4 @@
-using Plantry.Pricing.Application;
+using Plantry.Market.Application;
 using Plantry.Recipes.Application;
 using Plantry.SharedKernel.Domain;
 

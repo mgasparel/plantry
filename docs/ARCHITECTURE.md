@@ -50,7 +50,7 @@ The UI renders domain state directly as HTML. There is no client-side domain mod
 
 ## Bounded contexts
 
-Nine contexts in one process and database, each with its own module/namespace, its own aggregates, and ID-only references across boundaries.
+Eight contexts in one process and database, each with its own module/namespace, its own aggregates, and ID-only references across boundaries.
 
 | Context | Type | Phase | Owns |
 |---|---|---|---|
@@ -58,11 +58,10 @@ Nine contexts in one process and database, each with its own module/namespace, i
 | Catalog | supporting | 1 | Product (+SKUs, +conversions), Unit, Location, Category, expiry defaults |
 | Inventory | core | 1 | Stock lots, stock journal, FEFO consume, transfer, freeze/thaw, open |
 | Intake | core | 1 | Receipt image, AI parse/match, import proposal, review-then-commit |
-| Pricing | supporting | 1→2 | Price observations (purchase + deal), price read models |
+| Market | supporting/core | 1→2, 5 | Price observations (purchase + deal), price read models; store subscription, flyer ingestion (ACL), deal, match queue + memory. Pricing + Deals merged per ADR-024 (2026-08-03) — two schemas retained (`pricing`, `deals`), one bounded context. |
 | Recipes | core | 2 | Recipe (+ingredients, +directions), cook flow; fulfillment & cost as read models |
 | Meal Planning | core | 3 | Meal plan, slots, AI plan proposal |
 | Shopping | supporting | 1 | Shopping list, items, check-off |
-| Deals | core | 5 | Store subscription, flyer ingestion (ACL), deal, match queue + memory |
 
 ### Context map
 
@@ -72,23 +71,21 @@ graph TD
     CAT["Catalog<br/><i>supporting</i>"]
     INV["Inventory<br/><i>core</i>"]
     INT["Intake<br/><i>core</i>"]
-    PRI["Pricing<br/><i>supporting</i>"]
+    MKT["Market<br/><i>supporting/core</i>"]
     REC["Recipes<br/><i>core</i>"]
     MP["Meal Planning<br/><i>core</i>"]
     SHOP["Shopping<br/><i>supporting</i>"]
-    DEAL["Deals<br/><i>core</i>"]
 
     IA -. "HouseholdId (shared kernel)" .-> CAT
 
-    CAT --> INV & INT & REC & SHOP & DEAL & PRI
+    CAT --> INV & INT & REC & SHOP & MKT
     INT -- "record purchase" --> INV
-    INT -- "purchase price" --> PRI
+    INT -- "purchase price" --> MKT
     INV --> REC & MP & SHOP
-    PRI --> REC & MP
+    MKT --> REC & MP & SHOP
     REC -- "cook: consume" --> INV
     REC --> MP & SHOP
     MP --> SHOP
-    DEAL --> PRI & SHOP & MP
 ```
 
 *Arrow = "supplies / is upstream of".*
@@ -97,12 +94,12 @@ graph TD
 
 - **Catalog** is the universal upstream supplier. All other contexts reference catalog entities by ID only (`ProductId`, `UnitId`, `LocationId`). Nothing downstream mutates Catalog.
 - **Inventory** is the ground truth for stock. It receives commands (purchase, consume, transfer) from Intake and from Recipes' cook flow, and supplies fulfillment data to Recipes, Meal Planning, and Shopping.
-- **Pricing** is an append-only read-side context fed by two writers (Intake for purchase prices, Deals for sale prices) and read by Recipes and Meal Planning for cost-per-serving.
-- **Intake and Deals** each wrap an untrusted external source (AI model, flyer data) behind an Anticorruption Layer — raw input lands in a proposal/staging aggregate and only crosses into core contexts after user confirmation.
+- **Market** (Pricing + Deals merged per ADR-024, 2026-08-03 — two schemas retained) is fed by two writers (Intake for purchase prices, its own flyer ingestion ACL for deal prices) and read by Recipes, Meal Planning, and Shopping for cost-per-serving/deal data. Its Deals half wraps an untrusted external source (flyer data) behind an Anticorruption Layer — raw input lands in a proposal/staging aggregate and only crosses into the confirmed `Deal`/price_observation after user confirmation, exactly like Intake's AI parse.
+- **Intake** wraps an untrusted external source (AI model) behind an Anticorruption Layer — raw input lands in a proposal/staging aggregate and only crosses into core contexts after user confirmation.
 
 ### Integration
 
-Contexts communicate via **in-process application-service calls**. Where a downstream reaction should be loosely coupled (e.g., Pricing reacting to a purchase), **in-process domain events** decouple the caller from the subscriber without a message broker.
+Contexts communicate via **in-process application-service calls**. Where a downstream reaction should be loosely coupled (e.g., Market reacting to a purchase), **in-process domain events** decouple the caller from the subscriber without a message broker.
 
 ---
 
@@ -114,11 +111,10 @@ Contexts communicate via **in-process application-service calls**. Where a downs
 | Catalog | `Product` (with SKU + conversion children), `Location`, `Unit`, `Category` — within-dimension conversion is a `Unit.factor_to_base` column, not an aggregate (ADR-010 amended; DATA-MODEL DM-8). `Product` carries an optional `parent_product_id` (self-referencing FK) — see Product Groups below. |
 | Inventory | `ProductStock` (keyed by `household_id + product_id`, holds `StockEntry` lots + emits immutable `StockJournalEntry`) |
 | Intake | `ImportSession` (1:1 `import_receipt` source binary; `ImportLine` children carry the AI proposal in `raw_parse` jsonb + typed resolved fields; per-row match + confidence, status lifecycle) — DATA-MODEL DM-15 |
-| Pricing | `PriceObservation` (append-only) |
+| Market | `PriceObservation` (append-only, schema `pricing`); `StoreSubscription`, `FlyerImport` (ACL provenance, `raw_flyer` jsonb quarantine), `Deal` (its own long-lived root), `DealMatchMemory` (schema `deals`) — the merchant *identity* `Store` is **Catalog-owned** (DM-16), referenced by ID (ADR-010 amended; DATA-MODEL DM-22). Pricing and Deals merged into one bounded context per ADR-024 (2026-08-03); each half keeps its own DbContext, schema, and migration history — no data migration. |
 | Recipes | `Recipe` (with `Ingredient` children); fulfillment and cost are read models, not aggregates |
 | Meal Planning | `MealPlan` (with `Slot` children), `MealSlotConfig`, `MealPlanProposal` (AI staging) |
 | Shopping | `ShoppingList` (with `Item` children) |
-| Deals | `StoreSubscription`, `FlyerImport` (ACL provenance, `raw_flyer` jsonb quarantine), `Deal` (its own long-lived root), `DealMatchMemory` — the merchant *identity* `Store` is **Catalog-owned** (DM-16), referenced by ID (ADR-010 amended; DATA-MODEL DM-22) |
 
 Aggregates are modified one-per-transaction. Cross-aggregate references are by ID only.
 
@@ -169,7 +165,7 @@ AI is treated as an **untrusted external function**. The pattern is consistent a
 1. AI call runs server-side in .NET (OpenAI-compatible `ChatClient`).
 2. Structured output lands in a **staging aggregate** (`ImportSession`, `MealPlanProposal`) as jsonb.
 3. The user reviews and confirms.
-4. **Only confirmation triggers writes** to Inventory / Catalog / Pricing / MealPlan.
+4. **Only confirmation triggers writes** to Inventory / Catalog / Market / MealPlan.
 
 The AI key is held server-side. The client never calls a model directly.
 

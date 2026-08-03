@@ -1,12 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Plantry.Catalog.Infrastructure;
-using Plantry.Deals.Infrastructure;
+using Plantry.Market.Infrastructure;
 using Plantry.Housekeeping.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Infrastructure;
 using Plantry.MealPlanning.Infrastructure;
-using Plantry.Pricing.Infrastructure;
 using Plantry.Recipes.Infrastructure;
 using Plantry.Shopping.Infrastructure;
 
@@ -36,6 +35,11 @@ public sealed record MigrationTarget(
 /// project with a <c>Migrations/</c> folder has an entry here, so a future bounded context
 /// can no longer go missing the same way.
 ///
+/// Plantry.Market.Infrastructure owns TWO entries — PricingDbContext (schema <c>pricing</c>) and
+/// DealsDbContext (schema <c>deals</c>) — kept as separate DbContexts with separate migration
+/// histories even after the Pricing/Deals bounded-context merge (ADR-024); DbContext unification is
+/// a separate, later piece of work. Each keeps its own position in the ordered list below.
+///
 /// ORDER IS LOAD-BEARING. Plantry.Identity.Infrastructure MUST remain first — its initial
 /// migration creates the <c>app_user</c> role that every other schema's RLS policies (and
 /// the app_user-authenticated test/runtime connections) depend on. Plantry.Housekeeping.Infrastructure
@@ -51,12 +55,12 @@ public static class MigrationTargets
         Target<PlantryIdentityDbContext>("Plantry.Identity.Infrastructure", "identity"),
         Target<CatalogDbContext>("Plantry.Catalog.Infrastructure", "catalog"),
         Target<InventoryDbContext>("Plantry.Inventory.Infrastructure", "inventory"),
-        Target<PricingDbContext>("Plantry.Pricing.Infrastructure", "pricing"),
+        Target<PricingDbContext>("Plantry.Market.Infrastructure", "pricing"),
         Target<IntakeDbContext>("Plantry.Intake.Infrastructure", "intake"),
         Target<RecipesDbContext>("Plantry.Recipes.Infrastructure", "recipes"),
         Target<ShoppingDbContext>("Plantry.Shopping.Infrastructure", "shopping"),
         Target<MealPlanningDbContext>("Plantry.MealPlanning.Infrastructure", "meal_planning"),
-        Target<DealsDbContext>("Plantry.Deals.Infrastructure", "deals"),
+        Target<DealsDbContext>("Plantry.Market.Infrastructure", "deals"),
         Target<HousekeepingDbContext>("Plantry.Housekeeping.Infrastructure", "housekeeping"),
     ];
 

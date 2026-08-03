@@ -1,4 +1,4 @@
-using Plantry.Deals.Application;
+using Plantry.Market.Application;
 
 namespace Plantry.Web.Pages.Deals;
 
@@ -31,7 +31,7 @@ public sealed record DealReviewQueueView(
 /// presentation composition over <see cref="ReviewDeals"/> (domain read), <see cref="FlyerRail"/>,
 /// <see cref="ReviewStepClassifier"/>, and the flow/session state (<see cref="DealsReviewFlowSession"/>) — it
 /// holds no HTTP concern and executes no command, so it stays in the Web project and does NOT belong in
-/// <c>Plantry.Deals.Application</c> (bounded-context discipline, ADR-010).
+/// <c>Plantry.Market.Application</c> (bounded-context discipline, ADR-010).
 /// </summary>
 public sealed class DealReviewQueueBuilder(ReviewDeals reviewDeals, DealsReviewFlowSession flowSession)
 {

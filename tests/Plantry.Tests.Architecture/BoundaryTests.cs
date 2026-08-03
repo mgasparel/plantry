@@ -26,7 +26,7 @@ public sealed class BoundaryTests
     [
         "Plantry.Catalog",
         "Plantry.Inventory",
-        "Plantry.Pricing",
+        "Plantry.Market",
         "Plantry.Shopping",
         "Plantry.Intake",
         "Plantry.Recipes",
@@ -37,7 +37,7 @@ public sealed class BoundaryTests
     [
         "Plantry.Identity",
         "Plantry.Inventory",
-        "Plantry.Pricing",
+        "Plantry.Market",
         "Plantry.Shopping",
         "Plantry.Intake",
         "Plantry.Recipes",
@@ -50,7 +50,7 @@ public sealed class BoundaryTests
     [
         "Plantry.Identity",
         "Plantry.Catalog",
-        "Plantry.Pricing",
+        "Plantry.Market",
         "Plantry.Shopping",
         "Plantry.Intake",
         "Plantry.Recipes",
@@ -197,7 +197,10 @@ public sealed class BoundaryTests
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
-    private static readonly string[] PricingSiblingContexts =
+    // Market (Pricing + Deals merged per ADR-024) — every other context is a forbidden sibling. Deals'
+    // former ACL soft-refs onto Catalog/Shopping/Inventory/Identity still hold; Pricing's own domain
+    // referenced only SharedKernel before the merge and still does.
+    private static readonly string[] MarketSiblingContexts =
     [
         "Plantry.Identity",
         "Plantry.Catalog",
@@ -213,7 +216,7 @@ public sealed class BoundaryTests
         "Plantry.Identity",
         "Plantry.Catalog",
         "Plantry.Inventory",
-        "Plantry.Pricing",
+        "Plantry.Market",
         "Plantry.Shopping",
         "Plantry.Recipes",
         "Plantry.MealPlanning",
@@ -227,7 +230,7 @@ public sealed class BoundaryTests
         "Plantry.Identity",
         "Plantry.Catalog",
         "Plantry.Inventory",
-        "Plantry.Pricing",
+        "Plantry.Market",
         "Plantry.Shopping",
         "Plantry.Intake",
         "Plantry.MealPlanning",
@@ -241,65 +244,65 @@ public sealed class BoundaryTests
         "Plantry.Identity",
         "Plantry.Catalog",
         "Plantry.Inventory",
-        "Plantry.Pricing",
+        "Plantry.Market",
         "Plantry.Shopping",
         "Plantry.Intake",
         "Plantry.Recipes",
     ];
 
     [Fact]
-    public void Pricing_Domain_Should_Not_Reference_Infrastructure_Packages()
+    public void Market_Domain_Should_Not_Reference_Infrastructure_Packages()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.Pricing.Domain")
+            .ResideInNamespace("Plantry.Market.Domain")
             .Should().NotHaveDependencyOnAny(InfraPackages)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "Pricing domain references infrastructure packages:\n" +
+            "Market domain references infrastructure packages:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
-    public void Pricing_Application_Should_Not_Reference_Infrastructure_Packages()
+    public void Market_Application_Should_Not_Reference_Infrastructure_Packages()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.Pricing.Application")
+            .ResideInNamespace("Plantry.Market.Application")
             .Should().NotHaveDependencyOnAny(InfraPackages)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "Pricing application references infrastructure packages:\n" +
+            "Market application references infrastructure packages:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
-    public void Pricing_Domain_Should_Not_Reference_Sibling_Contexts()
+    public void Market_Domain_Should_Not_Reference_Sibling_Contexts()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.Pricing.Domain")
-            .Should().NotHaveDependencyOnAny(PricingSiblingContexts)
+            .ResideInNamespace("Plantry.Market.Domain")
+            .Should().NotHaveDependencyOnAny(MarketSiblingContexts)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "Pricing domain references sibling contexts:\n" +
+            "Market domain references sibling contexts:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
-    public void Pricing_Application_Should_Not_Reference_Sibling_Contexts()
+    public void Market_Application_Should_Not_Reference_Sibling_Contexts()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.Pricing.Application")
-            .Should().NotHaveDependencyOnAny(PricingSiblingContexts)
+            .ResideInNamespace("Plantry.Market.Application")
+            .Should().NotHaveDependencyOnAny(MarketSiblingContexts)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "Pricing application references sibling contexts:\n" +
+            "Market application references sibling contexts:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
@@ -471,49 +474,6 @@ public sealed class BoundaryTests
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
-    // Deals is a Phase-5 core context wrapping an untrusted flyer feed behind an ACL. Its domain
-    // references only SharedKernel; it reaches Catalog/Pricing/Shopping/Inventory/Identity by opaque
-    // Guid soft-refs only (deals-domain-model.md §1/§8), so every other context is a sibling it must
-    // not depend on directly.
-    private static readonly string[] DealsSiblingContexts =
-    [
-        "Plantry.Identity",
-        "Plantry.Catalog",
-        "Plantry.Inventory",
-        "Plantry.Pricing",
-        "Plantry.Shopping",
-        "Plantry.Intake",
-        "Plantry.Recipes",
-        "Plantry.MealPlanning",
-    ];
-
-    [Fact]
-    public void Deals_Domain_Should_Not_Reference_Infrastructure_Packages()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Deals.Domain")
-            .Should().NotHaveDependencyOnAny(InfraPackages)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Deals domain references infrastructure packages:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
-
-    [Fact]
-    public void Deals_Domain_Should_Not_Reference_Sibling_Contexts()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Deals.Domain")
-            .Should().NotHaveDependencyOnAny(DealsSiblingContexts)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Deals domain references sibling contexts:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
 
     // Housekeeping (tidy-up.md T4) computes findings by reading OTHER contexts' application services
     // through Composition-layer detectors — but Housekeeping itself (Domain + Application) stays
@@ -524,12 +484,11 @@ public sealed class BoundaryTests
         "Plantry.Identity",
         "Plantry.Catalog",
         "Plantry.Inventory",
-        "Plantry.Pricing",
+        "Plantry.Market",
         "Plantry.Shopping",
         "Plantry.Intake",
         "Plantry.Recipes",
         "Plantry.MealPlanning",
-        "Plantry.Deals",
     ];
 
     [Fact]
@@ -608,22 +567,23 @@ public sealed class BoundaryTests
         "Identity",
         "Catalog",
         "Inventory",
-        "Pricing",
+        "Market",
         "Shopping",
         "Intake",
         "Recipes",
         "MealPlanning",
-        "Deals",
         "Housekeeping",
     ];
 
     // Regression lock (plantry-ew5): no bounded context's *.Infrastructure assembly may reference
-    // another bounded context's *.Infrastructure assembly. MealPlanning.Infrastructure and
+    // another bounded context's *.Infrastructure assembly. MealPlanning.Infrastructure and (the former)
     // Deals.Infrastructure once referenced Plantry.Intake.Infrastructure solely to reuse the AiOptions /
     // AiTelemetry POCOs (Gate 2 violation); those primitives now live in the shared, context-free
     // Plantry.Ai.Infrastructure. This test fails the moment any such cross-context infra dependency is
-    // reintroduced. The shared Plantry.Ai.Infrastructure and Plantry.SharedKernel are exempt by
-    // construction (they are not in the context list, so they are never treated as a forbidden target).
+    // reintroduced. Market.Infrastructure's reference to Plantry.Ai.Infrastructure (DealMatcher/FlyerSource,
+    // carried over from Deals.Infrastructure) is allowed by construction — Ai.Infrastructure is not in the
+    // context list, so it is never treated as a forbidden sibling target. The shared Plantry.Ai.Infrastructure
+    // and Plantry.SharedKernel are exempt the same way.
     [Fact]
     public void Infrastructure_Should_Not_Reference_Sibling_Context_Infrastructure()
     {

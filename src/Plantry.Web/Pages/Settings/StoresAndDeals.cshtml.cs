@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Plantry.Deals.Application;
-using Plantry.Deals.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 
 namespace Plantry.Web.Pages.Settings;
 

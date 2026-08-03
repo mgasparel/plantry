@@ -1,7 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Plantry.Deals.Application;
+using Plantry.Market.Application;
 using Plantry.Identity.Domain;
 using Plantry.Intake.Application;
 using Plantry.Inventory.Application;

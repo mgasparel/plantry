@@ -1,9 +1,8 @@
 using Plantry.Catalog.Infrastructure;
-using Plantry.Deals.Application;
-using Plantry.Deals.Domain;
-using Plantry.Deals.Infrastructure;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
+using Plantry.Market.Infrastructure;
 using Plantry.Identity.Domain;
-using Plantry.Pricing.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 
