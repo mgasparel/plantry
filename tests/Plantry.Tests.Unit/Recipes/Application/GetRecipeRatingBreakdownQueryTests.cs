@@ -21,14 +21,31 @@ public sealed class GetRecipeRatingBreakdownQueryTests
         return (query, ratings, members);
     }
 
-    [Fact(DisplayName = "No ratings returns an empty breakdown")]
-    public async Task No_Ratings_Returns_Empty()
+    [Fact(DisplayName = "No ratings and no household members returns an empty breakdown")]
+    public async Task No_Ratings_No_Members_Returns_Empty()
     {
         var (query, _, _) = Build();
 
         var rows = await query.ExecuteAsync(Recipe, UserA);
 
         Assert.Empty(rows);
+    }
+
+    [Fact(DisplayName = "A household member who has not rated appears with a null Stars ('not rated')")]
+    public async Task Unrated_Member_Appears_With_Null_Stars()
+    {
+        var (query, ratings, members) = Build();
+        ratings.Items.Add(RecipeRating.Create(Household, Recipe, UserA, 4, Clock));
+        members.Items.Add(new HouseholdMember(UserA, "Zara", "Z"));
+        members.Items.Add(new HouseholdMember(UserB, "Amir", "A")); // never rated
+
+        var rows = await query.ExecuteAsync(Recipe, currentUserId: UserA);
+
+        Assert.Equal(2, rows.Count);
+        var unrated = rows.Single(r => r.UserId == UserB);
+        Assert.Null(unrated.Stars);
+        var rated = rows.Single(r => r.UserId == UserA);
+        Assert.Equal(4, rated.Stars);
     }
 
     [Fact(DisplayName = "The current user's row is first, followed by other members sorted by display name")]
@@ -63,6 +80,7 @@ public sealed class GetRecipeRatingBreakdownQueryTests
         var row = Assert.Single(rows);
         Assert.Equal("Household member", row.DisplayName);
         Assert.Equal("?", row.Initials);
+        Assert.Equal(3, row.Stars);
     }
 
     [Fact(DisplayName = "Only recipes with ratings for THIS recipe id appear — another recipe's ratings are excluded")]

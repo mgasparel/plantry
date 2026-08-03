@@ -434,6 +434,13 @@ public sealed class RecipeInclusionTests
 
                 services.RemoveAll<IShoppingListRepository>();
                 services.AddScoped<IShoppingListRepository, NullInclusionShoppingRepo>();
+
+                // Rating seams the Details page now resolves unconditionally (plantry-zlwp.3) — empty
+                // fakes, no ratings/members exercised by these inclusion Details assertions.
+                services.RemoveAll<IRecipeRatingRepository>();
+                services.AddSingleton<IRecipeRatingRepository>(new FakeDetailRatingRepository([]));
+                services.RemoveAll<IHouseholdMemberReader>();
+                services.AddSingleton<IHouseholdMemberReader>(new FakeDetailHouseholdMemberReader([]));
             });
         }
     }

@@ -386,6 +386,13 @@ public sealed class RecipeInclusionRollupRowTests
                 services.AddSingleton<IShoppingListWriter>(new NullRollupShoppingWriter());
                 services.RemoveAll<IShoppingListRepository>();
                 services.AddScoped<IShoppingListRepository, NullRollupShoppingRepo>();
+
+                // Rating seams the Details page now resolves unconditionally (plantry-zlwp.3) — empty
+                // fakes, no ratings/members exercised by these inclusion roll-up row assertions.
+                services.RemoveAll<IRecipeRatingRepository>();
+                services.AddSingleton<IRecipeRatingRepository>(new FakeDetailRatingRepository([]));
+                services.RemoveAll<IHouseholdMemberReader>();
+                services.AddSingleton<IHouseholdMemberReader>(new FakeDetailHouseholdMemberReader([]));
             });
         }
     }

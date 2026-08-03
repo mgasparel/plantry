@@ -149,6 +149,21 @@
 						</div>
 					</div>
 				</div>
+				<div class="rd-rating">
+					<h3>Your rating</h3>
+					<div x-data="starRatingInput({ value: 0, postUrl: '/Recipes/Guid_1?handler=Rate' })">
+						<div class="star-rating star-rating--input" role="radiogroup" aria-label="Your rating">
+							<template x-for="i in 5" :key="i"><button type="button" role="radio" :aria-checked="value === i ? 'true' : 'false'" :aria-label="'Rate ' + i + (i === 1 ? ' star' : ' stars')" @click="rate(i)" @mouseenter="hoverValue = i" @mouseleave="hoverValue = 0">
+									<svg class="icon" :class="{ 'is-filled': isFilled(i) }" aria-hidden="true">
+										<use href="#i-star"></use>
+									</svg>
+								</button></template>
+						</div>
+						<span class="star-rating-hint" x-text="hint()"></span>
+					</div>
+					<div id="rd-rating-household">
+					</div>
+				</div>
 				<div class="rd-directions">
 					<div class="recipe-directions" id="recipe-directions">
 						<div class="recipe-direction-step">

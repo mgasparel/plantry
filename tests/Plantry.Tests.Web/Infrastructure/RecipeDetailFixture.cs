@@ -274,6 +274,42 @@ public static class RecipeDetailFixture
         {
             [PastaId] = new(PastaId, Price: 2.00m, Quantity: 1000m, UnitId: GramUnitId, UnitPrice: 0.002m),
         };
+
+    // ── Ratings (plantry-zlwp.3) ────────────────────────────────────────────────
+
+    /// <summary>The signed-in test user's id — matches <c>TestAuthHandler</c>'s fixed NameIdentifier claim.</summary>
+    public static readonly Guid CurrentUserId = Guid.Parse("00000000-0000-0000-0000-0000000000aa");
+
+    public static readonly Guid AlexId = Guid.Parse("cccccccc-0000-0000-0000-000000000003");
+    public static readonly Guid SamId  = Guid.Parse("dddddddd-0000-0000-0000-000000000004");
+
+    /// <summary>
+    /// Ratings for the multi-member household-summary render path: the current user (4 stars) and Alex
+    /// (5 stars) have rated; Sam has not — exercises the popover's "not rated" row and a non-1.0-decimal
+    /// average (4.5). <paramref name="recipeId"/> is the RUNTIME recipe id (<c>Recipe.Id</c>) — NOT the
+    /// static <see cref="RecipeId"/> constant above, which <see cref="Build"/> never actually assigns
+    /// (<c>Recipe.Create</c> mints its own id); a rating fixture keyed on the static constant would
+    /// silently match no recipe and every rating-view assertion would degrade to the empty/unrated state.
+    /// </summary>
+    public static IReadOnlyList<RecipesDomain.RecipeRating> RatedByMeAndAlex(RecipesDomain.RecipeId recipeId) =>
+    [
+        RecipesDomain.RecipeRating.Create(HouseholdId.From(HouseholdAId), recipeId, CurrentUserId, 4, SystemClock.Instance),
+        RecipesDomain.RecipeRating.Create(HouseholdId.From(HouseholdAId), recipeId, AlexId, 5, SystemClock.Instance),
+    ];
+
+    /// <summary>Only Alex has rated (5 stars) — I haven't; exercises the grey-ghost --out pill flavour.</summary>
+    public static IReadOnlyList<RecipesDomain.RecipeRating> RatedByAlexOnly(RecipesDomain.RecipeId recipeId) =>
+    [
+        RecipesDomain.RecipeRating.Create(HouseholdId.From(HouseholdAId), recipeId, AlexId, 5, SystemClock.Instance),
+    ];
+
+    /// <summary>The three-member household directory backing the rating fixtures above.</summary>
+    public static IReadOnlyList<HouseholdMember> ThreeMemberHousehold() =>
+    [
+        new HouseholdMember(CurrentUserId, "Michael", "M"),
+        new HouseholdMember(AlexId, "Alex", "A"),
+        new HouseholdMember(SamId, "Sam", "S"),
+    ];
 }
 
 /// <summary>

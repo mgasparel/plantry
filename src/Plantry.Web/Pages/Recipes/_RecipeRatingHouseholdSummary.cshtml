@@ -1,0 +1,48 @@
+@model Plantry.Web.Pages.Recipes.RecipeRatingView
+@{
+    // Oob (plantry-zlwp.3): true only on OnPostRateAsync's fragment response, mirroring
+    // _DetailsFulfilmentCard's Model.Oob pattern. The wrapper below is ALWAYS rendered — even when
+    // ShowHouseholdLine is false — so a rate/clear that flips ShowHouseholdLine from false to true (e.g.
+    // the household's very first rating) still has a matching #rd-rating-household id to OOB-swap into;
+    // htmx silently drops an OOB block with no matching DOM id, so an absent wrapper on the initial render
+    // would strand every "line appears for the first time" case.
+    var oobAttr = Model.Oob ? " hx-swap-oob=\"true\"" : "";
+}
+<div id="rd-rating-household"@Html.Raw(oobAttr)>
+@if (Model.ShowHouseholdLine)
+{
+    var avg = Model.HouseholdAvg!.Value;
+    var flavour = Model.IncludesMe ? "rating-pill--in" : "rating-pill--out";
+    <div class="rd-rating-hh">
+        <span class="popover">
+            <button type="button" class="popover__trigger rating-pill rating-pill--surface @flavour" aria-describedby="rd-rating-pop">
+                <svg class="icon" aria-hidden="true"><use href="#i-star-outline" /></svg><span>@avg.ToString("0.0")</span>
+            </button>
+            <span class="popover__content" id="rd-rating-pop" role="tooltip">
+                <span class="popover__title">Household @avg.ToString("0.0") avg</span>
+                @foreach (var member in Model.Breakdown)
+                {
+                    <span class="rating-pop-row@(member.IsCurrentUser ? " rating-pop-row--me" : "")">
+                        <span class="rating-pop-row__avatar" aria-hidden="true">@member.Initials</span>
+                        <span class="rating-pop-row__who">@(member.IsCurrentUser ? "You" : member.DisplayName)</span>
+                        @if (member.Stars is { } s)
+                        {
+                            <span class="star-rating" role="img" aria-label="@s out of 5 stars">
+                                @for (var i = 1; i <= 5; i++)
+                                {
+                                    <svg class="icon@(i <= s ? " is-filled" : "")" aria-hidden="true"><use href="#i-star" /></svg>
+                                }
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="rating-pop-row__unrated">not rated</span>
+                        }
+                    </span>
+                }
+            </span>
+        </span>
+        <span>household average &middot; @Model.RatedCount of @Model.MemberCount rated</span>
+    </div>
+}
+</div>
