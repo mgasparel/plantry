@@ -237,15 +237,13 @@ public sealed class CookModel(
                     i.GroupHeading is null ? [] : [i.GroupHeading]))
                 .ToList();
 
-        // Resolve catalog facts for every expanded product (track_stock + parent/variant tree).
+        // Resolve catalog facts for every expanded product (track_stock + parent/variant tree) in ONE
+        // batched round-trip (ADR-024 read-layer companion to ADR-021) — was one catalog.FindAsync per
+        // product (plantry-g3da.3).
         var allProductIds = expandedLines.Select(e => e.ProductId).Distinct().ToList();
-        var catalogById = new Dictionary<Guid, CatalogProduct>();
-        foreach (var productId in allProductIds)
-        {
-            var product = await catalog.FindAsync(productId, ct);
-            if (product is not null)
-                catalogById[product.Id] = product;
-        }
+        var catalogById = allProductIds.Count > 0
+            ? (await catalog.FindManyWithVariantsAsync(allProductIds, ct)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+            : new Dictionary<Guid, CatalogProduct>();
 
         // Resolve unit codes for rendering.
         var unitIds = expandedLines
@@ -264,13 +262,12 @@ public sealed class CookModel(
         var variantSummaries = variantIds.Count > 0
             ? await catalog.ResolveSummariesAsync(variantIds, ct)
             : new Dictionary<Guid, CatalogProductSummary>();
-        var variantDefaultUnits = new Dictionary<Guid, Guid>();
-        foreach (var variantId in variantIds)
-        {
-            var variantProduct = await catalog.FindAsync(variantId, ct);
-            if (variantProduct is not null)
-                variantDefaultUnits[variantId] = variantProduct.DefaultUnitId;
-        }
+        // Batched in ONE round-trip (ADR-024 read-layer companion to ADR-021) — was one catalog.FindAsync
+        // per variant (plantry-g3da.3). FindManyAsync's CatalogProductLookup carries DefaultUnitId.
+        var variantDefaultUnits = variantIds.Count > 0
+            ? (await catalog.FindManyAsync(variantIds, ct))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.DefaultUnitId)
+            : new Dictionary<Guid, Guid>();
 
         // Resolve stock for all relevant products (variants for parents, direct for leaves).
         var stockIds = new HashSet<Guid>();
@@ -660,34 +657,67 @@ public sealed class CookModel(
         Recipe root, int desiredServings, CancellationToken ct)
     {
         var map = new Dictionary<string, GroupMeta>();
-        await WalkInclusionsAsync(root, [], desiredServings, new HashSet<Guid> { root.Id.Value }, map, ct);
+
+        // Breadth-first LEVEL walk (ADR-024 read-layer companion to ADR-021, plantry-g3da.3 critic pass
+        // 2) — was a depth-first walk materializing a full Recipe aggregate (ingredients, tags, photo)
+        // per node via recipes.GetByIdAsync. Each level now resolves in exactly TWO round-trips
+        // (GetInclusionsByParentIdsAsync + GetSummariesByIdsAsync) regardless of how many nodes are on
+        // that level, so query count scales with tree DEPTH, not node count. Behaviour — the
+        // batches/subServings math, the '/'-joined InclusionId PathKey, the per-branch ancestor cycle
+        // guard (N4), and "a missing sub is dropped from the group headers" — is preserved exactly.
+        var frontier = new List<FrontierNode>
+        {
+            new(root.Id, root.DefaultServings, [], desiredServings, new HashSet<Guid> { root.Id.Value }),
+        };
+
+        while (frontier.Count > 0)
+        {
+            var parentIds = frontier.Select(f => f.RecipeId).Distinct().ToList();
+            var inclusionsByParent = await recipes.GetInclusionsByParentIdsAsync(parentIds, ct);
+
+            // Every (frontier node, inclusion row) pair whose sub-recipe id is not an ancestor on THAT
+            // node's own lineage (the per-branch cycle guard N4 relies on — a sub-recipe reused on a
+            // sibling branch is not itself a cycle).
+            var candidates = frontier
+                .Where(f => inclusionsByParent.ContainsKey(f.RecipeId))
+                .SelectMany(f => inclusionsByParent[f.RecipeId]
+                    .Where(row => !f.Ancestors.Contains(row.SubRecipeId.Value))
+                    .Select(row => (Node: f, Row: row)))
+                .ToList();
+            if (candidates.Count == 0) break;
+
+            var subIds = candidates.Select(c => c.Row.SubRecipeId).Distinct().ToList();
+            var summaries = await recipes.GetSummariesByIdsAsync(subIds, ct);
+
+            var nextFrontier = new List<FrontierNode>();
+            foreach (var (node, row) in candidates)
+            {
+                if (!summaries.TryGetValue(row.SubRecipeId, out var sub))
+                    continue; // defensive: a missing sub is dropped from the group headers
+
+                // How many DefaultServings-sized batches of the OWNING recipe are being made.
+                var batches = node.ServingsBeingMade / node.DefaultServings;
+                var subServings = row.Servings * batches;
+                var subPath = new List<Guid>(node.Path) { row.Id.Value };
+                var pathKey = string.Join('/', subPath);
+                map[pathKey] = new GroupMeta(sub.Name, subServings);
+
+                var subAncestors = new HashSet<Guid>(node.Ancestors) { row.SubRecipeId.Value };
+                nextFrontier.Add(new FrontierNode(row.SubRecipeId, sub.DefaultServings, subPath, subServings, subAncestors));
+            }
+
+            frontier = nextFrontier;
+        }
+
         return map;
     }
 
-    private async Task WalkInclusionsAsync(
-        Recipe recipe, IReadOnlyList<Guid> path, decimal servingsBeingMade,
-        HashSet<Guid> ancestors, Dictionary<string, GroupMeta> map, CancellationToken ct)
-    {
-        // How many DefaultServings-sized batches of THIS recipe are being made.
-        var batches = servingsBeingMade / recipe.DefaultServings;
-        foreach (var inc in recipe.Inclusions)
-        {
-            if (ancestors.Contains(inc.SubRecipeId.Value))
-                continue; // defensive cycle guard — N4 prevents this at save
-            var sub = await recipes.GetByIdAsync(inc.SubRecipeId, ct);
-            if (sub is null)
-                continue; // defensive: a missing sub is dropped from the group headers
-
-            var subServings = inc.Servings * batches;
-            var subPath = new List<Guid>(path) { inc.Id.Value };
-            var pathKey = string.Join('/', subPath);
-            map[pathKey] = new GroupMeta(sub.Name, subServings);
-
-            ancestors.Add(inc.SubRecipeId.Value);
-            await WalkInclusionsAsync(sub, subPath, subServings, ancestors, map, ct);
-            ancestors.Remove(inc.SubRecipeId.Value);
-        }
-    }
+    /// <summary>One level-frontier node in <see cref="BuildInclusionGroupMetaAsync"/>'s breadth-first
+    /// inclusion-tree walk — the owning recipe's id/DefaultServings (needed to compute this level's
+    /// <c>batches</c>), its path-so-far, the servings being made of it, and its lineage's ancestor set
+    /// (the per-branch N4 cycle guard).</summary>
+    private sealed record FrontierNode(
+        RecipeId RecipeId, int DefaultServings, IReadOnlyList<Guid> Path, decimal ServingsBeingMade, HashSet<Guid> Ancestors);
 
     public async Task<IActionResult> OnPostAsync(CancellationToken ct)
     {

@@ -70,11 +70,68 @@ public interface IRecipeRepository
     Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(IReadOnlyList<RecipeId> ids, CancellationToken ct = default);
 
     /// <summary>
+    /// Batched sub-recipe display resolution for the inclusion preview rows on the Recipe Details and
+    /// Cook pages (recipe-composition.md §5/§6, ADR-024 read-layer companion to ADR-021) — the name and
+    /// <see cref="RecipeSummary.DefaultServings"/> each inclusion group heading needs, in one round-trip
+    /// instead of an await-per-sub-recipe <see cref="GetByIdAsync"/> loop. Unlike
+    /// <see cref="GetRecipeNamesByIdAsync"/> this does NOT filter archived recipes — an inclusion may
+    /// reference a sub-recipe that was archived after being included (matches
+    /// <see cref="GetByIdAsync"/>'s existence semantics: RLS-scoped, archived included). No navigation
+    /// properties are loaded — this is a lightweight name+servings projection only.
+    ///
+    /// <para>The default implementation falls back to a per-id <see cref="GetByIdAsync"/> loop so test
+    /// doubles need not reimplement it; the production repository overrides it with one batched query.</para>
+    /// </summary>
+    async Task<IReadOnlyDictionary<RecipeId, RecipeSummary>> GetSummariesByIdsAsync(
+        IReadOnlyList<RecipeId> ids, CancellationToken ct = default)
+    {
+        var result = new Dictionary<RecipeId, RecipeSummary>();
+        foreach (var id in ids.Distinct())
+        {
+            var recipe = await GetByIdAsync(id, ct);
+            if (recipe is not null)
+                result[id] = new RecipeSummary(recipe.Id, recipe.Name, recipe.DefaultServings);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Returns every inclusion edge (parent → sub) in the current household (recipe-composition.md N4/D5).
     /// The application layer walks this graph at save to reject cycles (N4); household recipe counts make
     /// the full-edge load trivially cheap. Household-scoped by the RLS query filter (ADR-008).
     /// </summary>
     Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Batched inclusion-row lookup for a set of PARENT recipe ids — every <see cref="Inclusion"/>
+    /// (id, sub-recipe id, servings) each parent directly declares, keyed by parent id, in one
+    /// round-trip. Lets a breadth-first tree walk (e.g. the Cook page's inclusion-group metadata,
+    /// recipe-composition.md §6) resolve one WHOLE LEVEL of the inclusion tree per call instead of
+    /// materializing a full <see cref="Recipe"/> aggregate (ingredients, tags, photo) per node via
+    /// <see cref="GetByIdAsync"/> — query count then scales with tree DEPTH, not node count. Mirrors
+    /// <see cref="ListInclusionEdgesAsync"/>'s no-aggregate-materialization discipline, narrowed to a
+    /// caller-supplied id set. A parent id with no inclusions (or not found) is simply OMITTED from
+    /// the result — same "absent means unresolved" convention as <see cref="GetSummariesByIdsAsync"/>.
+    /// Household-scoped by the RLS query filter (ADR-008).
+    ///
+    /// <para>The default implementation falls back to a per-parent <see cref="GetByIdAsync"/> loop so
+    /// test doubles need not reimplement it; the production repository overrides it with one batched
+    /// projection query.</para>
+    /// </summary>
+    async Task<IReadOnlyDictionary<RecipeId, IReadOnlyList<RecipeInclusionRow>>> GetInclusionsByParentIdsAsync(
+        IReadOnlyList<RecipeId> parentIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<RecipeId, IReadOnlyList<RecipeInclusionRow>>();
+        foreach (var parentId in parentIds.Distinct())
+        {
+            var recipe = await GetByIdAsync(parentId, ct);
+            if (recipe is null || recipe.Inclusions.Count == 0) continue;
+            result[parentId] = recipe.Inclusions
+                .Select(i => new RecipeInclusionRow(i.Id, i.SubRecipeId, i.Servings))
+                .ToList();
+        }
+        return result;
+    }
 
     /// <summary>
     /// Returns the ids of recipes that include <paramref name="subRecipeId"/> via an inclusion line
@@ -119,6 +176,19 @@ public interface IRecipeRepository
 
 /// <summary>One directed inclusion edge: <see cref="ParentId"/> includes <see cref="SubId"/> (N4 graph).</summary>
 public readonly record struct RecipeInclusionEdge(RecipeId ParentId, RecipeId SubId);
+
+/// <summary>
+/// The display slice of a sub-recipe an inclusion group heading needs — name and default servings.
+/// See <see cref="IRecipeRepository.GetSummariesByIdsAsync"/>.
+/// </summary>
+public readonly record struct RecipeSummary(RecipeId Id, string Name, int DefaultServings);
+
+/// <summary>
+/// One inclusion row (id, sub-recipe id, servings) belonging to some parent recipe, resolved without
+/// materializing the owning <see cref="Recipe"/> aggregate. See
+/// <see cref="IRecipeRepository.GetInclusionsByParentIdsAsync"/>.
+/// </summary>
+public readonly record struct RecipeInclusionRow(InclusionId Id, RecipeId SubRecipeId, decimal Servings);
 
 /// <summary>
 /// One recipe's direct relationship to a product — a consumer (a direct ingredient line matches), a

@@ -236,3 +236,52 @@ public sealed class CookInclusionTests : IDisposable
         Assert.Equal(25m, cashewsCall.Quantity);
     }
 }
+
+/// <summary>
+/// Two-level nested inclusion group-metadata coverage (plantry-g3da.3 critic pass 2) —
+/// <c>BuildInclusionGroupMetaAsync</c>'s breadth-first level walk must resolve BOTH the root-level and
+/// branch-level inclusion group headers (name + effective servings), not just the first level a
+/// single-level fixture would exercise. See <see cref="CookInclusionFixture.BuildNested"/>.
+/// </summary>
+public sealed class NestedCookInclusionTests : IDisposable
+{
+    private readonly NestedCookInclusionFactory _factory = new();
+
+    public void Dispose() => _factory.Dispose();
+
+    private const int DefaultServings = 4;
+
+    private HttpClient AuthenticatedClient()
+    {
+        var client = _factory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(
+            TestAuthHandler.HouseholdHeader, CookInclusionFixture.HouseholdAId.ToString());
+        return client;
+    }
+
+    [Fact(DisplayName =
+        "Both nesting levels render their own group header with the correct effective servings")]
+    public async Task Nested_inclusions_render_both_group_headers_with_correct_servings()
+    {
+        var client = AuthenticatedClient();
+        var response = await client.GetAsync($"/Recipes/{_factory.RecipeId}/Cook?Servings={DefaultServings}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        // Root level: Root (4 servings) includes Branch "Nachos" at 2 servings → batches = 4/4 = 1 →
+        // effective servings = 2 × 1 = 2.
+        Assert.Contains("Nachos", html, StringComparison.Ordinal);
+        Assert.Contains("2 servings", html, StringComparison.Ordinal);
+        Assert.Contains($"toggleInclusion('{_factory.RootInclusionPathKey}')", html, StringComparison.Ordinal);
+
+        // Branch level: Branch (4 servings) includes Leaf "Nacho Cheese" at 2 servings, made at Root's
+        // resolved 2 servings of Branch → batches = 2/4 = 0.5 → effective servings = 2 × 0.5 = 1.
+        Assert.Contains("Nacho Cheese", html, StringComparison.Ordinal);
+        Assert.Contains("1 serving", html, StringComparison.Ordinal);
+        Assert.Contains($"toggleInclusion('{_factory.LeafInclusionPathKey}')", html, StringComparison.Ordinal);
+
+        // Leaf's own expanded ingredient lines (Cashews) are reachable under the fully path-qualified key —
+        // proves the breadth-first walk carried the correct cumulative PathKey down two levels.
+        Assert.Contains("Cashews", html, StringComparison.Ordinal);
+    }
+}

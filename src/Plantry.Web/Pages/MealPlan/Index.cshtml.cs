@@ -789,11 +789,27 @@ public sealed class IndexModel(
                     ? await catalogReader.GetPlanningInfoAsync(productDishIds, ct)
                     : new Dictionary<Guid, MealPlanProductPlanningInfo>();
 
+                // Batch-resolve every distinct recipe dish in this meal in ONE round-trip via
+                // IRecipeReadModel.GetByIdsAsync (ADR-024 read-layer companion to ADR-021) — was one
+                // recipeReader.GetByIdAsync per dish (plantry-g3da.3 critic pass 1).
+                // GetEnrichmentAsync stays per-dish: no batched member exists for it yet (fulfillment/cost
+                // varies by servings-per-dish), tracked by open bead plantry-9cgp (batched ACL member vs
+                // flat read model — needs-human design fork).
+                var editorRecipeIds = meal.PlannedDishes
+                    .Where(d => d.RecipeId.HasValue)
+                    .Select(d => d.RecipeId!.Value)
+                    .Distinct()
+                    .ToList();
+                var editorRecipesById = editorRecipeIds.Count > 0
+                    ? await recipeReader.GetByIdsAsync(editorRecipeIds, ct)
+                    : new Dictionary<Guid, RecipeReadModel>();
+
                 foreach (var d in meal.PlannedDishes.OrderBy(d => d.Ordinal))
                 {
                     if (d.RecipeId.HasValue)
                     {
-                        var r = await recipeReader.GetByIdAsync(d.RecipeId.Value, ct);
+                        var r = editorRecipesById.GetValueOrDefault(d.RecipeId.Value);
+                        // plantry-9cgp: remains per-dish (see comment above the batch resolution block).
                         var enr = await recipeReader.GetEnrichmentAsync(d.RecipeId.Value, d.Servings ?? 0, today, ct);
                         decimal? costPerServing = enr?.TotalCost is { } total && d.Servings > 0 ? total / d.Servings : null;
                         dishes.Add(new EditorDishVm(DishKind.Recipe, d.RecipeId.Value, r?.Name ?? "Unknown recipe",
@@ -1809,13 +1825,18 @@ public sealed class IndexModel(
     /// fragment must resolve these the same way _WeekGrid does inline).</summary>
     private async Task<IReadOnlyList<string>> ResolveGhostDishNamesAsync(ProposedMeal pending, CancellationToken ct)
     {
-        var names = new List<string>(pending.Dishes.Count);
-        foreach (var d in pending.Dishes.OrderBy(x => x.Ordinal))
-        {
-            var r = await recipeReader.GetByIdAsync(d.RecipeId, ct);
-            names.Add(r?.Name ?? "Unknown recipe");
-        }
-        return names;
+        // Batch-resolve every distinct proposed dish's recipe in ONE round-trip via
+        // IRecipeReadModel.GetByIdsAsync (ADR-024 read-layer companion to ADR-021) — was one
+        // recipeReader.GetByIdAsync per dish (plantry-g3da.3 critic pass 1).
+        var recipeIds = pending.Dishes.Select(d => d.RecipeId).Distinct().ToList();
+        var recipesById = recipeIds.Count > 0
+            ? await recipeReader.GetByIdsAsync(recipeIds, ct)
+            : new Dictionary<Guid, RecipeReadModel>();
+
+        return pending.Dishes
+            .OrderBy(x => x.Ordinal)
+            .Select(d => recipesById.GetValueOrDefault(d.RecipeId)?.Name ?? "Unknown recipe")
+            .ToList();
     }
 
     /// <summary>
