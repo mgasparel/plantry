@@ -12,7 +12,7 @@ namespace Plantry.Tests.E2E;
 ///      <c>mealPlanningDb.SetHouseholdId(id)</c>, the EF query filter returns nothing
 ///      and the grid renders empty (the slot labels would be absent), causing this
 ///      assertion to fail.
-///   2. /Settings resolves (no longer a dead link from the footer and More page).
+///   2. /Settings resolves (no longer a dead link from the sidebar footer).
 ///
 /// Boots the whole service graph via AppHostFixture.
 /// Run with: dotnet test --filter "Category=E2E"

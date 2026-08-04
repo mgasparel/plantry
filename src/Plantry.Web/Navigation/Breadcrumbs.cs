@@ -32,7 +32,6 @@ public static class Breadcrumbs
         ["Locations"] = "Locations",
         ["Settings"] = "Settings",
         ["MealPlan"] = "Meal Plan",
-        ["More"] = "More",
         ["Dev"] = "Components",
         ["Import"] = "Grocy Import",
     };
@@ -48,7 +47,6 @@ public static class Breadcrumbs
         ["Recipes"] = "recipe",
         ["MealPlan"] = "calendar",
         ["Settings"] = "settings",
-        ["More"] = "grid",
         ["Dev"] = "components",
         ["Import"] = "import",
     };

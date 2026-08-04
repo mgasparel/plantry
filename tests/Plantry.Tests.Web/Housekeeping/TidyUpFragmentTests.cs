@@ -15,11 +15,12 @@ namespace Plantry.Tests.Web.Housekeeping;
 /// L4 fragment tests for the Tidy Up page's dismiss/restore htmx contract (plantry-ygti; finding from
 /// plantry-66xs pre-flight). Proves that <c>IndexModel.OnPostDismissAsync</c>/<c>OnPostRestoreAsync</c>
 /// (src/Plantry.Web/Pages/TidyUp/Index.cshtml.cs) return <c>_DismissResult.cshtml</c>'s exact
-/// fragment composition: the refreshed <c>_Groups</c> body plus BOTH nav badge spans, out-of-band
-/// swapped with the ids <c>sidebar-tidyup-badge</c> and <c>more-tidyup-badge</c> (T6/T7). A silent
-/// id/targetId drift here would break the badge update with no other test catching it — command/query
-/// logic is already covered at L1 (GetTidyUpPageQueryTests, DismissFindingCommandTests,
-/// RestoreFindingCommandTests) but the page-model glue and fragment shape were not.
+/// fragment composition: the refreshed <c>_Groups</c> body plus ALL THREE nav badge spans, out-of-band
+/// swapped with the ids <c>sidebar-tidyup-badge</c>, <c>more-tidyup-badge</c>, and
+/// <c>bottom-nav-more-dot</c> (T6/T7, plantry-kdvi added the third). A silent id/targetId drift here
+/// would break the badge update with no other test catching it — command/query logic is already
+/// covered at L1 (GetTidyUpPageQueryTests, DismissFindingCommandTests, RestoreFindingCommandTests) but
+/// the page-model glue and fragment shape were not.
 ///
 /// Uses the WAF harness with in-memory fakes for the detector catalogue and the dismissal repository —
 /// no Postgres touched. Each test builds its own factory instance (rather than a shared class fixture)
@@ -69,16 +70,19 @@ public sealed class TidyUpFragmentTests
         Assert.Contains("All tidy", html);
         Assert.Contains("Dismissed (1)", html);
 
-        // Both OOB badge spans must be present with the exact ids the layout's two render locations
-        // (desktop sidebar + mobile More hub) key their htmx swap targets on.
+        // All three OOB badge spans must be present with the exact ids the layout's three render
+        // locations (desktop sidebar, mobile More sheet, mobile bottom-nav dot) key their htmx swap
+        // targets on.
         AssertOobBadge(html, "sidebar-tidyup-badge");
         AssertOobBadge(html, "more-tidyup-badge");
+        AssertOobBadge(html, "bottom-nav-more-dot");
 
-        // Dismissing the only open finding drops the open count to 0 — both badges render the
-        // invisible (display:none) zero-count span, but still carry hx-swap-oob so the visible
-        // count from a moment ago is actually cleared rather than left stale.
+        // Dismissing the only open finding drops the open count to 0 — all three badges render their
+        // invisible (display:none) zero-count/zero-dot span, but still carry hx-swap-oob so the visible
+        // state from a moment ago is actually cleared rather than left stale.
         Assert.DoesNotMatch("id=\"sidebar-tidyup-badge\"[^>]*>1<", html);
         Assert.DoesNotMatch("id=\"more-tidyup-badge\"[^>]*>1<", html);
+        Assert.Contains("id=\"bottom-nav-more-dot\" style=\"display:none\"", html);
     }
 
     [Fact(DisplayName = "POST Restore returns refreshed _Groups body plus both OOB badge spans carrying the restored count (T6/T7)")]
@@ -119,11 +123,14 @@ public sealed class TidyUpFragmentTests
         Assert.DoesNotContain("All tidy", html);
         Assert.DoesNotContain("tidyup-dismissed", html);
 
-        // Both OOB badge spans present with the exact ids, now carrying the restored count of 1.
+        // All three OOB badge spans present with the exact ids, now carrying the restored state: the
+        // two numeric pills show 1, and the dot (no count text) is visible rather than display:none.
         AssertOobBadge(html, "sidebar-tidyup-badge");
         AssertOobBadge(html, "more-tidyup-badge");
+        AssertOobBadge(html, "bottom-nav-more-dot");
         Assert.Matches("id=\"sidebar-tidyup-badge\"[^>]*>1<", html);
         Assert.Matches("id=\"more-tidyup-badge\"[^>]*>1<", html);
+        Assert.DoesNotContain("id=\"bottom-nav-more-dot\" style=\"display:none\"", html);
     }
 
     [Fact(DisplayName = "Unauthenticated GET /TidyUp returns 401")]
@@ -141,8 +148,9 @@ public sealed class TidyUpFragmentTests
 
     /// <summary>
     /// Asserts the response carries a badge span with the given id and that it is out-of-band swapped
-    /// (<c>hx-swap-oob="true"</c>) — the mechanism the desktop sidebar and mobile More hub both rely on
-    /// to update independently from one dismiss/restore response (T6/T7, ADR-013).
+    /// (<c>hx-swap-oob="true"</c>) — the mechanism the desktop sidebar, the mobile More sheet, and the
+    /// bottom-nav dot all rely on to update independently from one dismiss/restore response (T6/T7,
+    /// ADR-013).
     /// </summary>
     private static void AssertOobBadge(string html, string targetId)
     {

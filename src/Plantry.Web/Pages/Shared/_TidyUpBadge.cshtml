@@ -4,6 +4,11 @@
     Renders only when Count > 0 (an empty, invisible span otherwise) so an htmx OOB response (dismiss/
     restore) always has a stable #Model.TargetId to swap into, whether the badge is currently shown or
     not. The layout renders this from the cached count only — it must never trigger a detector run.
+
+    Two visual forms share this one partial (plantry-kdvi) rather than forking a near-duplicate: the
+    numeric .sidebar__count pill (desktop sidebar + the mobile More sheet's Tidy Up row) and the plain
+    .bottom-nav__dot (the mobile bottom-nav More item, which shows "something's in here" rather than a
+    specific number). Both keep the "always render the span" contract so every OOB target stays stable.
 *@
 @{
     // A plain @(...) expression HTML-encodes its output, which would turn the attribute's quotes into
@@ -14,7 +19,14 @@
 }
 @if (Model.Count > 0)
 {
-    <span id="@Model.TargetId" class="sidebar__count sidebar__count--accent"@Html.Raw(oobAttr)>@Model.Count</span>
+    if (Model.Variant == Plantry.Web.Pages.Shared.TidyUpBadgeVariant.Dot)
+    {
+        <span id="@Model.TargetId" class="bottom-nav__dot" aria-hidden="true"@Html.Raw(oobAttr)></span>
+    }
+    else
+    {
+        <span id="@Model.TargetId" class="sidebar__count sidebar__count--accent"@Html.Raw(oobAttr)>@Model.Count</span>
+    }
 }
 else
 {

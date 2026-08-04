@@ -479,7 +479,7 @@ builder.Services.AddScoped<RestoreFindingCommand>();
 builder.Services.AddSingleton<ITidyUpBadgeCache>(_ => new TidyUpBadgeCache(SystemClock.Instance));
 // IProblemDetector implementations (D1 + D2, v1 — T8) → Plantry.Composition (AddCrossContextAdapters).
 
-// T6 proactive population (plantry-h0qq): the layout/More-hub read path never runs detectors, but a
+// T6 proactive population (plantry-h0qq): the layout's badge read path never runs detectors, but a
 // miss or stale (SWR-expired) cache read requests a single-flight background recompute here, and every
 // process start warms every household up front — see TidyUpBadgeRefresher/TidyUpBadgeWarmup for the
 // tenancy-arming and single-flight details. Singletons: the refresher's in-flight guard and the queue it

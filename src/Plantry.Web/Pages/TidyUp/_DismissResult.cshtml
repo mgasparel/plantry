@@ -1,15 +1,18 @@
 @model Plantry.Web.Pages.TidyUp.IndexModel
 @*
-    Response for a Dismiss/Restore POST. Renders two fragments:
+    Response for a Dismiss/Restore POST. Renders four fragments:
       1. The refreshed groups + dismissed disclosure — swapped into #tidyup-body (the form's hx-target).
-      2. The nav badge, OOB-swapped in both render locations (desktop sidebar + mobile More hub, T7) —
-         dismiss/restore always changes the open count, so both badges refresh every time (T6).
+      2. The nav badge, OOB-swapped in all three render locations (desktop sidebar, the mobile More
+         sheet's Tidy Up row, and the mobile bottom-nav More dot, plantry-kdvi) — dismiss/restore always
+         changes the open count, so all three refresh every time (T6).
     Same fragment-composition pattern as Shopping's _AddPostResult.
 *@
 @{
     var sidebarBadge = new Plantry.Web.Pages.Shared.TidyUpBadgeViewModel(Model.Result.OpenCount, "sidebar-tidyup-badge", true);
-    var moreBadge = new Plantry.Web.Pages.Shared.TidyUpBadgeViewModel(Model.Result.OpenCount, "more-tidyup-badge", true);
+    var moreSheetBadge = new Plantry.Web.Pages.Shared.TidyUpBadgeViewModel(Model.Result.OpenCount, "more-tidyup-badge", true);
+    var bottomNavDot = new Plantry.Web.Pages.Shared.TidyUpBadgeViewModel(Model.Result.OpenCount, "bottom-nav-more-dot", true, Plantry.Web.Pages.Shared.TidyUpBadgeVariant.Dot);
 }
 <partial name="_Groups" model="Model" />
 <partial name="_TidyUpBadge" model="sidebarBadge" />
-<partial name="_TidyUpBadge" model="moreBadge" />
+<partial name="_TidyUpBadge" model="moreSheetBadge" />
+<partial name="_TidyUpBadge" model="bottomNavDot" />
