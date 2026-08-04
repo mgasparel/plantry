@@ -18,8 +18,9 @@ namespace Plantry.Tests.Web.Housekeeping;
 /// L4 integration coverage for the T6 SWR population story (plantry-h0qq) that the pure L2 tests
 /// (<c>TidyUpBadgeCacheTests</c>, <c>TidyUpBadgeRefresherTests</c>, <c>TidyUpBadgeWarmupTests</c>) can't
 /// reach on their own: a real DI scope is needed to prove (1) the refresher's queued work item actually
-/// arms tenancy and lands a fresh count via <c>GetTidyUpPageQuery</c>, and (2) the layout/More-hub badge
-/// keeps rendering a stale count instead of hiding it.
+/// arms tenancy and lands a fresh count via <c>GetTidyUpPageQuery</c>, and (2) the layout's badges
+/// (sidebar, More sheet, bottom-nav dot — all three now render from the layout alone, plantry-kdvi)
+/// keep rendering a stale count instead of hiding it.
 /// </summary>
 public sealed class TidyUpBadgeSwrIntegrationTests
 {
@@ -44,30 +45,42 @@ public sealed class TidyUpBadgeSwrIntegrationTests
         Assert.Equal(1, snapshot.Count); // exactly TidyUpFragmentFactory's one seeded finding
     }
 
-    [Fact(DisplayName = "Stale cache entry still renders the badge count on both the sidebar and the More hub (SWR never blinks off)")]
+    [Fact(DisplayName = "Stale cache entry still renders the badge on the sidebar, the More sheet, and the bottom-nav dot from any page (SWR never blinks off)")]
     public async Task StaleCacheEntry_StillRendersBadgeCount()
     {
+        // The More sheet now lives in _Layout.cshtml (plantry-kdvi) rather than a dedicated /More page,
+        // so any authenticated page proves the same thing the old /More-specific assertion did — the
+        // badge renders from the cached count on every render, not from a page-specific fetch. /Settings
+        // is used because its OnGet has no dependencies beyond auth, so it exercises nothing this test
+        // isn't trying to prove.
         using var factory = new StaleBadgeFragmentFactory();
         var client = factory.CreateAuthClient();
 
-        var html = await (await client.GetAsync("/More")).Content.ReadAsStringAsync();
+        var html = await (await client.GetAsync("/Settings")).Content.ReadAsStringAsync();
 
         AssertVisibleBadge(html, "sidebar-tidyup-badge", StaleBadgeFragmentFactory.StaleCount);
         AssertVisibleBadge(html, "more-tidyup-badge", StaleBadgeFragmentFactory.StaleCount);
+        AssertVisibleDot(html, "bottom-nav-more-dot");
     }
 
-    [Fact(DisplayName = "A page render with a cold badge cache requests exactly one background refresh (layout + More-hub both trigger; single-flight collapses to one)")]
+    [Fact(DisplayName = "A page render with a cold badge cache requests exactly one background refresh (no regression from removing the More PageModel)")]
     public async Task ColdCache_PageRender_RequestsExactlyOneRefresh()
     {
-        // Both _Layout.cshtml and More/Index.cshtml.cs skip the miss/stale-triggered refresh request
-        // under the "Testing" environment (see the comment in _Layout.cshtml) so the many other
-        // WebApplicationFactory<Program> suites that substitute a counting IBackgroundTaskQueue fake
-        // aren't polluted by an incidental enqueue on every render. This factory uses a different host
-        // name specifically so that gate does not apply, proving the wiring itself actually fires.
+        // _Layout.cshtml skips the miss/stale-triggered refresh request under the "Testing" environment
+        // (see the comment in _Layout.cshtml) so the many other WebApplicationFactory<Program> suites
+        // that substitute a counting IBackgroundTaskQueue fake aren't polluted by an incidental enqueue
+        // on every render. This factory uses a different host name specifically so that gate does not
+        // apply, proving the wiring itself actually fires.
+        //
+        // Before plantry-kdvi, /More rendered the layout's sidebar badge AND its own hub badge from the
+        // SAME cache read inside one request, and single-flight collapsed what could have been two
+        // refresh requests into one. Now the layout is the only place the badge (in any of its three
+        // forms) is read from, so a single request naturally enqueues at most once — this test's job is
+        // now to prove there's still exactly one, not zero and not more, from a plain page render.
         using var factory = new BadgeWiringProofFactory();
         var client = factory.CreateAuthClient();
 
-        await client.GetAsync("/More");
+        await client.GetAsync("/Settings");
 
         Assert.Equal(1, factory.Queue.EnqueueCount);
     }
@@ -90,6 +103,17 @@ public sealed class TidyUpBadgeSwrIntegrationTests
     {
         var match = System.Text.RegularExpressions.Regex.Match(html, $"<span id=\"{targetId}\"[^>]*>{expectedCount}<");
         Assert.True(match.Success, $"Expected a visible badge span id=\"{targetId}\" showing {expectedCount} in the response.");
+        Assert.DoesNotContain($"id=\"{targetId}\" style=\"display:none\"", html);
+    }
+
+    /// <summary>
+    /// The bottom-nav dot (<see cref="Plantry.Web.Pages.Shared.TidyUpBadgeVariant.Dot"/>) carries no
+    /// count text — unlike <see cref="AssertVisibleBadge"/>, this only asserts the span is present and
+    /// not the invisible zero-count form.
+    /// </summary>
+    private static void AssertVisibleDot(string html, string targetId)
+    {
+        Assert.Contains($"id=\"{targetId}\"", html);
         Assert.DoesNotContain($"id=\"{targetId}\" style=\"display:none\"", html);
     }
 }
@@ -148,8 +172,8 @@ public sealed class StaleBadgeFragmentFactory : WebApplicationFactory<Program>
 }
 
 /// <summary>
-/// L4 WebApplicationFactory that proves the miss/stale-triggered refresh wiring itself (_Layout.cshtml /
-/// More/Index.cshtml.cs actually calling <see cref="TidyUpBadgeRefresher.RequestRefreshAsync"/>) — hosted
+/// L4 WebApplicationFactory that proves the miss/stale-triggered refresh wiring itself (_Layout.cshtml
+/// actually calling <see cref="TidyUpBadgeRefresher.RequestRefreshAsync"/>) — hosted
 /// under a name other than "Testing" so the test-suite-protecting gate described in _Layout.cshtml does
 /// not suppress it. The real <see cref="ITidyUpBadgeCache"/> singleton is left in place (starts cold for
 /// a fresh household in a fresh factory) and <see cref="IBackgroundTaskQueue"/> is replaced with a

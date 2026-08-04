@@ -12,7 +12,7 @@ using Plantry.Web.Background;
 namespace Plantry.Web.Housekeeping;
 
 /// <summary>
-/// Single-flight background refresher for the T6 badge cache (plantry-h0qq). The layout / More hub read
+/// Single-flight background refresher for the T6 badge cache (plantry-h0qq). The layout's badge read
 /// path calls <see cref="RequestRefreshAsync"/> whenever <see cref="ITidyUpBadgeCache.TryGetAsync"/>
 /// comes back missing or stale; this enqueues at most one pending recompute per household onto
 /// <see cref="IBackgroundTaskQueue"/> — a per-household in-flight guard means N concurrent misses/stale
@@ -35,7 +35,7 @@ public sealed class TidyUpBadgeRefresher(IBackgroundTaskQueue queue, ILogger<Tid
     /// refresh for this household is already enqueued/running (single-flight). Non-blocking beyond the
     /// queue's own bounded-capacity backpressure — never runs a detector inline on the caller's thread,
     /// and never throws: this is a best-effort side channel called from page-render code paths (the
-    /// layout, the More hub), so a failure to enqueue must never fail the page itself.
+    /// layout), so a failure to enqueue must never fail the page itself.
     /// </summary>
     public async Task RequestRefreshAsync(HouseholdId householdId, CancellationToken ct = default)
     {

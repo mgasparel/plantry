@@ -41,6 +41,13 @@
         }
     }
     var tidyUpSidebarBadge = new TidyUpBadgeViewModel(tidyUpCount, "sidebar-tidyup-badge", false);
+    // More sheet (plantry-kdvi): same cached count, two more render locations — the sheet's own Tidy Up
+    // row (numeric pill, like the sidebar) and the bottom-nav More item (a dot, not a count — see
+    // TidyUpBadgeVariant.Dot's doc comment). No second data access or SWR refresh request; both reuse
+    // tidyUpCount computed above.
+    var tidyUpSheetBadge = new TidyUpBadgeViewModel(tidyUpCount, "more-tidyup-badge", false);
+    var tidyUpMoreDot = new TidyUpBadgeViewModel(tidyUpCount, "bottom-nav-more-dot", false, TidyUpBadgeVariant.Dot);
+    var moreActive = NavHighlight.IsMoreActive(ViewContext.RouteData.Values["page"]?.ToString());
 }
 <!DOCTYPE html>
 <html lang="en" data-theme="hearth">
@@ -312,8 +319,10 @@
         </main>
     </div>
 
-    @* Mobile quick-add intake sheet — Alpine-driven, always in DOM, hidden until Add tapped *@
-    <div x-data="{ open: false }" id="quick-add-sheet-root">
+    @* Mobile quick-add intake sheet + More sheet — Alpine-driven, always in DOM, hidden until tapped.
+       One root, one flag per sheet, one Escape handler each (plantry-kdvi widened this from a single
+       `open` flag so the bottom nav's More button — already inside this root — is in scope too). *@
+    <div x-data="{ addOpen: false, moreOpen: false }" id="quick-add-sheet-root">
         @* Mobile bottom nav — exactly 5 items: Today | Recipes | Add | Shop | More *@
         <nav class="bottom-nav" aria-label="Mobile navigation">
             <a href="/Today" class="bottom-nav__item@(BottomNavActive("/Today"))">
@@ -325,8 +334,8 @@
                 <span>Recipes</span>
             </a>
             @* Add — opens the quick-add intake sheet; not a page navigation *@
-            <button type="button" class="bottom-nav__item bottom-nav__item--add"
-                    x-on:click="open = true"
+            <button type="button" class="bottom-nav__item"
+                    x-on:click="addOpen = true"
                     aria-label="Add"
                     aria-haspopup="dialog">
                 <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
@@ -336,39 +345,45 @@
                 <svg class="icon" aria-hidden="true"><use href="#i-cart" /></svg>
                 <span>Shop</span>
             </a>
-            <a href="/More" class="bottom-nav__item@(BottomNavActive("/More"))">
+            @* More — opens the More sheet (derived from the sidebar); not a page navigation, so this
+               is a button, not an <a href="/More">, mirroring the Add button above. *@
+            <button type="button" class="bottom-nav__item@(moreActive ? " bottom-nav__item--active" : "")"
+                    x-on:click="moreOpen = true"
+                    aria-label="More"
+                    aria-haspopup="dialog">
                 <svg class="icon" aria-hidden="true"><use href="#i-grid" /></svg>
                 <span>More</span>
-            </a>
+                <partial name="_TidyUpBadge" model="tidyUpMoreDot" />
+            </button>
         </nav>
 
         @* The quick-add sheet itself *@
         <div class="sheet" role="dialog" aria-modal="true" aria-label="Add"
-             x-show="open" x-cloak
-             @@keydown.escape.window="open = false">
-            <div class="sheet__overlay" x-on:click="open = false"></div>
+             x-show="addOpen" x-cloak
+             @@keydown.escape.window="addOpen = false">
+            <div class="sheet__overlay" x-on:click="addOpen = false"></div>
             <div class="sheet__panel">
                 <header class="sheet__header">
                     <h2 class="sheet__title">Add</h2>
                     <button type="button" class="sheet__close" aria-label="Close"
-                            x-on:click="open = false">&times;</button>
+                            x-on:click="addOpen = false">&times;</button>
                 </header>
                 <div class="quick-add-options">
-                    <a href="/Intake/Upload" class="quick-add-option" x-on:click="open = false">
+                    <a href="/Intake/Upload" class="quick-add-option" x-on:click="addOpen = false">
                         <svg class="icon quick-add-option__icon" aria-hidden="true"><use href="#i-camera" /></svg>
                         <div class="quick-add-option__text">
                             <span class="quick-add-option__label">Scan receipt</span>
                             <span class="quick-add-option__sub">Import items from a photo or text</span>
                         </div>
                     </a>
-                    <a href="/Intake/Manual" class="quick-add-option" x-on:click="open = false">
+                    <a href="/Intake/Manual" class="quick-add-option" x-on:click="addOpen = false">
                         <svg class="icon quick-add-option__icon" aria-hidden="true"><use href="#i-edit" /></svg>
                         <div class="quick-add-option__text">
                             <span class="quick-add-option__label">Enter a purchase</span>
                             <span class="quick-add-option__sub">Type what you bought, no receipt needed</span>
                         </div>
                     </a>
-                    <a href="/Pantry" class="quick-add-option" x-on:click="open = false">
+                    <a href="/Pantry" class="quick-add-option" x-on:click="addOpen = false">
                         <svg class="icon quick-add-option__icon" aria-hidden="true"><use href="#i-scale" /></svg>
                         <div class="quick-add-option__text">
                             <span class="quick-add-option__label">Count stock</span>
@@ -376,6 +391,103 @@
                         </div>
                     </a>
                 </div>
+            </div>
+        </div>
+
+        @* The More sheet — the sidebar's bands, rendered as a bottom sheet (plantry-kdvi). One IA
+           derived from the sidebar rather than a second list to keep in sync; reuses .sheet and the
+           sidebar's own .sidebar__nav / .sidebar__link / .sidebar__band-label / .sidebar__count
+           primitives verbatim. Items already in the 5-item bar (Today, Recipes, Shop) are not repeated. *@
+        <div class="sheet" role="dialog" aria-modal="true" aria-label="More"
+             x-show="moreOpen" x-cloak
+             @@keydown.escape.window="moreOpen = false">
+            <div class="sheet__overlay" x-on:click="moreOpen = false"></div>
+            <div class="sheet__panel more-sheet__panel">
+                <header class="sheet__header">
+                    <h2 class="sheet__title">More</h2>
+                    <button type="button" class="sheet__close" aria-label="Close"
+                            x-on:click="moreOpen = false">&times;</button>
+                </header>
+
+                <ul class="sidebar__nav more-sheet__nav" role="list">
+                    <li class="sidebar__band-label">Cook &amp; Plan</li>
+                    <li>
+                        <a href="/MealPlan" class="sidebar__link" x-on:click="moreOpen = false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-calendar" /></svg> Meal Plan
+                        </a>
+                    </li>
+                </ul>
+
+                <ul class="sidebar__nav more-sheet__nav" role="list">
+                    <li class="sidebar__band-label">Shop</li>
+                    <li>
+                        <a href="/Deals" class="sidebar__link" x-on:click="moreOpen = false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-sparkle" /></svg> Deals
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/Intake/Upload" class="sidebar__link" x-on:click="moreOpen = false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-receipt" /></svg> Scan Receipt
+                        </a>
+                    </li>
+                </ul>
+
+                <ul class="sidebar__nav more-sheet__nav" role="list">
+                    <li class="sidebar__band-label">Manage</li>
+                    <li>
+                        <a href="/Pantry" class="sidebar__link" x-on:click="moreOpen = false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-pantry" /></svg> Pantry
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/pantry/take-stock" class="sidebar__link" x-on:click="moreOpen = false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Take Stock
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/Catalog" class="sidebar__link" x-on:click="moreOpen = false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-tag" /></svg> Catalog
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/TidyUp" class="sidebar__link" x-on:click="moreOpen = false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-broom" /></svg> Tidy Up
+                            <partial name="_TidyUpBadge" model="tidyUpSheetBadge" />
+                        </a>
+                    </li>
+                </ul>
+
+                <ul class="sidebar__nav more-sheet__nav" role="list">
+                    <li class="sidebar__band-label">Account</li>
+                    @if (Env.IsDevelopment())
+                    {
+                        <li>
+                            <a href="/Dev" class="sidebar__link" x-on:click="moreOpen = false">
+                                <svg class="icon" aria-hidden="true"><use href="#i-components" /></svg> Components
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/Import" class="sidebar__link" x-on:click="moreOpen = false">
+                                <svg class="icon" aria-hidden="true"><use href="#i-import" /></svg> Grocy Import
+                            </a>
+                        </li>
+                    }
+                    <li>
+                        <a href="/Settings" class="sidebar__link" x-on:click="moreOpen = false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg> Settings
+                        </a>
+                    </li>
+                    <li>
+                        @* Sign Out stays a real antiforgery-protected POST, same markup as the sidebar
+                           footer — never a GET link, even inside the sheet. *@
+                        <form method="post" action="/Account/Logout" style="margin:0">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="sidebar__link sidebar__link--button">
+                                <svg class="icon" aria-hidden="true"><use href="#i-logout" /></svg> Sign Out
+                            </button>
+                        </form>
+                    </li>
+                </ul>
             </div>
         </div>
     </div>

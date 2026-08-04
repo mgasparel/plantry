@@ -40,4 +40,37 @@ public static class NavHighlight
             return false;
         return true;
     }
+
+    /// <summary>
+    /// The route prefixes owned by the mobile bottom-nav's More sheet (plantry-kdvi) — everything
+    /// reachable only from the sheet, not from one of the bar's other four items (Today, Recipes,
+    /// Add, Shop). Kept as a static array rather than inlined into <see cref="IsMoreActive"/> so the
+    /// signed-off destination list (bead "Active state" section) is visible at a glance.
+    /// </summary>
+    private static readonly string[] MorePrefixes =
+    [
+        "/MealPlan", "/Deals", "/Intake", "/Pantry", "/Catalog", "/TidyUp", "/Settings", "/Dev", "/Import",
+    ];
+
+    /// <summary>
+    /// Returns <see langword="true"/> when the bottom-nav More button should render active — i.e. the
+    /// current page falls under any of the sheet's destinations. Unlike <see cref="IsActive"/> this is
+    /// an "is the current page owned by any of several prefixes" check (the More button is not a plain
+    /// anchor to one route), so it has no <c>except</c> carve-out of its own.
+    /// </summary>
+    /// <param name="page">
+    /// The current Razor page path from <c>RouteData.Values["page"]</c>, or <see langword="null"/> when
+    /// unavailable — a null page is never active.
+    /// </param>
+    public static bool IsMoreActive(string? page)
+    {
+        if (page is null)
+            return false;
+        foreach (var prefix in MorePrefixes)
+        {
+            if (page.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
 }

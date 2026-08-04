@@ -382,6 +382,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .bottom-nav__item {
+  position: relative; /* anchors .bottom-nav__dot (the More item's Tidy Up indicator) */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -395,12 +396,27 @@ button { font-family: inherit; cursor: pointer; }
 
 .bottom-nav__item--active { color: var(--color-accent); }
 
-/* Add button resets button defaults to match anchor items */
-.bottom-nav__item--add {
+/* Add and More are <button>, not <a> (they open a sheet, not a navigation) — reset native button
+   chrome so both match the anchor items either side of them. */
+button.bottom-nav__item {
   background: none;
   border: none;
   font-family: inherit;
   cursor: pointer;
+}
+
+/* More item's unread dot (tidy-up.md T6, plantry-kdvi) — "something in here wants you" rather than a
+   specific count, which would read as more urgency than Tidy Up findings actually carry. Shares
+   _TidyUpBadge.cshtml with .sidebar__count via TidyUpBadgeVariant.Dot. */
+.bottom-nav__dot {
+  position: absolute;
+  top: 6px;
+  left: calc(50% + 6px);
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-surface);
 }
 
 /* ── Quick-add intake sheet options ─────────────────────────────────────────── */
@@ -1309,10 +1325,25 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .sheet-deal-context__name { font-weight: 700; font-size: var(--font-size-base); line-height: 1.3; overflow-wrap: anywhere; }
 .sheet-deal-context__meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin-top: var(--space-2); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
-@media (max-width: 640px) {
+/* Breakpoint is 767px, matching .bottom-nav's own media query (not the more common 640px used
+   elsewhere in this file) — plantry-kdvi, signed off deliberately: every viewport that shows the
+   bottom nav should get bottom-sheet behaviour, not just the narrower phone band. This affects every
+   .sheet consumer (Move, Amend, Consume, Set Price, Set Threshold, Add Stock, Eat, Add Variant,
+   Product Search Create, and the More sheet below), not only the destinations this bead touches. */
+@media (max-width: 767px) {
   .sheet__panel { right: 0; left: 0; top: auto; width: 100%; max-height: 90vh; border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); animation: sheet-up 0.18s ease-out; }
   @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
 }
+
+/* More sheet (plantry-kdvi) — the sidebar's bands rendered as a bottom sheet. Reuses .sidebar__nav /
+   .sidebar__link / .sidebar__band-label / .sidebar__count verbatim; these are the only new rules,
+   sizing the reused sidebar primitives for a sheet's tighter, touch-first context. */
+.more-sheet__panel { padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px)); }
+.more-sheet__nav { padding: 0; }
+.more-sheet__nav + .more-sheet__nav { margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.more-sheet__nav .sidebar__link { padding: var(--space-3) var(--space-2); font-size: var(--font-size-base); }
+.more-sheet__nav .sidebar__band-label { padding: var(--space-2) var(--space-2) var(--space-1); }
+.more-sheet__nav .icon { width: 1.25rem; height: 1.25rem; }
 
 /* Move sheet (plantry-6owm) — per-lot transfer with freeze/thaw expiry recompute. */
 
