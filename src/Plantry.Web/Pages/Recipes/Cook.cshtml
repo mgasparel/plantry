@@ -421,8 +421,16 @@
                                     <input type="hidden" name="PickedYieldProductId" :value="pickedYieldProductId" />
                                 }
 
-                                <p style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
-                                    Adds a lot of @y.ProductName to your pantry. Eaten-now servings need no action.
+                                @* Reactive to the live store quantity (plantry-9fgi) — was static text that kept
+                                   claiming leftovers would be added (or that nothing needed doing) regardless of
+                                   what the user typed into the field above. *@
+                                <p x-show="store > 0" x-cloak
+                                   style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+                                    Adds @y.ProductName to your pantry when you confirm.
+                                </p>
+                                <p x-show="!(store > 0)" x-cloak
+                                   style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+                                    Eaten-now servings need no action — nothing is added to your pantry.
                                 </p>
                             </div>
 

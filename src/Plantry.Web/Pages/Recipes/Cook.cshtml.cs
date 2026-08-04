@@ -402,7 +402,7 @@ public sealed class CookModel(
         // block now renders for EVERY recipe, not just ones with a declared yield — a recipe with no
         // yield gets the inline create/pick prompt instead once the user types a positive quantity.
         // Plan-launched automatic leftovers (plantry-0eut): when EatingTonight is present the store field
-        // prefills with max(0, desiredServings − eatingTonight), OVERRIDING the declared-yield
+        // prefills with max(0, desiredServings - eatingTonight), OVERRIDING the declared-yield
         // SuggestedQuantity prefill, and a one-line hint explains the arithmetic. A direct recipe-launched
         // cook (EatingTonight absent) keeps today's SuggestedQuantity behaviour with no hint, byte-for-byte.
         var planPrefill = EatingTonight is { } eatingTonight
@@ -439,7 +439,7 @@ public sealed class CookModel(
             SuggestedQuantity: suggestedQuantity,
             HasDeclaredYield: hasDeclaredYield,
             PrefillHint: planPrefill is not null
-                ? $"{desiredServings} planned - {EatingTonight} eating tonight"
+                ? $"Prefilled from {desiredServings} servings - {EatingTonight} eating tonight"
                 : null);
 
         Cook = new CookViewModel(
@@ -944,8 +944,12 @@ public sealed record CookViewModel(
 /// (<c>.cook-yield-create</c>) once the user types a positive quantity.
 /// </param>
 /// <param name="PrefillHint">
-/// The plan-launched prefill explainer ("4 planned - 2 eating tonight"), or null for a direct
-/// recipe-launched cook (no hint rendered, byte-for-byte pre-plantry-iejb behaviour).
+/// The plan-launched prefill explainer ("Prefilled from 4 servings - 2 eating tonight"), or null for a
+/// direct recipe-launched cook (no hint rendered, byte-for-byte pre-plantry-iejb behaviour). Deliberately
+/// worded as a one-time "prefilled from" statement, not a live label — <c>desiredServings</c> is a
+/// servings/yield count, not an attendee count, and the numbers here are frozen at page-load (see
+/// <c>.cook-yield-hint</c> in Cook.cshtml); they do not track further edits to the store-quantity field
+/// (plantry-9fgi).
 /// </param>
 public sealed record CookYieldView(
     string ProductName,
