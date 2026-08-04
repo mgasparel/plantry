@@ -131,6 +131,7 @@ internal sealed class NullMealPlanner : IMealPlanner
 {
     public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
         IReadOnlyList<PlannerMealSlotContext> slotsContext,
+        IReadOnlyList<PlannedMealSummary> alreadyPlanned,
         PlanningWeights weights,
         CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<ProposedMeal>>([]);

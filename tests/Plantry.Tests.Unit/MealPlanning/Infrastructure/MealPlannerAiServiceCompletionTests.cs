@@ -72,8 +72,9 @@ public sealed class MealPlannerAiServiceCompletionTests
     private static Task<IReadOnlyList<ProposedMeal>> Propose(
         MealPlannerAiService planner,
         IReadOnlyList<PlannerMealSlotContext>? slots = null,
+        IReadOnlyList<PlannedMealSummary>? alreadyPlanned = null,
         CancellationToken ct = default) =>
-        planner.ProposeWeekAsync(slots ?? Slots, PlanningWeights.Default, ct);
+        planner.ProposeWeekAsync(slots ?? Slots, alreadyPlanned ?? [], PlanningWeights.Default, ct);
 
     [Fact]
     public async Task No_Slots_Returns_Early_Without_Crossing_The_Completion_Boundary()
@@ -116,6 +117,38 @@ public sealed class MealPlannerAiServiceCompletionTests
         Assert.Contains("waste=60, cost=20, variety=20", call.UserText); // planning weights forwarded
         Assert.Contains("attendee_ratings=[5]", call.UserText);        // attendee's own stars (plantry-zlwp.5)
         Assert.Contains("household_avg_rating=4.3 rated_by=3", call.UserText); // household fallback signal
+    }
+
+    [Fact]
+    public async Task Already_Planned_Section_Is_Omitted_When_The_List_Is_Empty()
+    {
+        var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse));
+
+        await Propose(Planner(chat), alreadyPlanned: []);
+
+        var call = Assert.Single(chat.Calls);
+        Assert.DoesNotContain("Already planned this week", call.UserText);
+    }
+
+    [Fact]
+    public async Task Already_Planned_Section_Lists_Date_Slot_Label_And_Dish_Names_When_Supplied()
+    {
+        var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse));
+
+        // Values chosen to appear nowhere else in the prompt (the "Dinner" slot and
+        // "Sheet-Pan Chicken" candidate already appear in the Slots fixture above), so this
+        // assertion actually pins the already-planned line's format rather than passing
+        // vacuously against text emitted by the "Meal slots to fill" section.
+        var alreadyPlanned = new List<PlannedMealSummary>
+        {
+            new(new DateOnly(2026, 6, 15), "Brunch", ["Leftover Chili", "Garlic Bread"]),
+        };
+
+        await Propose(Planner(chat), alreadyPlanned: alreadyPlanned);
+
+        var call = Assert.Single(chat.Calls);
+        Assert.Contains("Already planned this week", call.UserText);
+        Assert.Contains("2026-06-15 Brunch: Leftover Chili, Garlic Bread", call.UserText);
     }
 
     [Fact]

@@ -30,7 +30,8 @@ public sealed class GeneratePlanServiceTests
             IReadOnlyList<RecipeReadModel>? recipes = null,
             IMealPlanner? planner = null,
             ITagReader? tagReader = null,
-            IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null)
+            IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null,
+            IMealPlanCatalogProductReader? catalogReader = null)
     {
         var config = slotConfig ?? BuildDefaultSlotConfig();
         var slotConfigRepo = new FakeSlotConfigRepo(config);
@@ -43,9 +44,10 @@ public sealed class GeneratePlanServiceTests
         var resolver = new MealConstraintResolver();
         var fakePlanner = planner ?? new FakeMealPlanner();
         var fakeTagReader = tagReader ?? new NullTagReader();
+        var fakeCatalogReader = catalogReader ?? new FakeCatalogReader();
 
         var generateService = new GeneratePlanService(
-            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, fakeTagReader,
+            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, fakeCatalogReader, store, resolver, fakeTagReader,
             NullLogger<GeneratePlanService>.Instance);
 
         var acceptService = new AcceptProposalService(
@@ -616,6 +618,85 @@ public sealed class GeneratePlanServiceTests
         Assert.False(planner.WasCalled);
     }
 
+    // ── Already-planned meal summary (plantry-6mux) ───────────────────────────────
+
+    [Fact(DisplayName = "Execute_AlreadyPlanned_NoExistingPlan — planner receives an empty already-planned list")]
+    public async Task Execute_AlreadyPlanned_NoExistingPlan()
+    {
+        var recipeId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel> { new(recipeId, "Pasta", [], DefaultServings: 4) };
+        var planner = new RecordingMealPlanner();
+
+        var (generateService, _, _, _, _) = BuildStack(recipes: recipes, planner: planner);
+
+        await generateService.ExecuteAsync(Household, Monday, "already-planned-empty", null);
+
+        Assert.Empty(planner.SeenAlreadyPlanned);
+    }
+
+    [Fact(DisplayName = "Execute_AlreadyPlanned_WithExistingPlan — planner receives a summary of every planned meal in the week, and unresolvable dish names are skipped")]
+    public async Task Execute_AlreadyPlanned_WithExistingPlan()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
+        var dinner = config.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).Last();
+
+        var knownRecipeId = Guid.NewGuid();
+        var deletedRecipeId = Guid.NewGuid(); // NOT in the recipe reader — simulates a deleted recipe
+        var knownProductId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel> { new(knownRecipeId, "Known Recipe", [], DefaultServings: 4) };
+        var catalogReader = new FakeCatalogReader(new Dictionary<Guid, string> { [knownProductId] = "Known Product" });
+
+        // Fixed (not NewGuid) — a slot id that is NOT present in `config.Slots` at all, simulating a
+        // slot deleted from the household's slot configuration since the meal was planned. Label
+        // resolution must fall back to the raw slot id string rather than throwing or defaulting to
+        // some placeholder text (plantry-6mux design §2).
+        var orphanSlotId = MealSlotId.From(Guid.Parse("0193b4a0-3333-7000-8000-000000000001"));
+
+        var plan = MealPlan.Start(Household, Monday, Clock);
+        // Monday's breakfast: a recipe dish that resolves fine.
+        plan.AssignMeal(Monday, breakfast.Id, [new DishSpec(DishKind.Recipe, knownRecipeId, 4)],
+            null, "manual", Guid.NewGuid(), Clock);
+        // Tuesday's dinner (a DIFFERENT date/slot than any scoped run below): a product dish that
+        // resolves fine PLUS a deleted-recipe dish that must be skipped, never sent as a raw GUID.
+        var tuesday = Monday.AddDays(1);
+        plan.AssignMeal(tuesday, dinner.Id,
+            [DishSpec.ForProduct(knownProductId, 2m, Guid.NewGuid()), new DishSpec(DishKind.Recipe, deletedRecipeId, 4)],
+            null, "manual", Guid.NewGuid(), Clock);
+        // Thursday's meal on the orphan (deleted) slot.
+        var thursday = Monday.AddDays(3);
+        plan.AssignMeal(thursday, orphanSlotId, [new DishSpec(DishKind.Recipe, knownRecipeId, 4)],
+            null, "manual", Guid.NewGuid(), Clock);
+
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, mealPlanRepo, _) = BuildStack(
+            slotConfig: config, recipes: recipes, planner: planner, catalogReader: catalogReader);
+        mealPlanRepo.SetPlan(plan);
+
+        // Scoped run (per-cell Regenerate): targets ONLY Wednesday's breakfast — an empty cell
+        // distinct from all already-planned meals above. Every existing meal must still appear in
+        // the already-planned summary despite being out of this run's scope (plantry-6mux design §2).
+        var wednesday = Monday.AddDays(2);
+
+        await generateService.ExecuteAsync(
+            Household, Monday, "already-planned-scoped", null, scopeDate: wednesday, scopeSlotId: breakfast.Id);
+
+        Assert.Equal(3, planner.SeenAlreadyPlanned.Count);
+
+        var mondayBreakfast = Assert.Single(planner.SeenAlreadyPlanned, s => s.Date == Monday);
+        Assert.Equal(breakfast.Label, mondayBreakfast.SlotLabel);
+        Assert.Equal(["Known Recipe"], mondayBreakfast.DishNames);
+
+        var tuesdayDinner = Assert.Single(planner.SeenAlreadyPlanned, s => s.Date == tuesday);
+        Assert.Equal(dinner.Label, tuesdayDinner.SlotLabel);
+        // The deleted recipe's dish is skipped — only the resolvable product dish name survives.
+        Assert.Equal(["Known Product"], tuesdayDinner.DishNames);
+
+        var orphan = Assert.Single(planner.SeenAlreadyPlanned, s => s.Date == thursday);
+        // The slot itself was deleted from config — label falls back to the raw slot id string.
+        Assert.Equal(orphanSlotId.Value.ToString(), orphan.SlotLabel);
+    }
+
     // ── Test doubles ──────────────────────────────────────────────────────────────
 
     private sealed class FakeSlotConfigRepo(MealSlotConfig config) : IMealSlotConfigRepository
@@ -663,6 +744,29 @@ public sealed class GeneratePlanServiceTests
             Task.FromResult(ratings ?? new Dictionary<Guid, RecipeRatingSummary>());
     }
 
+    /// <summary>In-memory product-name resolver (plantry-6mux) — ids absent from the map are omitted,
+    /// mirroring the production adapter's "absent means unresolved" convention.</summary>
+    private sealed class FakeCatalogReader(IReadOnlyDictionary<Guid, string>? names = null) : IMealPlanCatalogProductReader
+    {
+        public Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult((names ?? new Dictionary<Guid, string>()).ContainsKey(productId));
+
+        public Task<bool> IsPlannableAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult((names ?? new Dictionary<Guid, string>()).ContainsKey(productId));
+
+        public Task<IReadOnlyList<MealPlanProductReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<MealPlanProductReadModel>>([]);
+
+        public Task<IReadOnlyDictionary<Guid, string>> ResolveNamesAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+        {
+            var map = names ?? new Dictionary<Guid, string>();
+            IReadOnlyDictionary<Guid, string> result = productIds
+                .Where(map.ContainsKey)
+                .ToDictionary(id => id, id => map[id]);
+            return Task.FromResult(result);
+        }
+    }
+
     /// <summary>Returns empty tag groups; used when tag name resolution is not under test.</summary>
     private sealed class NullTagReader : ITagReader
     {
@@ -689,12 +793,17 @@ public sealed class GeneratePlanServiceTests
     {
         public List<PlannerMealSlotContext> SeenContexts { get; } = [];
 
+        /// <summary>Snapshot of the alreadyPlanned list from the MOST RECENT ProposeWeekAsync call (plantry-6mux).</summary>
+        public IReadOnlyList<PlannedMealSummary> SeenAlreadyPlanned { get; private set; } = [];
+
         public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
             IReadOnlyList<PlannerMealSlotContext> contexts,
+            IReadOnlyList<PlannedMealSummary> alreadyPlanned,
             PlanningWeights weights,
             CancellationToken ct = default)
         {
             SeenContexts.AddRange(contexts);
+            SeenAlreadyPlanned = alreadyPlanned;
             return Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
         }
     }
@@ -706,6 +815,7 @@ public sealed class GeneratePlanServiceTests
 
         public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
             IReadOnlyList<PlannerMealSlotContext> contexts,
+            IReadOnlyList<PlannedMealSummary> alreadyPlanned,
             PlanningWeights weights,
             CancellationToken ct = default)
         {
@@ -742,6 +852,7 @@ public sealed class GeneratePlanServiceTests
     {
         public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
             IReadOnlyList<PlannerMealSlotContext> contexts,
+            IReadOnlyList<PlannedMealSummary> alreadyPlanned,
             PlanningWeights weights,
             CancellationToken ct = default)
         {
