@@ -1,10 +1,4 @@
 using System.Collections.Concurrent;
-using Plantry.Catalog.Infrastructure;
-using Plantry.Housekeeping.Application;
-using Plantry.Housekeeping.Infrastructure;
-using Plantry.Inventory.Infrastructure;
-using Plantry.Market.Infrastructure;
-using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Background;
@@ -20,10 +14,12 @@ namespace Plantry.Web.Housekeeping;
 /// <para>
 /// The work item creates its own fresh DI scope (via the queue/<c>QueuedHostedService</c>, plantry-qll2.4)
 /// and arms tenancy with no ambient HTTP request, exactly as <c>RecipeConversionBackfillCycle.RunForHouseholdAsync</c>
-/// does: <see cref="TenantContext"/> plus <c>SetHouseholdId</c> on every EF context the detector catalogue
-/// touches (Housekeeping for dismissals, Inventory/Catalog/Recipes/Pricing for the detectors themselves).
-/// It then delegates to <c>GetTidyUpPageQuery</c> — the single place that ever writes a real count into
-/// the cache — so the refreshed badge can never diverge from what the Tidy Up page itself would show.
+/// does: <see cref="TenantContext"/> (read by IStockFactsReadModel/IRecipeFactsReadModel's own RLS-arming,
+/// ADR-024 Phase A) plus <c>SetHouseholdId</c> on <see cref="HousekeepingDbContext"/> for the Dismissal
+/// repository — the only EF context the detector catalogue still touches; the 7 detectors now load their
+/// facts via raw cross-schema SQL, not EF. It then delegates to <c>GetTidyUpPageQuery</c> — the single
+/// place that ever writes a real count into the cache — so the refreshed badge can never diverge from
+/// what the Tidy Up page itself would show.
 /// </para>
 /// </summary>
 public sealed class TidyUpBadgeRefresher(IBackgroundTaskQueue queue, ILogger<TidyUpBadgeRefresher> logger)
@@ -77,12 +73,8 @@ public sealed class TidyUpBadgeRefresher(IBackgroundTaskQueue queue, ILogger<Tid
     /// </summary>
     private static async Task RefreshOneAsync(IServiceProvider sp, Guid householdId, CancellationToken ct)
     {
-        sp.GetRequiredService<TenantContext>().Set(householdId);                  // arms Postgres RLS (app.household_id GUC)
-        sp.GetRequiredService<HousekeepingDbContext>().SetHouseholdId(householdId); // dismissal tombstones
-        sp.GetRequiredService<InventoryDbContext>().SetHouseholdId(householdId);    // stock detectors (D1/D3/D4/D6)
-        sp.GetRequiredService<CatalogDbContext>().SetHouseholdId(householdId);      // product/unit reads every detector needs
-        sp.GetRequiredService<RecipesDbContext>().SetHouseholdId(householdId);      // recipe-line detectors (D2/D5/D7)
-        sp.GetRequiredService<PricingDbContext>().SetHouseholdId(householdId);      // D5 price-existence check
+        sp.GetRequiredService<TenantContext>().Set(householdId);                  // arms Postgres RLS (app.household_id GUC) — read by every detector's read model
+        sp.GetRequiredService<HousekeepingDbContext>().SetHouseholdId(householdId); // dismissal tombstones (the only EF context left)
 
         var query = sp.GetRequiredService<GetTidyUpPageQuery>();
         await query.ExecuteAsync(ct); // the only writer of a fresh count (badgeCache.SetAsync as a side effect)

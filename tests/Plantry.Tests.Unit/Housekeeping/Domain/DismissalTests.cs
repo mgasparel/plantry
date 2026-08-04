@@ -1,4 +1,4 @@
-using Plantry.Housekeeping.Domain;
+using Plantry.Web.Housekeeping;
 using Plantry.SharedKernel;
 using Xunit;
 

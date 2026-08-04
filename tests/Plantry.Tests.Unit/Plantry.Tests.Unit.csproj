@@ -40,9 +40,12 @@
     <ProjectReference Include="..\..\src\Plantry.Recipes.Infrastructure\Plantry.Recipes.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.MealPlanning\Plantry.MealPlanning.csproj" />
     <ProjectReference Include="..\..\src\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Housekeeping\Plantry.Housekeeping.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Migration.Grocy\Plantry.Migration.Grocy.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Composition\Plantry.Composition.csproj" />
+    <!-- plantry-g3da.2 (ADR-024 Phase A): Dismissal/GetTidyUpPageQuery etc. relocated into Plantry.Web
+         when the Housekeeping bounded context was dissolved — their unit tests need the Web project
+         reference now instead of the retired Plantry.Housekeeping class library. -->
+    <ProjectReference Include="..\..\src\Plantry.Web\Plantry.Web.csproj" />
   </ItemGroup>
 
 </Project>

@@ -4,10 +4,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Housekeeping.Application;
-using Plantry.Housekeeping.Domain;
 using Plantry.SharedKernel;
 using Plantry.Tests.Web.Infrastructure;
+using Plantry.Web.Housekeeping;
 
 namespace Plantry.Tests.Web.Housekeeping;
 

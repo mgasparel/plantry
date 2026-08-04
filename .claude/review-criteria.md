@@ -22,7 +22,12 @@ do not duplicate or diverge in either consumer.**
   own schema (`identity`, `catalog`, `inventory`, `intake`, `market` (schemas: `pricing`,
   `deals`), `recipes`, `meal_planning`, `shopping`). If `Plantry.Recipes` needs Inventory data, it
   calls Inventory's application service or reads its read model — it never queries
-  `inventory.*` tables directly.
+  `inventory.*` tables directly. The `housekeeping` schema (the `Dismissal` tombstone table) is
+  the one exception to "each schema has an owning bounded context": ADR-024 Phase A dissolved the
+  Housekeeping context — its 7 read-only detectors and `Dismissal` now live directly in the
+  composition read layer (`Plantry.Web`, ADR-021 shape), which legitimately reads every schema, so
+  there is no context left to protect `housekeeping`'s boundary specifically. This is not a
+  precedent for other schemas to gain the same exemption without a similar ADR.
 - **Cross-context references are IDs only, never embedded entities.** A
   `Recipe.Ingredient` holds a `ProductId`, not a `Product`. Catalog is the universal
   upstream supplier — nothing downstream mutates a `Product`/`Unit`/`Location`/

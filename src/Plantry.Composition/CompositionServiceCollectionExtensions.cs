@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Plantry.Catalog.Application;
 using Plantry.Market.Application;
-using Plantry.Housekeeping.Application;
 using Plantry.Intake.Application;
 using Plantry.Inventory.Application;
 using Plantry.MealPlanning.Application;
@@ -11,7 +10,6 @@ using Plantry.SharedKernel.Domain;
 using Plantry.Web;
 using Plantry.Web.Deals;
 using Plantry.Web.Events;
-using Plantry.Web.Housekeeping;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.MealPlanning;
@@ -171,17 +169,9 @@ public static class CompositionServiceCollectionExtensions
         // StockProvenanceReaderAdapter above but keyed by StockEntryId rather than the chip correlation.
         services.AddScoped<IAmendableLineReader, AmendableLineReaderAdapter>();
 
-        // Housekeeping (tidy-up.md T4/T8) — v1 shipped D1 + D2 (conversion-gap family); this follow-up
-        // (plantry-i55s) adds D3-D7, the remaining catalogue rows. Registered as IProblemDetector so
-        // GetTidyUpPageQuery discovers every implementation via IEnumerable<IProblemDetector> — adding
-        // a detector is one class + one line here, no other edits.
-        services.AddScoped<IProblemDetector, StockUnitUnconvertibleDetector>();
-        services.AddScoped<IProblemDetector, RecipeConversionGapDetector>();
-        services.AddScoped<IProblemDetector, StockExpiredDetector>();
-        services.AddScoped<IProblemDetector, StapleNoLowStockAlertDetector>();
-        services.AddScoped<IProblemDetector, RecipeIngredientNoPriceDetector>();
-        services.AddScoped<IProblemDetector, MixedIncompatibleUnitsDetector>();
-        services.AddScoped<IProblemDetector, RecipeLineUntrackedProductDetector>();
+        // Housekeeping's 7 IProblemDetector registrations moved to Plantry.Web's Program.cs (ADR-024
+        // Phase A, plantry-g3da.2): the detectors now live in Plantry.Web (the composition root) as
+        // ADR-021 cross-schema read models, and this project must never reference Plantry.Web types.
 
         return services;
     }

@@ -1,13 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Plantry.Catalog.Infrastructure;
 using Plantry.Market.Infrastructure;
-using Plantry.Housekeeping.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Infrastructure;
 using Plantry.MealPlanning.Infrastructure;
 using Plantry.Recipes.Infrastructure;
 using Plantry.Shopping.Infrastructure;
+using Plantry.Web.Housekeeping;
 
 namespace Plantry.Migrator;
 
@@ -42,11 +42,14 @@ public sealed record MigrationTarget(
 ///
 /// ORDER IS LOAD-BEARING. Plantry.Identity.Infrastructure MUST remain first — its initial
 /// migration creates the <c>app_user</c> role that every other schema's RLS policies (and
-/// the app_user-authenticated test/runtime connections) depend on. Plantry.Housekeeping.Infrastructure
+/// the app_user-authenticated test/runtime connections) depend on. HousekeepingDbContext's migrations
 /// MUST remain LAST — its 20260727062625_DeletePackAndDozenUnits data migration deletes
 /// catalog.units rows only after every other context's RelabelPackAndDozenUnitReferences migration
 /// has run (plantry-qszb); a context appended after it, or a reorder, would delete units still
-/// referenced by an un-relabeled schema.
+/// referenced by an un-relabeled schema. (plantry-g3da.2, ADR-024 Phase A: HousekeepingDbContext and
+/// its migrations physically moved from the retired Plantry.Housekeeping.Infrastructure project into
+/// Plantry.Web/Housekeeping/Persistence — the MigrationsAssembly below is "Plantry.Web" accordingly;
+/// the schema/table are byte-identical, only the owning assembly changed.)
 /// </summary>
 public static class MigrationTargets
 {
@@ -61,7 +64,7 @@ public static class MigrationTargets
         Target<ShoppingDbContext>("Plantry.Shopping.Infrastructure", "shopping"),
         Target<MealPlanningDbContext>("Plantry.MealPlanning.Infrastructure", "meal_planning"),
         Target<DealsDbContext>("Plantry.Market.Infrastructure", "deals"),
-        Target<HousekeepingDbContext>("Plantry.Housekeeping.Infrastructure", "housekeeping"),
+        Target<HousekeepingDbContext>("Plantry.Web", "housekeeping"),
     ];
 
     private static MigrationTarget Target<TContext>(string migrationsAssembly, string schema)

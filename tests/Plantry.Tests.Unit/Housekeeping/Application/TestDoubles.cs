@@ -1,7 +1,6 @@
-using Plantry.Housekeeping.Application;
-using Plantry.Housekeeping.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Housekeeping;
 
 namespace Plantry.Tests.Unit.Housekeeping.Application;
 

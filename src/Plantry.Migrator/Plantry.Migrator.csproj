@@ -28,7 +28,10 @@
     <ProjectReference Include="..\Plantry.Recipes.Infrastructure\Plantry.Recipes.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Shopping.Infrastructure\Plantry.Shopping.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
-    <ProjectReference Include="..\Plantry.Housekeeping.Infrastructure\Plantry.Housekeeping.Infrastructure.csproj" />
+    <!-- HousekeepingDbContext (schema `housekeeping`) moved into Plantry.Web/Housekeeping/Persistence
+         when the Housekeeping bounded context was dissolved (ADR-024 Phase A, plantry-g3da.2) — there
+         is no more standalone Housekeeping.Infrastructure project to reference. -->
+    <ProjectReference Include="..\Plantry.Web\Plantry.Web.csproj" />
   </ItemGroup>
 
 </Project>

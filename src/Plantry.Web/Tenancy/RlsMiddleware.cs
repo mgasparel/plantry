@@ -1,6 +1,5 @@
 using Plantry.Catalog.Infrastructure;
 using Plantry.Market.Infrastructure;
-using Plantry.Housekeeping.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Infrastructure;
@@ -8,6 +7,7 @@ using Plantry.MealPlanning.Infrastructure;
 using Plantry.Recipes.Infrastructure;
 using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Web.Housekeeping;
 
 namespace Plantry.Web.Tenancy;
 

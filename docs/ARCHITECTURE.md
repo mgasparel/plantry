@@ -27,7 +27,7 @@
 
 ## Overall structure
 
-Plantry is a **modular monolith**: one .NET process, one PostgreSQL database, nine bounded contexts. There is no second backend tier, no JavaScript server, no message broker, and no SPA.
+Plantry is a **modular monolith**: one .NET process, one PostgreSQL database, eight bounded contexts. There is no second backend tier, no JavaScript server, no message broker, and no SPA.
 
 ```
 Browser

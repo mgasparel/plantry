@@ -475,63 +475,10 @@ public sealed class BoundaryTests
     }
 
 
-    // Housekeeping (tidy-up.md T4) computes findings by reading OTHER contexts' application services
-    // through Composition-layer detectors — but Housekeeping itself (Domain + Application) stays
-    // → SharedKernel only, exactly like every other context. Its domain has no cross-context ACL ports
-    // at all (Dismissal is a pure tombstone), so every other context is a forbidden sibling.
-    private static readonly string[] HousekeepingSiblingContexts =
-    [
-        "Plantry.Identity",
-        "Plantry.Catalog",
-        "Plantry.Inventory",
-        "Plantry.Market",
-        "Plantry.Shopping",
-        "Plantry.Intake",
-        "Plantry.Recipes",
-        "Plantry.MealPlanning",
-    ];
-
-    [Fact]
-    public void Housekeeping_Domain_Should_Not_Reference_Infrastructure_Packages()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Housekeeping.Domain")
-            .Should().NotHaveDependencyOnAny(InfraPackages)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Housekeeping domain references infrastructure packages:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
-
-    [Fact]
-    public void Housekeeping_Domain_Should_Not_Reference_Sibling_Contexts()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Housekeeping.Domain")
-            .Should().NotHaveDependencyOnAny(HousekeepingSiblingContexts)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Housekeeping domain references sibling contexts:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
-
-    [Fact]
-    public void Housekeeping_Application_Should_Not_Reference_Sibling_Contexts()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Housekeeping.Application")
-            .Should().NotHaveDependencyOnAny(HousekeepingSiblingContexts)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Housekeeping application references sibling contexts:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
+    // Housekeeping's boundary tests (Domain/Application sibling-context + infra checks) were removed
+    // (ADR-024 Phase A, plantry-g3da.2): the bounded context was dissolved — Dismissal/GetTidyUpPageQuery
+    // etc. now live directly in Plantry.Web (the composition root), which legitimately references every
+    // context, so there is no boundary left to police here.
 
     [Fact]
     public void DbContexts_Should_Reside_In_Infrastructure_Namespaces()
@@ -541,9 +488,17 @@ public sealed class BoundaryTests
             .Should().ResideInNamespaceMatching(@"^Plantry\.\w+\.Infrastructure")
             .GetResult();
 
-        Assert.True(result.IsSuccessful,
+        // HousekeepingDbContext is a documented exemption (ADR-024 Phase A / plantry-g3da.2): the
+        // Housekeeping bounded context was dissolved, and its DbContext now legitimately lives in
+        // Plantry.Web.Housekeeping (the composition root) rather than a *.Infrastructure namespace —
+        // this is a deliberate architectural decision, not a silent coincidental pass.
+        var failingTypeNames = (result.FailingTypeNames ?? [])
+            .Where(name => name != "Plantry.Web.Housekeeping.HousekeepingDbContext")
+            .ToList();
+
+        Assert.True(failingTypeNames.Count == 0,
             "DbContext found outside Infrastructure namespace:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
+            string.Join("\n", failingTypeNames));
     }
 
     [Fact]
@@ -572,7 +527,8 @@ public sealed class BoundaryTests
         "Intake",
         "Recipes",
         "MealPlanning",
-        "Housekeeping",
+        // "Housekeeping" removed (ADR-024 Phase A, plantry-g3da.2): the bounded context was dissolved —
+        // HousekeepingDbContext now lives in Plantry.Web, not a standalone *.Infrastructure project.
     ];
 
     // Regression lock (plantry-ew5): no bounded context's *.Infrastructure assembly may reference

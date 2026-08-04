@@ -11,9 +11,6 @@ using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
 using Plantry.Composition;
-using Plantry.Housekeeping.Application;
-using Plantry.Housekeeping.Domain;
-using Plantry.Housekeeping.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
@@ -458,19 +455,44 @@ builder.Services.AddHostedService<FlyerIngestionWorker>();
 builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
 builder.Services.AddHostedService<QueuedHostedService>();
 
-// Housekeeping context ("Tidy Up", tidy-up.md). Findings are computed live from other contexts'
-// application services (T4) and are never persisted — the DbContext + schema below back only the
-// Dismissal tombstone (T5/T9). HousekeepingDbContext MUST be wired into RlsMiddleware (see
-// Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0 gotcha. No domain-event dispatch interceptors:
-// Dismissal never raises domain events.
+// Housekeeping ("Tidy Up", tidy-up.md) — ADR-024 Phase A dissolved the Housekeeping bounded context;
+// its 7 read-only detectors are now ADR-021 cross-schema read models living directly in Plantry.Web
+// (the composition root), and Dismissal — the only state Housekeeping ever owned — moved with them.
+// Findings are computed live from other contexts' schemas via IStockFactsReadModel/IRecipeFactsReadModel
+// (T4) and are never persisted — the DbContext + schema below back only the Dismissal tombstone
+// (T5/T9). HousekeepingDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the
+// known P2-0/P3-0 gotcha. No domain-event dispatch interceptors: Dismissal never raises domain events.
+// MigrationsAssembly is "Plantry.Web" — the migrations physically moved to
+// Housekeeping/Persistence/Migrations alongside HousekeepingDbContext (schema/table unchanged).
 builder.Services.AddDbContext<HousekeepingDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Housekeeping.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Web"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IDismissalRepository, DismissalRepository>();
 builder.Services.AddScoped<GetTidyUpPageQuery>();
 builder.Services.AddScoped<DismissFindingCommand>();
 builder.Services.AddScoped<RestoreFindingCommand>();
+
+// Tidy Up's ADR-021 read models (ADR-024 Phase A) — raw SQL over an RLS-armed connection, shared by
+// the two detector families: IStockFactsReadModel backs D1/D3/D4/D6 (stock+catalog facts),
+// IRecipeFactsReadModel backs D2/D5/D7 (recipe+catalog+pricing facts). Registered Scoped, same
+// rationale as IMealPlanWeekReadModel — ITenantContext is request-scoped.
+builder.Services.AddScoped<IStockFactsReadModel>(sp =>
+    new StockFactsReadModel(appUserConnStr, sp.GetRequiredService<ITenantContext>()));
+builder.Services.AddScoped<IRecipeFactsReadModel>(sp =>
+    new RecipeFactsReadModel(appUserConnStr, sp.GetRequiredService<ITenantContext>()));
+
+// Tidy Up's 7 problem detectors (tidy-up.md T4/T8) — moved from Plantry.Composition's
+// AddCrossContextAdapters (ADR-024 Phase A: Plantry.Composition must never reference Plantry.Web
+// types, so this registration can only live here). Registered as IProblemDetector so
+// GetTidyUpPageQuery discovers every implementation via IEnumerable<IProblemDetector>.
+builder.Services.AddScoped<IProblemDetector, StockUnitUnconvertibleDetector>();
+builder.Services.AddScoped<IProblemDetector, RecipeConversionGapDetector>();
+builder.Services.AddScoped<IProblemDetector, StockExpiredDetector>();
+builder.Services.AddScoped<IProblemDetector, StapleNoLowStockAlertDetector>();
+builder.Services.AddScoped<IProblemDetector, RecipeIngredientNoPriceDetector>();
+builder.Services.AddScoped<IProblemDetector, MixedIncompatibleUnitsDetector>();
+builder.Services.AddScoped<IProblemDetector, RecipeLineUntrackedProductDetector>();
 // Singleton (T6): the badge count must survive across requests/scopes with its own TTL; the query
 // service and the dismiss/restore commands (all scoped) write/invalidate into it via the port.
 // IClock is registered Scoped (a singleton cannot safely consume it via constructor injection —
