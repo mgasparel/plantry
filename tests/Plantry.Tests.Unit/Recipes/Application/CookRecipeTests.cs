@@ -9,7 +9,7 @@ namespace Plantry.Tests.Unit.Recipes.Application;
 
 /// <summary>
 /// L2 tests for the <see cref="CookRecipe"/> application service (P2-3c).
-/// Uses fakes for IInventoryConsumer, ICatalogProductReader, ICookEventRepository, and IDomainEventDispatcher.
+/// Uses fakes for IInventoryConsumer, ICatalogProductReader, and ICookEventRepository.
 /// Does NOT re-test FEFO/lot-selection logic — that is covered by the Inventory Consume tests.
 /// </summary>
 /// <remarks>
@@ -39,7 +39,6 @@ public sealed class CookRecipeTests
         public required FakeInventoryProducer Producer { get; init; }
         public required FakeCatalogProductReader Products { get; init; }
         public required FakeCatalogWriter CatalogWriter { get; init; }
-        public required FakeDomainEventDispatcher EventDispatcher { get; init; }
         public required CookRecipe Service { get; init; }
     }
 
@@ -53,13 +52,12 @@ public sealed class CookRecipeTests
         products.RegisterUnit(ServingUnitId, "srv");
         var converter = new FakeUnitConverter();
         var catalogWriter = new FakeCatalogWriter(products, converter);
-        var dispatcher = new FakeDomainEventDispatcher();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : null);
         var lineDriver = new CookLineDriver(consumer, producer);
         var reconciler = new ReconcilePendingCooks(cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, catalogWriter, expansion, dispatcher, Clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, catalogWriter, expansion, Clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
         return new Harness
         {
@@ -69,7 +67,6 @@ public sealed class CookRecipeTests
             Producer = producer,
             Products = products,
             CatalogWriter = catalogWriter,
-            EventDispatcher = dispatcher,
             Service = service,
         };
     }
@@ -175,9 +172,6 @@ public sealed class CookRecipeTests
 
         // CookEvent is persisted even when there is a shortfall.
         Assert.Single(h.CookEvents.Items);
-        // RecipeCooked event is dispatched.
-        Assert.Single(h.EventDispatcher.Dispatched);
-        Assert.IsType<RecipeCookedEvent>(h.EventDispatcher.Dispatched[0]);
     }
 
     [Fact]
@@ -252,28 +246,6 @@ public sealed class CookRecipeTests
         Assert.IsType<CookRecipeResult.Cooked>(result);
         var evt = Assert.Single(h.CookEvents.Items);
         Assert.Null(evt.PlannedDishId);
-    }
-
-    // ── RecipeCooked event (§9, O2) ──────────────────────────────────────────────
-
-    [Fact]
-    public async Task RecipeCookedEvent_Dispatched_With_Correct_Payload()
-    {
-        var h = BuildHarness();
-        var (recipe, _, _) = BuildTrackedRecipe(h, defaultServings: 2);
-
-        var command = new CookRecipeCommand(recipe.Id, DesiredServings: 2, _userId, Resolutions: []);
-
-        var result = await h.Service.ExecuteAsync(command);
-
-        var cooked = Assert.IsType<CookRecipeResult.Cooked>(result);
-        var domainEvent = Assert.Single(h.EventDispatcher.Dispatched);
-        var cookedEvent = Assert.IsType<RecipeCookedEvent>(domainEvent);
-
-        Assert.Equal(recipe.Id, cookedEvent.RecipeId);
-        Assert.Equal(HouseholdId.From(_householdGuid), cookedEvent.HouseholdId);
-        Assert.Equal(2, cookedEvent.ServingsCooked);
-        Assert.Equal(_userId, cookedEvent.CookedBy);
     }
 
     // ── Multi-variant split allocation (C7/C11) ────────────────────────────────────
@@ -1652,17 +1624,6 @@ internal sealed class FakeInventoryProducer : IInventoryProducer
             throw new InvalidOperationException($"Produce failed for product {productId}.");
 
         Calls.Add(new ProduceCall(productId, quantity, unitId, expiryDate, reason, cookEventId, userId, sourceLineRef));
-        return Task.CompletedTask;
-    }
-}
-
-internal sealed class FakeDomainEventDispatcher : IDomainEventDispatcher
-{
-    public List<IDomainEvent> Dispatched { get; } = [];
-
-    public Task DispatchAsync(IEnumerable<IDomainEvent> events, CancellationToken ct = default)
-    {
-        Dispatched.AddRange(events);
         return Task.CompletedTask;
     }
 }

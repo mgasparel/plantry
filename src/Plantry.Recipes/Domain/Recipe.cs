@@ -79,7 +79,6 @@ public sealed class Recipe : AggregateRoot<RecipeId>
 
     /// <summary>
     /// Creates a new recipe. Validates name non-blank (R2) and defaultServings >= 1 (R2).
-    /// Emits <see cref="RecipeCreatedEvent"/>.
     /// </summary>
     public static Result<Recipe> Create(
         HouseholdId householdId,
@@ -104,7 +103,6 @@ public sealed class Recipe : AggregateRoot<RecipeId>
             UpdatedAt = now,
         };
 
-        recipe.RaiseDomainEvent(new RecipeCreatedEvent(recipe.Id, householdId, now));
         return recipe;
     }
 
@@ -180,8 +178,7 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     /// <summary>
     /// Removes a single tag from the recipe's membership set — the write behind the diet-tag contradiction
     /// nudge's "Remove &lt;tag&gt; tag" action (plantry-qll2.3), which the <b>user</b> triggers (the AI never
-    /// mutates the tag list, Gate 5 / C9). No-op when the tag is not applied. Mirrors <see cref="SetTags"/> in
-    /// not raising a <see cref="RecipeUpdatedEvent"/> — tag membership changes are not event-bearing.
+    /// mutates the tag list, Gate 5 / C9). No-op when the tag is not applied.
     /// </summary>
     public void RemoveTag(TagId tagId, IClock clock)
     {
@@ -280,12 +277,12 @@ public sealed class Recipe : AggregateRoot<RecipeId>
 
     /// <summary>
     /// Wholesale-replaces both line types (ingredients and inclusions) from an already-validated
-    /// <see cref="RecipeLineSet"/>, emitting one <see cref="RecipeUpdatedEvent"/> (recipe-composition.md §3).
-    /// The line-set invariants (R3′/R4/R5/N1/N2/N3) are enforced once, at construction, by
-    /// <see cref="RecipeLineSet.Create"/> — this method carries no validation and cannot fail, so it simply
-    /// applies the set, re-minting <see cref="IngredientId"/> and <see cref="InclusionId"/> per line (O1),
-    /// touches the aggregate, and raises the update event. The DAG / same-household / sub-existence checks
-    /// (N4) are cross-aggregate and enforced by the application layer before the set is built.
+    /// <see cref="RecipeLineSet"/> (recipe-composition.md §3). The line-set invariants
+    /// (R3′/R4/R5/N1/N2/N3) are enforced once, at construction, by <see cref="RecipeLineSet.Create"/> —
+    /// this method carries no validation and cannot fail, so it simply applies the set, re-minting
+    /// <see cref="IngredientId"/> and <see cref="InclusionId"/> per line (O1) and touches the
+    /// aggregate. The DAG / same-household / sub-existence checks (N4) are cross-aggregate and
+    /// enforced by the application layer before the set is built.
     /// </summary>
     public void ReplaceLines(RecipeLineSet lineSet, IClock clock)
     {
@@ -317,7 +314,6 @@ public sealed class Recipe : AggregateRoot<RecipeId>
         }
 
         Touch(clock);
-        RaiseDomainEvent(new RecipeUpdatedEvent(Id, HouseholdId, UpdatedAt));
     }
 
     // ── Serving mutation ───────────────────────────────────────────────────────

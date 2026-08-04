@@ -68,11 +68,11 @@ Recipes is a **downstream consumer** of every Phase-1 context. It owns three agg
 
 | Method | Effect |
 |---|---|
-| `Recipe.Create(householdId, name, defaultServings, clock)` | Factory. Validates name non-blank, servings ≥ 1. Emits **RecipeCreated**. |
+| `Recipe.Create(householdId, name, defaultServings, clock)` | Factory. Validates name non-blank, servings ≥ 1. Designed to emit (not implemented — see §9) **RecipeCreated**. |
 | `Rename(name, clock)` | Re-validates non-blank; uniqueness is a cross-aggregate check the app layer makes (R1). |
 | `SetSource / SetCookTime / SetPhoto / RemovePhoto / SetDirections(...)` | Field mutators, each `Touch`es `UpdatedAt`. |
 | `SetTags(IReadOnlyList<TagId>, clock)` | Replaces the membership set. |
-| `ReplaceIngredients(orderedLines, clock)` | **Wholesale replace** of the ordered ingredient list (J7). Re-validates R3–R6. Emits **RecipeUpdated**. |
+| `ReplaceIngredients(orderedLines, clock)` | **Wholesale replace** of the ordered ingredient list (J7). Re-validates R3–R6. Designed to emit (not implemented — see §9) **RecipeUpdated**. |
 | `ChangeDefaultServings(newServings, ScaleMode, clock)` | Sets servings; `ScaleMode.Proportional` multiplies every stored ingredient quantity by `new ÷ old`, `ScaleMode.Keep` leaves them (J7 step 3). |
 
 > Authoring-time **unit-mismatch** validation (C10) and **inline untracked-staple creation** (C12) are *not* Recipe methods — they need Catalog reads/writes and live in the `AuthorRecipe` application service (§7), which assembles validated `Ingredient`s before calling `ReplaceIngredients`.
@@ -106,7 +106,7 @@ An immutable record that a recipe was cooked — the append-only substrate for f
 | `CookedAt` | `DateTimeOffset` | |
 | `PlannedDishId` | `Guid?` | bare soft-ref (DM-3), null default. Set only when the cook was launched from the meal plan (plantry-0eut) — the plan UI DERIVES cooked state by querying for a CookEvent with this id; no MealPlanning write, no `RecipeCooked` subscriber (ADR-014). |
 
-**Behaviours:** `CookEvent.Record(recipeId, householdId, servingsCooked, cookedBy, clock, plannedDishId = null)` — the only factory. **No mutators, no delete.** Writing one is part of the Cook orchestration (§7), which emits **RecipeCooked**.
+**Behaviours:** `CookEvent.Record(recipeId, householdId, servingsCooked, cookedBy, clock, plannedDishId = null)` — the only factory. **No mutators, no delete.** Writing one is part of the Cook orchestration (§7), which is designed to emit (not implemented — see §9) **RecipeCooked**.
 
 ---
 
@@ -151,7 +151,7 @@ These coordinate the aggregates with cross-context ports (§8). None of them liv
 | **FulfillmentService** (domain) | `Compute(recipe, servings) → FulfillmentResult`. Untracked → satisfied; tracked → compare available vs scaled required; parent → roll up variants (DM-19). | `IInventoryStockReader` |
 | **CostingService** (domain) | `Compute(recipe, servings) → CostPerServing`. Counts costable ingredients (tracked, real product), sums those with price history, and sets `Completeness` (`Full`/`Partial`/`None`) + the missing-price list accordingly. **Parent-product ingredient prices from the cheapest converted line cost across its live variant children** (DM-19) — mirrors `FulfillmentService`'s stock rollup. | `IPriceReader`, `IUnitConverter`, `ICatalogProductReader` |
 | **AuthorRecipe** (application) | Create/Edit (J6/J7). Resolves typed product per line (search → select, or inline-create untracked staple, C12); validates unit→product conversion path, surfacing the **inline `ProductConversion`** form when missing and writing it to Catalog on save (C10); enforces R1–R6; calls `Recipe.Create` / `ReplaceIngredients`. | `ICatalogProductReader`, `ICatalogWriter`, `IUnitConverter` |
-| **CookRecipe** (application) | The J4 flow. Applies `ServingsScale`; takes the user's `IngredientResolution[]` (overrides, swaps, skips — full CRUD, C9); for each tracked, not-skipped line calls `Consume(qty, unit, reason="Recipe", sourceRef=cookEventId)` (ADR-011) — **consuming whatever is available, never blocking on shortfall** (C8); **skips untracked** (C12); writes the `CookEvent`; emits **RecipeCooked**. | `IInventoryConsumer`, `ICatalogProductReader` |
+| **CookRecipe** (application) | The J4 flow. Applies `ServingsScale`; takes the user's `IngredientResolution[]` (overrides, swaps, skips — full CRUD, C9); for each tracked, not-skipped line calls `Consume(qty, unit, reason="Recipe", sourceRef=cookEventId)` (ADR-011) — **consuming whatever is available, never blocking on shortfall** (C8); **skips untracked** (C12); writes the `CookEvent`; designed to emit (not implemented — see §9) **RecipeCooked**. | `IInventoryConsumer`, `ICatalogProductReader` |
 | **AddMissingToShoppingList** (application) | J5. From a fresh `FulfillmentResult` at the displayed servings, takes `Missing` lines (excludes untracked), and calls Shopping `AddItems(product_id, scaledQty, unit_id, source="recipe", source_ref=recipeId)`. Merge/no-dup is Shopping's concern (DM-18). | `IShoppingListWriter`, `IInventoryStockReader` |
 
 **Cook ordering & atomicity (note for the schema/app step):** `CookRecipe` writes the `CookEvent` and performs the consumes in one transaction so a partial cook can't lose its journal record; the `sourceRef` on each `Consume` is the `CookEventId`, tying every stock movement back to the cook that caused it.
@@ -175,6 +175,8 @@ Recipes depends on these interfaces; the contexts that own the data implement th
 ---
 
 ## 9. Domain events
+
+> **Not implemented (plantry-g3da.4, ADR-024).** The dispatcher machinery and every concrete `IDomainEvent` were deleted after accumulating zero subscribers. The events below remain the *designed* model — reintroduce a concrete event + dispatcher when a genuine subscriber exists.
 
 | Event | Payload | Emitted by |
 |---|---|---|

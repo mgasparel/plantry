@@ -102,6 +102,8 @@ seam.
 
 ## Domain Events
 
+> **Not implemented (plantry-g3da.4, ADR-024).** The dispatcher machinery and every concrete `IDomainEvent` were deleted after accumulating zero subscribers. The events below remain the *designed* model — reintroduce a concrete event + dispatcher when a genuine subscriber exists.
+
 | Event | Payload | Emitted when |
 |-------|---------|--------------|
 | **FlyerImported** | `householdId, flyerImportId, storeId, pendingCount, at` | A flyer pull finishes parsing (DJ2). Drives the Home "N deals to review" banner (§0b / [plantry-bpw]). |

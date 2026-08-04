@@ -6,10 +6,8 @@ using Plantry.Inventory.Application;
 using Plantry.MealPlanning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Shopping.Application;
-using Plantry.SharedKernel.Domain;
 using Plantry.Web;
 using Plantry.Web.Deals;
-using Plantry.Web.Events;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.MealPlanning;
@@ -20,33 +18,22 @@ using Plantry.Web.Shopping;
 namespace Plantry.Composition;
 
 /// <summary>
-/// Composition-root wiring for the cross-context ACL adapters and the domain-event dispatch machinery
-/// (plantry-m1u). This is the "how bounded contexts are wired together" seam, lifted out of the web/UI
-/// host: <see cref="AddCrossContextAdapters"/> binds every context-application ACL port to its adapter
-/// implementation, plus the <see cref="IDomainEventDispatcher"/> + interceptor pair + transactional
-/// buffer. Called once from Plantry.Web's Program.cs.
+/// Composition-root wiring for the cross-context ACL adapters (plantry-m1u). This is the "how bounded
+/// contexts are wired together" seam, lifted out of the web/UI host: <see cref="AddCrossContextAdapters"/>
+/// binds every context-application ACL port to its adapter implementation. Called once from
+/// Plantry.Web's Program.cs.
 /// <para>
 /// Intentionally NOT registered here (they stay in the host): the feature-flagged
 /// <c>IFlyerSource</c> → <c>StubFlyerSourceAdapter</c> binding (host owns the Deals:UseStubFlyerSource
-/// switch and the real HttpClient alternative), the Identity read-port implementation
+/// switch and the real HttpClient alternative), and the Identity read-port implementation
 /// (<c>IHouseholdDirectory</c>, which lives in Plantry.Identity.Infrastructure and is ASP.NET-coupled —
-/// registering it here would drag Microsoft.AspNetCore.* into this assembly), and the domain-event
-/// <i>handlers</i> (not adapters). The DbContext <c>.AddInterceptors(...)</c> calls likewise stay in the
-/// host, since they are DbContext configuration — they merely resolve the interceptors registered here.
+/// registering it here would drag Microsoft.AspNetCore.* into this assembly).
 /// </para>
 /// </summary>
 public static class CompositionServiceCollectionExtensions
 {
     public static IServiceCollection AddCrossContextAdapters(this IServiceCollection services)
     {
-        // Domain-event dispatch (Intake and Deals contexts, ADR-014 / plantry-jvzk). The dispatcher
-        // resolves handlers reflectively; the interceptor pair + scoped buffer make dispatch
-        // transaction-aware. The host wires the interceptors onto the Intake/Deals DbContexts.
-        services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
-        services.AddScoped<TransactionalDomainEventBuffer>();
-        services.AddScoped<DomainEventDispatchInterceptor>();
-        services.AddScoped<DomainEventCommitDispatchInterceptor>();
-
         // Inventory → Catalog ACL (take-stock read/write over Catalog reference data).
         services.AddScoped<ITakeStockReader, TakeStockReaderAdapter>();
         services.AddScoped<ITakeStockCatalogWriter, TakeStockCatalogWriterAdapter>();

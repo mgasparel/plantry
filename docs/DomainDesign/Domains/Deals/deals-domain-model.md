@@ -238,7 +238,7 @@ None lives *on* an aggregate — keeping the roots pure of Flipp/AI/Pricing know
 | Service | Responsibility | Touches |
 |---|---|---|
 | **DealNormalizer** (domain, pure) | `Normalize(rawName) → NormalizedName` — the deterministic, reproducible normalization (lowercase, trim, strip pack-size/units/punctuation, DL-O6). Pure function; the stable match-memory/dedup key. No I/O. | — |
-| **IngestFlyer** (application) | DJ2, the async worker. Per active `StoreSubscription`: pull via `IFlyerSource`; **dedup** on `(store, flyer_external_id)` + content hash (DD5) — unchanged ⇒ no-op; create/update a `FlyerImport` (`raw_flyer` quarantined); stage-1 `RawDeal`s + `DealNormalizer`; stage-2 **match** (memory lookup first, else `IDealMatcher` AI); materialize `Deal`s (memory matches → `AutoConfirm` → the confirm side-effects below; rest → `Pending`) — on a re-pull, refresh **only still-`Pending`** deals; resolved deals are frozen (DD13); `MarkParsed`; emit **FlyerImported**. On pull failure → `MarkFailed`, retry next cycle. | `IFlyerSource`, `IDealMatcher`, `ICatalogProductReader`, `IPriceObservationWriter`, in-context (`DealNormalizer`, all four roots) |
+| **IngestFlyer** (application) | DJ2, the async worker. Per active `StoreSubscription`: pull via `IFlyerSource`; **dedup** on `(store, flyer_external_id)` + content hash (DD5) — unchanged ⇒ no-op; create/update a `FlyerImport` (`raw_flyer` quarantined); stage-1 `RawDeal`s + `DealNormalizer`; stage-2 **match** (memory lookup first, else `IDealMatcher` AI); materialize `Deal`s (memory matches → `AutoConfirm` → the confirm side-effects below; rest → `Pending`) — on a re-pull, refresh **only still-`Pending`** deals; resolved deals are frozen (DD13); `MarkParsed`; designed to emit (not implemented — see §9) **FlyerImported**. On pull failure → `MarkFailed`, retry next cycle. | `IFlyerSource`, `IDealMatcher`, `ICatalogProductReader`, `IPriceObservationWriter`, in-context (`DealNormalizer`, all four roots) |
 | **ConfirmDeal** (application) | DJ4. `Deal.Confirm/AutoConfirm/Correct` → then, **each in its own transaction** (Intake discipline): (1) **upsert `DealMatchMemory`** `(store, normalized_name) → product`; (2) `IPriceObservationWriter.RecordObservation(source=deal, price, quantity, unit, valid_from, valid_to, store_id, source_ref=deal_id)` → `Deal.LinkObservation`. A **Correct** on an already-confirmed deal **supersedes** with a new observation (Pricing append-only, never edits, DM-17/R1) and **Repoints** memory. | `IPriceObservationWriter`, in-context (`Deal`, `DealMatchMemory`) |
 | **RejectDeal** (application) | DJ4. `Deal.Reject`; optional `DealMatchMemory.RememberNegative` (DL-O3). Writes no observation. | in-context |
 | **ManageSubscriptions** (application) | DJ1. Subscribe/pause/unsubscribe; on subscribe, **ensure** the `catalog.store` identity exists (`ICatalogStoreReader`/`Writer`) then create the `StoreSubscription`. Store-directory search via `IFlyerSource`. | `ICatalogStoreReader`, `ICatalogStoreWriter`, `IFlyerSource`, in-context |
@@ -284,6 +284,8 @@ implement them. All traffic is by ID (DM-3).
 ---
 
 ## 9. Domain events
+
+> **Not implemented (plantry-g3da.4, ADR-024).** The dispatcher machinery and every concrete `IDomainEvent` were deleted after accumulating zero subscribers. The events below remain the *designed* model — reintroduce a concrete event + dispatcher when a genuine subscriber exists.
 
 | Event | Payload | Emitted by |
 |---|---|---|

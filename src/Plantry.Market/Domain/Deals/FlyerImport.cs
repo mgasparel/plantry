@@ -86,11 +86,9 @@ public sealed class FlyerImport : AggregateRoot<FlyerImportId>
     }
 
     /// <summary>
-    /// Transitions <c>Pulling → Parsed</c> after normalization+match finished (DD12) and emits
-    /// <see cref="FlyerImportedEvent"/> carrying the point-in-time <paramref name="pendingCount"/>
-    /// (DJ2 step 7 / §9) — the number of deals this pull left <see cref="DealStatus.Pending"/>.
+    /// Transitions <c>Pulling → Parsed</c> after normalization+match finished (DD12).
     /// </summary>
-    public Result MarkParsed(int pendingCount, IClock clock)
+    public Result MarkParsed(IClock clock)
     {
         if (Status != PullStatus.Pulling)
             return NotPulling;
@@ -98,20 +96,18 @@ public sealed class FlyerImport : AggregateRoot<FlyerImportId>
         Status = PullStatus.Parsed;
         ParsedAt = clock.UtcNow;
         UpdatedAt = clock.UtcNow;
-        RaiseDomainEvent(new FlyerImportedEvent(Id, HouseholdId, StoreId, pendingCount, clock.UtcNow));
         return Result.Success();
     }
 
     /// <summary>
     /// Records a <b>changed</b> re-pull of an already-<see cref="PullStatus.Parsed"/> import (DD5/DD13):
     /// refreshes the dedup bookkeeping (<see cref="ContentHash"/> so the next byte-identical pull is a
-    /// no-op, and <see cref="ValidityWindow"/> if the flyer's run dates moved) and re-emits
-    /// <see cref="FlyerImportedEvent"/> with the new <paramref name="pendingCount"/>. <b>Never touches
+    /// no-op, and <see cref="ValidityWindow"/> if the flyer's run dates moved). <b>Never touches
     /// <see cref="RawFlyer"/></b> (the first pull's provenance is immutable, DD6) or <see cref="Status"/>.
     /// The deal-refresh itself (only still-<see cref="DealStatus.Pending"/> deals; resolved deals frozen)
     /// is the ingestion service's job — this only advances the import's own bookkeeping.
     /// </summary>
-    public Result RecordRepull(byte[]? contentHash, ValidityWindow window, int pendingCount, IClock clock)
+    public Result RecordRepull(byte[]? contentHash, ValidityWindow window, IClock clock)
     {
         ArgumentNullException.ThrowIfNull(window);
         if (Status != PullStatus.Parsed)
@@ -120,7 +116,6 @@ public sealed class FlyerImport : AggregateRoot<FlyerImportId>
         ContentHash = contentHash;
         ValidityWindow = window;
         UpdatedAt = clock.UtcNow;
-        RaiseDomainEvent(new FlyerImportedEvent(Id, HouseholdId, StoreId, pendingCount, clock.UtcNow));
         return Result.Success();
     }
 

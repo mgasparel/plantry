@@ -31,7 +31,7 @@ public sealed class FlyerImportRepositoryTests(PostgresFixture db) : IAsyncLifet
     private static FlyerImport ParsedImport(HouseholdId household, Guid store, string externalId)
     {
         var import = Import(household, store, externalId);
-        import.MarkParsed(pendingCount: 0, Clock);
+        import.MarkParsed(Clock);
         return import;
     }
 

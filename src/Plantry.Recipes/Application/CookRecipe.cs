@@ -32,7 +32,6 @@ namespace Plantry.Recipes.Application;
 /// <see cref="CookConsumeLineStatus.Shorted"/> on <see cref="InvalidOperationException"/>
 /// (no-stock). Persists the updated statuses in a second Recipes transaction.</item>
 /// <item>Skips untracked staples entirely (C12).</item>
-/// <item>Emits <see cref="RecipeCookedEvent"/> after all lines are resolved (§9, O2).</item>
 /// </list>
 /// </para>
 /// </summary>
@@ -43,7 +42,6 @@ public sealed class CookRecipe(
     ICatalogProductReader products,
     ICatalogWriter catalogWriter,
     RecipeExpansionService expansion,
-    IDomainEventDispatcher eventDispatcher,
     IClock clock,
     ITenantContext tenant,
     ReconcilePendingCooks reconciler,
@@ -309,19 +307,6 @@ public sealed class CookRecipe(
             await cookEvents.SaveChangesAsync(ct);
         }
 
-        // ── Emit RecipeCooked (§9) ───────────────────────────────────────────────
-        // Dispatched post-commit and non-transactionally: if dispatch fails, the CookEvent and
-        // consumes are already durable but this side effect is lost. Tolerable only while RecipeCooked
-        // has no subscriber — see the guardrail at the handler registration in Program.cs (ADR-014).
-        var cookedEvent = new RecipeCookedEvent(
-            recipe.Id,
-            household,
-            servingsCooked,
-            command.UserId,
-            cookEvent.CookedAt);
-
-        await eventDispatcher.DispatchAsync([cookedEvent], ct);
-
         DomainTelemetry.RecipesCooked.Add(1);
 
         var shortedCount = lineResults.Count(l => l.ShortfallAmount == l.RequestedQuantity);
@@ -423,8 +408,8 @@ public sealed class CookRecipe(
 /// Soft-ref (DM-3) to the MealPlanning <c>PlannedDish</c> this cook fulfills, when the cook was
 /// launched from the meal plan (plantry-0eut). Stamped verbatim onto the minted <see cref="CookEvent"/>
 /// so the plan UI can later DERIVE cooked state by querying for a CookEvent with this id — no
-/// MealPlanning write, no RecipeCookedEvent subscriber (ADR-014 guardrail below). Null (the default)
-/// for a direct recipe-launched cook — existing callers and behaviour are unchanged.
+/// MealPlanning write. Null (the default) for a direct recipe-launched cook — existing callers and
+/// behaviour are unchanged.
 /// </param>
 /// <param name="PickedYieldProductId">
 /// No-yield-product gap (plantry-iejb): an EXISTING tracked catalog product the user picked, via the

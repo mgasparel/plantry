@@ -113,7 +113,7 @@ Per domain model §7 — computed fresh at query time, **no storage**:
 | **StockUpAlert** | `StockUpAlerts.Compute()`: frequently-bought products (`IPurchaseFrequencyReader`, DL-O4 — Inventory `Purchase`-journal rows lean, or Pricing purchase observations) ∩ **ActiveDeal** (D10/§6c). Carries the product, the cheapest active deal's store + price, and the validity window; recomputed on demand, **never stored** |
 | **Pending review queue** | `BrowseDeals`: `status = pending` ∧ in-window (`today <= valid_to`, DD14) — an expired-unreviewed deal **drops off the queue** but stays confirmable as an explicit price-history backfill. Product names via `ICatalogProductReader` |
 
-> **`FlyerImported.pendingCount` is point-in-time** — correct at `MarkParsed`, but the standing Home "N deals to review" banner (§0b) must **recount against the clock** (`pending` ∧ in-window, DD14), not trust the stamped count, or a week-old event keeps advertising expired deals.
+> **`FlyerImported.pendingCount` is point-in-time** (designed only — the event is not implemented, see Domains/Deals/deals-domain-model.md §9) — it would be correct at `MarkParsed`, but the standing Home "N deals to review" banner (§0b) must **recount against the clock** (`pending` ∧ in-window, DD14), not trust the stamped count, or a week-old event keeps advertising expired deals.
 
 ---
 

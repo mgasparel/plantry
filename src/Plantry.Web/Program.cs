@@ -36,7 +36,6 @@ using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Background;
 using Plantry.Web.Deals;
 using Plantry.Web.Dev;
-using Plantry.Web.Events;
 using Plantry.Web.Housekeeping;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
@@ -292,32 +291,12 @@ builder.Services.AddScoped<PricingQueries>();
 builder.Services.AddScoped<PurchaseStoreBackfill>();
 builder.Services.AddSingleton<PurchaseStoreBackfillCycle>();
 
-// Intake context (hero AI receipt flow — ADR-007/ADR-010). The dispatch interceptor drains domain
-// events (e.g. ImportSessionCommittedEvent) after a successful SaveChanges; the AI parser, the four
-// cross-context port adapters, and the event handler are the seams ParseSessionCommand /
-// CommitSessionCommand are constructed over.
-// IDomainEventDispatcher + TransactionalDomainEventBuffer + the DomainEventDispatchInterceptor /
-// DomainEventCommitDispatchInterceptor pair → Plantry.Composition (AddCrossContextAdapters). The
-// DbContext .AddInterceptors(...) calls below resolve them. Event HANDLERS stay in this host:
-builder.Services.AddScoped<IDomainEventHandler<ImportSessionCommittedEvent>, ImportSessionCommittedLogHandler>();
-// GUARDRAIL (ADR-014): domain events dispatch on COMMIT with no transactional outbox. The dispatch
-// interceptor pair (DomainEventDispatchInterceptor + DomainEventCommitDispatchInterceptor) makes dispatch
-// transaction-aware (plantry-jvzk): a bare SaveChanges dispatches immediately post-commit, while events
-// raised INSIDE an explicit multi-save transaction are buffered and dispatched only when that transaction
-// commits — so a rolled-back transaction dispatches NOTHING (the pre-commit "phantom event on rollback"
-// window is CLOSED). What remains latent is the OTHER window: a process crash AFTER commit but before a
-// handler runs is still an at-most-once lost event — this is not an outbox. RecipeCookedEvent has no
-// subscriber today, so that window is harmless. Before registering the FIRST RecipeCookedEvent handler
-// here, either build the outbox or explicitly accept that handler as at-most-once — if it produces durable,
-// reconcilable output, prefer self-reconciliation (the plantry-292 saga pattern) over a generic outbox.
-
+// Intake context (hero AI receipt flow — ADR-007/ADR-010). The AI parser and the four cross-context
+// port adapters are the seams ParseSessionCommand / CommitSessionCommand are constructed over.
 builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
-        .AddInterceptors(
-            sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
-            sp.GetRequiredService<DomainEventDispatchInterceptor>(),
-            sp.GetRequiredService<DomainEventCommitDispatchInterceptor>()));
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 builder.Services.AddScoped<PendingReviewQuery>();
 
@@ -369,19 +348,10 @@ builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>(
 // Deals context (Phase 5 / P5-0). DbContext + schema (P5-0); store subscriptions + §7e management (P5-2).
 // DealsDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0
 // gotcha: omit it and every Deals query filter returns nothing while writes silently succeed.
-// DealConfirmed/DealRejected (P5-5) and FlyerImportedEvent (P5-6) dispatch through the same interceptor pair
-// as Intake — no subscriber today (latent, like RecipeCookedEvent; see the ADR-014 guardrail above). The
-// dispatch interceptor drains + clears the buffered events on every save so they can't accumulate; because
-// FlyerImportedEvent is raised inside IngestFlyer's explicit two-save materialization transaction, the
-// transaction-aware pair holds it until COMMIT so an aborted import (rollback) fires no phantom event
-// (plantry-jvzk).
 builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Market.Infrastructure"))
-        .AddInterceptors(
-            sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
-            sp.GetRequiredService<DomainEventDispatchInterceptor>(),
-            sp.GetRequiredService<DomainEventCommitDispatchInterceptor>()));
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 
 // Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
 // ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters

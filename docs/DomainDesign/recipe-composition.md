@@ -75,7 +75,7 @@ Invariants (new rule ids, continuing the recipes-domain-model numbering style):
 - **R3′** — a recipe must have ≥ 1 ingredient **or** inclusion (D3).
 
 `ReplaceIngredients` generalizes to `ReplaceLines(ingredients, inclusions)` (one wholesale replace,
-one `RecipeUpdatedEvent`). `ChangeDefaultServings(Proportional)` multiplies `Inclusion.Servings` by the
+designed to emit one `RecipeUpdatedEvent` — not implemented, see recipes-domain-model.md §9). `ChangeDefaultServings(Proportional)` multiplies `Inclusion.Servings` by the
 ratio alongside ingredient quantities (D13).
 
 ## 4. Expansion semantics (`RecipeExpansionService`)

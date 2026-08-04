@@ -505,59 +505,6 @@ public sealed class MealPlanTests
         Assert.Equal(overrideList, moved.AttendeesOverride);
     }
 
-    // ── MoveMeal raises domain event ──────────────────────────────────────────
-
-    [Fact]
-    public void MoveMeal_RaisesMealMovedEvent()
-    {
-        var plan = CreatePlan();
-        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
-        var mealId = plan.PlannedMeals[0].Id;
-        plan.ClearDomainEvents(); // clear MealPlanned event
-
-        var tuesday = Monday.AddDays(1);
-        plan.MoveMeal(mealId, tuesday, SlotB, Clock);
-
-        var evt = Assert.IsType<MealMoved>(Assert.Single(plan.DomainEvents));
-        Assert.Equal(Monday, evt.FromDate);
-        Assert.Equal(SlotA, evt.FromSlotId);
-        Assert.Equal(tuesday, evt.ToDate);
-        Assert.Equal(SlotB, evt.ToSlotId);
-        Assert.Null(evt.SwappedMealId);
-    }
-
-    // ── OccurredAt is caller-supplied, not ambient (plantry-lgbu AC3) ────────
-
-    [Fact]
-    public void AssignMeal_RaisesMealPlannedEvent_WithOccurredAtEqualToTheFixedClock()
-    {
-        var fixedNow = new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero);
-        var fixedClock = new FixedClock(fixedNow);
-        var plan = CreatePlan();
-
-        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, fixedClock);
-
-        var evt = Assert.IsType<MealPlanned>(Assert.Single(plan.DomainEvents));
-        Assert.Equal(fixedNow, evt.OccurredAt);
-    }
-
-    [Fact]
-    public void MoveMeal_RaisesMealMovedEvent_WithOccurredAtEqualToTheFixedClock()
-    {
-        var plan = CreatePlan();
-        plan.AssignMeal(Monday, SlotA, [RecipeDish()], null, "test", UserId, Clock);
-        var mealId = plan.PlannedMeals[0].Id;
-        plan.ClearDomainEvents(); // clear MealPlanned event
-
-        var fixedNow = new DateTimeOffset(2031, 6, 15, 12, 0, 0, TimeSpan.Zero);
-        var fixedClock = new FixedClock(fixedNow);
-        var tuesday = Monday.AddDays(1);
-        plan.MoveMeal(mealId, tuesday, SlotB, fixedClock);
-
-        var evt = Assert.IsType<MealMoved>(Assert.Single(plan.DomainEvents));
-        Assert.Equal(fixedNow, evt.OccurredAt);
-    }
-
     // ── ApplyProposal — skips occupied cells (MP-O8) ─────────────────────────
 
     [Fact]

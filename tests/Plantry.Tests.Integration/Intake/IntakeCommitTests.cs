@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Catalog.Domain;
 using Plantry.Catalog.Infrastructure;
@@ -15,7 +14,6 @@ using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
-using Plantry.Web.Events;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.Pricing;
@@ -28,8 +26,8 @@ namespace Plantry.Tests.Integration.Intake;
 /// L3 commit-path test: <see cref="CommitSessionCommand"/> wired over the REAL cross-context adapters
 /// (the composition-root seams from Plantry.Web) against a real Postgres schema, with a fake AI upstream.
 /// Proves a committed receipt lands a real Inventory lot/journal stamped <c>source = Intake</c> and a
-/// real Pricing observation (<c>source = Purchase</c>), fires the <see cref="ImportSessionCommittedEvent"/>
-/// through the dispatch interceptor, and that the EF household filter isolates other households.
+/// real Pricing observation (<c>source = Purchase</c>), and that the EF household filter isolates other
+/// households.
 /// </summary>
 [Collection(nameof(PostgresCollection))]
 public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
@@ -63,8 +61,8 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    [Fact(DisplayName = "Commit writes a real Intake-sourced stock journal + price observation and fires the committed event")]
-    public async Task Commit_Writes_Stock_And_Price_And_Fires_Event()
+    [Fact(DisplayName = "Commit writes a real Intake-sourced stock journal + price observation")]
+    public async Task Commit_Writes_Stock_And_Price()
     {
         // A Ready session with one confirmed line against the seeded product.
         ImportSessionId sessionId;
@@ -79,20 +77,12 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
             sessionId = session.Id;
         }
 
-        // Capturing handler behind the real dispatcher + dispatch interceptor.
-        var handler = new CapturingHandler();
-        var serviceProvider = new ServiceCollection()
-            .AddSingleton<IDomainEventHandler<ImportSessionCommittedEvent>>(handler)
-            .BuildServiceProvider();
-        var interceptor = new DomainEventDispatchInterceptor(
-            new DomainEventDispatcher(serviceProvider), new TransactionalDomainEventBuffer());
-
         var tenant = new TestTenant(_household.Value);
 
         await using var catalogDb = NewCatalogDb();
         await using var inventoryDb = NewInventoryDb();
         await using var pricingDb = NewPricingDb();
-        await using var intakeDb = NewIntakeDb(interceptor);
+        await using var intakeDb = NewIntakeDb();
 
         var products = new ProductRepository(catalogDb);
         var units = new UnitRepository(catalogDb);
@@ -153,11 +143,6 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(LineStatus.Committed, committedLine.Status);
         Assert.NotNull(committedLine.JournalId);
         Assert.NotNull(committedLine.PriceObservationId);
-
-        // Dispatcher fired the committed event exactly once.
-        var evt = Assert.Single(handler.Events);
-        Assert.Equal(sessionId, evt.SessionId);
-        Assert.Equal(_household, evt.HouseholdId);
     }
 
     [Fact(DisplayName = "Household filter: another household cannot see the committed session")]
@@ -359,12 +344,10 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         return ctx;
     }
 
-    private IntakeDbContext NewIntakeDb(DomainEventDispatchInterceptor? interceptor = null)
+    private IntakeDbContext NewIntakeDb()
     {
-        var builder = new DbContextOptionsBuilder<IntakeDbContext>().UseNpgsql(db.ConnectionString);
-        if (interceptor is not null)
-            builder.AddInterceptors(interceptor);
-        var ctx = new IntakeDbContext(builder.Options);
+        var ctx = new IntakeDbContext(
+            new DbContextOptionsBuilder<IntakeDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }
@@ -380,17 +363,6 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
     private sealed class TestTenant(Guid household) : ITenantContext
     {
         public Guid? HouseholdId { get; } = household;
-    }
-
-    private sealed class CapturingHandler : IDomainEventHandler<ImportSessionCommittedEvent>
-    {
-        public List<ImportSessionCommittedEvent> Events { get; } = [];
-
-        public Task HandleAsync(ImportSessionCommittedEvent domainEvent, CancellationToken ct = default)
-        {
-            Events.Add(domainEvent);
-            return Task.CompletedTask;
-        }
     }
 
     private sealed class FailOnCallAddStockPort(IAddStockPort inner, int failOnCall) : IAddStockPort

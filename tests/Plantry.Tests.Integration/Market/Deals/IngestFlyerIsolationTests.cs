@@ -52,7 +52,7 @@ public sealed class IngestFlyerIsolationTests(PostgresFixture db) : IAsyncLifeti
 
             var window = ValidityWindow.Create(new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7)).Value;
             var bImport = FlyerImport.Start(_householdB, _storeB, "b-flyer", [9, 9], window, "{\"b\":1}", Clock);
-            bImport.MarkParsed(pendingCount: 1, Clock);
+            bImport.MarkParsed(Clock);
             await ctx.FlyerImports.AddAsync(bImport);
             await ctx.SaveChangesAsync(); // persist the import before the deal — the composite FK has no EF navigation to order the inserts
 

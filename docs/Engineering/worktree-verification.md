@@ -111,9 +111,8 @@ aspire stop --apphost src/Plantry.AppHost
   their confidence preserved.
 - **Prior week** (`today-9 … today-2`, expired; external id `8006782-prev`): a clone whose status pass runs
   through the **real** `ConfirmDeal` / `RejectDeal` verbs — the majority of the resolvable (suggestion-bearing)
-  deals Confirmed (so `DealConfirmedEvent` fires and price observations land), six Rejected, and the rest left
-  **Pending**. Those expired-Pending deals are the permanent DD14 tripwire: they must never appear in the
-  review queue.
+  deals Confirmed (so price observations land), six Rejected, and the rest left **Pending**. Those
+  expired-Pending deals are the permanent DD14 tripwire: they must never appear in the review queue.
 
 The seeder never invokes the AI `DealMatcher` — the fixture is already-matched results being replayed, which
 keeps every visual check deterministic and API-key-free.

@@ -291,10 +291,6 @@ public sealed class ImportSessionTests
         Assert.True(result.IsSuccess);
         Assert.Equal(ImportStatus.Committed, session.Status);
         Assert.Equal(committedAt, session.CommittedAt);
-        var evt = Assert.Single(session.DomainEvents);
-        Assert.IsType<ImportSessionCommittedEvent>(evt);
-        var committed = (ImportSessionCommittedEvent)evt;
-        Assert.Equal(session.Id, committed.SessionId);
     }
 
     [Fact]

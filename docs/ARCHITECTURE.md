@@ -99,7 +99,7 @@ graph TD
 
 ### Integration
 
-Contexts communicate via **in-process application-service calls**. Where a downstream reaction should be loosely coupled (e.g., Market reacting to a purchase), **in-process domain events** decouple the caller from the subscriber without a message broker.
+Contexts communicate via **in-process application-service calls** — every real cross-context write today is a synchronous port call. A domain-event dispatcher for loosely-coupled reactions was built and then deleted (ADR-024, plantry-g3da.4) when it accumulated zero real subscribers; `AggregateRoot`'s raise/buffer mechanism remains available to reintroduce one when a genuine eventual-reaction need appears.
 
 ---
 
@@ -197,7 +197,7 @@ Plantry runs as a **self-contained Docker stack**: the .NET web app + PostgreSQL
 - ~~**Auth mechanism specifics**~~ — *resolved:* delegated to ASP.NET Core Identity (auth, sessions, password hashing, lockout); we own only `household`/`household_settings`/`household_invite` (ADR-008 amended; DATA-MODEL DM-6).
 - **Per-member roles / permissions** — deferred; v1 is flat.
 - ~~**Physical module layout**~~ — *resolved:* multiple projects — one domain project per bounded context (`Plantry.Identity`, `Plantry.Catalog`, `Plantry.Inventory`, `Plantry.Intake`, `Plantry.Pricing`, `Plantry.Shopping`) with a paired `*.Infrastructure` project per context and a shared `Plantry.SharedKernel`.
-- ~~**Domain-event dispatcher**~~ — *resolved:* wired in Phase 1 — an EF Core `DomainEventDispatchInterceptor` dispatches events after `SaveChanges`; Intake is the first emitter (`ImportSessionCommittedEvent`).
+- ~~**Domain-event dispatcher**~~ — *resolved (plantry-g3da.4, ADR-024):* deleted. The EF Core interceptor/buffer/dispatcher machinery and every concrete `IDomainEvent` implementation had zero real subscribers (the sole registered handler was a no-op logger) — carrying it unused was pure agent-misuse surface (ADR-018). `AggregateRoot`'s generic raise/buffer mechanism stays, ready for a concrete event + dispatcher to be reintroduced once a genuine cross-context subscriber is needed.
 - **Deals ACL specifics** — tied to Flipp access question.
 - ~~**Concrete PostgreSQL schema**~~ — *resolved:* all Phase-1 contexts decided — Pricing and Shopping schemas finalized in `DomainDesign/DataModels/pricing.md` and `DomainDesign/DataModels/shopping.md`. ADR-010 gives table groupings and FK discipline.
 - ~~**Cloud deployment target**~~ — *resolved for single-tenant:* production is a single host running Docker Compose, deployed from CI via GHCR (ADR-016); migrations run via an explicit migrator (ADR-017). A **hosted, multi-household** offering remains deferred until it is on the roadmap.

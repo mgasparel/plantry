@@ -10,8 +10,7 @@ namespace Plantry.Tests.Unit.Market.Deals.Application;
 /// L2 tests for <see cref="IngestFlyer"/> (P5-6 / DJ2) over faked <c>IFlyerSource</c>/<c>IDealMatcher</c>:
 /// remembered → auto-confirm via P5-5 (deal_observation, reviewer null); unremembered → Pending with the
 /// AI proposal; byte-identical re-pull → no-op; changed re-pull → refresh only Pending, freeze resolved;
-/// a parse failure → import Failed with error_detail + no partial deals + cycle continues;
-/// <c>FlyerImported(pendingCount)</c> emitted on parse.
+/// a parse failure → import Failed with error_detail + no partial deals + cycle continues.
 /// </summary>
 public sealed class IngestFlyerTests
 {
@@ -99,11 +98,8 @@ public sealed class IngestFlyerTests
         Assert.Equal(rememberedProduct, obs.ProductId);
         Assert.Equal(Guid.Empty, obs.UserId);
 
-        // FlyerImported emitted on parse with the point-in-time pending count.
         var import = Assert.Single(h.Imports.Items);
         Assert.Equal(PullStatus.Parsed, import.Status);
-        var evt = Assert.IsType<FlyerImportedEvent>(import.DomainEvents.Single(e => e is FlyerImportedEvent));
-        Assert.Equal(1, evt.PendingCount);
     }
 
     [Fact(DisplayName = "An AI suggestion outside the candidate set is dropped, not invented (ADR-007)")]

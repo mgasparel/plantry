@@ -725,20 +725,19 @@ public sealed class FakeDataSeeder(
         var (curFrom, curTo) = CurrentWeekWindow(today);
         var currentWindow = ValidityWindow.Create(curFrom, curTo).Value;
         await StageImportAsync(householdId, storeId, fixture.Flyer.ExternalId, currentWindow, fixture,
-            productIdByName, fixture.Deals.Count, ct);
+            productIdByName, ct);
 
         // ── PRIOR week (today-9 → today-2, expired): a clone with a suffixed external id whose status pass
         // runs through the REAL domain verbs — the majority of resolvable (suggestion-bearing) deals Confirmed
-        // (so DealConfirmedEvent fires and price observations land, giving the active list + price history real
-        // data), a few Rejected, and a handful left Pending. Those expired-Pending deals must NOT surface in
-        // the review queue (DD14) — the seed's permanent live tripwire for the queue filter. ──
+        // (so price observations land, giving the active list + price history real data), a few Rejected,
+        // and a handful left Pending. Those expired-Pending deals must NOT surface in the review queue
+        // (DD14) — the seed's permanent live tripwire for the queue filter. ──
         var (priorFrom, priorTo) = PriorWeekWindow(today);
         var priorWindow = ValidityWindow.Create(priorFrom, priorTo).Value;
         var actions = PlanPriorWeekActions(hasSuggestion);
 
         var priorDeals = await StageImportAsync(householdId, storeId,
-            fixture.Flyer.ExternalId + PriorWeekExternalIdSuffix, priorWindow, fixture, productIdByName,
-            actions.Count(a => a == PriorWeekAction.Pending), ct);
+            fixture.Flyer.ExternalId + PriorWeekExternalIdSuffix, priorWindow, fixture, productIdByName, ct);
 
         for (var i = 0; i < priorDeals.Count; i++)
         {
@@ -781,11 +780,11 @@ public sealed class FakeDataSeeder(
     /// </summary>
     private async Task<IReadOnlyList<Deal>> StageImportAsync(
         HouseholdId householdId, Guid storeId, string externalId, ValidityWindow window,
-        DealFixture fixture, IReadOnlyDictionary<string, Guid> productIdByName, int pendingCount, CancellationToken ct)
+        DealFixture fixture, IReadOnlyDictionary<string, Guid> productIdByName, CancellationToken ct)
     {
         var import = FlyerImport.Start(
             householdId, storeId, externalId, contentHash: null, window, fixture.Flyer.RawFlyer.GetRawText(), clock);
-        var marked = import.MarkParsed(pendingCount, clock);
+        var marked = import.MarkParsed(clock);
         if (marked.IsFailure)
             throw new InvalidOperationException($"Seed flyer MarkParsed failed: {marked.Error.Description}");
 

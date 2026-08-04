@@ -38,7 +38,7 @@ public sealed class RecipeTests
     // ── Create ────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Create_Sets_Properties_And_Emits_RecipeCreated()
+    public void Create_Sets_Properties()
     {
         var result = Recipe.Create(Household, "  Pasta  ", 2, Clock);
 
@@ -49,11 +49,6 @@ public sealed class RecipeTests
         Assert.Equal(2, recipe.DefaultServings);
         Assert.Equal(recipe.CreatedAt, recipe.UpdatedAt);
         Assert.NotEqual(Guid.Empty, recipe.Id.Value);
-
-        var evt = Assert.Single(recipe.DomainEvents);
-        var created = Assert.IsType<RecipeCreatedEvent>(evt);
-        Assert.Equal(recipe.Id, created.RecipeId);
-        Assert.Equal(Household, created.HouseholdId);
     }
 
     [Theory]
@@ -297,18 +292,6 @@ public sealed class RecipeTests
         Assert.NotEqual(firstId, secondId);
     }
 
-    [Fact]
-    public void ReplaceIngredients_Emits_RecipeUpdated()
-    {
-        var recipe = NewRecipe();
-        recipe.ClearDomainEvents();
-
-        recipe.ReplaceIngredients(OneIngredient(), Clock);
-
-        var evt = Assert.Single(recipe.DomainEvents);
-        Assert.IsType<RecipeUpdatedEvent>(evt);
-    }
-
     // R3 — at least one ingredient
     [Fact]
     public void ReplaceIngredients_R3_Rejects_Empty_List()
@@ -481,19 +464,6 @@ public sealed class RecipeTests
         recipe.ReplaceLines(ValidLineSet(recipe, inclusions: [OneInclusion()]), Clock);
 
         Assert.NotEqual(firstId, recipe.Inclusions[0].Id);
-    }
-
-    [Fact]
-    public void ReplaceLines_Emits_Single_RecipeUpdated()
-    {
-        var recipe = NewRecipe();
-        recipe.ClearDomainEvents();
-        var lines = new[] { new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0) };
-
-        recipe.ReplaceLines(ValidLineSet(recipe, lines, [OneInclusion(ordinal: 1)]), Clock);
-
-        var evt = Assert.Single(recipe.DomainEvents);
-        Assert.IsType<RecipeUpdatedEvent>(evt);
     }
 
     [Fact]

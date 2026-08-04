@@ -212,7 +212,7 @@ public sealed class ManageSubscriptionsTests
         Guid storeId, string flyerExternalId, ValidityWindow window, TestClock clock)
     {
         var import = FlyerImport.Start(HouseholdId.From(Household), storeId, flyerExternalId, [1], window, "{}", clock);
-        Assert.True(import.MarkParsed(0, clock).IsSuccess);
+        Assert.True(import.MarkParsed(clock).IsSuccess);
         return import;
     }
 

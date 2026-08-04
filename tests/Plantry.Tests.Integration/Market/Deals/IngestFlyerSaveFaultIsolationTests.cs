@@ -57,7 +57,7 @@ public sealed class IngestFlyerSaveFaultIsolationTests(PostgresFixture db) : IAs
         // Pending deal and stage the new one, then fault on save — this deal MUST survive untouched.
         var priorImport = FlyerImport.Start(
             _household, _refreshStore, "refresh-flyer", contentHash: [9, 9], Window(), "{\"v\":1}", _clock);
-        priorImport.MarkParsed(pendingCount: 1, _clock);
+        priorImport.MarkParsed(_clock);
         await ctx.FlyerImports.AddAsync(priorImport);
         await ctx.SaveChangesAsync(); // persist the import before the deal — the composite FK has no EF navigation
 

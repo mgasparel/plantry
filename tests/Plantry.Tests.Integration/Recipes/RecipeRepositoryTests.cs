@@ -180,17 +180,6 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.False(await repo2.NameExistsAsync(_household, "Tiramisu"));
     }
 
-    [Fact(DisplayName = "RecipeCreated domain event is emitted after Create")]
-    public void Recipe_Create_Emits_RecipeCreated_Event()
-    {
-        var recipe = Recipe.Create(_household, "Tiramisu", 8, _clock).Value;
-
-        var evt = Assert.Single(recipe.DomainEvents);
-        var created = Assert.IsType<RecipeCreatedEvent>(evt);
-        Assert.Equal(recipe.Id, created.RecipeId);
-        Assert.Equal(_household, created.HouseholdId);
-    }
-
     [Fact(DisplayName = "ListRecipeIdsWithPhotoAsync returns only ids of recipes that have a photo")]
     public async Task ListRecipeIdsWithPhotoAsync_Returns_Only_Photo_Recipe_Ids()
     {

@@ -88,11 +88,11 @@ the relationship Recipes' `Tag` has to `Recipe`. `MealPlan`'s `PlannedMeal`s ref
 | Method | Effect |
 |---|---|
 | `MealPlan.Start(householdId, weekStart, clock)` | Factory. Normalizes `weekStart` to its Monday (M8); starts empty. |
-| `AssignMeal(date, slotId, content, attendeesOverride?, reasoning?, source, mealId?, clock)` | **Adds** a `PlannedMeal` to the `(date, slotId)` cell when `mealId` is null (allocating the next `Ordinal` in that cell's stack), or **updates** the identified meal when `mealId` is set (M2). `content` is **either** dishes (each a recipe XOR product) **or** a `Note` (M12/M13). `source` is `manual` (J5) or `ai` (accepting a suggestion, J4 — `reasoning` carried through). Validates the date falls in `[WeekStart, WeekStart+6]`, dish servings ≥ 1 (M3), and the dishes-XOR-note rule. Emits **MealPlanned**(`source`). |
+| `AssignMeal(date, slotId, content, attendeesOverride?, reasoning?, source, mealId?, clock)` | **Adds** a `PlannedMeal` to the `(date, slotId)` cell when `mealId` is null (allocating the next `Ordinal` in that cell's stack), or **updates** the identified meal when `mealId` is set (M2). `content` is **either** dishes (each a recipe XOR product) **or** a `Note` (M12/M13). `source` is `manual` (J5) or `ai` (accepting a suggestion, J4 — `reasoning` carried through). Validates the date falls in `[WeekStart, WeekStart+6]`, dish servings ≥ 1 (M3), and the dishes-XOR-note rule. Designed to emit (not implemented — see §9) **MealPlanned**(`source`). |
 | `ClearMeal(mealId, clock)` | Removes the identified `PlannedMeal`; renumbers the remaining meals in that cell to stay contiguous (M2). |
-| `MoveMeal(mealId, toDate, toSlotId, clock)` | Reschedules within the week (C11 / J9): **relocates** the meal into the target cell's stack (appended at the next `Ordinal`) and renumbers the source cell — **no swap** (a cell is a stack, so the destination simply gains a meal). The per-instance `AttendeesOverride` **travels with** the meal; an unset override inherits the destination slot's default (M4). Dishes/servings unchanged. Hard constraints are **not** re-validated (C12 — manual moves are authoritative). Emits **MealMoved**. Preserves M2. |
+| `MoveMeal(mealId, toDate, toSlotId, clock)` | Reschedules within the week (C11 / J9): **relocates** the meal into the target cell's stack (appended at the next `Ordinal`) and renumbers the source cell — **no swap** (a cell is a stack, so the destination simply gains a meal). The per-instance `AttendeesOverride` **travels with** the meal; an unset override inherits the destination slot's default (M4). Dishes/servings unchanged. Hard constraints are **not** re-validated (C12 — manual moves are authoritative). Designed to emit (not implemented — see §9) **MealMoved**. Preserves M2. |
 | `SetMealAttendees(mealId, attendeesOverride?, clock)` | Sets/clears the per-instance override; `null` reverts to slot default (M4). |
-| `ApplyProposal(acceptedMeals, clock)` | **Accept-all** convenience: bulk-adds the supplied validated suggestions (from the pending store) as `PlannedMeal`s in one transaction (J4), each via the same path/validation as `AssignMeal`. **Skips any cell that already holds a meal** — the AI never appends a second meal to an occupied cell. Single-cell accept and accept-with-edit go through `AssignMeal` directly. Emits **MealPlanned**(`source: ai`) per meal. |
+| `ApplyProposal(acceptedMeals, clock)` | **Accept-all** convenience: bulk-adds the supplied validated suggestions (from the pending store) as `PlannedMeal`s in one transaction (J4), each via the same path/validation as `AssignMeal`. **Skips any cell that already holds a meal** — the AI never appends a second meal to an occupied cell. Single-cell accept and accept-with-edit go through `AssignMeal` directly. Designed to emit (not implemented — see §9) **MealPlanned**(`source: ai`) per meal. |
 
 > `MealPlan` knows nothing of Recipes/Inventory/Pricing. Fulfillment, cost, hard-constraint
 > validation, and "shop for the week" are **services** (§7) over ports (§8), not root methods.
@@ -236,7 +236,7 @@ None lives *on* an aggregate — keeping the roots pure of Recipes/Inventory/Pri
 | **UnfulfillabilityDetector** (domain) | `DetectAsync(constraints, anyRecipeWithTag) → UnfulfillableResult?`. Pure, stateless. Determines whether an attendee's Required tag has **zero** matching recipes in the household's **full recipe corpus** (not the 50-cap candidate list). Called after `HardConflictDetector` for each cell; a cell already classified as HardConflict is not re-checked here (HardConflict takes precedence — the fix is "find a compromise", not "add a recipe"). Returns `(AttendeeId, UnfulfillableTagId)` on first gap found, null when every Required tag has ≥1 recipe. Uses `IRecipeReadModel.AnyRecipeWithTagAsync` (targeted full-corpus `AnyAsync`, bypasses the 50-cap search). No I/O beyond the injected delegate. | `IRecipeReadModel.AnyRecipeWithTagAsync` (via delegate) |
 | **GeneratePlan** (application) | J4. Takes a **`PlanningScope`** (week / day / slot-series / single meal, C13) + `PlanningConstraints` (incl. **`PlanningWeights`** Cost/Waste/Variety and the optional budget target, C14); targets only **empty** cells in scope unless `replace = true`. For each cell: (1) runs `HardConflictDetector` — irreconcilable cells (C6) are left unfilled and flagged in-cell; (2) runs `UnfulfillabilityDetector` — corpus-gap cells (so5.5) are also left unfilled and flagged; (3) for satisfiable cells: gathers context, passes to `IMealPlanner` (untrusted, ADR-007), validates via `ProposalAcl`, and writes to the **session-keyed pending store** (§6). Returns `GeneratePlanResult(ProposedCount, UnfilledCount, Conflicts: IReadOnlyList<HardConflictCell>, UnfulfillableCells: IReadOnlyList<UnfulfillableCell>)` for rendering. Weights tune the soft objective only; they never relax a hard stance (M5/M11). No per-attendee auto-split in P3 (deferred to FUTURE). | `IRecipeReadModel`, `ITagReader`, `IInventoryStockReader`, `IMealPlanner`, in-context resolver |
 | **RegenerateMeal** (application) | J8. The `PlanningScope.SingleMeal` convenience over `GeneratePlan` (MP-O3): re-proposes one meal against the same constraints and rewrites that one entry in the pending store; leaves other pending suggestions and the committed plan untouched. | as above |
-| **MoveMeal** (application) | J9. Reschedules a `PlannedMeal` within the week via `MealPlan.MoveMeal` (relocate into the target cell's stack, C11); emits **MealMoved**. No re-validation (C12). | in-context |
+| **MoveMeal** (application) | J9. Reschedules a `PlannedMeal` within the week via `MealPlan.MoveMeal` (relocate into the target cell's stack, C11); designed to emit (not implemented — see §9) **MealMoved**. No re-validation (C12). | in-context |
 | **AcceptProposal** (application) | J4. Writes confirmed suggestions from the pending store into the week's `MealPlan` — **accept-all** via `ApplyProposal`, **per-cell** via `AssignMeal` (`source: ai`) — re-validating each (the accept POST is the trust boundary), and clears the accepted entries from the store. **Reject** simply drops an entry; **discard** clears the store. | in-context |
 | **AssignMeal** (application) | J5. Upserts a `PlannedMeal` with chosen dishes (recipe **or** product) **or** a `Note` (C16) + optional attendance override; **warns (does not block)** on a hard-stance violation (C9). Validates a product dish references a real Catalog product. | `IRecipeReadModel`, `ICatalogProductReader`, in-context resolver |
 | **ShopForWeek** (application) | J6. Across all `PlannedDish`es: **recipe** dishes contribute their `Missing` ingredients at planned servings; **product** dishes contribute the **product itself** if short on stock; note-meals are skipped. Sums per product (excluding untracked) and calls Shopping `AddItems(..., source="meal_plan", source_ref=mealPlanId)`. | `IRecipeReadModel`, `IInventoryStockReader`, `IShoppingListWriter` |
@@ -277,6 +277,8 @@ Meal Planning depends on these interfaces; the owning contexts implement them. A
 ---
 
 ## 9. Domain events
+
+> **Not implemented (plantry-g3da.4, ADR-024).** The dispatcher machinery and every concrete `IDomainEvent` were deleted after accumulating zero subscribers. The events below remain the *designed* model — reintroduce a concrete event + dispatcher when a genuine subscriber exists.
 
 | Event | Payload | Emitted by |
 |---|---|---|
@@ -378,7 +380,7 @@ exist for attribution/audit and a future analytics consumer — kept light, as R
   if users want suggestions to survive a refresh, or shared in-progress review across household
   members, promote the store to a durable, household-keyed proposal aggregate — a TTL-and-table change,
   not a re-model. Events follow suit: there is **no week-grained `MealPlanProposalAccepted`**; accept
-  emits per-cell **`MealPlanned(source: ai)`**. See the [J4 inline generate/review flow](mealplanning-journeys.md#j4--generate-a-meal-plan-with-ai-the-hero--one-screen-inline).
+  is designed to emit (not implemented — see §9) per-cell **`MealPlanned(source: ai)`**. See the [J4 inline generate/review flow](mealplanning-journeys.md#j4--generate-a-meal-plan-with-ai-the-hero--one-screen-inline).
 
 - **MP-O8 — A cell holds a *stack* of meals, not one ✅ (reverses the original M2).** A `(Date,
   MealSlotId)` cell holds an **ordered stack of 0..n `PlannedMeal`s**, each with its own dishes,
@@ -417,8 +419,8 @@ exist for attribution/audit and a future analytics consumer — kept light, as R
   extending ADR-010's recipe-only slot and reversing the original Q3 "recipe-only" call; (h) the
   **review-then-commit** intent is preserved but its **mechanism changes** (MP-O7): ADR-010's
   `MealPlanProposal` staging *aggregate* becomes a **transient, session-keyed pending store** reviewed
-  **inline** on the plan grid (no separate screen), and `MealPlanProposalAccepted` is replaced by
-  per-cell `MealPlanned(source: ai)` — a deliberate divergence from Intake's persisted `ImportSession`.
+  **inline** on the plan grid (no separate screen), and `MealPlanProposalAccepted` is designed to be replaced by
+  per-cell `MealPlanned(source: ai)` (not implemented — see §9) — a deliberate divergence from Intake's persisted `ImportSession`.
   **Record as an ADR-010 amendment when the schema lands.**
 
 - **FUTURE.md "Tag-driven meal planning & member preferences" — graduates to Phase 3.** Its Stance

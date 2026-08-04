@@ -174,7 +174,7 @@ public sealed class IngestFlyerAtomicMaterializeTests(PostgresFixture db) : IAsy
         {
             var priorImport = FlyerImport.Start(
                 _household, _store, "flyer-1", contentHash: [1, 1], Window(), "{\"v\":1}", _clock);
-            priorImport.MarkParsed(pendingCount: 1, _clock);
+            priorImport.MarkParsed(_clock);
             await ctx.FlyerImports.AddAsync(priorImport);
             await ctx.SaveChangesAsync(); // import before its deal — the composite FK has no EF navigation
 

@@ -75,6 +75,8 @@ Tags exist **primarily as meal-planner inputs** matched against per-member prefe
 
 ## Domain Events
 
+> **Not implemented (plantry-g3da.4, ADR-024).** The dispatcher machinery and every concrete `IDomainEvent` were deleted after accumulating zero subscribers. The events below remain the *designed* model — reintroduce a concrete event + dispatcher when a genuine subscriber exists.
+
 | Event | Payload | Emitted when |
 |-------|---------|--------------|
 | **RecipeCreated** | `recipeId, householdId, at` | A new recipe is persisted (J6). |
@@ -90,7 +92,7 @@ Tags exist **primarily as meal-planner inputs** matched against per-member prefe
 | **Browse** | List household recipes with live FulfillmentResult + CostPerServing; sort/filter/search (J1, J2). |
 | **Inspect** | Open a recipe's detail; recompute fulfillment and cost fresh (J3). |
 | **Scale** | Apply a ServingsScale to ingredient quantities (J3, J4). |
-| **Cook** | Confirm consumption: resolve variants, consume tracked ingredients via Inventory, write a CookEvent, emit RecipeCooked (J4). |
+| **Cook** | Confirm consumption: resolve variants, consume tracked ingredients via Inventory, write a CookEvent (RecipeCooked is designed but not implemented — see Domain Events above) (J4). |
 | **Fulfill** | Compute a FulfillmentResult against current pantry state (J1, J3). |
 | **Add missing to shopping list** | Hand the `Missing` ingredients (scaled) to Shopping (J5). |
 

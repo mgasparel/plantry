@@ -190,7 +190,7 @@ public sealed class IngestFlyer(
             {
                 // MarkParsed in-memory first, so the envelope INSERTs directly as Parsed (Pulling is now a purely
                 // transient in-memory state — no Pulling row is ever written, which is what removes the wedge).
-                var mark = import.MarkParsed(staged.PendingCount, clock);
+                var mark = import.MarkParsed(clock);
                 if (mark.IsFailure)
                     throw new InvalidOperationException($"MarkParsed failed: {mark.Error.Description}");
 
@@ -257,7 +257,7 @@ public sealed class IngestFlyer(
         foreach (var s in staged.Deals)
             await deals.AddAsync(s.Deal, ct);
 
-        var mark = import.RecordRepull(contentHash, pull.Window!, staged.PendingCount, clock);
+        var mark = import.RecordRepull(contentHash, pull.Window!, clock);
         if (mark.IsFailure)
             throw new InvalidOperationException($"RecordRepull failed: {mark.Error.Description}");
 
