@@ -175,6 +175,7 @@ PostgreSQL is the single system of record. Notable choices:
 - **jsonb** for semi-structured AI output (proposal rows, parsed receipt data).
 - **`bytea` / large objects** for binary content (receipt images, recipe photos) — stored in the database alongside relational data for a single backup stream.
 - **No domain logic in the database** — triggers, stored procedures, and computed columns that encode business rules are out of scope.
+- **`Plantry.Composition.Infrastructure`** is the composition read layer's persistence home (ADR-024, plantry-g3da.9, ratified option B of plantry-swe3) — the sanctioned landing spot for layer-owned state from a dissolved bounded context (e.g. the Housekeeping/Tidy Up `Dismissal` tombstone) that doesn't belong to any surviving context, so it can't live in Plantry.Web (the composition root must never own persistence directly, and Plantry.Migrator must never reference the deployable web app).
 
 ---
 

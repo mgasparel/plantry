@@ -6,7 +6,7 @@ using Plantry.Inventory.Infrastructure;
 using Plantry.Planning.Infrastructure;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Web.Housekeeping;
+using Plantry.Composition.Infrastructure;
 
 namespace Plantry.Web.Tenancy;
 

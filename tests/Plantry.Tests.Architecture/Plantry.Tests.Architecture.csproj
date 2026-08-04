@@ -24,6 +24,10 @@
     <ProjectReference Include="..\..\src\Plantry.Identity\Plantry.Identity.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Composition\Plantry.Composition.csproj" />
+    <!-- plantry-g3da.9 (ADR-024, ratified option B): loads HousekeepingDbContext so
+         DbContexts_Should_Reside_In_Infrastructure_Namespaces actually exercises it (ZERO exemptions),
+         same pattern as every other *.Infrastructure project referenced below. -->
+    <ProjectReference Include="..\..\src\Plantry.Composition.Infrastructure\Plantry.Composition.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Catalog\Plantry.Catalog.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Inventory\Plantry.Inventory.csproj" />

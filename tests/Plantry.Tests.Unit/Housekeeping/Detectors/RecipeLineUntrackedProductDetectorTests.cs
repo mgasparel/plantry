@@ -1,4 +1,5 @@
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Composition.Infrastructure;
 using Plantry.Web.Housekeeping;
 
 namespace Plantry.Tests.Unit.Housekeeping.Detectors;

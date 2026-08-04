@@ -27,10 +27,12 @@
     <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Recipes.Infrastructure\Plantry.Recipes.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Planning.Infrastructure\Plantry.Planning.Infrastructure.csproj" />
-    <!-- HousekeepingDbContext (schema `housekeeping`) moved into Plantry.Web/Housekeeping/Persistence
-         when the Housekeeping bounded context was dissolved (ADR-024 Phase A, plantry-g3da.2) — there
-         is no more standalone Housekeeping.Infrastructure project to reference. -->
-    <ProjectReference Include="..\Plantry.Web\Plantry.Web.csproj" />
+    <!-- HousekeepingDbContext (schema `housekeeping`) lives in Plantry.Composition.Infrastructure —
+         the composition read layer's standing persistence home (ADR-024, plantry-g3da.9, ratified
+         option B of plantry-swe3). Restores the Migrator to referencing ONLY *.Infrastructure
+         projects, never the deployable web app (the Migrator is an owner-credential container,
+         ADR-016/017, and must not reference it). -->
+    <ProjectReference Include="..\Plantry.Composition.Infrastructure\Plantry.Composition.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

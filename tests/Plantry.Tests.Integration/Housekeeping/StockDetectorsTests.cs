@@ -6,6 +6,7 @@ using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
+using Plantry.Composition.Infrastructure;
 using Plantry.Web.Housekeeping;
 using Xunit;
 using CatalogUnit = Plantry.Catalog.Domain.Unit;

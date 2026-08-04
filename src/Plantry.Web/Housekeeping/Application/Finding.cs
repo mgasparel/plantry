@@ -1,3 +1,5 @@
+using Plantry.Composition.Infrastructure;
+
 namespace Plantry.Web.Housekeeping;
 
 /// <summary>

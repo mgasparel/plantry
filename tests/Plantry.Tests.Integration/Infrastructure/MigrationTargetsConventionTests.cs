@@ -23,25 +23,8 @@ public sealed class MigrationTargetsConventionTests
         var migrationOwningProjects = Directory.EnumerateDirectories(srcRoot, "*.Infrastructure", SearchOption.TopDirectoryOnly)
             .Where(dir => Directory.Exists(Path.Combine(dir, "Migrations")))
             .Select(dir => Path.GetFileName(dir)!)
+            .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
-
-        // plantry-g3da.2 (ADR-024 Phase A): HousekeepingDbContext's migrations relocated from the retired
-        // Plantry.Housekeeping.Infrastructure project into Plantry.Web/Housekeeping/Persistence/Migrations
-        // when the Housekeeping bounded context was dissolved. Plantry.Web is not a *.Infrastructure
-        // project, so the glob above can no longer see them — widen the scan: if Plantry.Web owns any
-        // Migrations/ folder anywhere under it (recursively, since it also hosts ordinary app code
-        // alongside Housekeeping/Persistence/Migrations), require "Plantry.Web" to be registered too,
-        // closing the same blind spot the glob covers for *.Infrastructure projects. This keeps the
-        // convention intact instead of silently losing coverage the moment a *.Infrastructure project's
-        // migrations move to the composition root.
-        var webRoot = Path.Combine(srcRoot, "Plantry.Web");
-        if (Directory.Exists(webRoot) &&
-            Directory.EnumerateDirectories(webRoot, "Migrations", SearchOption.AllDirectories).Any())
-        {
-            migrationOwningProjects.Add("Plantry.Web");
-        }
-
-        migrationOwningProjects = migrationOwningProjects.OrderBy(name => name, StringComparer.Ordinal).ToList();
 
         // Sanity check on the scan itself: if this drops to zero (or an implausibly low number)
         // the filesystem probe is broken and the test would pass vacuously — fail loudly instead.
@@ -75,9 +58,11 @@ public sealed class MigrationTargetsConventionTests
         // by an un-relabeled schema). This test pins both so a future reorder fails loudly instead of
         // silently reintroducing either bug class.
         Assert.Equal("Plantry.Identity.Infrastructure", MigrationTargets.All[0].MigrationsAssembly);
-        // "Plantry.Web" (was "Plantry.Housekeeping.Infrastructure" before ADR-024 Phase A,
-        // plantry-g3da.2, relocated HousekeepingDbContext's migrations into the composition root).
-        Assert.Equal("Plantry.Web", MigrationTargets.All[^1].MigrationsAssembly);
+        // "Plantry.Composition.Infrastructure" (was "Plantry.Web" before plantry-g3da.9, ADR-024
+        // ratified option B, moved HousekeepingDbContext's migrations into the read layer's standing
+        // persistence home; was "Plantry.Housekeeping.Infrastructure" before that, ADR-024 Phase A,
+        // plantry-g3da.2).
+        Assert.Equal("Plantry.Composition.Infrastructure", MigrationTargets.All[^1].MigrationsAssembly);
     }
 
     private static string RepoRoot()

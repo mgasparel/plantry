@@ -3,13 +3,15 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Plantry.Housekeeping.Infrastructure.Migrations
+namespace Plantry.Composition.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    // plantry-g3da.2 (ADR-024 Phase A): fully-qualified because this file, relocated into Plantry.Web,
-    // now shares an assembly with Plantry.Migration.Grocy — an enclosing "Plantry.Migration" namespace
-    // shadows the "Migration" simple name imported via the using directive above (C# namespace vs.
-    // using-import shadowing rule), so the bare name would otherwise bind to the wrong thing.
+    // plantry-g3da.9 (ADR-024, ratified option B): fully-qualified defensively — this file previously
+    // lived in Plantry.Web, which shared an assembly with Plantry.Migration.Grocy (an enclosing
+    // "Plantry.Migration" namespace that shadows the "Migration" simple name imported via the using
+    // directive above). Now in its own Plantry.Composition.Infrastructure assembly with no such sibling,
+    // the shadowing risk is gone, but the fully-qualified name is left as-is — harmless and avoids
+    // touching a file `dotnet ef` treats as generated.
     public partial class InitialHousekeepingSchema : Microsoft.EntityFrameworkCore.Migrations.Migration
     {
         /// <inheritdoc />

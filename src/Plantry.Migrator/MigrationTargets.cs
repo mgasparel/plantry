@@ -6,7 +6,7 @@ using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Infrastructure;
 using Plantry.Planning.Infrastructure;
 using Plantry.Recipes.Infrastructure;
-using Plantry.Web.Housekeeping;
+using Plantry.Composition.Infrastructure;
 
 namespace Plantry.Migrator;
 
@@ -53,8 +53,11 @@ public sealed record MigrationTarget(
 /// has run (plantry-qszb); a context appended after it, or a reorder, would delete units still
 /// referenced by an un-relabeled schema. (plantry-g3da.2, ADR-024 Phase A: HousekeepingDbContext and
 /// its migrations physically moved from the retired Plantry.Housekeeping.Infrastructure project into
-/// Plantry.Web/Housekeeping/Persistence — the MigrationsAssembly below is "Plantry.Web" accordingly;
-/// the schema/table are byte-identical, only the owning assembly changed.)
+/// Plantry.Web/Housekeeping/Persistence; plantry-g3da.9, ADR-024 ratified option B, moved them again —
+/// this time into Plantry.Composition.Infrastructure, the read layer's standing persistence home, so
+/// the MigrationsAssembly below is "Plantry.Composition.Infrastructure" and Plantry.Migrator no longer
+/// references Plantry.Web at all. The schema/table are byte-identical across both moves, only the
+/// owning assembly changed.)
 /// </summary>
 public static class MigrationTargets
 {
@@ -68,7 +71,7 @@ public static class MigrationTargets
         Target<RecipesDbContext>("Plantry.Recipes.Infrastructure", "recipes"),
         Target<ShoppingDbContext>("Plantry.Planning.Infrastructure", "shopping"),
         Target<MealPlanningDbContext>("Plantry.Planning.Infrastructure", "meal_planning"),
-        Target<HousekeepingDbContext>("Plantry.Web", "housekeeping"),
+        Target<HousekeepingDbContext>("Plantry.Composition.Infrastructure", "housekeeping"),
     ];
 
     private static MigrationTarget Target<TContext>(string migrationsAssembly, params string[] schemas)

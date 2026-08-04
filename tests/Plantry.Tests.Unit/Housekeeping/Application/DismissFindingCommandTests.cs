@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Plantry.Composition.Infrastructure;
 using Plantry.Web.Housekeeping;
 using Plantry.SharedKernel;
 using Xunit;

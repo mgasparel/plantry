@@ -1,3 +1,5 @@
+using Plantry.Composition.Infrastructure;
+
 namespace Plantry.Web.Housekeeping;
 
 /// <summary>One still-open finding on the Tidy Up page — a group card row (T2).</summary>

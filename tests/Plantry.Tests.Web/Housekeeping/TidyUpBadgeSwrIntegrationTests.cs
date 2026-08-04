@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.SharedKernel;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Background;
+using Plantry.Composition.Infrastructure;
 using Plantry.Web.Housekeeping;
 using Xunit;
 

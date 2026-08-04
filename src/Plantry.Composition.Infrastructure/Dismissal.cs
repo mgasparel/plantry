@@ -1,7 +1,7 @@
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 
-namespace Plantry.Web.Housekeeping;
+namespace Plantry.Composition.Infrastructure;
 
 /// <summary>
 /// Aggregate root (tidy-up.md T5/T9): a household's decision to suppress one finding. The <b>only</b>

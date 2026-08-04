@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
-namespace Plantry.Web.Housekeeping;
+namespace Plantry.Composition.Infrastructure;
 
 /// <summary>
 /// Design-time factory so <c>dotnet ef migrations</c> can construct <see cref="HousekeepingDbContext"/>
@@ -14,7 +14,7 @@ public sealed class HousekeepingDbContextFactory : IDesignTimeDbContextFactory<H
         var options = new DbContextOptionsBuilder<HousekeepingDbContext>()
             .UseNpgsql(
                 "Host=localhost;Database=plantry_design;Username=postgres;Password=postgres",
-                npgsql => npgsql.MigrationsAssembly("Plantry.Web"))
+                npgsql => npgsql.MigrationsAssembly("Plantry.Composition.Infrastructure"))
             .Options;
 
         return new HousekeepingDbContext(options);

@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Plantry.Housekeeping.Infrastructure.Migrations
+namespace Plantry.Composition.Infrastructure.Migrations
 {
     /// <inheritdoc />
     // plantry-g3da.2 (ADR-024 Phase A): fully-qualified — see InitialHousekeepingSchema.cs's comment.

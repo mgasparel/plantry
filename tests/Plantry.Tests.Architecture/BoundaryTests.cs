@@ -470,9 +470,11 @@ public sealed class BoundaryTests
 
 
     // Housekeeping's boundary tests (Domain/Application sibling-context + infra checks) were removed
-    // (ADR-024 Phase A, plantry-g3da.2): the bounded context was dissolved — Dismissal/GetTidyUpPageQuery
-    // etc. now live directly in Plantry.Web (the composition root), which legitimately references every
-    // context, so there is no boundary left to police here.
+    // (ADR-024 Phase A, plantry-g3da.2): the bounded context was dissolved — GetTidyUpPageQuery and the
+    // detectors live directly in Plantry.Web (the composition root), which legitimately references
+    // every context, so there is no boundary left to police here. Dismissal/HousekeepingDbContext moved
+    // again (plantry-g3da.9, ADR-024 ratified option B) into Plantry.Composition.Infrastructure, the
+    // read layer's persistence home — see DbContexts_Should_Reside_In_Infrastructure_Namespaces below.
 
     [Fact]
     public void DbContexts_Should_Reside_In_Infrastructure_Namespaces()
@@ -482,17 +484,14 @@ public sealed class BoundaryTests
             .Should().ResideInNamespaceMatching(@"^Plantry\.\w+\.Infrastructure")
             .GetResult();
 
-        // HousekeepingDbContext is a documented exemption (ADR-024 Phase A / plantry-g3da.2): the
-        // Housekeeping bounded context was dissolved, and its DbContext now legitimately lives in
-        // Plantry.Web.Housekeeping (the composition root) rather than a *.Infrastructure namespace —
-        // this is a deliberate architectural decision, not a silent coincidental pass.
-        var failingTypeNames = (result.FailingTypeNames ?? [])
-            .Where(name => name != "Plantry.Web.Housekeeping.HousekeepingDbContext")
-            .ToList();
-
-        Assert.True(failingTypeNames.Count == 0,
+        // ZERO exemptions (plantry-g3da.9, ADR-024 ratified option B): HousekeepingDbContext moved
+        // from Plantry.Web.Housekeeping into Plantry.Composition.Infrastructure — the composition read
+        // layer's standing persistence home — which satisfies this rule naturally, so the ad-hoc
+        // exemption that stood during ADR-024 Phase A (plantry-g3da.2) is gone. This rule is back to
+        // 10-for-10 with no carve-outs.
+        Assert.True(result.IsSuccessful,
             "DbContext found outside Infrastructure namespace:\n" +
-            string.Join("\n", failingTypeNames));
+            string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
@@ -509,8 +508,10 @@ public sealed class BoundaryTests
     }
 
     // Every bounded context that has an Infrastructure assembly. Shared infra libraries
-    // (Plantry.Ai.Infrastructure, Plantry.SharedKernel) belong to no context and are intentionally
-    // absent — they are the sanctioned homes for cross-cutting infra concerns.
+    // (Plantry.Ai.Infrastructure, Plantry.SharedKernel, Plantry.Composition.Infrastructure) belong to
+    // no context and are intentionally absent — they are the sanctioned homes for cross-cutting infra
+    // concerns (plantry-g3da.9, ADR-024 ratified option B: Composition.Infrastructure is the second
+    // sanctioned context-free infrastructure project, beside Ai.Infrastructure).
     private static readonly string[] InfrastructureContexts =
     [
         "Identity",
@@ -521,7 +522,8 @@ public sealed class BoundaryTests
         "Intake",
         "Recipes",
         // "Housekeeping" removed (ADR-024 Phase A, plantry-g3da.2): the bounded context was dissolved —
-        // HousekeepingDbContext now lives in Plantry.Web, not a standalone *.Infrastructure project.
+        // HousekeepingDbContext now lives in Plantry.Composition.Infrastructure (plantry-g3da.9), a
+        // sanctioned context-free infrastructure project, not a per-context one.
     ];
 
     // Regression lock (plantry-ew5): no bounded context's *.Infrastructure assembly may reference

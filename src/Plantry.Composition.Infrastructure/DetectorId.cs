@@ -1,4 +1,4 @@
-namespace Plantry.Web.Housekeeping;
+namespace Plantry.Composition.Infrastructure;
 
 /// <summary>
 /// Stable string identity for a problem detector (tidy-up.md §3 catalogue). Persisted verbatim as

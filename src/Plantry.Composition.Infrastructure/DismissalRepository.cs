@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Plantry.SharedKernel;
 
-namespace Plantry.Web.Housekeeping;
+namespace Plantry.Composition.Infrastructure;
 
 /// <summary>
 /// EF-backed repository for the <see cref="Dismissal"/> aggregate. All queries run through

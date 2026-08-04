@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Background;
+using Plantry.Composition.Infrastructure;
 
 namespace Plantry.Web.Housekeeping;
 

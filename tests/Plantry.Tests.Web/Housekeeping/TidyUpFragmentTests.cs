@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.SharedKernel;
 using Plantry.Tests.Web.Infrastructure;
+using Plantry.Composition.Infrastructure;
 using Plantry.Web.Housekeeping;
 
 namespace Plantry.Tests.Web.Housekeeping;

@@ -1,4 +1,4 @@
-namespace Plantry.Web.Housekeeping;
+namespace Plantry.Composition.Infrastructure;
 
 /// <summary>Strongly-typed identity for a <see cref="Dismissal"/> (UUIDv7).</summary>
 public readonly record struct DismissalId(Guid Value)

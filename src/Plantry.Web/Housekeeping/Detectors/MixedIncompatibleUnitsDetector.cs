@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Composition.Infrastructure;
 
 namespace Plantry.Web.Housekeeping;
 

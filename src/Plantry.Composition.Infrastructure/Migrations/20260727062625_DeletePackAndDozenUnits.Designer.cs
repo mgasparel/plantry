@@ -5,11 +5,11 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-using Plantry.Web.Housekeeping;
+using Plantry.Composition.Infrastructure;
 
 #nullable disable
 
-namespace Plantry.Housekeeping.Infrastructure.Migrations
+namespace Plantry.Composition.Infrastructure.Migrations
 {
     [DbContext(typeof(HousekeepingDbContext))]
     [Migration("20260727062625_DeletePackAndDozenUnits")]
@@ -26,7 +26,7 @@ namespace Plantry.Housekeeping.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Plantry.Web.Housekeeping.Dismissal", b =>
+            modelBuilder.Entity("Plantry.Composition.Infrastructure.Dismissal", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")

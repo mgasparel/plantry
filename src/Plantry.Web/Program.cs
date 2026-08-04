@@ -11,6 +11,7 @@ using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
 using Plantry.Composition;
+using Plantry.Composition.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
@@ -427,16 +428,18 @@ builder.Services.AddHostedService<QueuedHostedService>();
 
 // Housekeeping ("Tidy Up", tidy-up.md) — ADR-024 Phase A dissolved the Housekeeping bounded context;
 // its 7 read-only detectors are now ADR-021 cross-schema read models living directly in Plantry.Web
-// (the composition root), and Dismissal — the only state Housekeeping ever owned — moved with them.
-// Findings are computed live from other contexts' schemas via IStockFactsReadModel/IRecipeFactsReadModel
-// (T4) and are never persisted — the DbContext + schema below back only the Dismissal tombstone
-// (T5/T9). HousekeepingDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the
-// known P2-0/P3-0 gotcha. No domain-event dispatch interceptors: Dismissal never raises domain events.
-// MigrationsAssembly is "Plantry.Web" — the migrations physically moved to
-// Housekeeping/Persistence/Migrations alongside HousekeepingDbContext (schema/table unchanged).
+// (the composition root). Dismissal — the only state Housekeeping ever owned — moved with them at
+// first, then moved again (plantry-g3da.9, ADR-024 ratified option B) into
+// Plantry.Composition.Infrastructure, the read layer's standing persistence home. Findings are
+// computed live from other contexts' schemas via IStockFactsReadModel/IRecipeFactsReadModel (T4) and
+// are never persisted — the DbContext + schema below back only the Dismissal tombstone (T5/T9).
+// HousekeepingDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known
+// P2-0/P3-0 gotcha. No domain-event dispatch interceptors: Dismissal never raises domain events.
+// MigrationsAssembly is "Plantry.Composition.Infrastructure" — the migrations live in that project's
+// Migrations/ folder alongside HousekeepingDbContext (schema/table unchanged).
 builder.Services.AddDbContext<HousekeepingDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Web"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Composition.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IDismissalRepository, DismissalRepository>();
 builder.Services.AddScoped<GetTidyUpPageQuery>();

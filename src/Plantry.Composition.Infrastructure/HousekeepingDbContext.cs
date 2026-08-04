@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Plantry.SharedKernel;
 
-namespace Plantry.Web.Housekeeping;
+namespace Plantry.Composition.Infrastructure;
 
 /// <summary>
 /// EF DbContext for the Housekeeping bounded context (<c>housekeeping</c> schema). Owns exactly one

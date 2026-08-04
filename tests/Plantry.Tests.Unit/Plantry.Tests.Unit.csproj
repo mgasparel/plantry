@@ -40,9 +40,13 @@
     <ProjectReference Include="..\..\src\Plantry.Planning.Infrastructure\Plantry.Planning.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Migration.Grocy\Plantry.Migration.Grocy.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Composition\Plantry.Composition.csproj" />
-    <!-- plantry-g3da.2 (ADR-024 Phase A): Dismissal/GetTidyUpPageQuery etc. relocated into Plantry.Web
-         when the Housekeeping bounded context was dissolved — their unit tests need the Web project
-         reference now instead of the retired Plantry.Housekeeping class library. -->
+    <!-- plantry-g3da.9 (ADR-024, ratified option B): Dismissal/HousekeepingDbContext moved out of
+         Plantry.Web into Plantry.Composition.Infrastructure, the read layer's persistence home —
+         DismissalTests etc. need this reference now instead of Plantry.Web. -->
+    <ProjectReference Include="..\..\src\Plantry.Composition.Infrastructure\Plantry.Composition.Infrastructure.csproj" />
+    <!-- Still needed independently of the above: GetTidyUpPageQuery/DismissFindingCommand/detectors
+         (Housekeeping's Application layer, which stays in Plantry.Web per plantry-g3da.9) and other
+         Web-hosted read compositions under test (e.g. Plantry.Web.Deals adapters). -->
     <ProjectReference Include="..\..\src\Plantry.Web\Plantry.Web.csproj" />
   </ItemGroup>
 

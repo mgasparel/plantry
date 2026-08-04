@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.Composition.Infrastructure;
 
 namespace Plantry.Web.Housekeeping;
 

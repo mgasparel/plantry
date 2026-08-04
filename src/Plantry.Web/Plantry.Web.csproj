@@ -51,6 +51,9 @@
     <!-- Cross-context ACL adapters + domain-event dispatch machinery (plantry-m1u): the composition seam,
          extracted out of this host so "how contexts are wired" is separate from "the web/UI host." -->
     <ProjectReference Include="..\Plantry.Composition\Plantry.Composition.csproj" />
+    <!-- Composition read layer's persistence home (plantry-g3da.9, ADR-024 ratified option B) —
+         HousekeepingDbContext / IDismissalRepository for the Dismissal tombstone (Tidy Up). -->
+    <ProjectReference Include="..\Plantry.Composition.Infrastructure\Plantry.Composition.Infrastructure.csproj" />
     <!-- Generic AI client config (AiOptions) consumed directly by composition root wiring (plantry-ew5). -->
     <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />

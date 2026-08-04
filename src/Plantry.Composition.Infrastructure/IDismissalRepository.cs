@@ -1,6 +1,6 @@
 using Plantry.SharedKernel;
 
-namespace Plantry.Web.Housekeeping;
+namespace Plantry.Composition.Infrastructure;
 
 /// <summary>
 /// Read/write port for the <see cref="Dismissal"/> tombstone (tidy-up.md §4). RLS-scoped to the
