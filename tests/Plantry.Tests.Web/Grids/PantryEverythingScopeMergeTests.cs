@@ -1,6 +1,5 @@
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using PantryPage = Plantry.Web.Pages.Pantry.IndexModel;
 
 namespace Plantry.Tests.Web.Grids;

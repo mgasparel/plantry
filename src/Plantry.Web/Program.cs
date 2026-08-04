@@ -4,9 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Plantry.Web;
 using Plantry.Ai.Infrastructure;
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
@@ -15,9 +15,6 @@ using Plantry.Composition.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Intake.Infrastructure;
@@ -36,7 +33,6 @@ using Plantry.Web.Deals;
 using Plantry.Web.Dev;
 using Plantry.Web.Housekeeping;
 using Plantry.Web.Intake;
-using Plantry.Web.Inventory;
 using Plantry.Web.Pricing;
 using Plantry.Web.Recipes;
 using Plantry.Web.Shopping;
@@ -168,12 +164,12 @@ builder.Services.AddDbContext<PlantryIdentityDbContext>((sp, opts) =>
 
 builder.Services.AddDbContext<CatalogDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Catalog.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 
 builder.Services.AddDbContext<InventoryDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Inventory.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 
 builder.Services.AddIdentity<AppUser, IdentityRole>(opts =>
@@ -268,6 +264,9 @@ builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 // adapter's product-dish leg (Plantry.Composition, AddCrossContextAdapters). Inventory-only, so it is
 // registered here like IPurchaseJournalReader rather than in the composition root.
 builder.Services.AddScoped<IJournalEntriesBySourceRefReader, JournalEntriesBySourceRefReader>();
+// CatalogConversionProvider / CatalogReadFacade now live in Plantry.Pantry.Application (ADR-024
+// plantry-g3da.6 Pantry merge) rather than bridging Plantry.Web across two assemblies, but stay
+// registered from the host like the other Pantry-only services above.
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 // ITakeStockReader/ITakeStockCatalogWriter adapters → Plantry.Composition (AddCrossContextAdapters).

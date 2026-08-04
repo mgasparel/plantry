@@ -35,10 +35,8 @@
     <!-- Identity application port only (IHouseholdDirectory) — NOT Identity.Infrastructure, which would
          drag in ASP.NET Identity and break the no-AspNetCore invariant. -->
     <ProjectReference Include="..\Plantry.Identity\Plantry.Identity.csproj" />
-    <ProjectReference Include="..\Plantry.Catalog\Plantry.Catalog.csproj" />
-    <ProjectReference Include="..\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
-    <ProjectReference Include="..\Plantry.Inventory\Plantry.Inventory.csproj" />
-    <ProjectReference Include="..\Plantry.Inventory.Infrastructure\Plantry.Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Pantry\Plantry.Pantry.csproj" />
+    <ProjectReference Include="..\Plantry.Pantry.Infrastructure\Plantry.Pantry.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Market\Plantry.Market.csproj" />
     <ProjectReference Include="..\Plantry.Market.Infrastructure\Plantry.Market.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Planning\Plantry.Planning.csproj" />

@@ -15,7 +15,7 @@ namespace Plantry.Web.Housekeeping;
 /// time.
 /// <para>
 /// ADR-021/ADR-024 Phase A: loads its facts via <see cref="IRecipeFactsReadModel"/> (shared with D5/D7)
-/// and runs the conversion check through the shared <c>Plantry.Catalog.Domain.UnitConverter</c> delegate
+/// and runs the conversion check through the shared <c>Plantry.Pantry.Domain.UnitConverter</c> delegate
 /// (see <c>HousekeepingConversions.BuildConverter</c>) rather than the retired
 /// <c>IRecipeRepository</c>/<c>ICatalogProductReader</c>/<c>IUnitConverter</c> ports — the math below is
 /// unchanged from the original port-backed version.

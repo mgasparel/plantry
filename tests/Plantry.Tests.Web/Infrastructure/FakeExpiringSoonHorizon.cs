@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 using Plantry.Recipes.Application;
 
 namespace Plantry.Tests.Web.Infrastructure;

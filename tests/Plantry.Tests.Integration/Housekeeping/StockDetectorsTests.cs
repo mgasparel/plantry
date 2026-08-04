@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -9,7 +9,7 @@ using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Composition.Infrastructure;
 using Plantry.Web.Housekeeping;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Integration.Housekeeping;
 

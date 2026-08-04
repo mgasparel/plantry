@@ -1,4 +1,4 @@
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 using Plantry.Web.Pages.Shared;
 using PantryPage = Plantry.Web.Pages.Pantry.IndexModel;
 

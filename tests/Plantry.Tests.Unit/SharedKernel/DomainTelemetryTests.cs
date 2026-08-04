@@ -2,13 +2,13 @@ using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using InventoryDomain = Plantry.Inventory.Domain;
+using InventoryDomain = Plantry.Pantry.Domain;
 
 namespace Plantry.Tests.Unit.SharedKernel;
 

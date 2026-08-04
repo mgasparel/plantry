@@ -1,9 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Market.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
-using Plantry.Inventory.Infrastructure;
 using Plantry.Planning.Infrastructure;
 using Plantry.Recipes.Infrastructure;
 using Plantry.Composition.Infrastructure;
@@ -64,8 +63,8 @@ public static class MigrationTargets
     public static readonly IReadOnlyList<MigrationTarget> All =
     [
         Target<PlantryIdentityDbContext>("Plantry.Identity.Infrastructure", "identity"),
-        Target<CatalogDbContext>("Plantry.Catalog.Infrastructure", "catalog"),
-        Target<InventoryDbContext>("Plantry.Inventory.Infrastructure", "inventory"),
+        Target<CatalogDbContext>("Plantry.Pantry.Infrastructure", "catalog"),
+        Target<InventoryDbContext>("Plantry.Pantry.Infrastructure", "inventory"),
         Target<MarketDbContext>("Plantry.Market.Infrastructure", "pricing", "deals"),
         Target<IntakeDbContext>("Plantry.Intake.Infrastructure", "intake"),
         Target<RecipesDbContext>("Plantry.Recipes.Infrastructure", "recipes"),

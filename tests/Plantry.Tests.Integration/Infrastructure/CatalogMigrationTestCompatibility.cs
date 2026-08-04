@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Infrastructure;
 
 namespace Plantry.Tests.Integration.Infrastructure;
 

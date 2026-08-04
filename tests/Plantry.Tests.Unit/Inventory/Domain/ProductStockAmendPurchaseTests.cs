@@ -1,4 +1,4 @@
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 
 namespace Plantry.Tests.Unit.Inventory.Domain;

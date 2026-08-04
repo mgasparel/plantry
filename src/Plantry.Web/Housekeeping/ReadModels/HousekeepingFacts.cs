@@ -1,4 +1,4 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 
 namespace Plantry.Web.Housekeeping;
@@ -8,7 +8,7 @@ namespace Plantry.Web.Housekeeping;
 // These records are the flat, cross-schema shapes both Tidy Up read models (StockFactsReadModel,
 // RecipeFactsReadModel) load their SQL results into. Shared here rather than duplicated per-bag so
 // the two bags' Products/Units/ConversionsByProduct dictionaries carry identical semantics and both
-// can hand the same conversion-shape mapping to the canonical Plantry.Catalog.Domain.UnitConverter
+// can hand the same conversion-shape mapping to the canonical Plantry.Pantry.Domain.UnitConverter
 // (mirrors Plantry.Web.MealPlanning.WeekBagEnricher.BuildConverter, plantry-jvd7).
 
 /// <summary>Product facts from <c>catalog.products</c> — only active (non-archived) products, matching the

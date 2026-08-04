@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -282,7 +282,7 @@ public sealed class CookModel(
         }
         var stockById = stockIds.Count > 0
             ? await stockReader.FindStockBatchAsync(stockIds.ToList(), ct)
-            : new Dictionary<Guid, ProductStock>();
+            : new Dictionary<Guid, Plantry.Recipes.Application.ProductStock>();
 
         // Unit codes for the stock default units — needed to render the real on-hand amount in the
         // stock's own unit when a recipe unit can't be converted to it (unit-gap display, plantry-qll2.5).
@@ -895,7 +895,7 @@ public sealed class CookModel(
         IReadOnlyDictionary<Guid, string> UnitCodes,
         IReadOnlyDictionary<Guid, CatalogProductSummary> VariantSummaries,
         IReadOnlyDictionary<Guid, Guid> VariantDefaultUnits,
-        IReadOnlyDictionary<Guid, ProductStock> StockById,
+        IReadOnlyDictionary<Guid, Plantry.Recipes.Application.ProductStock> StockById,
         IReadOnlyDictionary<Guid, string> StockUnitCodes,
         IReadOnlyDictionary<Guid, string> VariantUnitCodes);
 

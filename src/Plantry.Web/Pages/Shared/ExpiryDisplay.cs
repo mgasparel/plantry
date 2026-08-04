@@ -10,7 +10,7 @@ namespace Plantry.Web.Pages.Shared;
 /// </summary>
 /// <remarks>
 /// This is a Web <i>presentation</i> concern (wording + CSS tier modifier), deliberately separate from
-/// <c>Plantry.Inventory.Application.ExpiryTone</c> which is the domain classification (None/Ok/Soon/Expired,
+/// <c>Plantry.Pantry.Application.ExpiryTone</c> which is the domain classification (None/Ok/Soon/Expired,
 /// baked against the per-household "expiring soon" horizon). A surface first decides <i>whether</i> to show a
 /// pill using <c>ExpiryTone</c> (Pantry does this), then asks this helper <i>what</i> the pill says and which
 /// colour tier it wears.

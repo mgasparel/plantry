@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Web.Infrastructure;

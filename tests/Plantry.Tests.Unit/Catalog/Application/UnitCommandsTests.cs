@@ -1,6 +1,6 @@
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Unit.Catalog.Application;
 

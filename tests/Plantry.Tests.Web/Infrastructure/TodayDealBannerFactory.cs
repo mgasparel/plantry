@@ -6,8 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Domain;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 

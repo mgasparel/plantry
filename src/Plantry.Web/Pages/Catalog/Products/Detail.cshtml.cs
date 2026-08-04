@@ -4,9 +4,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -39,7 +38,7 @@ public sealed class DetailModel(
     public ProductDetail? Product { get; private set; }
 
     /// <summary>
-    /// True when a <see cref="Plantry.Inventory.Domain.ProductStock"/> record exists for this
+    /// True when a <see cref="Plantry.Pantry.Domain.ProductStock"/> record exists for this
     /// product in the current household — i.e. it has been stocked at least once. Drives the
     /// "View in pantry" cross-link: live when true, muted "Not in pantry yet" hint when false
     /// (plantry-kkeg). This is a "has stock history" check, not a "would the Pantry detail page
@@ -436,7 +435,7 @@ public sealed class DetailModel(
     /// For a parent product we seed from the parent itself so new siblings start from the same
     /// name stem as existing siblings.
     /// </summary>
-    private void SeedAddVariantInput(Plantry.Catalog.Domain.Product product)
+    private void SeedAddVariantInput(Plantry.Pantry.Domain.Product product)
     {
         AddVariantInput = new AddVariantInputModel
         {
@@ -444,7 +443,7 @@ public sealed class DetailModel(
         };
     }
 
-    private void PopulateInputFromEntity(Plantry.Catalog.Domain.Product product)
+    private void PopulateInputFromEntity(Plantry.Pantry.Domain.Product product)
     {
         Input = new InputModel
         {
@@ -462,7 +461,7 @@ public sealed class DetailModel(
         };
     }
 
-    private async Task LoadExpiryPolicyEditorsAsync(Plantry.Catalog.Domain.Product product)
+    private async Task LoadExpiryPolicyEditorsAsync(Plantry.Pantry.Domain.Product product)
     {
         var parent = product.ParentProductId is { } parentId
             ? await products.FindAsync(parentId, HttpContext.RequestAborted)
@@ -481,7 +480,7 @@ public sealed class DetailModel(
     }
 
     private ExpiryPolicyEditorViewModel BuildExpiryPolicyEditor(
-        Plantry.Catalog.Domain.Product product,
+        Plantry.Pantry.Domain.Product product,
         ExpiryTransitionPolicy inheritedPolicy,
         int householdDays,
         ProductExpiryMode? selectedMode,
@@ -520,7 +519,7 @@ public sealed class DetailModel(
     }
 
     private (bool? Never, int? Days) ResolvePostedPolicy(
-        Plantry.Catalog.Domain.Product product,
+        Plantry.Pantry.Domain.Product product,
         ProductExpiryMode? mode,
         int? days,
         bool thawing)
@@ -581,7 +580,7 @@ public sealed class DetailModel(
             && !Enum.IsDefined(typeof(ProductExpiryMode), numericValue);
     }
 
-    private static ProductExpiryMode InitialMode(Plantry.Catalog.Domain.Product product, bool thawing)
+    private static ProductExpiryMode InitialMode(Plantry.Pantry.Domain.Product product, bool thawing)
     {
         var never = thawing ? product.NeverExpiresAfterThawing : product.NeverExpiresAfterFreezing;
         var days = thawing ? product.DefaultDueDaysAfterThawing : product.DefaultDueDaysAfterFreezing;

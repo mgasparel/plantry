@@ -7,7 +7,7 @@ namespace Plantry.Tests.Unit.Composition;
 
 /// <summary>
 /// L2 tests for <see cref="CatalogStoreReaderAdapter"/> (plantry-riqy) — the Deals→Catalog ACL adapter
-/// that resolves <c>catalog.store</c> identities over Catalog's own <see cref="Plantry.Catalog.Domain.IStoreRepository"/>.
+/// that resolves <c>catalog.store</c> identities over Catalog's own <see cref="Plantry.Pantry.Domain.IStoreRepository"/>.
 /// Covers the single-store lookup and the batch name-resolution, including the archived-store case
 /// (ResolveNamesAsync must still resolve an unsubscribed/archived merchant's name, DM-16).
 /// </summary>
@@ -18,7 +18,7 @@ public sealed class CatalogStoreReaderAdapterTests
     [Fact(DisplayName = "FindAsync resolves a known store to its (Id, Name, ExternalRef)")]
     public async Task FindAsync_Resolves_Known_Store()
     {
-        var store = Plantry.Catalog.Domain.Store.Create(Household, "Costco", SystemClock.Instance, "costco-ext");
+        var store = Plantry.Pantry.Domain.Store.Create(Household, "Costco", SystemClock.Instance, "costco-ext");
         var repo = new FakeStoreRepository();
         repo.Items.Add(store);
 
@@ -41,8 +41,8 @@ public sealed class CatalogStoreReaderAdapterTests
     [Fact(DisplayName = "ResolveNamesAsync resolves names for requested ids, including archived stores")]
     public async Task ResolveNamesAsync_Resolves_Including_Archived()
     {
-        var active = Plantry.Catalog.Domain.Store.Create(Household, "FreshCo", SystemClock.Instance);
-        var archived = Plantry.Catalog.Domain.Store.Create(Household, "Old Merchant", SystemClock.Instance);
+        var active = Plantry.Pantry.Domain.Store.Create(Household, "FreshCo", SystemClock.Instance);
+        var archived = Plantry.Pantry.Domain.Store.Create(Household, "Old Merchant", SystemClock.Instance);
         archived.Archive(SystemClock.Instance);
         var repo = new FakeStoreRepository();
         repo.Items.Add(active);
@@ -61,7 +61,7 @@ public sealed class CatalogStoreReaderAdapterTests
         var repo = new FakeStoreRepository();
         // Decoy: a store the call does NOT ask for, so Assert.Empty can only hold if the adapter
         // filters ListAsync down to the requested ids.
-        repo.Items.Add(Plantry.Catalog.Domain.Store.Create(Household, "FreshCo", SystemClock.Instance));
+        repo.Items.Add(Plantry.Pantry.Domain.Store.Create(Household, "FreshCo", SystemClock.Instance));
         var unknown = Guid.NewGuid();
 
         var result = await new CatalogStoreReaderAdapter(repo).ResolveNamesAsync([unknown]);

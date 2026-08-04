@@ -4,9 +4,8 @@
 
 $projects = @(
     "Plantry.SharedKernel",
-    "Plantry.Catalog",
-    "Plantry.Inventory",
-    "Plantry.Pricing",
+    "Plantry.Pantry",
+    "Plantry.Market",
     "Plantry.Intake",
     "Plantry.Intake.Infrastructure"
 )

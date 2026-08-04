@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Market.Application;
 using Plantry.Market.Infrastructure;
 using Plantry.Recipes.Application;
@@ -14,7 +14,7 @@ using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Web.MealPlanning;
 using Plantry.Web.Recipes;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 using ICatalogProductReader = Plantry.Recipes.Application.ICatalogProductReader;
 
 namespace Plantry.Tests.Integration.MealPlanning;
@@ -348,10 +348,10 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
 
     private sealed class NullStockReader : IInventoryStockReader
     {
-        public Task<ProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default) =>
-            Task.FromResult<ProductStock?>(null);
-        public Task<IReadOnlyDictionary<Guid, ProductStock>> FindStockBatchAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyDictionary<Guid, ProductStock>>(new Dictionary<Guid, ProductStock>());
+        public Task<Plantry.Recipes.Application.ProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult<Plantry.Recipes.Application.ProductStock?>(null);
+        public Task<IReadOnlyDictionary<Guid, Plantry.Recipes.Application.ProductStock>> FindStockBatchAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, Plantry.Recipes.Application.ProductStock>>(new Dictionary<Guid, Plantry.Recipes.Application.ProductStock>());
     }
 
     private sealed class NullExpiringSoonHorizonReader : IExpiringSoonHorizonReader

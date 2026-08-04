@@ -1,8 +1,8 @@
 using Plantry.Identity.Domain;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.Planning.Application;
 using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
@@ -254,13 +254,13 @@ public sealed class TodayIndexModelTests
             Task.FromResult(hasStock);
 
         // Unused by IndexModel:
-        public Task<List<Inventory.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
-            Task.FromResult(new List<Inventory.Domain.ProductStock>());
-        public Task<Inventory.Domain.ProductStock?> FindForUpdateAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task<Inventory.Domain.ProductStock?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task<Inventory.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task AddAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<bool> TryAddAndSaveAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<Plantry.Pantry.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(new List<Plantry.Pantry.Domain.ProductStock>());
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindForUpdateAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task AddAsync(Plantry.Pantry.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> TryAddAndSaveAsync(Plantry.Pantry.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) => work(ct);
     }
@@ -575,13 +575,13 @@ public sealed class ExpiringWidgetModelTests
     {
         public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
             Task.FromResult(hasStock);
-        public Task<List<Inventory.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
-            Task.FromResult(new List<Inventory.Domain.ProductStock>());
-        public Task<Inventory.Domain.ProductStock?> FindForUpdateAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task<Inventory.Domain.ProductStock?> FindAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task<Inventory.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task AddAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<bool> TryAddAndSaveAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<Plantry.Pantry.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(new List<Plantry.Pantry.Domain.ProductStock>());
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindForUpdateAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task AddAsync(Plantry.Pantry.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> TryAddAndSaveAsync(Plantry.Pantry.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) => work(ct);
     }

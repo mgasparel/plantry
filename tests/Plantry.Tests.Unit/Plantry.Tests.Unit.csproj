@@ -28,8 +28,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Identity\Plantry.Identity.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Catalog\Plantry.Catalog.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Inventory\Plantry.Inventory.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Pantry\Plantry.Pantry.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Planning\Plantry.Planning.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Market\Plantry.Market.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Market.Infrastructure\Plantry.Market.Infrastructure.csproj" />

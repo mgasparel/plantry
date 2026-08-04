@@ -1,9 +1,9 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Tests.Unit.Catalog.Domain;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 /// <summary>
 /// L1 unit tests for <see cref="UnitConverter"/> — the heavily-tested conversion-resolution
@@ -14,7 +14,7 @@ using CatalogUnit = Plantry.Catalog.Domain.Unit;
 public sealed class UnitConverterTests
 {
     private static readonly HouseholdId HouseholdId = HouseholdId.New();
-    private static readonly ProductId ProductId = Plantry.Catalog.Domain.ProductId.New();
+    private static readonly ProductId ProductId = Plantry.Pantry.Domain.ProductId.New();
 
     private static CatalogUnit MakeUnit(string code, Dimension dimension, decimal factorToBase, bool isBase = false) =>
         CatalogUnit.Create(HouseholdId, code, code, dimension, factorToBase, isBase);
@@ -25,7 +25,7 @@ public sealed class UnitConverterTests
     [Fact]
     public void SameUnit_Resolves_To_Identity_Regardless_Of_KnownUnits()
     {
-        var unitId = Plantry.Catalog.Domain.UnitId.New();
+        var unitId = Plantry.Pantry.Domain.UnitId.New();
 
         // Explicit empty-array typing (plantry-jvd7): a bare `[]` literal is ambiguous now that
         // Convert has both an entity-typed and a shape-typed overload — this test exercises the
@@ -145,8 +145,8 @@ public sealed class UnitConverterTests
     [Fact]
     public void UnknownUnits_Without_ProductConversion_FailsLoudly()
     {
-        var fromId = Plantry.Catalog.Domain.UnitId.New();
-        var toId = Plantry.Catalog.Domain.UnitId.New();
+        var fromId = Plantry.Pantry.Domain.UnitId.New();
+        var toId = Plantry.Pantry.Domain.UnitId.New();
 
         // Explicit empty-array typing (plantry-jvd7) — see SameUnit_Resolves_To_Identity above.
         var result = UnitConverter.Convert(1m, fromId.Value, toId.Value, Array.Empty<CatalogUnit>(), Array.Empty<ProductConversion>());
@@ -475,9 +475,9 @@ public sealed class UnitConverterReachableUnitsTests
 {
     private static readonly HouseholdId HouseholdId = HouseholdId.New();
 
-    private static Plantry.Catalog.Domain.Unit MakeUnit(
+    private static Plantry.Pantry.Domain.Unit MakeUnit(
         string code, Dimension dimension, decimal factorToBase, bool isBase = false) =>
-        Plantry.Catalog.Domain.Unit.Create(HouseholdId, code, code, dimension, factorToBase, isBase);
+        Plantry.Pantry.Domain.Unit.Create(HouseholdId, code, code, dimension, factorToBase, isBase);
 
     private static ProductConversion MakeConversion(Product owner, UnitId from, UnitId to, decimal factor) =>
         owner.AddConversion(from, to, factor, SystemClock.Instance);

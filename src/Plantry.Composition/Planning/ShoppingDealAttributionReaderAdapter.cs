@@ -1,4 +1,4 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Market.Domain;
 using Plantry.Planning.Application;
 

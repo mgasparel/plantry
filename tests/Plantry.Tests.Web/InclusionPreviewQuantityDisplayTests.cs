@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -13,7 +13,7 @@ using Plantry.SharedKernel.Tenancy;
 using Plantry.Planning.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Recipes;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Web;
 
@@ -258,7 +258,7 @@ public sealed class InclusionPreviewQuantityDisplayTests
 
                 services.RemoveAll<IInventoryStockReader>();
                 services.AddSingleton<IInventoryStockReader>(
-                    new FakeDetailStockReader(new Dictionary<Guid, ProductStock>()));
+                    new FakeDetailStockReader(new Dictionary<Guid, Plantry.Recipes.Application.ProductStock>()));
 
                 services.RemoveAll<IPriceReader>();
                 services.AddSingleton<IPriceReader>(new FakeDetailPriceReader(new Dictionary<Guid, PricePoint>()));

@@ -19,7 +19,7 @@ do not duplicate or diverge in either consumer.**
 ## Gate 2 — Bounded-context and aggregate discipline
 
 - **No cross-context table reads.** A context's repository/EF queries touch only its
-  own schema (`identity`, `catalog`, `inventory`, `intake`, `market` (schemas: `pricing`,
+  own schema (`identity`, `pantry` (schemas: `catalog`, `inventory`), `intake`, `market` (schemas: `pricing`,
   `deals`), `recipes`, `planning` (schemas: `meal_planning`, `shopping`)). If `Plantry.Recipes` needs Inventory data, it
   calls Inventory's application service or reads its read model — it never queries
   `inventory.*` tables directly. The `housekeeping` schema (the `Dismissal` tombstone table) is

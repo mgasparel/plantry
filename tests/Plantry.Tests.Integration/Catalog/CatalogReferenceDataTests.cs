@@ -1,11 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.Tests.Integration.Infrastructure;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Integration.Catalog;
 

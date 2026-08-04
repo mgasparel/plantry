@@ -28,10 +28,8 @@
          DbContexts_Should_Reside_In_Infrastructure_Namespaces actually exercises it (ZERO exemptions),
          same pattern as every other *.Infrastructure project referenced below. -->
     <ProjectReference Include="..\..\src\Plantry.Composition.Infrastructure\Plantry.Composition.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Catalog\Plantry.Catalog.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Inventory\Plantry.Inventory.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Inventory.Infrastructure\Plantry.Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Pantry\Plantry.Pantry.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Pantry.Infrastructure\Plantry.Pantry.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Market\Plantry.Market.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Market.Infrastructure\Plantry.Market.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Planning\Plantry.Planning.csproj" />

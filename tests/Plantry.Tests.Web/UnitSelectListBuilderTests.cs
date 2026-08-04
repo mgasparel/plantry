@@ -1,7 +1,7 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.Web.Pages.Shared;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Web;
 

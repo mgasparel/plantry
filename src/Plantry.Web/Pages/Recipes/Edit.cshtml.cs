@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Routing;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;

@@ -1,4 +1,4 @@
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 using Plantry.Planning.Application;
 
 namespace Plantry.Web.MealPlanning;

@@ -21,8 +21,7 @@
     <!-- All Infrastructure projects that own migrations (see MigrationTargets.cs — order is load-bearing).
          Market.Infrastructure owns two entries (PricingDbContext + DealsDbContext, separate schemas). -->
     <ProjectReference Include="..\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
-    <ProjectReference Include="..\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
-    <ProjectReference Include="..\Plantry.Inventory.Infrastructure\Plantry.Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\Plantry.Pantry.Infrastructure\Plantry.Pantry.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Market.Infrastructure\Plantry.Market.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
     <ProjectReference Include="..\Plantry.Recipes.Infrastructure\Plantry.Recipes.Infrastructure.csproj" />

@@ -30,7 +30,7 @@
 <section class="catalog-section">
     <h2 class="catalog-section__heading">Add a custom unit</h2>
     <form method="post" asp-page-handler="Create" class="form-stack"
-          x-data="{ isCount: @(Model.Input.Dimension == Plantry.Catalog.Domain.Dimension.Count ? "true" : "false") }">
+          x-data="{ isCount: @(Model.Input.Dimension == Plantry.Pantry.Domain.Dimension.Count ? "true" : "false") }">
         <div class="field field--inline">
             <label asp-for="Input.Code" class="field__label">Code</label>
             <input asp-for="Input.Code" class="field__input" placeholder="e.g. bunch" />
@@ -43,8 +43,8 @@
         </div>
         <div class="field field--inline">
             <label asp-for="Input.Dimension" class="field__label">Dimension</label>
-            <select asp-for="Input.Dimension" class="field__input" asp-items="Html.GetEnumSelectList<Plantry.Catalog.Domain.Dimension>()"
-                    @@change="isCount = $event.target.value === '@((int)Plantry.Catalog.Domain.Dimension.Count)'"></select>
+            <select asp-for="Input.Dimension" class="field__input" asp-items="Html.GetEnumSelectList<Plantry.Pantry.Domain.Dimension>()"
+                    @@change="isCount = $event.target.value === '@((int)Plantry.Pantry.Domain.Dimension.Count)'"></select>
             <span asp-validation-for="Input.Dimension" class="field__error"></span>
         </div>
         <div class="field field--inline">

@@ -1,4 +1,4 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Intake.Application;
 
 namespace Plantry.Web.Intake;

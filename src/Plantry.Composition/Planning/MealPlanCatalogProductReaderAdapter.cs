@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Planning.Application;
 
 namespace Plantry.Web.MealPlanning;

@@ -24,30 +24,18 @@ public sealed class BoundaryTests
 
     private static readonly string[] SiblingContexts =
     [
-        "Plantry.Catalog",
-        "Plantry.Inventory",
+        "Plantry.Pantry",
         "Plantry.Market",
         "Plantry.Planning",
         "Plantry.Intake",
         "Plantry.Recipes",
     ];
 
-    private static readonly string[] CatalogSiblingContexts =
+    // Pantry (Catalog + Inventory merged per ADR-024, plantry-g3da.6) is a Phase-1 downstream context —
+    // every other context is a forbidden sibling.
+    private static readonly string[] PantrySiblingContexts =
     [
         "Plantry.Identity",
-        "Plantry.Inventory",
-        "Plantry.Market",
-        "Plantry.Planning",
-        "Plantry.Intake",
-        "Plantry.Recipes",
-    ];
-
-    // Inventory must not reach into any sibling — Plantry.Catalog included. That exclusion is what
-    // forces the unit-conversion + Catalog-read needs through the Port + Web-adapter seam (Slice 2).
-    private static readonly string[] InventorySiblingContexts =
-    [
-        "Plantry.Identity",
-        "Plantry.Catalog",
         "Plantry.Market",
         "Plantry.Planning",
         "Plantry.Intake",
@@ -97,100 +85,58 @@ public sealed class BoundaryTests
     }
 
     [Fact]
-    public void Catalog_Domain_Should_Not_Reference_Infrastructure_Packages()
+    public void Pantry_Domain_Should_Not_Reference_Infrastructure_Packages()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.Catalog.Domain")
+            .ResideInNamespace("Plantry.Pantry.Domain")
             .Should().NotHaveDependencyOnAny(InfraPackages)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "Catalog domain references infrastructure packages:\n" +
+            "Pantry domain references infrastructure packages:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
-    public void Catalog_Application_Should_Not_Reference_Infrastructure_Packages()
+    public void Pantry_Domain_Should_Not_Reference_Sibling_Contexts()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.Catalog.Application")
+            .ResideInNamespace("Plantry.Pantry.Domain")
+            .Should().NotHaveDependencyOnAny(PantrySiblingContexts)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Pantry domain references sibling contexts:\n" +
+            string.Join("\n", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
+    public void Pantry_Application_Should_Not_Reference_Infrastructure_Packages()
+    {
+        var result = Types.InCurrentDomain()
+            .That()
+            .ResideInNamespace("Plantry.Pantry.Application")
             .Should().NotHaveDependencyOnAny(InfraPackages)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "Catalog application references infrastructure packages:\n" +
+            "Pantry application references infrastructure packages:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
-    public void Catalog_Domain_Should_Not_Reference_Sibling_Contexts()
+    public void Pantry_Application_Should_Not_Reference_Sibling_Contexts()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.Catalog.Domain")
-            .Should().NotHaveDependencyOnAny(CatalogSiblingContexts)
+            .ResideInNamespace("Plantry.Pantry.Application")
+            .Should().NotHaveDependencyOnAny(PantrySiblingContexts)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "Catalog domain references sibling contexts:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
-
-    [Fact]
-    public void Inventory_Domain_Should_Not_Reference_Infrastructure_Packages()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Inventory.Domain")
-            .Should().NotHaveDependencyOnAny(InfraPackages)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Inventory domain references infrastructure packages:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
-
-    [Fact]
-    public void Inventory_Application_Should_Not_Reference_Infrastructure_Packages()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Inventory.Application")
-            .Should().NotHaveDependencyOnAny(InfraPackages)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Inventory application references infrastructure packages:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
-
-    [Fact]
-    public void Inventory_Domain_Should_Not_Reference_Sibling_Contexts()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Inventory.Domain")
-            .Should().NotHaveDependencyOnAny(InventorySiblingContexts)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Inventory domain references sibling contexts:\n" +
-            string.Join("\n", result.FailingTypeNames ?? []));
-    }
-
-    [Fact]
-    public void Inventory_Application_Should_Not_Reference_Sibling_Contexts()
-    {
-        var result = Types.InCurrentDomain()
-            .That()
-            .ResideInNamespace("Plantry.Inventory.Application")
-            .Should().NotHaveDependencyOnAny(InventorySiblingContexts)
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            "Inventory application references sibling contexts:\n" +
+            "Pantry application references sibling contexts:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
@@ -200,8 +146,7 @@ public sealed class BoundaryTests
     private static readonly string[] MarketSiblingContexts =
     [
         "Plantry.Identity",
-        "Plantry.Catalog",
-        "Plantry.Inventory",
+        "Plantry.Pantry",
         "Plantry.Planning",
         "Plantry.Intake",
         "Plantry.Recipes",
@@ -210,8 +155,7 @@ public sealed class BoundaryTests
     private static readonly string[] IntakeSiblingContexts =
     [
         "Plantry.Identity",
-        "Plantry.Catalog",
-        "Plantry.Inventory",
+        "Plantry.Pantry",
         "Plantry.Market",
         "Plantry.Planning",
         "Plantry.Recipes",
@@ -223,8 +167,7 @@ public sealed class BoundaryTests
     private static readonly string[] RecipesSiblingContexts =
     [
         "Plantry.Identity",
-        "Plantry.Catalog",
-        "Plantry.Inventory",
+        "Plantry.Pantry",
         "Plantry.Market",
         "Plantry.Planning",
         "Plantry.Intake",
@@ -237,8 +180,7 @@ public sealed class BoundaryTests
     private static readonly string[] PlanningSiblingContexts =
     [
         "Plantry.Identity",
-        "Plantry.Catalog",
-        "Plantry.Inventory",
+        "Plantry.Pantry",
         "Plantry.Market",
         "Plantry.Intake",
         "Plantry.Recipes",
@@ -515,8 +457,7 @@ public sealed class BoundaryTests
     private static readonly string[] InfrastructureContexts =
     [
         "Identity",
-        "Catalog",
-        "Inventory",
+        "Pantry",
         "Market",
         "Planning",
         "Intake",
@@ -527,8 +468,9 @@ public sealed class BoundaryTests
     ];
 
     // Regression lock (plantry-ew5): no bounded context's *.Infrastructure assembly may reference
-    // another bounded context's *.Infrastructure assembly. MealPlanning.Infrastructure (now folded into
-    // Plantry.Planning.Infrastructure, ADR-024 plantry-g3da.5) and (the former)
+    // another bounded context's *.Infrastructure assembly. Catalog.Infrastructure and Inventory.Infrastructure
+    // (now folded into Plantry.Pantry.Infrastructure, ADR-024 plantry-g3da.6), MealPlanning.Infrastructure
+    // (now folded into Plantry.Planning.Infrastructure, ADR-024 plantry-g3da.5), and (the former)
     // Deals.Infrastructure once referenced Plantry.Intake.Infrastructure solely to reuse the AiOptions /
     // AiTelemetry POCOs (Gate 2 violation); those primitives now live in the shared, context-free
     // Plantry.Ai.Infrastructure. This test fails the moment any such cross-context infra dependency is

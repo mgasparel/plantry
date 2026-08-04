@@ -1,8 +1,7 @@
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Market.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
-using Plantry.Inventory.Infrastructure;
 using Plantry.Planning.Infrastructure;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel.Tenancy;

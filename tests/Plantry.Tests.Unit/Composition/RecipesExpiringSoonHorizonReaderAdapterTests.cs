@@ -5,7 +5,7 @@ namespace Plantry.Tests.Unit.Composition;
 
 /// <summary>
 /// L2 test for the Recipes <see cref="ExpiringSoonHorizonReaderAdapter"/> (plantry-riqy,
-/// plantry-5yhd) — a pure delegate onto Inventory's <see cref="Plantry.Inventory.Application.IExpiringSoonHorizon"/>,
+/// plantry-5yhd) — a pure delegate onto Inventory's <see cref="Plantry.Pantry.Application.IExpiringSoonHorizon"/>,
 /// the single source of truth for the per-household "expiring soon" horizon, so the Recipes browse
 /// "use soon" filter resolves the exact same value as Inventory's Today widget. Same-shape adapter as
 /// <c>Plantry.Web.MealPlanning.ExpiringSoonHorizonReaderAdapter</c>, already covered elsewhere; here we

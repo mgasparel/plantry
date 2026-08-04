@@ -1,20 +1,18 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
+using Plantry.Pantry.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Web.Inventory;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Integration.Inventory;
 

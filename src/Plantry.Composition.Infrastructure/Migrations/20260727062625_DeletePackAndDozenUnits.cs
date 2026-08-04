@@ -12,7 +12,7 @@ namespace Plantry.Composition.Infrastructure.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // One-time data migration (plantry-qszb): final step of the pk/doz retirement started in
-            // Plantry.Catalog.Infrastructure/Migrations/20260727061526_RemovePackAndDozenUnits.cs — see
+            // Plantry.Pantry.Infrastructure/Migrations/20260727061526_RemovePackAndDozenUnits.cs — see
             // that file for the full rationale. By the time this migration runs, every bounded context
             // holding a soft unit_id reference to catalog.units (Catalog itself, Inventory, Pricing,
             // Intake, Recipes, Shopping, Deals) has already relabeled its own pk/doz references to 'ea'

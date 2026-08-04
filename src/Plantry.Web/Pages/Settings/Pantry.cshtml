@@ -24,8 +24,8 @@
         <div class="field field--inline">
             <label asp-for="Input.ExpiringSoonDays" class="field__label">Show items as expiring soon within (days)</label>
             <input asp-for="Input.ExpiringSoonDays" class="field__input" type="number"
-                   min="@Plantry.Inventory.Domain.HouseholdInventorySettings.MinExpiringSoonDays"
-                   max="@Plantry.Inventory.Domain.HouseholdInventorySettings.MaxExpiringSoonDays" />
+                   min="@Plantry.Pantry.Domain.HouseholdInventorySettings.MinExpiringSoonDays"
+                   max="@Plantry.Pantry.Domain.HouseholdInventorySettings.MaxExpiringSoonDays" />
             <span asp-validation-for="Input.ExpiringSoonDays" class="field__error"></span>
         </div>
 

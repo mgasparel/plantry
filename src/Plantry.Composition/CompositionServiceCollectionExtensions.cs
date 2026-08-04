@@ -1,8 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
-using Plantry.Catalog.Application;
+using Plantry.Pantry.Application;
 using Plantry.Market.Application;
 using Plantry.Intake.Application;
-using Plantry.Inventory.Application;
 using Plantry.Planning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Web;
@@ -33,7 +32,9 @@ public static class CompositionServiceCollectionExtensions
 {
     public static IServiceCollection AddCrossContextAdapters(this IServiceCollection services)
     {
-        // Inventory → Catalog ACL (take-stock read/write over Catalog reference data).
+        // Take-stock read/write facade over Catalog reference data (formerly an Inventory → Catalog ACL;
+        // both halves are intra-context since the Pantry merge, ADR-024 plantry-g3da.6 — the adapters now
+        // live directly in Plantry.Pantry.Application rather than bridging two assemblies).
         services.AddScoped<ITakeStockReader, TakeStockReaderAdapter>();
         services.AddScoped<ITakeStockCatalogWriter, TakeStockCatalogWriterAdapter>();
 

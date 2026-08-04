@@ -1,5 +1,5 @@
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -65,7 +65,7 @@ public sealed class InventoryStockReaderAdapter(
         // GetUnitCodesAsync returns all units — used below to map unit ids to codes if needed.
         // FindProductAsync is called per-product here; a batch FindManyAsync would be cleaner but
         // is not yet in the repository interface — tracked as a follow-up.
-        var catalogByProduct = new Dictionary<Guid, Plantry.Inventory.Application.CatalogProductInfo>();
+        var catalogByProduct = new Dictionary<Guid, Plantry.Pantry.Application.CatalogProductInfo>();
         foreach (var productId in stockProductIds)
         {
             var info = await catalog.FindProductAsync(productId, ct);

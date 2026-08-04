@@ -11,7 +11,7 @@ namespace Plantry.Recipes.Infrastructure.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // One-time data migration (plantry-qszb): Catalog no longer seeds 'pk'/'doz' — see
-            // Plantry.Catalog.Infrastructure/Migrations/20260727061526_RemovePackAndDozenUnits.cs for
+            // Plantry.Pantry.Infrastructure/Migrations/20260727061526_RemovePackAndDozenUnits.cs for
             // the full rationale. This migration relabels Recipes' own soft unit_id references (DM-3:
             // no enforced cross-context FK to catalog.units) from pk/doz to that household's 'ea' unit,
             // so nothing here dangles once Housekeeping's DeletePackAndDozenUnits migration (the last

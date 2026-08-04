@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Planning.Infrastructure;
 using Plantry.Migrator;
@@ -144,7 +144,7 @@ public sealed class ProductDishQuantitySnapshotMigrationTests : IAsyncLifetime
     {
         var options = new DbContextOptionsBuilder<CatalogDbContext>()
             .UseNpgsql(_container.GetConnectionString(),
-                npgsql => npgsql.MigrationsAssembly("Plantry.Catalog.Infrastructure"))
+                npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
             .Options;
         return new CatalogDbContext(options);
     }

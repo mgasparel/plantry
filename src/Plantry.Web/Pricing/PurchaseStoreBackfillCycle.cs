@@ -1,4 +1,4 @@
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Identity.Domain;
 using Plantry.Market.Infrastructure;
 using Plantry.SharedKernel;

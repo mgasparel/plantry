@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
-using Plantry.Catalog.Domain;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Application;
 using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;

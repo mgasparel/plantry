@@ -5,7 +5,7 @@ namespace Plantry.Planning.Application;
 /// Cook strip on the plan card DERIVES each planned dish's cooked/eaten state rather than MealPlanning
 /// storing any flag of its own. Implemented in Plantry.Web as the composition-root join over
 /// <c>Plantry.Recipes.Domain.ICookEventRepository</c> (recipe dishes: a <c>CookEvent</c> whose
-/// <c>PlannedDishId</c> matches) and <c>Plantry.Inventory.Application.IJournalEntriesBySourceRefReader</c>
+/// <c>PlannedDishId</c> matches) and <c>Plantry.Pantry.Application.IJournalEntriesBySourceRefReader</c>
 /// (product dishes: journal movements whose <c>SourceRef</c> matches, netted to a consumed/not-consumed
 /// state — plantry-zcbx's "Eat" action is the only writer, landing after this port).
 /// </summary>

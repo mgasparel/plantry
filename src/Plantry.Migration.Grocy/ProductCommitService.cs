@@ -1,5 +1,5 @@
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.Migration.Grocy.Dto;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -252,7 +252,7 @@ public sealed class ProductCommitService(
             Guid? verifiedExistingId = null;
             if (crosswalkMappings.TryGetValue(row.GrocyId.ToString(), out var existingIdNullable)
                 && existingIdNullable is { } existingId
-                && await products.FindAsync(Catalog.Domain.ProductId.From(existingId), ct) is not null)
+                && await products.FindAsync(ProductId.From(existingId), ct) is not null)
             {
                 verifiedExistingId = existingId;
             }
@@ -312,7 +312,7 @@ public sealed class ProductCommitService(
                 }
             }
 
-            var plantryProductId = Catalog.Domain.ProductId.From(plantryId);
+            var plantryProductId = ProductId.From(plantryId);
 
             // ── Load the product once — used for expiry defaults, variant attachment,
             //    and duplicate-guard on conversions/SKUs (idempotency on re-run). ──────
@@ -341,7 +341,7 @@ public sealed class ProductCommitService(
             {
                 var makeVariantCmd = new MakeVariantCommand(
                     plantryProductId,
-                    Catalog.Domain.ProductId.From(ppId),
+                    ProductId.From(ppId),
                     products, clock);
 
                 var variantResult = await makeVariantCmd.ExecuteAsync(ct);
@@ -411,7 +411,7 @@ public sealed class ProductCommitService(
 
     private async Task<ConversionCommitResult> CommitConversionAsync(
         GrocyQuantityUnitConversion conv,
-        Catalog.Domain.ProductId plantryProductId,
+        ProductId plantryProductId,
         Product? loadedProduct,
         IReadOnlyDictionary<int, Guid>? unitCrosswalk,
         Dictionary<int, Dimension> unitDimensionByGrocyId,
@@ -479,7 +479,7 @@ public sealed class ProductCommitService(
 
     private async Task<ConversionCommitResult> CommitConversionRowAsync(
         GrocyQuantityUnitConversion conv,
-        Catalog.Domain.ProductId plantryProductId,
+        ProductId plantryProductId,
         Product? loadedProduct,
         Guid fromUnitId,
         Guid toUnitId,
@@ -533,7 +533,7 @@ public sealed class ProductCommitService(
     // ──────────── SKU commit ────────────────────────────────────────────────
 
     private async Task<SkuCommitResult> CommitSkuAsync(
-        Catalog.Domain.ProductId plantryProductId,
+        ProductId plantryProductId,
         Product? loadedProduct,
         string label,
         decimal sizeQuantity,

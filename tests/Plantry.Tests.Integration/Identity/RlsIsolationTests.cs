@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
 using Plantry.SharedKernel;

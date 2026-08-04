@@ -82,8 +82,8 @@ public sealed class AmbientClockGuardTests
     [
         // "Plantry.Housekeeping" removed (ADR-024 Phase A, plantry-g3da.2): the project was deleted when
         // the bounded context dissolved; its code now lives under Plantry.Web, already required below.
-        "Plantry.Catalog", "Plantry.Composition", "Plantry.Identity",
-        "Plantry.Intake", "Plantry.Inventory", "Plantry.Market", "Plantry.Planning",
+        "Plantry.Composition", "Plantry.Identity",
+        "Plantry.Intake", "Plantry.Market", "Plantry.Pantry", "Plantry.Planning",
         "Plantry.Recipes", "Plantry.SharedKernel", "Plantry.Planning", "Plantry.Web",
     ];
 

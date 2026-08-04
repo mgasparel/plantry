@@ -1,5 +1,5 @@
 using Plantry.Market.Application;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 
 namespace Plantry.Web.Deals;
 

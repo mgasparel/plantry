@@ -1,13 +1,13 @@
 using Plantry.Identity.Domain;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using InvProductStock = Plantry.Inventory.Domain.ProductStock;
+using InvProductStock = Plantry.Pantry.Domain.ProductStock;
 
 namespace Plantry.Tests.Web.Infrastructure;
 

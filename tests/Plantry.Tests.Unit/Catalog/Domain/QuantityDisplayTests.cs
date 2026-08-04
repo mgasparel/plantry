@@ -1,10 +1,10 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Tests.Unit.Catalog.Domain;
 
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 /// <summary>
 /// L1 unit tests for <see cref="QuantityDisplay"/> — the pure fraction-rendering + unit-simplification

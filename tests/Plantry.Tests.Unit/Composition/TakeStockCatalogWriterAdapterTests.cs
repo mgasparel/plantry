@@ -1,10 +1,10 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Unit.Catalog.Application;
-using Plantry.Web.Inventory;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using Plantry.Pantry.Application;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Unit.Composition;
 

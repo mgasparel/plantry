@@ -19,7 +19,7 @@ namespace Plantry.Web.Housekeeping;
 /// </para>
 /// <para>
 /// ADR-021/ADR-024 Phase A: loads its facts via <see cref="IStockFactsReadModel"/> and runs the
-/// conversion check through the shared <c>Plantry.Catalog.Domain.UnitConverter</c> delegate (see
+/// conversion check through the shared <c>Plantry.Pantry.Domain.UnitConverter</c> delegate (see
 /// <c>HousekeepingConversions.BuildConverter</c>) rather than the retired
 /// <c>IProductStockRepository</c>/<c>ICatalogReadFacade</c>/<c>IProductConversionProvider</c> ports — the
 /// math below is unchanged from the original port-backed version.

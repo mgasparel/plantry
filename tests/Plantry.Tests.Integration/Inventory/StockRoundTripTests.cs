@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Integration.Infrastructure;

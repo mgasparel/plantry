@@ -1,12 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Intake.Infrastructure;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
@@ -15,10 +13,10 @@ using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Web.Intake;
-using Plantry.Web.Inventory;
+using Plantry.Pantry.Application;
 using Plantry.Web.Pricing;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Integration.Intake;
 

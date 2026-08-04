@@ -26,10 +26,8 @@ A modular monolith physically expressed as separate projects. Each bounded conte
 | `Plantry.SharedKernel` | lib | — | `HouseholdId`, `AggregateRoot`/`Entity`/`ValueObject` bases, `Money`, `Quantity`, `Result`/`Error`, `IDomainEvent`, `IClock` |
 | `Plantry.Identity` | lib | SharedKernel | `Household`, household settings, invite; thin layer over ASP.NET Core Identity (DM-6/7) |
 | `Plantry.Identity.Infrastructure` | lib | Identity, EF | `identity` schema, Identity store wiring, seeding hook |
-| `Plantry.Catalog` | lib | SharedKernel | `Product` (+SKU, +conversion), `Unit`, `Category`, `Location`; conversion + expiry-default logic |
-| `Plantry.Catalog.Infrastructure` | lib | Catalog, EF | `catalog` schema, repos |
-| `Plantry.Inventory` | lib | SharedKernel | `ProductStock` (+`StockEntry`, +journal), `Consume`/FEFO, transfer/freeze/thaw/open |
-| `Plantry.Inventory.Infrastructure` | lib | Inventory, EF | `inventory` schema, `FOR UPDATE` + `xmin` concurrency |
+| `Plantry.Pantry` | lib | SharedKernel | `Product` (+SKU, +conversion), `Unit`, `Category`, `Location`; conversion + expiry-default logic; `ProductStock` (+`StockEntry`, +journal), `Consume`/FEFO, transfer/freeze/thaw/open |
+| `Plantry.Pantry.Infrastructure` | lib | Pantry, EF | `catalog` + `inventory` schemas, repos, `FOR UPDATE` + `xmin` concurrency |
 | `Plantry.Pricing` | lib | SharedKernel | `PriceObservation`, unit-price materialization, read models |
 | `Plantry.Pricing.Infrastructure` | lib | Pricing, EF | `pricing` schema |
 | `Plantry.Planning` | lib | SharedKernel | `ShoppingList` (+items) |
