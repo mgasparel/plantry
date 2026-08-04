@@ -182,10 +182,22 @@
 
                             @if (slot.Note is null)
                             {
-                                <a class="btn btn--cook btn--sm today-meal-slot__cook" href="@cookUrl">
-                                    <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
-                                    Cook
-                                </a>
+                                @* plantry-ohmb: a fully-cooked/eaten meal shows a non-interactive done
+                                   indicator instead of the Cook CTA — it does not link to /Recipes/{id}/Cook. *@
+                                if (slot.IsCooked)
+                                {
+                                    <span class="today-meal-slot__cook today-meal-badge today-meal-badge--done">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                        Cooked
+                                    </span>
+                                }
+                                else
+                                {
+                                    <a class="btn btn--cook btn--sm today-meal-slot__cook" href="@cookUrl">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+                                        Cook
+                                    </a>
+                                }
                             }
                             else
                             {
@@ -198,8 +210,16 @@
 
                         @if (slot.Note is null)
                         {
-                            <div class="today-meal-hint @(hintReady ? "today-meal-hint--ready" : "today-meal-hint--shop")">
-                                @if (hintReady)
+                            @* plantry-ohmb: a cooked meal replaces the fulfillment hint (shop/ready wording
+                               is stale advice once the meal is done) with a cooked-state hint, reusing the
+                               same today-meal-hint--ready tone. *@
+                            <div class="today-meal-hint @(slot.IsCooked || hintReady ? "today-meal-hint--ready" : "today-meal-hint--shop")">
+                                @if (slot.IsCooked)
+                                {
+                                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+                                    <span>Already cooked today</span>
+                                }
+                                else if (hintReady)
                                 {
                                     <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
                                     <span>Everything's in your kitchen — ready to cook</span>

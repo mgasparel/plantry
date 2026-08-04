@@ -23,6 +23,7 @@ public sealed class GeneratePlanService(
     IMealSlotConfigRepository slotConfigRepo,
     IUserPreferenceRepository prefsRepo,
     IRecipeReadModel recipeReader,
+    IMealPlanCatalogProductReader catalogReader,
     IPendingProposalStore proposalStore,
     MealConstraintResolver constraintResolver,
     ITagReader tagReader,
@@ -140,6 +141,14 @@ public sealed class GeneratePlanService(
         if (emptyCells.Count == 0)
             return new GeneratePlanResult(0, 0, [], []);
 
+        // 4b. Build already-planned meal summaries for the WHOLE week (plantry-6mux) — soft variety
+        // context so the AI planner is informed of what's already planned rather than blind to it.
+        // Built from plan.PlannedMeals directly (NOT emptyCells/occupiedKeys), covering every planned
+        // meal regardless of scopeDate/scopeSlotId — a per-cell Regenerate especially needs to know
+        // what else is planned elsewhere in the week. Duplicates remain allowed downstream (no ACL
+        // change) — this list is purely informational context for the AI's variety weighting.
+        var alreadyPlanned = await BuildAlreadyPlannedSummaryAsync(plan, slotConfig, ct);
+
         // 5. Load candidate recipes (up to 50), plus their household-wide rating signal in one batched
         // round-trip (plantry-zlwp.5) — attendee-scoping happens per cell below, since DefaultAttendees
         // varies per slot but the underlying rating data is invariant across cells within one generate call.
@@ -249,7 +258,7 @@ public sealed class GeneratePlanService(
 
         // 8. Invoke IMealPlanner (UNTRUSTED — output always goes through ACL)
         var rawProposals = contexts.Count > 0
-            ? await planner.ProposeWeekAsync(contexts, effectiveWeights, ct)
+            ? await planner.ProposeWeekAsync(contexts, alreadyPlanned, effectiveWeights, ct)
             : new List<ProposedMeal>();
 
         // 9. Validate each proposal through ProposalAcl
@@ -292,6 +301,66 @@ public sealed class GeneratePlanService(
             UnfilledCount: unfilledCount,
             Conflicts: hardConflictCells,
             UnfulfillableCells: unfulfillableCells);
+    }
+
+    /// <summary>
+    /// Builds the week-level <see cref="PlannedMealSummary"/> list the AI planner uses as soft variety
+    /// context (plantry-6mux). Empty when there is no existing plan. Dish names are resolved in two
+    /// batched round-trips (recipe dishes via <see cref="IRecipeReadModel.GetByIdsAsync"/>, product
+    /// dishes via <see cref="IMealPlanCatalogProductReader.ResolveNamesAsync"/>) rather than per-dish —
+    /// mirrors the batching convention established at the MealPlan editor
+    /// (<c>Index.cshtml.cs</c> plantry-ri26/plantry-g3da.3). A dish whose name cannot be resolved
+    /// (deleted recipe, archived/removed product) is skipped entirely — never a raw GUID or a
+    /// placeholder string sent to the AI. A meal whose every dish is unresolvable is omitted from
+    /// the summary.
+    /// </summary>
+    private async Task<IReadOnlyList<PlannedMealSummary>> BuildAlreadyPlannedSummaryAsync(
+        Domain.MealPlan? plan, MealSlotConfig slotConfig, CancellationToken ct)
+    {
+        if (plan is null || plan.PlannedMeals.Count == 0) return [];
+
+        var recipeIds = plan.PlannedMeals
+            .SelectMany(m => m.PlannedDishes)
+            .Where(d => d.RecipeId.HasValue)
+            .Select(d => d.RecipeId!.Value)
+            .Distinct()
+            .ToList();
+        var productIds = plan.PlannedMeals
+            .SelectMany(m => m.PlannedDishes)
+            .Where(d => d.ProductId.HasValue)
+            .Select(d => d.ProductId!.Value)
+            .Distinct()
+            .ToList();
+
+        var recipeNames = recipeIds.Count > 0
+            ? await recipeReader.GetByIdsAsync(recipeIds, ct)
+            : new Dictionary<Guid, RecipeReadModel>();
+        var productNames = productIds.Count > 0
+            ? await catalogReader.ResolveNamesAsync(productIds, ct)
+            : new Dictionary<Guid, string>();
+
+        var slotLabels = slotConfig.Slots.ToDictionary(s => s.Id, s => s.Label);
+
+        var summaries = new List<PlannedMealSummary>();
+        foreach (var meal in plan.PlannedMeals)
+        {
+            var dishNames = meal.PlannedDishes
+                .Select(d => d.RecipeId.HasValue
+                    ? recipeNames.GetValueOrDefault(d.RecipeId.Value)?.Name
+                    : d.ProductId.HasValue
+                        ? productNames.GetValueOrDefault(d.ProductId.Value)
+                        : null)
+                .Where(name => name is not null)
+                .Select(name => name!)
+                .ToList();
+
+            if (dishNames.Count == 0) continue; // every dish unresolvable — nothing to tell the AI
+
+            var slotLabel = slotLabels.GetValueOrDefault(meal.MealSlotId, meal.MealSlotId.Value.ToString());
+            summaries.Add(new PlannedMealSummary(meal.Date, slotLabel, dishNames));
+        }
+
+        return summaries;
     }
 
     private static string CellKey(DateOnly date, MealSlotId slotId) =>

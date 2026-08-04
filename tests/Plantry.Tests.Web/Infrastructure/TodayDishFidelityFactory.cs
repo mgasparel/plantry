@@ -105,6 +105,11 @@ public sealed class TodayDishFidelityFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FixedCatalogProductReader());
 
+            // Cook/eaten status port (plantry-ohmb) — this fixture's dishes are never cooked/eaten,
+            // so an empty-result null double is enough; IndexModel still requires an instance.
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
+
             services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
             services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
@@ -345,6 +350,11 @@ public sealed class TodayNoteMealDishFidelityFactory : WebApplicationFactory<Pro
 
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FixedCatalogProductReader());
+
+            // Cook/eaten status port (plantry-ohmb) — a note meal never has PlannedDishes, so the
+            // batched pre-pass is empty and this reader is never called; IndexModel still needs an instance.
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
 
             services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
             services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());

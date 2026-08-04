@@ -255,6 +255,11 @@ internal static class TodayMealPlanningStubs
         // dishes, so the batched pre-pass never calls it, but IndexModel still requires an instance.
         services.RemoveAll<IMealPlanCatalogProductReader>();
         services.AddSingleton<IMealPlanCatalogProductReader>(new NullTodayCatalogProductReader());
+
+        // Cook/eaten status port (plantry-ohmb) — these factories seed no dish-based meal, so the
+        // batched pre-pass never calls it, but IndexModel still requires an instance to construct.
+        services.RemoveAll<IMealPlanCookStatusReader>();
+        services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
     }
 
     private sealed class NullTodayMealPlanRepo : IMealPlanRepository

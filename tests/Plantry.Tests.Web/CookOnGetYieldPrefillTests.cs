@@ -63,7 +63,7 @@ public sealed class CookOnGetYieldPrefillTests : IDisposable
         // Declared SuggestedQuantity would be 4 (scale 1) -- the plan prefill (4-2=2) overrides it.
         Assert.Contains("cookYield(2)", html);
         Assert.Contains("cook-yield-hint", html);
-        Assert.Contains("4 planned - 2 eating tonight", html);
+        Assert.Contains("Prefilled from 4 servings - 2 eating tonight", html);
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public sealed class CookOnGetYieldPrefillTests : IDisposable
         var html = await GetHtmlAsync("Servings=4&eatingTonight=6");
 
         Assert.Contains("cookYield(0)", html);
-        Assert.Contains("4 planned - 6 eating tonight", html);
+        Assert.Contains("Prefilled from 4 servings - 6 eating tonight", html);
     }
 
     // ── Plan provenance chip ────────────────────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ public sealed class CookOnGetNoYieldPrefillTests : IDisposable
         var html = await GetHtmlAsync("Servings=4&eatingTonight=2");
 
         Assert.Contains("cookYield(2)", html);
-        Assert.Contains("4 planned - 2 eating tonight", html);
+        Assert.Contains("Prefilled from 4 servings - 2 eating tonight", html);
     }
 }
 

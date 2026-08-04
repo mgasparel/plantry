@@ -130,6 +130,11 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FakeTodayNullCatalogProductReader());
 
+            // Cook/eaten status port (plantry-ohmb) — the fixture's breakfast recipe dish is never
+            // cooked, so this always returns an empty result and the Cook CTA renders as usual.
+            services.RemoveAll<IMealPlanCookStatusReader>();
+            services.AddSingleton<IMealPlanCookStatusReader>(new NullCookStatusReader());
+
             // IHouseholdMemberReader — Today page now loads members for attendee avatars.
             // The fixture household has one member (the registering user — Guid.Empty for simplicity).
             services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
@@ -203,7 +208,7 @@ public sealed class TodayPlannedMealsBandNoSlotsFactory : WebApplicationFactory<
             services.RemoveAll<ICatalogWriter>();
             services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
 
-            // No slot config → empty-slots prompt
+            // No slot config → empty-slots prompt (IMealPlanCookStatusReader registered by RegisterNull)
             TodayMealPlanningStubs.RegisterNull(services);
 
             // Empty Deals seams (plantry-bpw) — Today now consumes BrowseDeals for the deal banner.

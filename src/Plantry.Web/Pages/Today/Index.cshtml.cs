@@ -76,6 +76,13 @@ public sealed record PlannedMealDishVm(string Name, DishKind Kind, int Servings,
 /// <param name="IsFullyCookable">True when fulfillment pct == 100 (all ingredients in stock).</param>
 /// <param name="MealId">The planned meal's ID (for linking to the planner).</param>
 /// <param name="HasExpiringIngredients">True when any ingredient has stock expiring within 4 days ("Use soon" flag).</param>
+/// <param name="IsCooked">
+/// True when the meal has at least one dish and every one of its <c>PlannedDish</c>es is present in
+/// the <see cref="IMealPlanCookStatusReader.GetStatusesAsync"/> result (plantry-ohmb) — a recipe dish
+/// via a matching <c>CookEvent</c>, a product dish via net-consumed journal movements (AC7). A
+/// partially-cooked multi-dish meal stays <see langword="false"/> (AC2); always <see langword="false"/>
+/// for note meals and empty slots (AC5), regardless of dish count.
+/// </param>
 public sealed record PlannedMealSlotVm(
     MealSlotId SlotId,
     string SlotLabel,
@@ -89,7 +96,8 @@ public sealed record PlannedMealSlotVm(
     IReadOnlyList<Guid> EffectiveAttendees,
     bool IsFullyCookable,
     Guid MealId,
-    bool HasExpiringIngredients);
+    bool HasExpiringIngredients,
+    bool IsCooked);
 
 [Authorize]
 public sealed class IndexModel(
@@ -106,6 +114,7 @@ public sealed class IndexModel(
     IHouseholdMemberReader memberReader,
     BrowseDeals browseDeals,
     IMealPlanCatalogProductReader catalogReader,
+    IMealPlanCookStatusReader cookStatusReader,
     IClock clock,
     ITenantContext tenant) : PageModel
 {
@@ -320,6 +329,21 @@ public sealed class IndexModel(
             ? await recipeReadModel.GetByIdsAsync(allRecipeIds, ct)
             : new Dictionary<Guid, RecipeReadModel>();
 
+        // Batched cook/eaten status (plantry-ohmb, AC6): one IMealPlanCookStatusReader.GetStatusesAsync
+        // call for the union of PlannedDish ids across every dish-based slot meal today, up front — same
+        // pre-pass shape as the product/recipe resolution above, never a per-slot/per-dish call. A dish
+        // id absent from the result is still pending (per the port's presence-is-the-signal contract).
+        var allTodayDishIds = slotMeals
+            .Where(sm => sm.Meal is { Note: null })
+            .SelectMany(sm => sm.Meal!.PlannedDishes)
+            .Select(d => d.Id.Value)
+            .Distinct()
+            .ToList();
+
+        IReadOnlyDictionary<Guid, DishCookStatus> cookStatusByDish = allTodayDishIds.Count > 0
+            ? await cookStatusReader.GetStatusesAsync(allTodayDishIds, ct)
+            : new Dictionary<Guid, DishCookStatus>();
+
         var result = new List<PlannedMealSlotVm>(activeSlots.Count);
 
         foreach (var (slot, meal) in slotMeals)
@@ -340,7 +364,8 @@ public sealed class IndexModel(
                     EffectiveAttendees: slot.DefaultAttendees,
                     IsFullyCookable: false,
                     MealId: Guid.Empty,
-                    HasExpiringIngredients: false));
+                    HasExpiringIngredients: false,
+                    IsCooked: false));
                 continue;
             }
 
@@ -402,6 +427,15 @@ public sealed class IndexModel(
             // Effective attendees: override ?? slot default.
             var effectiveAttendees = (IReadOnlyList<Guid>)(meal.AttendeesOverride ?? slot.DefaultAttendees);
 
+            // Cooked state (plantry-ohmb): a dish-based meal counts as cooked only when it has at
+            // least one dish AND every one of its dishes is present in the batched status dictionary
+            // above. Note meals and empty slots never qualify — meal.Note is null is already implied
+            // by reaching this branch with dishVms populated from the Note-is-null path above, but the
+            // PlannedDishes.Count > 0 guard also covers the theoretical zero-dish dish-based meal.
+            var isCooked = meal.Note is null
+                && meal.PlannedDishes.Count > 0
+                && meal.PlannedDishes.All(d => cookStatusByDish.ContainsKey(d.Id.Value));
+
             result.Add(new PlannedMealSlotVm(
                 SlotId: slot.Id,
                 SlotLabel: slot.Label,
@@ -415,7 +449,8 @@ public sealed class IndexModel(
                 EffectiveAttendees: effectiveAttendees,
                 IsFullyCookable: fulfillment.FulfillmentPercent == 100,
                 MealId: meal.Id.Value,
-                HasExpiringIngredients: fulfillment.HasExpiringIngredients));
+                HasExpiringIngredients: fulfillment.HasExpiringIngredients,
+                IsCooked: isCooked));
         }
 
         return result;

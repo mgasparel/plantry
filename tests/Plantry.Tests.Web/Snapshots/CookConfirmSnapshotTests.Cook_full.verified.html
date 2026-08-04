@@ -337,8 +337,11 @@
 									<button type="button" class="btn btn--ghost btn--sm" @click="resetYieldPick()">Change</button>
 								</div>
 								<input type="hidden" name="PickedYieldProductId" :value="pickedYieldProductId">
-								<p style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
-									Adds a lot of Garlic Pasta to your pantry. Eaten-now servings need no action.
+								<p x-show="store > 0" x-cloak="" style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+									Adds Garlic Pasta to your pantry when you confirm.
+								</p>
+								<p x-show="!(store > 0)" x-cloak="" style="margin-top:6px;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+									Eaten-now servings need no action — nothing is added to your pantry.
 								</p>
 							</div>
 							<div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">

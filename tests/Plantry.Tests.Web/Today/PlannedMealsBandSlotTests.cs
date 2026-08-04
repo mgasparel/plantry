@@ -40,7 +40,8 @@ public sealed class PlannedMealsBandSlotTests
             EffectiveAttendees: [],
             IsFullyCookable: false,
             MealId: Guid.Empty,
-            HasExpiringIngredients: false);
+            HasExpiringIngredients: false,
+            IsCooked: false);
 
         Assert.False(vm.IsPlanned);
         Assert.Null(vm.RecipeId);
@@ -67,7 +68,8 @@ public sealed class PlannedMealsBandSlotTests
             EffectiveAttendees: [],
             IsFullyCookable: true,
             MealId: MealId,
-            HasExpiringIngredients: false);
+            HasExpiringIngredients: false,
+            IsCooked: false);
 
         Assert.True(vm.IsPlanned);
         Assert.Equal(RecipeId, vm.RecipeId);
@@ -93,7 +95,8 @@ public sealed class PlannedMealsBandSlotTests
             EffectiveAttendees: [],
             IsFullyCookable: false,    // < 100% fulfillment
             MealId: MealId,
-            HasExpiringIngredients: false);
+            HasExpiringIngredients: false,
+            IsCooked: false);
 
         Assert.True(vm.IsPlanned);
         Assert.False(vm.IsFullyCookable);
@@ -117,7 +120,8 @@ public sealed class PlannedMealsBandSlotTests
             EffectiveAttendees: [],
             IsFullyCookable: false,
             MealId: MealId,
-            HasExpiringIngredients: false);
+            HasExpiringIngredients: false,
+            IsCooked: false);
 
         Assert.True(vm.IsPlanned);
         Assert.Null(vm.RecipeId);
@@ -142,7 +146,8 @@ public sealed class PlannedMealsBandSlotTests
             EffectiveAttendees: [],
             IsFullyCookable: true,
             MealId: MealId,
-            HasExpiringIngredients: true);   // ← from PlanFulfillmentService
+            HasExpiringIngredients: true,   // ← from PlanFulfillmentService
+            IsCooked: false);
 
         Assert.True(vm.HasExpiringIngredients);
     }
@@ -268,7 +273,8 @@ public sealed class PlannedMealsBandSlotTests
             EffectiveAttendees: [],
             IsFullyCookable: true,
             MealId: Guid.NewGuid(),
-            HasExpiringIngredients: false);
+            HasExpiringIngredients: false,
+            IsCooked: false);
 
     private static PlannedMealSlotVm MakeEmpty(string label) =>
         new(
@@ -284,5 +290,6 @@ public sealed class PlannedMealsBandSlotTests
             EffectiveAttendees: [],
             IsFullyCookable: false,
             MealId: Guid.Empty,
-            HasExpiringIngredients: false);
+            HasExpiringIngredients: false,
+            IsCooked: false);
 }

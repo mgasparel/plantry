@@ -75,6 +75,10 @@ public sealed class MealPlannerAiService : IMealPlanner
         - Use the planning weights (waste/cost/variety) to prioritise: higher waste weight means
           prefer recipes that use ingredients already on hand; higher cost weight means prefer cheaper
           recipes; higher variety weight means avoid repeating the same recipe across the week.
+        - The "Already planned this week" list (when present) shows meals the household has already
+          planned this week. Treat them as part of the week when applying the variety weight — do not
+          unintentionally repeat an already-planned dish. Repeating one is acceptable when the weights
+          and constraints clearly favour it; explain the repeat in the reasoning.
         - Choose only recipe_ids from the candidate_recipes list. Do not invent new recipe IDs.
         - Set servings to the recipe's default_servings unless you have a strong reason to differ.
         - Provide a short reasoning (1-2 sentences) for each proposal.
@@ -94,6 +98,7 @@ public sealed class MealPlannerAiService : IMealPlanner
 
     public async Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
         IReadOnlyList<PlannerMealSlotContext> slotsContext,
+        IReadOnlyList<PlannedMealSummary> alreadyPlanned,
         PlanningWeights weights,
         CancellationToken ct = default)
     {
@@ -112,7 +117,7 @@ public sealed class MealPlannerAiService : IMealPlanner
 
         try
         {
-            var userMessage = BuildUserMessage(slotsContext, weights);
+            var userMessage = BuildUserMessage(slotsContext, alreadyPlanned, weights);
             var response = await _chat.CompleteChatAsync(
                 [new SystemChatMessage(SystemPrompt), new UserChatMessage(userMessage)],
                 cancellationToken: ct);
@@ -153,11 +158,23 @@ public sealed class MealPlannerAiService : IMealPlanner
 
     private static string BuildUserMessage(
         IReadOnlyList<PlannerMealSlotContext> contexts,
+        IReadOnlyList<PlannedMealSummary> alreadyPlanned,
         PlanningWeights weights)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"Planning weights: waste={weights.Waste}, cost={weights.Cost}, variety={weights.Variety}");
         sb.AppendLine();
+
+        // plantry-6mux: soft variety context — omit the section entirely when nothing is planned yet
+        // so the prompt shape for an empty week matches the pre-existing behaviour exactly.
+        if (alreadyPlanned.Count > 0)
+        {
+            sb.AppendLine("Already planned this week:");
+            foreach (var meal in alreadyPlanned)
+                sb.AppendLine($"  - {meal.Date:yyyy-MM-dd} {meal.SlotLabel}: {string.Join(", ", meal.DishNames)}");
+            sb.AppendLine();
+        }
+
         sb.AppendLine("Meal slots to fill:");
         sb.AppendLine();
 
