@@ -77,8 +77,8 @@ household, the architecture test guards the new boundary, RLS isolates tenants, 
 sees an empty, themed Meal Plan page.
 
 **Scope.**
-- Scaffold `Plantry.MealPlanning` (domain + application; references **only** `SharedKernel`) and
-  `Plantry.MealPlanning.Infrastructure` (EF Core, `meal_planning` schema). Wire into `Plantry.Web`
+- Scaffold `Plantry.Planning` (domain + application; references **only** `SharedKernel`) and
+  `Plantry.Planning.Infrastructure` (EF Core, `meal_planning` schema). Wire into `Plantry.Web`
   (composition root) and `Plantry.AppHost`.
 - EF migration for `meal_plan`, `planned_meal`, `planned_dish`, `meal_slot_config`, `meal_slot`,
   `user_preference`, `tag_stance` exactly per [mealplanning.md](DomainDesign/DataModels/mealplanning.md)
@@ -269,7 +269,7 @@ accept / reject / regenerate / edit, all on one screen. (J4 / J8)
 - `AcceptProposal` (J4): commit confirmed suggestions into `MealPlan` — **accept-all** via
   `ApplyProposal` (one transaction), **per-cell** via `AssignMeal(source: ai)` — re-validating each
   (the accept POST is the trust boundary); reject drops an entry, discard clears the store.
-- `IMealPlanner` implemented in `Plantry.MealPlanning.Infrastructure` over the **household AI key**
+- `IMealPlanner` implemented in `Plantry.Planning.Infrastructure` over the **household AI key**
   (DM-7), wrapping the `ChatClient` exactly as Intake does (slice 6c) — key set via user-secrets,
   never sent to the client.
 - **Inline review UI** (J4 / J8, no separate screen): the `PlanningWeights` sliders + budget + scope

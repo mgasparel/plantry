@@ -7,8 +7,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Infrastructure;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
@@ -289,6 +289,10 @@ public sealed class DishServingsFactory : MealPlanFragmentFactory
 
 public sealed class CapturingMealPlanRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     private MealPlan? _stored;
     public MealPlan? Stored => _stored;
 
@@ -391,6 +395,10 @@ public sealed class MultiMealCellFragmentFactory : MealPlanFragmentFactory
 /// </summary>
 internal sealed class TwoMealCellRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     private static readonly IClock _clock = new FixedClock(MealPlanningTestClock.Instant);
 
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)

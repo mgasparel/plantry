@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.MealPlanning.Domain;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Planning.Domain;
+using Plantry.Planning.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Integration.Infrastructure;

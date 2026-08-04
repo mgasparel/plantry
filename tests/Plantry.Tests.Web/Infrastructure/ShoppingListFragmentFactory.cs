@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Shopping.Application;
-using Plantry.Shopping.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
+using Plantry.SharedKernel;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Tests.Web.Infrastructure;
@@ -74,11 +76,12 @@ public class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IShoppingDealReader>();
             services.AddSingleton<IShoppingDealReader>(new FakeShoppingDealReaderForSnapshots());
 
-            // Shopping meal-plan + deal-attribution readers (plantry-jwyb): the shared fixture has no
+            // Meal-plan slot labels + deal-attribution readers (plantry-jwyb): the shared fixture has no
             // MealPlan/Deal-sourced items, so both stubs return empty (baselines unchanged). The dedicated
-            // attribution render test overrides these with resolving fakes.
-            services.RemoveAll<IShoppingMealPlanReader>();
-            services.AddSingleton<IShoppingMealPlanReader>(new FakeShoppingMealPlanReaderForSnapshots());
+            // attribution render test overrides these with resolving fakes. MealPlan slot resolution is
+            // intra-context since the Planning merge (ADR-024) — stub IMealPlanRepository directly.
+            services.RemoveAll<IMealPlanRepository>();
+            services.AddSingleton<IMealPlanRepository>(new FakeMealPlanRepositoryForSnapshots());
             services.RemoveAll<IShoppingDealAttributionReader>();
             services.AddSingleton<IShoppingDealAttributionReader>(new FakeShoppingDealAttributionReaderForSnapshots());
 
@@ -121,25 +124,38 @@ internal sealed class FakeShoppingDealReaderForSnapshots : IShoppingDealReader
 }
 
 /// <summary>
-/// Stub <see cref="IShoppingMealPlanReader"/> for the Shopping L4 snapshot tests (plantry-jwyb).
-/// Resolves a registered slot-id → (day, meal type) map; unregistered ids are omitted (caller falls back).
-/// Defaults to empty for the shared fixture (no MealPlan-sourced items).
+/// Stub <see cref="IMealPlanRepository"/> for the Shopping L4 snapshot tests (plantry-jwyb), exercising
+/// only <see cref="FindSlotLabelsAsync"/> — MealPlan slot-label resolution is intra-context since the
+/// Planning merge (ADR-024; formerly the IShoppingMealPlanReader ACL port's
+/// FakeShoppingMealPlanReaderForSnapshots). Resolves a registered slot-id → (day, meal type) map;
+/// unregistered ids are omitted (caller falls back). Defaults to empty for the shared fixture (no
+/// MealPlan-sourced items). The other members are unused by ShoppingListQueryService and throw if
+/// ever called.
 /// </summary>
-internal sealed class FakeShoppingMealPlanReaderForSnapshots(
-    IReadOnlyDictionary<Guid, ShoppingMealPlanSlot>? slots = null)
-    : IShoppingMealPlanReader
+internal sealed class FakeMealPlanRepositoryForSnapshots(
+    IReadOnlyDictionary<Guid, PlannedMealSlotInfo>? slots = null)
+    : IMealPlanRepository
 {
-    private readonly IReadOnlyDictionary<Guid, ShoppingMealPlanSlot> _slots =
-        slots ?? new Dictionary<Guid, ShoppingMealPlanSlot>();
+    private readonly IReadOnlyDictionary<Guid, PlannedMealSlotInfo> _slots =
+        slots ?? new Dictionary<Guid, PlannedMealSlotInfo>();
 
-    public Task<IReadOnlyDictionary<Guid, ShoppingMealPlanSlot>> GetMealPlanSlotsAsync(
-        IReadOnlyList<Guid> slotRefs, CancellationToken ct = default)
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
     {
-        IReadOnlyDictionary<Guid, ShoppingMealPlanSlot> result = slotRefs
+        IReadOnlyDictionary<Guid, PlannedMealSlotInfo> result = plannedMealIds
             .Where(_slots.ContainsKey)
             .ToDictionary(id => id, id => _slots[id]);
         return Task.FromResult(result);
     }
+
+    public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default) =>
+        throw new NotImplementedException();
+
+    public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default) =>
+        throw new NotImplementedException();
+
+    public Task SaveChangesAsync(CancellationToken ct = default) =>
+        throw new NotImplementedException();
 }
 
 /// <summary>

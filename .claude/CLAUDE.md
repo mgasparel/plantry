@@ -35,7 +35,7 @@ Each directory represents a distinct business capability:
 |--------|---------|
 | `src/Plantry.SharedKernel` | The src/Plantry.SharedKernel module is the architecturally central foundation… |
 | `src/Plantry.SharedKernel/Domain` | The Plantry.SharedKernel/Domain module serves as the foundational domain-driven… |
-| `src/Plantry.MealPlanning/Domain` | The Plantry.MealPlanning/Domain module is the core domain modeling and business… |
+| `src/Plantry.Planning/Domain` | The Plantry.Planning/Domain module is the core domain modeling and business… |
 | `src/Plantry.Web` | The src/Plantry.Web module serves as the primary hosting entry point and edge… |
 | `src/Plantry.Recipes/Domain` | The Plantry.Recipes/Domain module is the core domain layer of the recipe… |
 | `src/Plantry.Composition` | Załącznik_1_A_PL_v1.0.pdf (1.3 MB)

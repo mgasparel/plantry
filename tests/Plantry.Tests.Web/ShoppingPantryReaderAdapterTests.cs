@@ -3,7 +3,7 @@ using Plantry.Inventory.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Shopping.Application;
+using Plantry.Planning.Application;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Shopping;
 

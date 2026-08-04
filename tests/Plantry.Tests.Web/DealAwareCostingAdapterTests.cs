@@ -1,5 +1,5 @@
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Recipes.Application;
@@ -191,7 +191,7 @@ public sealed class DealAwareCostingAdapterTests
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
-        Assert.Equal(Plantry.MealPlanning.Domain.CostCompleteness.Full, result.Completeness);
+        Assert.Equal(Plantry.Planning.Domain.CostCompleteness.Full, result.Completeness);
         Assert.Equal(DealUnitPrice, result.Amount); // servings = 1 → cost == effective unit price
     }
 
@@ -209,7 +209,7 @@ public sealed class DealAwareCostingAdapterTests
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
-        Assert.Equal(Plantry.MealPlanning.Domain.CostCompleteness.Full, result.Completeness);
+        Assert.Equal(Plantry.Planning.Domain.CostCompleteness.Full, result.Completeness);
         Assert.Equal(PurchaseUnitPrice, result.Amount);
     }
 
@@ -238,7 +238,7 @@ public sealed class DealAwareCostingAdapterTests
 
         var result = await planCosting.RollUpMealAsync(ProductDishMeal(productId));
 
-        Assert.Equal(Plantry.MealPlanning.Domain.CostCompleteness.Full, result.Completeness);
+        Assert.Equal(Plantry.Planning.Domain.CostCompleteness.Full, result.Completeness);
         Assert.Equal(PurchaseUnitPrice, result.Amount); // never the unitless deal's price
     }
 

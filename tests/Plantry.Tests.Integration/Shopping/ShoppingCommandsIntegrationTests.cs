@@ -2,9 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Shopping.Application;
-using Plantry.Shopping.Domain;
-using Plantry.Shopping.Infrastructure;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
+using Plantry.Planning.Infrastructure;
 using Plantry.Tests.Integration.Infrastructure;
 using Xunit;
 

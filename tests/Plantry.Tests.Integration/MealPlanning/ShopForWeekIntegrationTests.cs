@@ -1,12 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
+using Plantry.Planning.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Shopping.Infrastructure;
 using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Tests.Integration.Shopping;
 using Plantry.Web.MealPlanning;
@@ -17,7 +16,8 @@ namespace Plantry.Tests.Integration.MealPlanning;
 
 /// <summary>
 /// L3 integration tests for <see cref="ShopForWeekService"/> — the "Shop for this week" J6 flow
-/// end-to-end through the real <see cref="MealPlanShoppingWriterAdapter"/> and Shopping persistence.
+/// end-to-end, writing to Shopping's <see cref="AddItemCommand"/> directly (intra-context since the
+/// Planning merge, ADR-024) and Shopping persistence.
 ///
 /// Covers:
 /// - L3-a: missing recipe ingredient is written to the shopping list with source=meal_plan.
@@ -65,12 +65,12 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         // Seed a plan with a recipe dish (recipe is identified by soft-ref GUID — no DB row needed in Recipes).
         await SeedMealPlanAsync(MakeSingleRecipePlan(servings: 2));
 
-        var (mealPlanRepo, shopWriter) = BuildAdapters();
+        var (mealPlanRepo, shopRepo, tenant) = BuildAdapters();
         var recipeReader = new FakeMissingReader(_recipeId,
             [new RecipeMissingIngredient(_productId, 1.5m, _unitId)]);
         var stockReader = new NullMealPlanStockReader();
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
+        var svc = MakeService(mealPlanRepo, recipeReader, stockReader, shopRepo, tenant);
         var result = await svc.ExecuteAsync(_household, Monday);
 
         Assert.Equal(1, result.ItemsAdded);
@@ -85,7 +85,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         Assert.Equal(_productId, item.ProductId);
         Assert.Equal(1.5m, item.Quantity);
         var contrib = Assert.Single(item.Contributions);
-        Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, contrib.Source);
+        Assert.Equal(Plantry.Planning.Domain.ItemSource.MealPlan, contrib.Source);
     }
 
     // ── L3-b: running ShopForWeek twice is idempotent (no duplicate lines, no inflated qty) ────
@@ -96,12 +96,12 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         // Seed a plan with a recipe dish missing 1.5 units of the product.
         await SeedMealPlanAsync(MakeSingleRecipePlan(servings: 2));
 
-        var (mealPlanRepo, shopWriter) = BuildAdapters();
+        var (mealPlanRepo, shopRepo, tenant) = BuildAdapters();
         var recipeReader = new FakeMissingReader(_recipeId,
             [new RecipeMissingIngredient(_productId, 1.5m, _unitId)]);
         var stockReader = new NullMealPlanStockReader();
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
+        var svc = MakeService(mealPlanRepo, recipeReader, stockReader, shopRepo, tenant);
 
         // First shop — 1.5 units written to the list
         var r1 = await svc.ExecuteAsync(_household, Monday);
@@ -116,8 +116,8 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         }
 
         // Second shop — same product, same shortfall (still missing): reconcile → no-op
-        var (mealPlanRepo2, shopWriter2) = BuildAdapters();
-        var svc2 = new ShopForWeekService(mealPlanRepo2, recipeReader, stockReader, shopWriter2, NullLogger<ShopForWeekService>.Instance);
+        var (mealPlanRepo2, shopRepo2, tenant2) = BuildAdapters();
+        var svc2 = MakeService(mealPlanRepo2, recipeReader, stockReader, shopRepo2, tenant2);
         var r2 = await svc2.ExecuteAsync(_household, Monday);
         Assert.Equal(1, r2.ItemsAdded);
 
@@ -135,12 +135,12 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
     {
         await SeedMealPlanAsync(MakeSingleRecipePlan(servings: 2));
 
-        var (mealPlanRepo, shopWriter) = BuildAdapters();
+        var (mealPlanRepo, shopRepo, tenant) = BuildAdapters();
         // Empty missing list — all ingredients in stock
         var recipeReader = new FakeMissingReader(_recipeId, []);
         var stockReader = new NullMealPlanStockReader();
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
+        var svc = MakeService(mealPlanRepo, recipeReader, stockReader, shopRepo, tenant);
         var result = await svc.ExecuteAsync(_household, Monday);
 
         Assert.Equal(0, result.ItemsAdded);
@@ -162,13 +162,13 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
             null, "manual", Guid.Empty, Clock);
         await SeedMealPlanAsync(productPlan);
 
-        var (mealPlanRepo, shopWriter) = BuildAdapters();
+        var (mealPlanRepo, shopRepo, tenant) = BuildAdapters();
         var recipeReader = new FakeMissingReader(_recipeId, []); // no recipe dishes
         // ZeroStockReader simulates the fixed MealPlanStockReaderAdapter behaviour:
         // returns 0 available + the real DefaultUnitId (was null before fix, causing Guid.Empty drop).
         var stockReader = new ZeroStockReader(_productId, _unitId);
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
+        var svc = MakeService(mealPlanRepo, recipeReader, stockReader, shopRepo, tenant);
         var result = await svc.ExecuteAsync(_household, Monday);
 
         Assert.Equal(1, result.ItemsAdded);
@@ -183,7 +183,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         Assert.Equal(2m, item.Quantity); // all 2 servings needed (0 available)
         // Source is now on the contribution (plantry-9scq).
         var contrib = Assert.Single(item.Contributions);
-        Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, contrib.Source);
+        Assert.Equal(Plantry.Planning.Domain.ItemSource.MealPlan, contrib.Source);
     }
 
     // ── L3-e: same product across two slots → ONE line, two per-slot contributions that SUM,
@@ -211,12 +211,12 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
             thursdayMealId = reloaded.PlannedMeals.Single(m => m.Date == thursday).Id.Value;
         }
 
-        var (mealPlanRepo, shopWriter) = BuildAdapters();
+        var (mealPlanRepo, shopRepo, tenant) = BuildAdapters();
         var recipeReader = new FakeMissingReader(_recipeId,
             [new RecipeMissingIngredient(_productId, 1.5m, _unitId)]);
         var stockReader = new NullMealPlanStockReader();
 
-        var svc = new ShopForWeekService(mealPlanRepo, recipeReader, stockReader, shopWriter, NullLogger<ShopForWeekService>.Instance);
+        var svc = MakeService(mealPlanRepo, recipeReader, stockReader, shopRepo, tenant);
         var result = await svc.ExecuteAsync(_household, Monday);
 
         // User-facing count is distinct product LINES, not contributions.
@@ -234,16 +234,17 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
 
         // Two distinct MealPlan contributions, keyed by the two planned_meal slot ids (NOT plan.Id, NOT recipeId).
         Assert.Equal(2, item.Contributions.Count);
-        Assert.All(item.Contributions, c => Assert.Equal(Plantry.Shopping.Domain.ItemSource.MealPlan, c.Source));
+        Assert.All(item.Contributions, c => Assert.Equal(Plantry.Planning.Domain.ItemSource.MealPlan, c.Source));
         var contribRefs = item.Contributions.Select(c => c.SourceRef).ToHashSet();
         Assert.Equal(new HashSet<Guid?> { mondayMealId, thursdayMealId }, contribRefs);
         Assert.DoesNotContain((Guid?)plan.Id.Value, contribRefs);
         Assert.DoesNotContain((Guid?)_recipeId, contribRefs);
 
-        // The contribution SourceRefs resolve through the plantry-jwyb read port to the per-slot labels.
+        // The contribution SourceRefs resolve through IMealPlanRepository.FindSlotLabelsAsync
+        // (plantry-jwyb; intra-context since the Planning merge, ADR-024) to the per-slot labels.
         await using var readerCtx = NewMealPlanningDb();
-        var slotReader = new ShoppingMealPlanReaderAdapter(readerCtx);
-        var resolved = await slotReader.GetMealPlanSlotsAsync(
+        var slotReader = new MealPlanRepository(readerCtx);
+        var resolved = await slotReader.FindSlotLabelsAsync(
             [mondayMealId, thursdayMealId]);
         Assert.Equal(2, resolved.Count);
         Assert.Equal(DayOfWeek.Monday, resolved[mondayMealId].Day);
@@ -254,7 +255,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private (MealPlanRepository mealPlanRepo, MealPlanShoppingWriterAdapter shopWriter) BuildAdapters()
+    private (MealPlanRepository mealPlanRepo, ShoppingListRepository shopRepo, SimpleTenantContext tenant) BuildAdapters()
     {
         var mealPlanCtx = NewMealPlanningDb();
         var mealPlanRepo = new MealPlanRepository(mealPlanCtx);
@@ -262,14 +263,23 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         var shopCtx = NewShoppingDb();
         var shopRepo = new ShoppingListRepository(shopCtx);
         var tenant = new SimpleTenantContext(_household.Value);
-        var shopWriter = new MealPlanShoppingWriterAdapter(
-            shopRepo,
-            NullShoppingCatalogReader.Instance,
-            Clock,
-            tenant);
 
-        return (mealPlanRepo, shopWriter);
+        return (mealPlanRepo, shopRepo, tenant);
     }
+
+    /// <summary>
+    /// Builds a <see cref="ShopForWeekService"/> over the given adapters — calls Shopping's
+    /// AddItemCommand directly (formerly through the ACL adapter <c>MealPlanShoppingWriterAdapter</c>,
+    /// collapsed to an intra-context call by the Planning merge, ADR-024, plantry-g3da.5).
+    /// </summary>
+    private static ShopForWeekService MakeService(
+        MealPlanRepository mealPlanRepo,
+        IRecipeReadModel recipeReader,
+        IMealPlanStockReader stockReader,
+        ShoppingListRepository shopRepo,
+        SimpleTenantContext tenant) =>
+        new(mealPlanRepo, recipeReader, stockReader, shopRepo, NullShoppingCatalogReader.Instance,
+            Clock, tenant, NullLogger<ShopForWeekService>.Instance);
 
     private MealPlan MakeSingleRecipePlan(int servings)
     {

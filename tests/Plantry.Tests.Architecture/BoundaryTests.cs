@@ -27,10 +27,9 @@ public sealed class BoundaryTests
         "Plantry.Catalog",
         "Plantry.Inventory",
         "Plantry.Market",
-        "Plantry.Shopping",
+        "Plantry.Planning",
         "Plantry.Intake",
         "Plantry.Recipes",
-        "Plantry.MealPlanning",
     ];
 
     private static readonly string[] CatalogSiblingContexts =
@@ -38,10 +37,9 @@ public sealed class BoundaryTests
         "Plantry.Identity",
         "Plantry.Inventory",
         "Plantry.Market",
-        "Plantry.Shopping",
+        "Plantry.Planning",
         "Plantry.Intake",
         "Plantry.Recipes",
-        "Plantry.MealPlanning",
     ];
 
     // Inventory must not reach into any sibling — Plantry.Catalog included. That exclusion is what
@@ -51,10 +49,9 @@ public sealed class BoundaryTests
         "Plantry.Identity",
         "Plantry.Catalog",
         "Plantry.Market",
-        "Plantry.Shopping",
+        "Plantry.Planning",
         "Plantry.Intake",
         "Plantry.Recipes",
-        "Plantry.MealPlanning",
     ];
 
     [Fact]
@@ -205,10 +202,9 @@ public sealed class BoundaryTests
         "Plantry.Identity",
         "Plantry.Catalog",
         "Plantry.Inventory",
-        "Plantry.Shopping",
+        "Plantry.Planning",
         "Plantry.Intake",
         "Plantry.Recipes",
-        "Plantry.MealPlanning",
     ];
 
     private static readonly string[] IntakeSiblingContexts =
@@ -217,9 +213,8 @@ public sealed class BoundaryTests
         "Plantry.Catalog",
         "Plantry.Inventory",
         "Plantry.Market",
-        "Plantry.Shopping",
+        "Plantry.Planning",
         "Plantry.Recipes",
-        "Plantry.MealPlanning",
     ];
 
     // Recipes is a downstream consumer of every Phase-1 context but reaches them only through ports
@@ -231,21 +226,20 @@ public sealed class BoundaryTests
         "Plantry.Catalog",
         "Plantry.Inventory",
         "Plantry.Market",
-        "Plantry.Shopping",
+        "Plantry.Planning",
         "Plantry.Intake",
-        "Plantry.MealPlanning",
     ];
 
-    // MealPlanning is a Phase-3 downstream context — its domain references only SharedKernel.
-    // It does not depend on Recipes or any Phase-1 context directly; it references recipe/product
-    // IDs as opaque Guids only (see DM-21 / mealplanning.md).
-    private static readonly string[] MealPlanningSiblingContexts =
+    // Planning (MealPlanning + Shopping merged per ADR-024, plantry-g3da.5) is a Phase-3 downstream
+    // context — its domain references only SharedKernel. It does not depend on Recipes or any Phase-1
+    // context directly; it references recipe/product IDs as opaque Guids only (see DM-21 /
+    // mealplanning.md / shopping.md).
+    private static readonly string[] PlanningSiblingContexts =
     [
         "Plantry.Identity",
         "Plantry.Catalog",
         "Plantry.Inventory",
         "Plantry.Market",
-        "Plantry.Shopping",
         "Plantry.Intake",
         "Plantry.Recipes",
     ];
@@ -419,58 +413,58 @@ public sealed class BoundaryTests
     }
 
     [Fact]
-    public void MealPlanning_Domain_Should_Not_Reference_Infrastructure_Packages()
+    public void Planning_Domain_Should_Not_Reference_Infrastructure_Packages()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.MealPlanning.Domain")
+            .ResideInNamespace("Plantry.Planning.Domain")
             .Should().NotHaveDependencyOnAny(InfraPackages)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "MealPlanning domain references infrastructure packages:\n" +
+            "Planning domain references infrastructure packages:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
-    public void MealPlanning_Domain_Should_Not_Reference_Sibling_Contexts()
+    public void Planning_Domain_Should_Not_Reference_Sibling_Contexts()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.MealPlanning.Domain")
-            .Should().NotHaveDependencyOnAny(MealPlanningSiblingContexts)
+            .ResideInNamespace("Plantry.Planning.Domain")
+            .Should().NotHaveDependencyOnAny(PlanningSiblingContexts)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "MealPlanning domain references sibling contexts:\n" +
+            "Planning domain references sibling contexts:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
-    public void MealPlanning_Application_Should_Not_Reference_Infrastructure_Packages()
+    public void Planning_Application_Should_Not_Reference_Infrastructure_Packages()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.MealPlanning.Application")
+            .ResideInNamespace("Plantry.Planning.Application")
             .Should().NotHaveDependencyOnAny(InfraPackages)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "MealPlanning application references infrastructure packages:\n" +
+            "Planning application references infrastructure packages:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
     [Fact]
-    public void MealPlanning_Application_Should_Not_Reference_Sibling_Contexts()
+    public void Planning_Application_Should_Not_Reference_Sibling_Contexts()
     {
         var result = Types.InCurrentDomain()
             .That()
-            .ResideInNamespace("Plantry.MealPlanning.Application")
-            .Should().NotHaveDependencyOnAny(MealPlanningSiblingContexts)
+            .ResideInNamespace("Plantry.Planning.Application")
+            .Should().NotHaveDependencyOnAny(PlanningSiblingContexts)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "MealPlanning application references sibling contexts:\n" +
+            "Planning application references sibling contexts:\n" +
             string.Join("\n", result.FailingTypeNames ?? []));
     }
 
@@ -523,16 +517,16 @@ public sealed class BoundaryTests
         "Catalog",
         "Inventory",
         "Market",
-        "Shopping",
+        "Planning",
         "Intake",
         "Recipes",
-        "MealPlanning",
         // "Housekeeping" removed (ADR-024 Phase A, plantry-g3da.2): the bounded context was dissolved —
         // HousekeepingDbContext now lives in Plantry.Web, not a standalone *.Infrastructure project.
     ];
 
     // Regression lock (plantry-ew5): no bounded context's *.Infrastructure assembly may reference
-    // another bounded context's *.Infrastructure assembly. MealPlanning.Infrastructure and (the former)
+    // another bounded context's *.Infrastructure assembly. MealPlanning.Infrastructure (now folded into
+    // Plantry.Planning.Infrastructure, ADR-024 plantry-g3da.5) and (the former)
     // Deals.Infrastructure once referenced Plantry.Intake.Infrastructure solely to reuse the AiOptions /
     // AiTelemetry POCOs (Gate 2 violation); those primitives now live in the shared, context-free
     // Plantry.Ai.Infrastructure. This test fails the moment any such cross-context infra dependency is

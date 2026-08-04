@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Planning.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Integration.Infrastructure;
@@ -63,7 +63,7 @@ public sealed class MealSlotConfigPersistenceTests(PostgresFixture db) : IAsyncL
         }
 
         await using var readDb = NewMealPlanningDb(_household);
-        var reloaded = await readDb.MealSlots.SingleAsync(s => s.Id == Plantry.MealPlanning.Domain.MealSlotId.From(slotId));
+        var reloaded = await readDb.MealSlots.SingleAsync(s => s.Id == Plantry.Planning.Domain.MealSlotId.From(slotId));
         Assert.Equal("Midday meal", reloaded.Label);
     }
 
@@ -80,9 +80,9 @@ public sealed class MealSlotConfigPersistenceTests(PostgresFixture db) : IAsyncL
             dinnerId = config.Slots.Single(s => s.Label == "Dinner").Id.Value;
 
             config.ReorderSlots([
-                Plantry.MealPlanning.Domain.MealSlotId.From(dinnerId),
-                Plantry.MealPlanning.Domain.MealSlotId.From(lunchId),
-                Plantry.MealPlanning.Domain.MealSlotId.From(breakfastId),
+                Plantry.Planning.Domain.MealSlotId.From(dinnerId),
+                Plantry.Planning.Domain.MealSlotId.From(lunchId),
+                Plantry.Planning.Domain.MealSlotId.From(breakfastId),
             ], SystemClock.Instance);
             await writeDb.SaveChangesAsync();
         }
@@ -115,7 +115,7 @@ public sealed class MealSlotConfigPersistenceTests(PostgresFixture db) : IAsyncL
 
         await using var readDb = NewMealPlanningDb(_household);
         var reloaded = await readDb.MealSlots.SingleAsync(
-            s => s.Id == Plantry.MealPlanning.Domain.MealSlotId.From(slotId));
+            s => s.Id == Plantry.Planning.Domain.MealSlotId.From(slotId));
         Assert.Contains(memberA, reloaded.DefaultAttendees);
         Assert.Contains(memberB, reloaded.DefaultAttendees);
     }
@@ -138,7 +138,7 @@ public sealed class MealSlotConfigPersistenceTests(PostgresFixture db) : IAsyncL
 
         // Archived slot still exists (soft-delete)
         var archived = await readDb.MealSlots.SingleAsync(
-            s => s.Id == Plantry.MealPlanning.Domain.MealSlotId.From(lunchId));
+            s => s.Id == Plantry.Planning.Domain.MealSlotId.From(lunchId));
         Assert.NotNull(archived.ArchivedAt);
 
         // Active ordinals are contiguous 1..2

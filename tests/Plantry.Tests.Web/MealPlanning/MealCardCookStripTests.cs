@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc.Testing;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
@@ -306,6 +306,10 @@ internal static class CookStripFixture
 /// </summary>
 public sealed class CookStripMealPlanRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     public MealPlan ThisWeekPlan { get; }
     public MealPlan FutureWeekPlan { get; }
     public DateOnly ThisWeekMonday { get; }

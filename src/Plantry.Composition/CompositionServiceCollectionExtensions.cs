@@ -3,9 +3,8 @@ using Plantry.Catalog.Application;
 using Plantry.Market.Application;
 using Plantry.Intake.Application;
 using Plantry.Inventory.Application;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 using Plantry.Recipes.Application;
-using Plantry.Shopping.Application;
 using Plantry.Web;
 using Plantry.Web.Deals;
 using Plantry.Web.Intake;
@@ -78,7 +77,7 @@ public static class CompositionServiceCollectionExtensions
         // Meal Planning ACLs onto Recipes (tags, recipe read model), Identity (household members via the
         // ASP.NET-free IHouseholdDirectory port), Catalog, Inventory, Pricing, and Shopping.
         services.AddScoped<ITagReader, TagReaderAdapter>();
-        services.AddScoped<Plantry.MealPlanning.Application.IHouseholdMemberReader,
+        services.AddScoped<Plantry.Planning.Application.IHouseholdMemberReader,
             Plantry.Web.MealPlanning.HouseholdMemberReaderAdapter>();
         services.AddScoped<IRecipeReadModel, RecipeReadModelAdapter>();
         services.AddScoped<IMealPlanCatalogProductReader, MealPlanCatalogProductReaderAdapter>();
@@ -88,7 +87,9 @@ public static class CompositionServiceCollectionExtensions
         // onto a product's default unit before PlanCostingService multiplies by Servings — mirrors
         // Recipes' IUnitConverter wiring above, a separate MealPlanning-owned copy (DM-3).
         services.AddScoped<IMealPlanUnitConverter, MealPlanUnitConverterAdapter>();
-        services.AddScoped<IMealPlanShoppingWriter, MealPlanShoppingWriterAdapter>();
+        // The former IMealPlanShoppingWriter ACL (MealPlanShoppingWriterAdapter) is gone — ShopForWeekService
+        // now calls Shopping's AddItemCommand directly, both halves being intra-context since the Planning
+        // merge (ADR-024, plantry-g3da.5).
         services.AddScoped<IMealPlanExpiringStockReader, MealPlanExpiringStockReaderAdapter>();
         // Cook-status read port (plantry-0eut): joins Recipes CookEvent + Inventory journal — neither
         // context depends on the other or on MealPlanning (Gate 2); this is the composition-root join.
@@ -99,14 +100,16 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<IMealPlanEatWriter, MealPlanEatWriterAdapter>();
         // Fully qualified: IExpiringSoonHorizonReader + ExpiringSoonHorizonReaderAdapter names exist in
         // both the MealPlanning and Recipes namespaces.
-        services.AddScoped<Plantry.MealPlanning.Application.IExpiringSoonHorizonReader,
+        services.AddScoped<Plantry.Planning.Application.IExpiringSoonHorizonReader,
             Plantry.Web.MealPlanning.ExpiringSoonHorizonReaderAdapter>();
 
         // Shopping ACLs onto Catalog, Inventory, Recipes, Meal Planning, Deals attribution, and Pricing.
         services.AddScoped<IShoppingCatalogReader, ShoppingCatalogReaderAdapter>();
         services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>();
         services.AddScoped<IShoppingRecipeReader, ShoppingRecipeReaderAdapter>();
-        services.AddScoped<IShoppingMealPlanReader, ShoppingMealPlanReaderAdapter>();
+        // The former IShoppingMealPlanReader ACL (ShoppingMealPlanReaderAdapter) is gone — ShoppingListQueryService
+        // now resolves MealPlan slot labels directly via IMealPlanRepository.FindSlotLabelsAsync (registered
+        // above), both halves being intra-context since the Planning merge (ADR-024, plantry-g3da.5).
         services.AddScoped<IShoppingDealAttributionReader, ShoppingDealAttributionReaderAdapter>();
         services.AddScoped<IShoppingDealReader, ShoppingDealReaderAdapter>();
 

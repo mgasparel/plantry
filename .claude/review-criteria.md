@@ -20,7 +20,7 @@ do not duplicate or diverge in either consumer.**
 
 - **No cross-context table reads.** A context's repository/EF queries touch only its
   own schema (`identity`, `catalog`, `inventory`, `intake`, `market` (schemas: `pricing`,
-  `deals`), `recipes`, `meal_planning`, `shopping`). If `Plantry.Recipes` needs Inventory data, it
+  `deals`), `recipes`, `planning` (schemas: `meal_planning`, `shopping`)). If `Plantry.Recipes` needs Inventory data, it
   calls Inventory's application service or reads its read model — it never queries
   `inventory.*` tables directly. The `housekeeping` schema (the `Dismissal` tombstone table) is
   the one exception to "each schema has an owning bounded context": ADR-024 Phase A dissolved the

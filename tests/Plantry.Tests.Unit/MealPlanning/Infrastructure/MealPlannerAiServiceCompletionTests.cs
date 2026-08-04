@@ -3,9 +3,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
 using Plantry.Ai.Infrastructure;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
+using Plantry.Planning.Infrastructure;
 using Plantry.Tests.Unit.TestSupport;
 
 namespace Plantry.Tests.Unit.MealPlanning.Infrastructure;

@@ -4,8 +4,8 @@ using Plantry.Identity.Domain;
 using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -248,8 +248,8 @@ internal static class TodayMealPlanningStubs
         services.RemoveAll<IMealPlanStockReader>();
         services.AddSingleton<IMealPlanStockReader>(new NullTodayMealPlanStockReader());
 
-        services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
-        services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new NullTodayMemberReader());
+        services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
+        services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new NullTodayMemberReader());
 
         // Product-dish name/unit resolution port (plantry-nlg4) — these factories seed no product
         // dishes, so the batched pre-pass never calls it, but IndexModel still requires an instance.
@@ -259,6 +259,10 @@ internal static class TodayMealPlanningStubs
 
     private sealed class NullTodayMealPlanRepo : IMealPlanRepository
     {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
         public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
             => Task.FromResult<MealPlan?>(null);
         public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
@@ -294,10 +298,10 @@ internal static class TodayMealPlanningStubs
             => Task.FromResult<MealPlanProductStock?>(null);
     }
 
-    private sealed class NullTodayMemberReader : Plantry.MealPlanning.Application.IHouseholdMemberReader
+    private sealed class NullTodayMemberReader : Plantry.Planning.Application.IHouseholdMemberReader
     {
-        public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
+        public Task<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>>([]);
     }
 
     private sealed class NullTodayCatalogProductReader : IMealPlanCatalogProductReader

@@ -1,5 +1,5 @@
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Xunit;
 
 namespace Plantry.Tests.Unit.MealPlanning.Domain;

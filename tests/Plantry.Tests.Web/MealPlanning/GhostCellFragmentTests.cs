@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc.Testing;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.MealPlanning;
 

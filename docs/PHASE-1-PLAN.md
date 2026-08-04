@@ -32,8 +32,8 @@ A modular monolith physically expressed as separate projects. Each bounded conte
 | `Plantry.Inventory.Infrastructure` | lib | Inventory, EF | `inventory` schema, `FOR UPDATE` + `xmin` concurrency |
 | `Plantry.Pricing` | lib | SharedKernel | `PriceObservation`, unit-price materialization, read models |
 | `Plantry.Pricing.Infrastructure` | lib | Pricing, EF | `pricing` schema |
-| `Plantry.Shopping` | lib | SharedKernel | `ShoppingList` (+items) |
-| `Plantry.Shopping.Infrastructure` | lib | Shopping, EF | `shopping` schema |
+| `Plantry.Planning` | lib | SharedKernel | `ShoppingList` (+items) |
+| `Plantry.Planning.Infrastructure` | lib | Shopping, EF | `shopping` schema |
 | `Plantry.Intake` | lib | SharedKernel | `ImportSession` (+`ImportLine`), ACL, AI pipeline ports, commit orchestration |
 | `Plantry.Intake.Infrastructure` | lib | Intake, EF, `ChatClient` | `intake` schema, AI adapter (from `ReceiptPoc`), blob storage |
 | `Plantry.Web` | Razor Pages | all of the above | pages, htmx fragments, RLS middleware, composition root, DI |

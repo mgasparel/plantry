@@ -4,9 +4,8 @@ using Plantry.Market.Infrastructure;
 using Plantry.Identity.Infrastructure;
 using Plantry.Intake.Infrastructure;
 using Plantry.Inventory.Infrastructure;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Planning.Infrastructure;
 using Plantry.Recipes.Infrastructure;
-using Plantry.Shopping.Infrastructure;
 using Plantry.Web.Housekeeping;
 
 namespace Plantry.Migrator;
@@ -67,8 +66,8 @@ public static class MigrationTargets
         Target<MarketDbContext>("Plantry.Market.Infrastructure", "pricing", "deals"),
         Target<IntakeDbContext>("Plantry.Intake.Infrastructure", "intake"),
         Target<RecipesDbContext>("Plantry.Recipes.Infrastructure", "recipes"),
-        Target<ShoppingDbContext>("Plantry.Shopping.Infrastructure", "shopping"),
-        Target<MealPlanningDbContext>("Plantry.MealPlanning.Infrastructure", "meal_planning"),
+        Target<ShoppingDbContext>("Plantry.Planning.Infrastructure", "shopping"),
+        Target<MealPlanningDbContext>("Plantry.Planning.Infrastructure", "meal_planning"),
         Target<HousekeepingDbContext>("Plantry.Web", "housekeeping"),
     ];
 

@@ -3,8 +3,8 @@ using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -346,6 +346,10 @@ public sealed class TodayIndexModelTests
     /// <summary>Null meal plan repo — returns no plan (simulates no meal plan created yet).</summary>
     private sealed class NullMealPlanRepo : IMealPlanRepository
     {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
         public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
             => Task.FromResult<MealPlan?>(null);
         public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
@@ -385,17 +389,17 @@ public sealed class TodayIndexModelTests
     }
 
     /// <summary>Stub horizon reader — returns the Inventory default so the roll-up window is well-defined.</summary>
-    private sealed class NullExpiringSoonHorizonReader : Plantry.MealPlanning.Application.IExpiringSoonHorizonReader
+    private sealed class NullExpiringSoonHorizonReader : Plantry.Planning.Application.IExpiringSoonHorizonReader
     {
         public Task<int> GetDaysAsync(CancellationToken ct = default)
             => Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
     }
 
     /// <summary>Null member reader — returns empty list (no attendee avatars in model tests).</summary>
-    private sealed class NullMemberReader : Plantry.MealPlanning.Application.IHouseholdMemberReader
+    private sealed class NullMemberReader : Plantry.Planning.Application.IHouseholdMemberReader
     {
-        public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
+        public Task<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>>([]);
     }
 }
 
@@ -666,6 +670,10 @@ public sealed class ExpiringWidgetModelTests
 
     private sealed class NullMealPlanRepo2 : IMealPlanRepository
     {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
         public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
             => Task.FromResult<MealPlan?>(null);
         public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
@@ -702,16 +710,16 @@ public sealed class ExpiringWidgetModelTests
     }
 
     /// <summary>Stub horizon reader — returns the Inventory default so the roll-up window is well-defined.</summary>
-    private sealed class NullExpiringSoonHorizonReader2 : Plantry.MealPlanning.Application.IExpiringSoonHorizonReader
+    private sealed class NullExpiringSoonHorizonReader2 : Plantry.Planning.Application.IExpiringSoonHorizonReader
     {
         public Task<int> GetDaysAsync(CancellationToken ct = default)
             => Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
     }
 
-    private sealed class NullMemberReader2 : Plantry.MealPlanning.Application.IHouseholdMemberReader
+    private sealed class NullMemberReader2 : Plantry.Planning.Application.IHouseholdMemberReader
     {
-        public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
+        public Task<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>>([]);
     }
 }
 

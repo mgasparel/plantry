@@ -21,16 +21,13 @@ using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Intake.Infrastructure;
 using Plantry.Migration.Grocy;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
+using Plantry.Planning.Infrastructure;
 using Plantry.Web.MealPlanning;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
-using Plantry.Shopping.Application;
-using Plantry.Shopping.Domain;
-using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Background;
@@ -328,21 +325,26 @@ builder.Services.AddScoped<ITagRepository, TagRepository>();
 builder.Services.AddScoped<IRecipeRatingRepository, RecipeRatingRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
-// Shopping context (P2-S). Mutable working-state context — items edited in place and hard-deleted
+// Planning context (Meal Planning + Shopping, ADR-024). Plantry.Planning merges the former MealPlanning
+// and Shopping bounded contexts into one assembly (plantry-g3da.5) — MealPlanningDbContext and
+// ShoppingDbContext survive unchanged (separate schemas, separate migration histories; the DbContext-level
+// squash into one PlanningDbContext is explicitly a later follow-up phase, not this merge).
+
+// Shopping half. Mutable working-state context (P2-S) — items edited in place and hard-deleted
 // on clear (shopping.md resolved call 2). ShoppingReferenceDataSeeder seeds one list per household.
 builder.Services.AddDbContext<ShoppingDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Shopping.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Planning.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IShoppingListRepository, ShoppingListRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, ShoppingReferenceDataSeeder>();
 
-// Meal Planning context (Phase 3 / P3-0). MealPlanningReferenceDataSeeder seeds Breakfast/Lunch/Dinner
+// Meal Planning half (Phase 3 / P3-0). MealPlanningReferenceDataSeeder seeds Breakfast/Lunch/Dinner
 // default slots at household creation (DM-9). MealPlanningDbContext MUST be wired into RlsMiddleware
 // (see Tenancy/RlsMiddleware.cs) — the known P3-0 gotcha (see also bd memory rls-middleware-...).
 builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Planning.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
@@ -538,10 +540,12 @@ builder.Services.AddScoped<MoveMealService>();
 // Meal Planning — P3-4 roll-up + Shop for the week (plantry-ux2).
 // IMealPlanStockReader / IMealPlanPriceReader are MealPlanning-owned ACL ports onto the same
 // Inventory / Pricing stack used by Recipes — separate interface copies per context (DM-3).
-// IMealPlanShoppingWriter wraps Shopping's AddItemCommand with source="meal_plan" (DM-18).
+// ShopForWeekService calls Shopping's AddItemCommand with source=ItemSource.MealPlan directly — an
+// intra-context call since the MealPlanning/Shopping merge into Plantry.Planning (ADR-024, plantry-g3da.5;
+// formerly the IMealPlanShoppingWriter ACL port).
 // PlanFulfillmentService / PlanCostingService are stateless domain services that roll up
 // Recipes' enrichment across a meal's dishes — MealPlanning never recomputes these (domain-model §1).
-// IMealPlanStockReader + IMealPlanPriceReader + IMealPlanShoppingWriter adapters → Plantry.Composition (AddCrossContextAdapters).
+// IMealPlanStockReader + IMealPlanPriceReader adapters → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<PlanFulfillmentService>();
 builder.Services.AddScoped<PlanCostingService>();
 builder.Services.AddScoped<ShopForWeekService>();
@@ -590,9 +594,11 @@ else
 
 // Shopping ACL adapters → Plantry.Composition (AddCrossContextAdapters): IShoppingCatalogReader (→ Catalog,
 // P2-Sc), IShoppingPantryReader (→ Inventory, plantry-juh), IShoppingRecipeReader (→ Recipes, plantry-26g),
-// IShoppingMealPlanReader + IShoppingDealAttributionReader (attribution lines, plantry-jwyb), and
-// IShoppingDealReader (→ Pricing cheapest-active-deal badge, P5-9). All keep Shopping.Application off the
-// other contexts' EF contexts (ADR-002 / ADR-010 / Gate 2).
+// IShoppingDealAttributionReader (attribution lines, plantry-jwyb), and IShoppingDealReader (→ Pricing
+// cheapest-active-deal badge, P5-9). MealPlan-source attribution labels resolve via
+// IMealPlanRepository.FindSlotLabelsAsync directly — an intra-context call since the Planning merge
+// (ADR-024, plantry-g3da.5; formerly the IShoppingMealPlanReader ACL port). All keep Shopping.Application
+// off the other contexts' EF contexts (ADR-002 / ADR-010 / Gate 2).
 builder.Services.AddScoped<ShoppingListQueryService>();
 builder.Services.AddScoped<PantrySuggestionService>();
 

@@ -9,9 +9,9 @@ using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Identity.Application;
 using Plantry.Identity.Infrastructure;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
-using DomainMealPlan = Plantry.MealPlanning.Domain.MealPlan;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
+using DomainMealPlan = Plantry.Planning.Domain.MealPlan;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -2111,7 +2111,7 @@ public sealed class IndexModel(
         string? UnitCode = null,
         /// <summary>
         /// True when consuming the planned quantity would leave a &lt;=10%-of-on-hand sliver
-        /// (plantry-yuy3, <see cref="Plantry.MealPlanning.Domain.UseUpZone.IsInUseUpZone"/>) — computed
+        /// (plantry-yuy3, <see cref="Plantry.Planning.Domain.UseUpZone.IsInUseUpZone"/>) — computed
         /// once, at render time, in <c>LoadWeekAsync</c>. Always false for a recipe dish, an already-
         /// eaten dish, or a dish outside the cook strip's today-or-earlier window. Gates which handler
         /// the Eat button itself posts to: true wires it to <c>OnGetEatSheetAsync</c> (opens the confirm

@@ -6,7 +6,7 @@ namespace Plantry.Tests.Unit.Composition;
 /// <summary>
 /// L2 tests for <see cref="HouseholdMemberReaderAdapter"/> (plantry-riqy, plantry-m1u) — the
 /// MealPlanning→Identity ACL adapter. Covers the Guid parse + Initials presentation mapping onto
-/// MealPlanning's <see cref="Plantry.MealPlanning.Application.HouseholdMember"/> contract: two-word
+/// MealPlanning's <see cref="Plantry.Planning.Application.HouseholdMember"/> contract: two-word
 /// names, single-word names, and the blank-name degrade case.
 /// </summary>
 public sealed class HouseholdMemberReaderAdapterTests

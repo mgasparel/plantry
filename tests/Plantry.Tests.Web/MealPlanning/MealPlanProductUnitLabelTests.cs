@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc.Testing;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
@@ -189,6 +189,10 @@ public sealed class ProductUnitLabelFactory : MealPlanFragmentFactory
 /// </summary>
 public sealed class ProductUnitLabelMealPlanRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     private static readonly IClock _clock = new FixedClock(MealPlanningTestClock.Instant);
 
     public MealPlan ThisWeekPlan { get; }

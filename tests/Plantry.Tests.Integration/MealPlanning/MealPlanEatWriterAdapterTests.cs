@@ -5,7 +5,7 @@ using Plantry.Catalog.Infrastructure;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Inventory.Infrastructure;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;

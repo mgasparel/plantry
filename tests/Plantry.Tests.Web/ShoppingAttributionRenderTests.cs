@@ -7,8 +7,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Shopping.Application;
-using Plantry.Shopping.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web;
@@ -82,9 +82,9 @@ public sealed class ShoppingAttributionRenderTests
                 services.AddScoped<IShoppingListRepository>(sp =>
                     new FakeShoppingRepository(sp.GetRequiredService<ITenantContext>(), list));
 
-                services.RemoveAll<IShoppingMealPlanReader>();
-                services.AddSingleton<IShoppingMealPlanReader>(
-                    new FakeShoppingMealPlanReaderForSnapshots(new Dictionary<Guid, ShoppingMealPlanSlot>
+                services.RemoveAll<IMealPlanRepository>();
+                services.AddSingleton<IMealPlanRepository>(
+                    new FakeMealPlanRepositoryForSnapshots(new Dictionary<Guid, PlannedMealSlotInfo>
                     {
                         [SlotMon] = new(DayOfWeek.Monday, "Dinner"),
                         [SlotThu] = new(DayOfWeek.Thursday, "Dinner"),

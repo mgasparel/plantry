@@ -1,6 +1,6 @@
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
-using Plantry.Shopping.Domain;
+using Plantry.Planning.Domain;
 
 namespace Plantry.Tests.Unit.Shopping.Domain;
 

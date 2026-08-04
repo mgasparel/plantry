@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Domain;
 using Plantry.SharedKernel;
 using Plantry.Tests.Web.Infrastructure;
 

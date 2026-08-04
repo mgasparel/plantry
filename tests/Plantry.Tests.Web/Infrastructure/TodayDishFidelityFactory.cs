@@ -8,8 +8,8 @@ using Plantry.Identity.Domain;
 using Plantry.Intake.Domain;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -105,8 +105,8 @@ public sealed class TodayDishFidelityFactory : WebApplicationFactory<Program>
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FixedCatalogProductReader());
 
-            services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
-            services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
+            services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
+            services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
             TodayDealsStubs.RegisterEmpty(services);
         });
@@ -183,6 +183,10 @@ internal sealed class FixedSlotConfigRepo : IMealSlotConfigRepository
 
 internal sealed class FixedMealPlanRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     private readonly MealPlan _plan =
         TodayDishFidelityFixture.BuildPlan(TodayDishFidelityFixture.SharedSlotConfig);
 
@@ -342,8 +346,8 @@ public sealed class TodayNoteMealDishFidelityFactory : WebApplicationFactory<Pro
             services.RemoveAll<IMealPlanCatalogProductReader>();
             services.AddSingleton<IMealPlanCatalogProductReader>(new FixedCatalogProductReader());
 
-            services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
-            services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
+            services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
+            services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
             TodayDealsStubs.RegisterEmpty(services);
         });
@@ -389,6 +393,10 @@ internal sealed class NoteFixtureMealPlanRepo : IMealPlanRepository
 {
     private readonly MealPlan _plan =
         TodayNoteMealDishFidelityFixture.BuildPlan(TodayNoteMealDishFidelityFixture.SharedSlotConfig);
+
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
 
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
         => Task.FromResult<MealPlan?>(_plan);

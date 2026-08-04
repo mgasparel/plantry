@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
+using Plantry.Planning.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Xunit;
@@ -716,6 +716,10 @@ public sealed class GeneratePlanServiceTests
 
     private sealed class FakeMealPlanRepository : IMealPlanRepository
     {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
         private MealPlan? _plan;
 
         public void SetPlan(MealPlan plan) => _plan = plan;

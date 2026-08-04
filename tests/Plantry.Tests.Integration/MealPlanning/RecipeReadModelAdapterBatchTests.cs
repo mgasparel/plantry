@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;

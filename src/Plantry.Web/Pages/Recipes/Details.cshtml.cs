@@ -7,7 +7,7 @@ using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
-using Plantry.Shopping.Application;
+using Plantry.Planning.Application;
 
 namespace Plantry.Web.Pages.Recipes;
 

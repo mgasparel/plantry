@@ -9,7 +9,7 @@ using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Shopping.Domain;
+using Plantry.Planning.Domain;
 
 namespace Plantry.Tests.Web.Infrastructure;
 

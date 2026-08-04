@@ -7,8 +7,8 @@ using Plantry.Intake.Application;
 using Plantry.Inventory.Application;
 using Plantry.Inventory.Domain;
 using Plantry.Intake.Domain;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -259,7 +259,7 @@ public sealed class IndexModel(
 
         // Load this week's plan (null = no plan created yet → all slots are empty).
         // Use fully-qualified name: Plantry.Web.Pages.MealPlan is a conflicting namespace.
-        var weekStart = Plantry.MealPlanning.Domain.MealPlan.NormalizeToMonday(today);
+        var weekStart = Plantry.Planning.Domain.MealPlan.NormalizeToMonday(today);
         var plan = await mealPlanRepo.FindByWeekAsync(householdId, weekStart, ct);
 
         // First pass: pick the one planned meal per slot the band shows (first by ordinal in the

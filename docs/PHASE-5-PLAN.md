@@ -110,7 +110,7 @@ No app services, no UI.
 
 **Scope.**
 - New `Plantry.Deals` (Domain) + `Plantry.Deals.Infrastructure` projects, mirroring the
-  `Plantry.MealPlanning` / `Plantry.Intake` layout and dependency rules.
+  `Plantry.Planning` / `Plantry.Intake` layout and dependency rules.
 - Strongly-typed IDs (`StoreSubscriptionId`, `FlyerImportId`, `DealId`, `DealMatchMemoryId`) and the
   value objects / enums: `MatchConfidence` (`High`/`Low`/`None`), `DealStatus`
   (`Pending`/`Confirmed`/`Rejected`), `DealSource` (`flyer`/`manual`), `PullStatus`
@@ -135,7 +135,7 @@ version stamp). L3: migration applies clean in CI; RLS isolates by household (a 
 no rows). Solution builds; no app services or pages yet.
 
 **Refs.** deals-domain-model.md §2–§7; deals.md (all four tables + RLS note); ADR-007/008/010;
-`RlsMiddleware.cs`; `Plantry.MealPlanning` project layout.
+`RlsMiddleware.cs`; `Plantry.Planning` project layout.
 
 ---
 

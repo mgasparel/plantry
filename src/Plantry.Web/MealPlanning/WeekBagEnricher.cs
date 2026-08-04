@@ -1,5 +1,5 @@
 using Plantry.Catalog.Domain;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;

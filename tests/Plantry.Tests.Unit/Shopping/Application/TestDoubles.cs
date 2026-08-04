@@ -1,8 +1,8 @@
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Shopping.Application;
-using Plantry.Shopping.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 
 namespace Plantry.Tests.Unit.Shopping.Application;
 
@@ -33,24 +33,37 @@ internal sealed class FakeTenantContext(Guid? householdId) : ITenantContext
 }
 
 /// <summary>
-/// In-memory <see cref="IShoppingMealPlanReader"/> for unit tests (plantry-jwyb).
-/// Slot facts are registered per slot/entry id; unregistered ids are omitted (caller falls back).
+/// In-memory <see cref="IMealPlanRepository"/> stub for unit tests, exercising only
+/// <see cref="FindSlotLabelsAsync"/> — ShoppingListQueryService's MealPlan-slot-label resolution
+/// (plantry-jwyb; intra-context since the Planning merge, ADR-024. Formerly the
+/// IShoppingMealPlanReader ACL port's FakeShoppingMealPlanReader). Slot facts are registered per
+/// slot/entry id; unregistered ids are omitted (caller falls back). The other members are unused by
+/// ShoppingListQueryService and throw if ever called.
 /// </summary>
-internal sealed class FakeShoppingMealPlanReader : IShoppingMealPlanReader
+internal sealed class FakeMealPlanSlotRepository : IMealPlanRepository
 {
-    private readonly Dictionary<Guid, ShoppingMealPlanSlot> _slots = [];
+    private readonly Dictionary<Guid, PlannedMealSlotInfo> _slots = [];
 
     public void RegisterSlot(Guid slotRef, DayOfWeek day, string mealType) =>
-        _slots[slotRef] = new ShoppingMealPlanSlot(day, mealType);
+        _slots[slotRef] = new PlannedMealSlotInfo(day, mealType);
 
-    public Task<IReadOnlyDictionary<Guid, ShoppingMealPlanSlot>> GetMealPlanSlotsAsync(
-        IReadOnlyList<Guid> slotRefs, CancellationToken ct = default)
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
     {
-        IReadOnlyDictionary<Guid, ShoppingMealPlanSlot> result = slotRefs
+        IReadOnlyDictionary<Guid, PlannedMealSlotInfo> result = plannedMealIds
             .Where(_slots.ContainsKey)
             .ToDictionary(id => id, id => _slots[id]);
         return Task.FromResult(result);
     }
+
+    public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default) =>
+        throw new NotImplementedException();
+
+    public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default) =>
+        throw new NotImplementedException();
+
+    public Task SaveChangesAsync(CancellationToken ct = default) =>
+        throw new NotImplementedException();
 }
 
 /// <summary>

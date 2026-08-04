@@ -266,7 +266,7 @@ Meal Planning depends on these interfaces; the owning contexts implement them. A
 | **IPriceReader** | PlanCosting (product dishes) | R: representative price per product (DM-17), for **product-dish** cost; recipe-dish cost still flows via `IRecipeReadModel`. Phase-3 deal-blind (C7) |
 | **IShoppingListWriter** | ShopForWeek | W: `AddItems` with provenance (DM-18) — the **P2-4 seam**, reused |
 | **IHouseholdMemberReader** | ManageSlots, SetPreferences | R: list current household members (Identity, DM-6) for attendance + preference owners |
-| **IMealPlanner** | Generate, RegenerateMeal | W/R: the **untrusted planner function** (ADR-007). In: gathered context + `MealConstraints`. Out: raw suggestion payload (validated in the `GeneratePlan` ACL step, never persisted — §6). Implemented in `Plantry.MealPlanning.Infrastructure` over the household AI key (DM-7), exactly as Intake wraps its `ChatClient`. |
+| **IMealPlanner** | Generate, RegenerateMeal | W/R: the **untrusted planner function** (ADR-007). In: gathered context + `MealConstraints`. Out: raw suggestion payload (validated in the `GeneratePlan` ACL step, never persisted — §6). Implemented in `Plantry.Planning.Infrastructure` over the household AI key (DM-7), exactly as Intake wraps its `ChatClient`. |
 
 > **`IRecipeReadModel` over re-implementing fulfillment.** Meal Planning deliberately does **not**
 > own a fulfillment/costing engine. Recipes already computes `FulfillmentResult` / `CostPerServing`
@@ -447,5 +447,5 @@ UUIDv7 PKs, composite `(household_id, id)` child FKs, `household_id` + per-house
 (computed read-side, rolled up from Recipes + Inventory). `PlanningWeights` + the budget target ride
 in the proposal's `constraints` jsonb (transient generation inputs), not their own table. Attendee
 sets render as either a child join table or a `uuid[]` column — a schema-pass call. The ports in §8 become the application-service interfaces
-wired in the App Services step; `IMealPlanner` is implemented in `Plantry.MealPlanning.Infrastructure`
+wired in the App Services step; `IMealPlanner` is implemented in `Plantry.Planning.Infrastructure`
 over the household AI key (DM-7), exactly as Intake wraps its `ChatClient` (ADR-007).
