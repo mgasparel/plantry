@@ -1,7 +1,7 @@
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
-using Plantry.Shopping.Application;
-using Plantry.Shopping.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 
 namespace Plantry.Tests.Unit.Shopping.Application;
 
@@ -28,7 +28,7 @@ public sealed class ShoppingListQueryServiceTests
         FakeShoppingPantryReader? pantryReader = null,
         FakeShoppingRecipeReader? recipeReader = null,
         FakeShoppingDealReader? dealReader = null,
-        FakeShoppingMealPlanReader? mealPlanReader = null,
+        FakeMealPlanSlotRepository? mealPlanReader = null,
         FakeShoppingDealAttributionReader? dealAttributionReader = null,
         IClock? clock = null)
     {
@@ -37,7 +37,7 @@ public sealed class ShoppingListQueryServiceTests
             catalog,
             pantryReader ?? new FakeShoppingPantryReader(),
             recipeReader ?? new FakeShoppingRecipeReader(),
-            mealPlanReader ?? new FakeShoppingMealPlanReader(),
+            mealPlanReader ?? new FakeMealPlanSlotRepository(),
             dealAttributionReader ?? new FakeShoppingDealAttributionReader(),
             dealReader ?? new FakeShoppingDealReader(),
             clock ?? Clock,
@@ -555,7 +555,7 @@ public sealed class ShoppingListQueryServiceTests
         var catalog = new FakeShoppingCatalogReaderWithSummaries();
         catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Rice", "Grains"));
 
-        var mealPlans = new FakeShoppingMealPlanReader();
+        var mealPlans = new FakeMealPlanSlotRepository();
         mealPlans.RegisterSlot(slotMon, DayOfWeek.Monday, "Dinner");
         mealPlans.RegisterSlot(slotThu, DayOfWeek.Thursday, "Dinner");
 
@@ -588,7 +588,7 @@ public sealed class ShoppingListQueryServiceTests
         catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Rice", "Grains"));
 
         // Reader resolves nothing — slot deleted, foreign, or a coarser whole-plan ref.
-        var mealPlans = new FakeShoppingMealPlanReader();
+        var mealPlans = new FakeMealPlanSlotRepository();
 
         var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
         list.AddItem(_productId, quantity: 200m, unitId: _unitId, note: null,
@@ -614,7 +614,7 @@ public sealed class ShoppingListQueryServiceTests
         var catalog = new FakeShoppingCatalogReaderWithSummaries();
         catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Rice", "Grains"));
 
-        var mealPlans = new FakeShoppingMealPlanReader(); // resolves neither
+        var mealPlans = new FakeMealPlanSlotRepository(); // resolves neither
 
         var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
         var item = list.AddItem(_productId, quantity: 100m, unitId: _unitId, note: null,
@@ -699,7 +699,7 @@ public sealed class ShoppingListQueryServiceTests
 
         var recipes = new FakeShoppingRecipeReader();
         recipes.RegisterRecipe(recipeId, "Pasta Primavera");
-        var mealPlans = new FakeShoppingMealPlanReader();
+        var mealPlans = new FakeMealPlanSlotRepository();
         mealPlans.RegisterSlot(slotRef, DayOfWeek.Friday, "Lunch");
         var dealAttribution = new FakeShoppingDealAttributionReader();
         dealAttribution.RegisterDealStore(dealId, "Loblaws");
@@ -946,7 +946,7 @@ public sealed class ShoppingListQueryServiceTests
             repo, catalog,
             new FakeShoppingPantryReader(),
             new FakeShoppingRecipeReader(),
-            new FakeShoppingMealPlanReader(),
+            new FakeMealPlanSlotRepository(),
             new FakeShoppingDealAttributionReader(),
             new FakeShoppingDealReader(),
             Clock,

@@ -1,12 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
-using Plantry.Housekeeping.Domain;
-using Plantry.Housekeeping.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
+using Plantry.Composition.Infrastructure;
+using Plantry.Web.Housekeeping;
 using Xunit;
 
 namespace Plantry.Tests.Integration.Housekeeping;

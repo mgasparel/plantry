@@ -49,7 +49,6 @@ public sealed class RejectDealTests
         Assert.Equal(DealStatus.Rejected, deal.Status);
         Assert.Null(deal.ProductId);
         Assert.Empty(memories.Items); // no negative memory unless asked
-        Assert.Contains(deal.DomainEvents, e => e is DealRejectedEvent);
     }
 
     [Fact(DisplayName = "Reject with rememberNegative records a negative memory (DL-O3)")]
@@ -86,25 +85,6 @@ public sealed class RejectDealTests
         Assert.True(result.IsSuccess);
         var memory = Assert.Single(memories.Items); // repointed in place, not duplicated
         Assert.Null(memory.ProductId);
-    }
-
-    [Fact(DisplayName = "Reject is idempotent — a second reject does not re-emit the event")]
-    public async Task Reject_IsIdempotent()
-    {
-        var clock = new TestClock();
-        var deal = StageDeal();
-        var deals = new FakeDealRepository();
-        deals.Items.Add(deal);
-        var memories = new FakeDealMatchMemoryRepository();
-        var service = Service(deals, memories, clock);
-
-        await service.RejectAsync(deal.Id, _user);
-        deal.ClearDomainEvents();
-        var second = await service.RejectAsync(deal.Id, _user);
-
-        Assert.True(second.IsSuccess);
-        Assert.Equal(DealStatus.Rejected, deal.Status);
-        Assert.DoesNotContain(deal.DomainEvents, e => e is DealRejectedEvent);
     }
 
     [Fact(DisplayName = "Reject fails Unauthorized when there is no household in context")]

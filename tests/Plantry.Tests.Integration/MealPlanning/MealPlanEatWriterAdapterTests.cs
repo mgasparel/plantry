@@ -1,11 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
-using Plantry.MealPlanning.Application;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
+using Plantry.Pantry.Application;
+using Plantry.Planning.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -13,10 +11,10 @@ using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Web.Inventory;
 using Plantry.Web.MealPlanning;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
-using InventoryProductStock = Plantry.Inventory.Domain.ProductStock;
-using CatalogCategoryRepository = Plantry.Catalog.Infrastructure.CategoryRepository;
-using CatalogLocationRepository = Plantry.Catalog.Infrastructure.LocationRepository;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
+using InventoryProductStock = Plantry.Pantry.Domain.ProductStock;
+using CatalogCategoryRepository = Plantry.Pantry.Infrastructure.CategoryRepository;
+using CatalogLocationRepository = Plantry.Pantry.Infrastructure.LocationRepository;
 
 namespace Plantry.Tests.Integration.MealPlanning;
 
@@ -323,8 +321,8 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
     {
         var invDb = NewInventoryDb();
         var catDb = NewCatalogDb();
-        var productRepo = new Plantry.Catalog.Infrastructure.ProductRepository(catDb);
-        var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catDb);
+        var productRepo = new Plantry.Pantry.Infrastructure.ProductRepository(catDb);
+        var unitRepo = new Plantry.Pantry.Infrastructure.UnitRepository(catDb);
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);

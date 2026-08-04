@@ -1,5 +1,5 @@
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.Web.Pages.Shared;
 using PantryProductPage = Plantry.Web.Pages.Pantry.Products.DetailModel;
 

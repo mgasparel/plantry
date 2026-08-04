@@ -1,18 +1,17 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.Catalog.Infrastructure;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
+using Plantry.Pantry.Infrastructure;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Web.Inventory;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
-using InventoryProductStock = Plantry.Inventory.Domain.ProductStock;
-using CatalogCategoryRepository = Plantry.Catalog.Infrastructure.CategoryRepository;
-using CatalogLocationRepository = Plantry.Catalog.Infrastructure.LocationRepository;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
+using InventoryProductStock = Plantry.Pantry.Domain.ProductStock;
+using CatalogCategoryRepository = Plantry.Pantry.Infrastructure.CategoryRepository;
+using CatalogLocationRepository = Plantry.Pantry.Infrastructure.LocationRepository;
 
 namespace Plantry.Tests.Integration.Inventory;
 
@@ -44,9 +43,9 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
 
         // Seed a unit and a tracked product in Catalog so the conversion provider resolves.
         await using var catalogDb = NewCatalogDb();
-        var grams = CatalogUnit.Create(_household, "g", "grams", Plantry.Catalog.Domain.Dimension.Mass, 1m, isBase: true);
+        var grams = CatalogUnit.Create(_household, "g", "grams", Plantry.Pantry.Domain.Dimension.Mass, 1m, isBase: true);
         await catalogDb.Units.AddAsync(grams);
-        var product = Plantry.Catalog.Domain.Product.Create(_household, "Flour", grams.Id, Clock);
+        var product = Plantry.Pantry.Domain.Product.Create(_household, "Flour", grams.Id, Clock);
         await catalogDb.Products.AddAsync(product);
         await catalogDb.SaveChangesAsync();
         _unitId = grams.Id.Value;
@@ -203,8 +202,8 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
     {
         await using var invDb = NewInventoryDb();
         await using var catDb = NewCatalogDb();
-        var productRepo = new Plantry.Catalog.Infrastructure.ProductRepository(catDb);
-        var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catDb);
+        var productRepo = new Plantry.Pantry.Infrastructure.ProductRepository(catDb);
+        var unitRepo = new Plantry.Pantry.Infrastructure.UnitRepository(catDb);
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
@@ -229,8 +228,8 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
     {
         await using var invDb = NewInventoryDb();
         await using var catDb = NewCatalogDb();
-        var productRepo = new Plantry.Catalog.Infrastructure.ProductRepository(catDb);
-        var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catDb);
+        var productRepo = new Plantry.Pantry.Infrastructure.ProductRepository(catDb);
+        var unitRepo = new Plantry.Pantry.Infrastructure.UnitRepository(catDb);
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);

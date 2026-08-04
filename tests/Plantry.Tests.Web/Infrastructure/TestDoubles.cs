@@ -1,6 +1,6 @@
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;

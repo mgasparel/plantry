@@ -97,7 +97,6 @@ public sealed class ConfirmDealTests
         Assert.Equal(DealStatus.Confirmed, deal.Status);
         Assert.Equal(obs.Id.Value, deal.CommittedPriceObservationId);
         Assert.Equal(_user, deal.ReviewedByUserId);
-        Assert.Contains(deal.DomainEvents, e => e is DealConfirmedEvent);
     }
 
     [Fact(DisplayName = "Correct on a confirmed deal supersedes: new observation row, memory repointed, committed id updated, prior row retained")]

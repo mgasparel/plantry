@@ -1,8 +1,8 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Plantry.Identity.Infrastructure;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Web.MealPlanning;
@@ -43,6 +43,10 @@ public static class WeekGridFixture
 
 internal sealed class FakeMealPlanRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
         => Task.FromResult<MealPlan?>(null);
 
@@ -175,10 +179,46 @@ internal sealed class NullPriceReader : IMealPlanPriceReader
         => Task.FromResult<MealPlanPricePoint?>(null);
 }
 
-internal sealed class NullShoppingWriter : IMealPlanShoppingWriter
+// The former IMealPlanShoppingWriter stub is gone — ShopForWeekService now calls Shopping's
+// AddItemCommand directly (intra-context since the Planning merge, ADR-024, plantry-g3da.5).
+// WAF factories that don't exercise the shop-for-week write path stub its two dependencies instead:
+// a repository with no list (so AddItemCommand fails fast if ever invoked — these factories never
+// invoke ShopForWeekService.ExecuteAsync) and a catalog reader with no data.
+
+internal sealed class NullShoppingListRepository : IShoppingListRepository
 {
-    public Task AddItemsAsync(IEnumerable<MealPlanShoppingItem> items, string source, Guid sourceRef, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public Task<ShoppingList?> GetForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default)
+        => Task.FromResult<ShoppingList?>(null);
+
+    public Task<ShoppingList?> GetByIdAsync(ShoppingListId id, CancellationToken ct = default)
+        => Task.FromResult<ShoppingList?>(null);
+
+    public Task AddAsync(ShoppingList list, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task SaveAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+internal sealed class NullShoppingCatalogReader : IShoppingCatalogReader
+{
+    public Task<IReadOnlyDictionary<Guid, ShoppingProductSummary>> ResolveSummariesAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, ShoppingProductSummary>>(new Dictionary<Guid, ShoppingProductSummary>());
+
+    public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
+        IReadOnlyList<Guid> unitIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+    public Task<IReadOnlyList<ShoppingProductCandidate>> ListProductsAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ShoppingProductCandidate>>([]);
+
+    public Task<decimal?> TryConvertAsync(decimal amount, Guid fromUnitId, Guid toUnitId, Guid productId, CancellationToken ct = default)
+        => Task.FromResult<decimal?>(null);
+
+    public Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ShoppingUnitOption>>([]);
+
+    public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>([]);
 }
 
 // ── plantry-0eut null stub (no-op cook status for WAF factories that don't test the Cook strip) ──

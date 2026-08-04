@@ -7,15 +7,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Catalog.Domain;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Web.Infrastructure;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
-using CatalogCategory = Plantry.Catalog.Domain.Category;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
+using CatalogCategory = Plantry.Pantry.Domain.Category;
 
 namespace Plantry.Tests.Web.TakeStock;
 
@@ -416,7 +415,7 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
 
         // Verify the journal entry has Discarded reason
         var stock = _factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
-        var discardedJournals = stock.Journal.Where(j => j.Reason == Plantry.Inventory.Domain.StockReason.Discarded).ToList();
+        var discardedJournals = stock.Journal.Where(j => j.Reason == Plantry.Pantry.Domain.StockReason.Discarded).ToList();
         Assert.Single(discardedJournals);
         Assert.Equal(-100m, discardedJournals[0].Delta);
     }
@@ -467,7 +466,7 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         // The aggregate should have a new Correction lot
         var stock = _factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
         var correctionJournals = stock.Journal
-            .Where(j => j.Reason == Plantry.Inventory.Domain.StockReason.Correction && j.Delta > 0)
+            .Where(j => j.Reason == Plantry.Pantry.Domain.StockReason.Correction && j.Delta > 0)
             .ToList();
         Assert.NotEmpty(correctionJournals);
         Assert.Contains(correctionJournals, j => j.Delta == 150m);

@@ -1,4 +1,4 @@
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Domain;
 using PantryProductPage = Plantry.Web.Pages.Pantry.Products.DetailModel;
 
 namespace Plantry.Tests.Web.Grids;

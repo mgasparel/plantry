@@ -278,7 +278,6 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
         CommittedAt = committedAt;
         Status = ImportStatus.Committed;
         UpdatedAt = committedAt;
-        RaiseDomainEvent(new ImportSessionCommittedEvent(Id, HouseholdId, committedAt));
         return Result.Success();
     }
 

@@ -5,9 +5,9 @@ namespace Plantry.Market.Infrastructure;
 
 /// <summary>
 /// EF-backed repository for the <see cref="StoreSubscription"/> aggregate (P5-2). All queries run through
-/// <see cref="DealsDbContext"/>'s household query filter (RLS-scoped), so reads never cross tenants.
+/// <see cref="MarketDbContext"/>'s household query filter (RLS-scoped), so reads never cross tenants.
 /// </summary>
-public sealed class StoreSubscriptionRepository(DealsDbContext db) : IStoreSubscriptionRepository
+public sealed class StoreSubscriptionRepository(MarketDbContext db) : IStoreSubscriptionRepository
 {
     public Task<StoreSubscription?> FindAsync(StoreSubscriptionId id, CancellationToken ct = default) =>
         db.StoreSubscriptions.FirstOrDefaultAsync(s => s.Id == id, ct);

@@ -529,19 +529,19 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(0, count);
     }
 
-    private DbContextOptions<PricingDbContext> PricingOptions() =>
-        new DbContextOptionsBuilder<PricingDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<MarketDbContext> PricingOptions() =>
+        new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private PricingDbContext NewPricingDb()
+    private MarketDbContext NewPricingDb()
     {
-        var ctx = new PricingDbContext(PricingOptions());
+        var ctx = new MarketDbContext(PricingOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }
 
-    private PricingDbContext NewPricingDbFor(HouseholdId household)
+    private MarketDbContext NewPricingDbFor(HouseholdId household)
     {
-        var ctx = new PricingDbContext(PricingOptions());
+        var ctx = new MarketDbContext(PricingOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

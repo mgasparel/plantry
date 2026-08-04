@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 
 namespace Plantry.Migration.Grocy;
 

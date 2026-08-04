@@ -2,8 +2,8 @@ using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using Plantry.Shopping.Application;
-using Plantry.Shopping.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 
 namespace Plantry.Web.Deals;
 

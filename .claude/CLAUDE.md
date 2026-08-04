@@ -35,14 +35,14 @@ Each directory represents a distinct business capability:
 |--------|---------|
 | `src/Plantry.SharedKernel` | The src/Plantry.SharedKernel module is the architecturally central foundation… |
 | `src/Plantry.SharedKernel/Domain` | The Plantry.SharedKernel/Domain module serves as the foundational domain-driven… |
-| `src/Plantry.MealPlanning/Domain` | The Plantry.MealPlanning/Domain module is the core domain modeling and business… |
+| `src/Plantry.Planning/Domain` | The Plantry.Planning/Domain module is the core domain modeling and business… |
 | `src/Plantry.Web` | The src/Plantry.Web module serves as the primary hosting entry point and edge… |
 | `src/Plantry.Recipes/Domain` | The Plantry.Recipes/Domain module is the core domain layer of the recipe… |
 | `src/Plantry.Composition` | Załącznik_1_A_PL_v1.0.pdf (1.3 MB)
 Załącznik_1_B_PL_v1.0.pdf (1.4… |
 | `src/Plantry.Deals/Domain` | The Plantry.Deals/Domain module is the core domain layer of Plantry's… |
 | `src/Plantry.Recipes/Application` | The Plantry.Recipes/Application module serves as the application orchestration… |
-| `src/Plantry.Catalog/Domain` | The Plantry.Catalog/Domain module serves as the core domain model and business… |
+| `src/Plantry.Pantry/Domain` | The Plantry.Pantry/Domain module serves as the core domain model and business… |
 | `tests/Plantry.Tests.Web` | The tests/Plantry.Tests.Web module serves as the integration testing and… |
 ### Entry Points
 - `src/Plantry.AppHost/Program.cs`
@@ -70,7 +70,7 @@ Załącznik_1_B_PL_v1.0.pdf (1.4… |
 3. `src/Plantry.Migrator/Program.cs` — An entry point — execution and imports fan out from here.
 4. `src/Plantry.Web/Program.cs` — An entry point — execution and imports fan out from here.
 5. `src/Plantry.SharedKernel/Domain/AggregateRoot.cs` — Directly used by the entry points above; a core collaborator.
-6. `src/Plantry.Catalog/Domain/Category.cs` — Directly used by the entry points above; a core collaborator.
+6. `src/Plantry.Pantry/Domain/Catalog/Category.cs` — Directly used by the entry points above; a core collaborator.
 ... and 6 more steps
 ### Hotspots (High Churn)
 | File | Churn | 90d Commits | Owner |

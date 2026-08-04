@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
 using Plantry.SharedKernel;
@@ -15,7 +15,7 @@ namespace Plantry.Tests.Integration.Market.Prices;
 
 /// <summary>
 /// L3 tests for the DM-16 store-id backfill unit of work (<see cref="PurchaseStoreBackfill"/>) wired over
-/// the REAL cross-context seams (Pricing observations + Catalog's <see cref="Plantry.Catalog.Application.EnsureStoreByNameCommand"/>
+/// the REAL cross-context seams (Pricing observations + Catalog's <see cref="Plantry.Pantry.Application.EnsureStoreByNameCommand"/>
 /// via <see cref="StoreRepository"/>) against a real Postgres schema. Covers the four eligibility/idempotency
 /// cases the sweep must get right: resolve-to-existing-store, create-new-store, blank-merchant-skipped, and
 /// re-run-no-op.
@@ -205,10 +205,10 @@ public sealed class PurchaseStoreBackfillTests(PostgresFixture db) : IAsyncLifet
         return ctx;
     }
 
-    private PricingDbContext NewPricingDb()
+    private MarketDbContext NewPricingDb()
     {
-        var ctx = new PricingDbContext(
-            new DbContextOptionsBuilder<PricingDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new MarketDbContext(
+            new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

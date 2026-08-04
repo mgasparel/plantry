@@ -10,8 +10,7 @@ namespace Plantry.Intake.Application;
 /// Commits a <c>Ready</c> <see cref="ImportSession"/> to the pantry (ADR-010): for each confirmed line,
 /// in its own transaction, create the product if it is new (Catalog), record the purchased lot
 /// (Inventory, <c>source = Intake</c>), and record the purchase price (Pricing) — then mark the line
-/// committed with those refs. Finally the session itself is marked committed (raising
-/// <c>ImportSessionCommittedEvent</c>).
+/// committed with those refs. Finally the session itself is marked committed.
 ///
 /// <para><b>Strict commit gate (ADR-010 amendment 2026-07-11, plantry-gpdb).</b> Commit requires that no
 /// line is still <c>Pending</c>. The deck-flow review surface confirms every "sure thing" up front via the
@@ -310,10 +309,9 @@ public sealed class CommitSessionCommand(
     }
 
     /// <summary>
-    /// Finalize phase: mark the session committed (raising <c>ImportSessionCommittedEvent</c>), persist, and
-    /// emit the commit telemetry counter + success log. Returns the mark failure (logged) if the session
-    /// cannot transition, else success. Runs OUTSIDE the per-line catch — a finalize failure is not wrapped
-    /// as <c>Intake.CommitFailed</c>.
+    /// Finalize phase: mark the session committed, persist, and emit the commit telemetry counter +
+    /// success log. Returns the mark failure (logged) if the session cannot transition, else success.
+    /// Runs OUTSIDE the per-line catch — a finalize failure is not wrapped as <c>Intake.CommitFailed</c>.
     /// </summary>
     private async Task<Result> FinalizeAsync(ImportSession session, CancellationToken ct)
     {

@@ -145,7 +145,7 @@ appear in place (MP-O7). *(Full flow: the steps below; the pending-suggestion st
 | 8 | User | Works the grid cell-by-cell, any order, mixed: **✓ accept** a ghost · **✗ reject** it (cell back to empty) · **↻ regenerate** that cell (or re-tap Auto-fill day/week to re-roll all *still-pending* cells) · **✎ edit** it (J5 meal editor). |
 | 9 | System | **Manual touch confirms** — editing a ghost (swap a dish, change servings, hand-pick a recipe) commits it as a `PlannedMeal`, as does accepting it unchanged. Each commit runs the **normal `AssignMeal` validation** (date-in-week, servings ≥ 1, dishes-XOR-note, **warn**-not-block on hard stance, C9) and is recorded with `source: ai`. The pending entry is removed from the store. **Accept all** commits every remaining ghost in one transaction; **Discard** clears the store. |
 
-**Domain events emitted:** per committed cell, `MealPlanned(householdId, weekStart, date, slotId, source: ai, by, at)`. *(No week-grained `MealPlanProposalAccepted` — there is no single accept moment.)*
+**Domain events designed to emit (not implemented — see mealplanning-domain-model.md §9):** per committed cell, `MealPlanned(householdId, weekStart, date, slotId, source: ai, by, at)`. *(No week-grained `MealPlanProposalAccepted` — there is no single accept moment.)*
 
 **Edge cases:**
 - No recipes match a cell's hard constraints (e.g. everyone `Vegan`-`Required`, no vegan recipes) → **Unfulfillable** cell: renders in-cell "Your recipe book has no Vegan recipes" + "Add a Vegan recipe" CTA; generation does not fail wholesale. (Distinct from HardConflict where recipes exist but no single recipe satisfies all attendees jointly.)
@@ -172,7 +172,7 @@ appear in place (MP-O7). *(Full flow: the steps below; the pending-suggestion st
 | 5 | User | Saves the meal. |
 | 6 | System | Persists the `PlannedMeal` into the week's `MealPlan`. |
 
-**Domain events emitted:** `MealPlanned(householdId, weekStart, date, slotId, by, at)`.
+**Domain events designed to emit (not implemented — see mealplanning-domain-model.md §9):** `MealPlanned(householdId, weekStart, date, slotId, by, at)`.
 
 **Edge cases:**
 - **Add meal** on a `(date, slot)` that already has a meal → creates a **new** `PlannedMeal` stacked in that cell (it does not overwrite the existing one); **edit** on a specific meal updates only that meal. This is how "one meal for Mike, another for Jane" in the same slot is expressed.
@@ -230,7 +230,7 @@ appear in place (MP-O7). *(Full flow: the steps below; the pending-suggestion st
 | 2 | System | Re-proposes **only that cell** (MP-O3) against the same constraints + that meal's effective-attendee stances, rewriting that one entry in the pending store; other pending suggestions and the committed plan are untouched. |
 | 3 | User | Accepts the new option (commits with `source: ai`), or picks a specific recipe (manual swap → J5 mechanics, `source: manual`). |
 
-**Domain events emitted:** none until confirmed, then `MealPlanned(source: ai|manual)` for that cell (as J4/J5).
+**Domain events:** none until confirmed, then designed to emit (not implemented — see mealplanning-domain-model.md §9) `MealPlanned(source: ai|manual)` for that cell (as J4/J5).
 
 **Edge cases:**
 - Repeated regeneration exhausts good candidates → planner may repeat or report "no better option"; never violates a hard stance to produce variety.
@@ -249,7 +249,7 @@ pizza tonight, not tomorrow").
 | 3 | System | Each moved meal's **per-instance attendance override travels with it**; a meal with no override now **inherits the destination slot's default attendees** (C5). Dish servings are unchanged. |
 | 4 | System | Persists the `MealPlan`; the meal's fulfillment/cost are unaffected by the move (same dishes, same servings) and re-render in their new cells. |
 
-**Domain events emitted:** `MealMoved(householdId, weekStart, fromDate, fromSlotId, toDate, toSlotId, by, at)`.
+**Domain events designed to emit (not implemented — see mealplanning-domain-model.md §9):** `MealMoved(householdId, weekStart, fromDate, fromSlotId, toDate, toSlotId, by, at)`.
 
 **Edge cases:**
 - Drag a meal onto itself / no movement → no-op.

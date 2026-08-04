@@ -1,5 +1,5 @@
-using Plantry.Catalog.Domain;
-using Plantry.MealPlanning.Application;
+using Plantry.Pantry.Domain;
+using Plantry.Planning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -213,15 +213,15 @@ internal sealed class WeekBagEnricher
     /// <summary>
     /// Builds the ProductStock lookup for the pure FulfillmentService.Compute overload.
     /// Mirrors <c>InventoryStockReaderAdapter.FindStockBatchAsync</c>: each product's
-    /// <see cref="ProductStock.AvailableQuantity"/> is the sum of ALL active lots converted
+    /// <see cref="Plantry.Recipes.Application.ProductStock.AvailableQuantity"/> is the sum of ALL active lots converted
     /// into the product's default unit, with lots that fail conversion contributing 0.
     /// This ensures parity when a product is stocked in multiple units (e.g. 2 kg + 500 g).
     /// </summary>
-    private IReadOnlyDictionary<Guid, ProductStock> BuildStockById(
+    private IReadOnlyDictionary<Guid, Plantry.Recipes.Application.ProductStock> BuildStockById(
         IReadOnlyDictionary<Guid, CatalogProduct> catalogById,
         Func<Guid, decimal, Guid, Guid, Result<decimal>> converter)
     {
-        var result = new Dictionary<Guid, ProductStock>();
+        var result = new Dictionary<Guid, Plantry.Recipes.Application.ProductStock>();
 
         foreach (var (productId, catalogProduct) in catalogById)
         {
@@ -250,7 +250,7 @@ internal sealed class WeekBagEnricher
 
             if (totalAvailable <= 0m) continue; // No usable stock — omit.
 
-            result[productId] = new ProductStock(
+            result[productId] = new Plantry.Recipes.Application.ProductStock(
                 productId,
                 totalAvailable,
                 defaultUnitId,

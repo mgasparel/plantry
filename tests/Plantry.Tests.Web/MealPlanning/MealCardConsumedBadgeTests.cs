@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc.Testing;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Web.Infrastructure;
@@ -232,6 +232,10 @@ internal static class ConsumedBadgeFixture
 /// </summary>
 public sealed class ConsumedBadgeMealPlanRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     private readonly HouseholdId _household = SharedKernel.HouseholdId.From(ConsumedBadgeFixture.HouseholdId);
     public MealPlan Plan { get; }
     public DateOnly WeekMonday { get; }
@@ -311,6 +315,10 @@ internal sealed class ExpiringStockReader(
 /// </summary>
 public sealed class RecipeConsumedBadgeMealPlanRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     private readonly MealPlan _plan;
     public Guid RecipeDishId { get; }
 

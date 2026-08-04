@@ -1,19 +1,17 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
+using Plantry.Pantry.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Web.Inventory;
 using Xunit;
-using CatalogProduct = Plantry.Catalog.Domain.Product;
-using InventoryProductStock = Plantry.Inventory.Domain.ProductStock;
-using CatalogCategoryRepository = Plantry.Catalog.Infrastructure.CategoryRepository;
-using CatalogLocationRepository = Plantry.Catalog.Infrastructure.LocationRepository;
+using CatalogProduct = Plantry.Pantry.Domain.Product;
+using InventoryProductStock = Plantry.Pantry.Domain.ProductStock;
+using CatalogCategoryRepository = Plantry.Pantry.Infrastructure.CategoryRepository;
+using CatalogLocationRepository = Plantry.Pantry.Infrastructure.LocationRepository;
 
 namespace Plantry.Tests.Integration.Inventory;
 
@@ -115,8 +113,8 @@ public sealed class ArchivedProductVisibilityTests(PostgresFixture db) : IAsyncL
     private InventoryQueryService BuildQueryService()
     {
         var catalogDb = NewCatalogDb();
-        var productRepo = new Plantry.Catalog.Infrastructure.ProductRepository(catalogDb);
-        var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catalogDb);
+        var productRepo = new Plantry.Pantry.Infrastructure.ProductRepository(catalogDb);
+        var unitRepo = new Plantry.Pantry.Infrastructure.UnitRepository(catalogDb);
         var categoryRepo = new CatalogCategoryRepository(catalogDb);
         var locationRepo = new CatalogLocationRepository(catalogDb);
         var catalog = new CatalogReadFacade(productRepo, new UnitCodesAccessor(unitRepo), categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());

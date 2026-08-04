@@ -2,7 +2,7 @@ namespace Plantry.Market.Domain;
 
 /// <summary>
 /// Read/write port for the <see cref="Deal"/> aggregate (§5 / DJ4). RLS-scoped to the current household
-/// by <c>DealsDbContext</c>, so every query returns only the signed-in household's rows. The confirm /
+/// by <c>MarketDbContext</c>, so every query returns only the signed-in household's rows. The confirm /
 /// reject orchestration (P5-5) saves after <b>each</b> aggregate mutation so its cross-context commit is
 /// resumable — see <c>ConfirmDeal</c>.
 /// </summary>
@@ -37,7 +37,7 @@ public interface IDealRepository
 
     /// <summary>
     /// Per-subscription unit-of-work reset for the ingest cycle (P5-6 isolation, plantry-60p9). Discards
-    /// any <b>uncommitted</b> changes staged in the shared <c>DealsDbContext</c> — every entity currently
+    /// any <b>uncommitted</b> changes staged in the shared <c>MarketDbContext</c> — every entity currently
     /// tracked as <c>Added</c>, <c>Modified</c>, or <c>Deleted</c> is detached. The ingest worker calls
     /// this at each subscription boundary so that a <see cref="SaveChangesAsync"/> fault in one
     /// subscription — which leaves its <c>Added</c>/<c>Deleted</c> <see cref="Deal"/> rows tracked, since

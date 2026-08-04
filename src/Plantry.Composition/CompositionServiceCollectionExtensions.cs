@@ -1,17 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
-using Plantry.Catalog.Application;
+using Plantry.Pantry.Application;
 using Plantry.Market.Application;
-using Plantry.Housekeeping.Application;
 using Plantry.Intake.Application;
-using Plantry.Inventory.Application;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 using Plantry.Recipes.Application;
-using Plantry.Shopping.Application;
-using Plantry.SharedKernel.Domain;
 using Plantry.Web;
 using Plantry.Web.Deals;
-using Plantry.Web.Events;
-using Plantry.Web.Housekeeping;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.MealPlanning;
@@ -22,34 +16,25 @@ using Plantry.Web.Shopping;
 namespace Plantry.Composition;
 
 /// <summary>
-/// Composition-root wiring for the cross-context ACL adapters and the domain-event dispatch machinery
-/// (plantry-m1u). This is the "how bounded contexts are wired together" seam, lifted out of the web/UI
-/// host: <see cref="AddCrossContextAdapters"/> binds every context-application ACL port to its adapter
-/// implementation, plus the <see cref="IDomainEventDispatcher"/> + interceptor pair + transactional
-/// buffer. Called once from Plantry.Web's Program.cs.
+/// Composition-root wiring for the cross-context ACL adapters (plantry-m1u). This is the "how bounded
+/// contexts are wired together" seam, lifted out of the web/UI host: <see cref="AddCrossContextAdapters"/>
+/// binds every context-application ACL port to its adapter implementation. Called once from
+/// Plantry.Web's Program.cs.
 /// <para>
 /// Intentionally NOT registered here (they stay in the host): the feature-flagged
 /// <c>IFlyerSource</c> → <c>StubFlyerSourceAdapter</c> binding (host owns the Deals:UseStubFlyerSource
-/// switch and the real HttpClient alternative), the Identity read-port implementation
+/// switch and the real HttpClient alternative), and the Identity read-port implementation
 /// (<c>IHouseholdDirectory</c>, which lives in Plantry.Identity.Infrastructure and is ASP.NET-coupled —
-/// registering it here would drag Microsoft.AspNetCore.* into this assembly), and the domain-event
-/// <i>handlers</i> (not adapters). The DbContext <c>.AddInterceptors(...)</c> calls likewise stay in the
-/// host, since they are DbContext configuration — they merely resolve the interceptors registered here.
+/// registering it here would drag Microsoft.AspNetCore.* into this assembly).
 /// </para>
 /// </summary>
 public static class CompositionServiceCollectionExtensions
 {
     public static IServiceCollection AddCrossContextAdapters(this IServiceCollection services)
     {
-        // Domain-event dispatch (Intake and Deals contexts, ADR-014 / plantry-jvzk). The dispatcher
-        // resolves handlers reflectively; the interceptor pair + scoped buffer make dispatch
-        // transaction-aware. The host wires the interceptors onto the Intake/Deals DbContexts.
-        services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
-        services.AddScoped<TransactionalDomainEventBuffer>();
-        services.AddScoped<DomainEventDispatchInterceptor>();
-        services.AddScoped<DomainEventCommitDispatchInterceptor>();
-
-        // Inventory → Catalog ACL (take-stock read/write over Catalog reference data).
+        // Take-stock read/write facade over Catalog reference data (formerly an Inventory → Catalog ACL;
+        // both halves are intra-context since the Pantry merge, ADR-024 plantry-g3da.6 — the adapters now
+        // live directly in Plantry.Pantry.Application rather than bridging two assemblies).
         services.AddScoped<ITakeStockReader, TakeStockReaderAdapter>();
         services.AddScoped<ITakeStockCatalogWriter, TakeStockCatalogWriterAdapter>();
 
@@ -93,7 +78,7 @@ public static class CompositionServiceCollectionExtensions
         // Meal Planning ACLs onto Recipes (tags, recipe read model), Identity (household members via the
         // ASP.NET-free IHouseholdDirectory port), Catalog, Inventory, Pricing, and Shopping.
         services.AddScoped<ITagReader, TagReaderAdapter>();
-        services.AddScoped<Plantry.MealPlanning.Application.IHouseholdMemberReader,
+        services.AddScoped<Plantry.Planning.Application.IHouseholdMemberReader,
             Plantry.Web.MealPlanning.HouseholdMemberReaderAdapter>();
         services.AddScoped<IRecipeReadModel, RecipeReadModelAdapter>();
         services.AddScoped<IMealPlanCatalogProductReader, MealPlanCatalogProductReaderAdapter>();
@@ -103,7 +88,9 @@ public static class CompositionServiceCollectionExtensions
         // onto a product's default unit before PlanCostingService multiplies by Servings — mirrors
         // Recipes' IUnitConverter wiring above, a separate MealPlanning-owned copy (DM-3).
         services.AddScoped<IMealPlanUnitConverter, MealPlanUnitConverterAdapter>();
-        services.AddScoped<IMealPlanShoppingWriter, MealPlanShoppingWriterAdapter>();
+        // The former IMealPlanShoppingWriter ACL (MealPlanShoppingWriterAdapter) is gone — ShopForWeekService
+        // now calls Shopping's AddItemCommand directly, both halves being intra-context since the Planning
+        // merge (ADR-024, plantry-g3da.5).
         services.AddScoped<IMealPlanExpiringStockReader, MealPlanExpiringStockReaderAdapter>();
         // Cook-status read port (plantry-0eut): joins Recipes CookEvent + Inventory journal — neither
         // context depends on the other or on MealPlanning (Gate 2); this is the composition-root join.
@@ -114,14 +101,16 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<IMealPlanEatWriter, MealPlanEatWriterAdapter>();
         // Fully qualified: IExpiringSoonHorizonReader + ExpiringSoonHorizonReaderAdapter names exist in
         // both the MealPlanning and Recipes namespaces.
-        services.AddScoped<Plantry.MealPlanning.Application.IExpiringSoonHorizonReader,
+        services.AddScoped<Plantry.Planning.Application.IExpiringSoonHorizonReader,
             Plantry.Web.MealPlanning.ExpiringSoonHorizonReaderAdapter>();
 
         // Shopping ACLs onto Catalog, Inventory, Recipes, Meal Planning, Deals attribution, and Pricing.
         services.AddScoped<IShoppingCatalogReader, ShoppingCatalogReaderAdapter>();
         services.AddScoped<IShoppingPantryReader, ShoppingPantryReaderAdapter>();
         services.AddScoped<IShoppingRecipeReader, ShoppingRecipeReaderAdapter>();
-        services.AddScoped<IShoppingMealPlanReader, ShoppingMealPlanReaderAdapter>();
+        // The former IShoppingMealPlanReader ACL (ShoppingMealPlanReaderAdapter) is gone — ShoppingListQueryService
+        // now resolves MealPlan slot labels directly via IMealPlanRepository.FindSlotLabelsAsync (registered
+        // above), both halves being intra-context since the Planning merge (ADR-024, plantry-g3da.5).
         services.AddScoped<IShoppingDealAttributionReader, ShoppingDealAttributionReaderAdapter>();
         services.AddScoped<IShoppingDealReader, ShoppingDealReaderAdapter>();
 
@@ -171,17 +160,9 @@ public static class CompositionServiceCollectionExtensions
         // StockProvenanceReaderAdapter above but keyed by StockEntryId rather than the chip correlation.
         services.AddScoped<IAmendableLineReader, AmendableLineReaderAdapter>();
 
-        // Housekeeping (tidy-up.md T4/T8) — v1 shipped D1 + D2 (conversion-gap family); this follow-up
-        // (plantry-i55s) adds D3-D7, the remaining catalogue rows. Registered as IProblemDetector so
-        // GetTidyUpPageQuery discovers every implementation via IEnumerable<IProblemDetector> — adding
-        // a detector is one class + one line here, no other edits.
-        services.AddScoped<IProblemDetector, StockUnitUnconvertibleDetector>();
-        services.AddScoped<IProblemDetector, RecipeConversionGapDetector>();
-        services.AddScoped<IProblemDetector, StockExpiredDetector>();
-        services.AddScoped<IProblemDetector, StapleNoLowStockAlertDetector>();
-        services.AddScoped<IProblemDetector, RecipeIngredientNoPriceDetector>();
-        services.AddScoped<IProblemDetector, MixedIncompatibleUnitsDetector>();
-        services.AddScoped<IProblemDetector, RecipeLineUntrackedProductDetector>();
+        // Housekeeping's 7 IProblemDetector registrations moved to Plantry.Web's Program.cs (ADR-024
+        // Phase A, plantry-g3da.2): the detectors now live in Plantry.Web (the composition root) as
+        // ADR-021 cross-schema read models, and this project must never reference Plantry.Web types.
 
         return services;
     }

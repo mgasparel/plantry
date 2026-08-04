@@ -198,7 +198,7 @@ public sealed class ProductSearchCreateSheetViewModel
     public string CreateViewLineUnitLabel { get; init; } = "Unit (in this recipe)";
 
     /// <summary>
-    /// Existing group products (active, <see cref="Plantry.Catalog.Domain.Product.IsParent"/> = true)
+    /// Existing group products (active, <see cref="Plantry.Pantry.Domain.Product.IsParent"/> = true)
     /// for the household, serialised as <c>[{ id, name }]</c> and embedded in the create-view's
     /// Alpine data so the Group combobox can filter client-side without an extra htmx round-trip.
     ///

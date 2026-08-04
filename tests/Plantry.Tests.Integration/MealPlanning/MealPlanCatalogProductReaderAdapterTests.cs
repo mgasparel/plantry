@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Integration.Infrastructure;
@@ -29,7 +29,7 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         _household = HouseholdId.New();
 
         await using var catalog = NewCatalogDb();
-        var grams = Plantry.Catalog.Domain.Unit.Create(_household, "g", "grams", Dimension.Mass, 1m, isBase: true);
+        var grams = Plantry.Pantry.Domain.Unit.Create(_household, "g", "grams", Dimension.Mass, 1m, isBase: true);
         await catalog.Units.AddAsync(grams);
         await catalog.SaveChangesAsync();
         _gramsId = grams.Id;
@@ -120,7 +120,7 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         ProductId flourId, sugarId;
         await using (var setup = NewCatalogDb())
         {
-            var pounds = Plantry.Catalog.Domain.Unit.Create(_household, "lb", "pounds", Dimension.Mass, 453.592m, isBase: false);
+            var pounds = Plantry.Pantry.Domain.Unit.Create(_household, "lb", "pounds", Dimension.Mass, 453.592m, isBase: false);
             await setup.Units.AddAsync(pounds);
             await setup.SaveChangesAsync();
             poundsId = pounds.Id;
@@ -218,11 +218,11 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
             // The default is kg, deliberately not the first Mass code. Product-owned
             // conversions bridge Mass → Volume and Mass → Count so every canonical group is
             // reachable while the semantic filter remains UnitConverter-owned.
-            var kilogram = Plantry.Catalog.Domain.Unit.Create(
+            var kilogram = Plantry.Pantry.Domain.Unit.Create(
                 _household, "kg", "kilogram", Dimension.Mass, 1000m);
-            var millilitre = Plantry.Catalog.Domain.Unit.Create(
+            var millilitre = Plantry.Pantry.Domain.Unit.Create(
                 _household, "mL", "millilitre", Dimension.Volume, 1m, isBase: true);
-            var serving = Plantry.Catalog.Domain.Unit.Create(
+            var serving = Plantry.Pantry.Domain.Unit.Create(
                 _household, "srv", "serving", Dimension.Count, 1m);
             await setup.Units.AddRangeAsync(kilogram, millilitre, serving);
             await setup.SaveChangesAsync();
@@ -262,7 +262,7 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         UnitId poundsId;
         await using (var setup = NewCatalogDb())
         {
-            var pounds = Plantry.Catalog.Domain.Unit.Create(_household, "lb", "pounds", Dimension.Mass, 453.592m, isBase: false);
+            var pounds = Plantry.Pantry.Domain.Unit.Create(_household, "lb", "pounds", Dimension.Mass, 453.592m, isBase: false);
             await setup.Units.AddAsync(pounds);
             await setup.SaveChangesAsync();
             poundsId = pounds.Id;

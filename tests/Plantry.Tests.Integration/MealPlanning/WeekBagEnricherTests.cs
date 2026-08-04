@@ -189,8 +189,8 @@ public sealed class WeekBagEnricherTests
     /// <summary>
     /// Regression for the bug this ticket exists to fix: BEFORE plantry-jvd7, WeekBagEnricher carried
     /// its own copy of the same-dimension scaling rule (<c>SameDimensionFactor</c>) with no
-    /// <see cref="Plantry.Catalog.Domain.Dimension.Count"/> exclusion — unlike
-    /// <see cref="Plantry.Catalog.Domain.UnitConverter"/>, which has excluded Count from free
+    /// <see cref="Plantry.Pantry.Domain.Dimension.Count"/> exclusion — unlike
+    /// <see cref="Plantry.Pantry.Domain.UnitConverter"/>, which has excluded Count from free
     /// same-dimension scaling since plantry-xddq (commit f69fd57 — the same commit that made Convert a
     /// full BFS, which is why WeekBagEnricher's copy drifted on both axes at once) (two Count units, e.g. "dozen" and
     /// "each", share no universal ratio the way two Mass or Volume units do). So a stock lot held in a
@@ -255,7 +255,7 @@ public sealed class WeekBagEnricherTests
     }
 
     /// <summary>
-    /// New capability unlocked by delegating to <see cref="Plantry.Catalog.Domain.UnitConverter"/>'s
+    /// New capability unlocked by delegating to <see cref="Plantry.Pantry.Domain.UnitConverter"/>'s
     /// shape-typed <c>Convert</c> overload: BEFORE plantry-jvd7, <c>WeekBagEnricher.BuildConverter</c> tried each <c>ProductConversion</c>
     /// with at most ONE same-dimension bridge per side (a single hop), so a conversion resolvable only
     /// by chaining several <c>ProductConversion</c>s end-to-end was unresolvable in week-bag costing —

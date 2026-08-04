@@ -86,12 +86,12 @@
            Deliberately no precedence logic beyond "first recipe dish wins if one exists" — a meal
            with both a photo-less recipe dish and a photo-resolvable product dish still shows the
            placeholder (spec:ready, plantry-f4dt behavior rule 1). *@
-        var primaryDish = cookDishes.FirstOrDefault(d => d.Kind == Plantry.MealPlanning.Domain.DishKind.Recipe)
-            ?? cookDishes.FirstOrDefault(d => d.Kind == Plantry.MealPlanning.Domain.DishKind.Product);
+        var primaryDish = cookDishes.FirstOrDefault(d => d.Kind == Plantry.Planning.Domain.DishKind.Recipe)
+            ?? cookDishes.FirstOrDefault(d => d.Kind == Plantry.Planning.Domain.DishKind.Product);
         var showPhoto = primaryDish is not null && primaryDish.HasPhoto;
         var photoRecipeId = primaryDish is null
             ? (Guid?)null
-            : primaryDish.Kind == Plantry.MealPlanning.Domain.DishKind.Recipe ? primaryDish.ItemId : primaryDish.PhotoRecipeId;
+            : primaryDish.Kind == Plantry.Planning.Domain.DishKind.Recipe ? primaryDish.ItemId : primaryDish.PhotoRecipeId;
         <div class="mc-photo">
             @if (showPhoto)
             {
@@ -200,7 +200,7 @@
             <div class="mc-cook-strip">
                 @foreach (var dish in stripRows)
                 {
-                    var isProduct = dish.Kind == Plantry.MealPlanning.Domain.DishKind.Product;
+                    var isProduct = dish.Kind == Plantry.Planning.Domain.DishKind.Product;
                     if (dish.CookedAt is not null)
                     {
                         var verb = isProduct ? "Eaten" : "Cooked";
@@ -241,7 +241,7 @@
                            (shortfall never blocks, C8/R9 mirror). "Multi-dish" naming mirrors the Cook
                            link below. plantry-yuy3: when consuming the planned quantity would leave a
                            <=10%-of-on-hand sliver (dish.NeedsEatConfirm, computed server-side at render
-                           time — Plantry.MealPlanning.Domain.UseUpZone.IsInUseUpZone), Eat itself opens
+                           time — Plantry.Planning.Domain.UseUpZone.IsInUseUpZone), Eat itself opens
                            the confirm sheet instead of consuming directly, so a household doesn't get
                            stuck with a useless dangling remainder. Either way, the secondary "Adjust
                            quantity" icon button below always opens the same sheet, on demand. *@

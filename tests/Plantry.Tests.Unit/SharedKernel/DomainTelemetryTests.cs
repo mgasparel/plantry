@@ -2,13 +2,13 @@ using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
-using InventoryDomain = Plantry.Inventory.Domain;
+using InventoryDomain = Plantry.Pantry.Domain;
 
 namespace Plantry.Tests.Unit.SharedKernel;
 
@@ -369,7 +369,6 @@ public sealed class DomainTelemetryTests
         var consumer = new MetricsTestInventoryConsumer();
         var producer = new MetricsTestInventoryProducer();
         var products = new MetricsTestCatalogProductReader();
-        var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
         var lineDriver = new CookLineDriver(consumer, producer);
         var reconciler = new ReconcilePendingCooks(cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
@@ -382,7 +381,7 @@ public sealed class DomainTelemetryTests
         recipes.Items.Add(recipe);
 
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, new MetricsTestCatalogWriter(), expansion, dispatcher, clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, new MetricsTestCatalogWriter(), expansion, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -406,14 +405,13 @@ public sealed class DomainTelemetryTests
         var consumer = new MetricsTestInventoryConsumer();
         var producer = new MetricsTestInventoryProducer();
         var products = new MetricsTestCatalogProductReader();
-        var dispatcher = new MetricsTestDomainEventDispatcher();
         var tenant = new MetricsTestTenantContext(household);
         var lineDriver = new CookLineDriver(consumer, producer);
         var reconciler = new ReconcilePendingCooks(cookEvents, lineDriver, tenant, NullLogger<ReconcilePendingCooks>.Instance);
         var deferredUnitGaps = new ApplyDeferredUnitGaps(cookEvents, consumer, tenant, NullLogger<ApplyDeferredUnitGaps>.Instance);
 
         var expansion = new RecipeExpansionService(recipes);
-        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, new MetricsTestCatalogWriter(), expansion, dispatcher, clock, tenant, reconciler,
+        var service = new CookRecipe(recipes, cookEvents, lineDriver, products, new MetricsTestCatalogWriter(), expansion, clock, tenant, reconciler,
             deferredUnitGaps, NullLogger<CookRecipe>.Instance);
 
         var before = meter.Read("plantry.recipes.cooked");
@@ -699,12 +697,6 @@ internal sealed class MetricsTestCatalogProductReader : ICatalogProductReader
 
     public Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogCategoryOption>>([]);
-}
-
-internal sealed class MetricsTestDomainEventDispatcher : IDomainEventDispatcher
-{
-    public Task DispatchAsync(IEnumerable<IDomainEvent> events, CancellationToken ct = default) =>
-        Task.CompletedTask;
 }
 
 /// <summary>No-op <see cref="ICatalogWriter"/> — these metrics tests never post a stored yield, so the

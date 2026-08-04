@@ -3,7 +3,7 @@ using Plantry.Market.Domain;
 
 namespace Plantry.Market.Infrastructure;
 
-public sealed class PriceObservationRepository(PricingDbContext db) : IPriceObservationRepository
+public sealed class PriceObservationRepository(MarketDbContext db) : IPriceObservationRepository
 {
     public async Task AddAsync(PriceObservation observation, CancellationToken ct = default) =>
         await db.PriceObservations.AddAsync(observation, ct);

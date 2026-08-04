@@ -2,12 +2,12 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
-using Plantry.Shopping.Application;
+using Plantry.Planning.Application;
 
 namespace Plantry.Web.Pages.Recipes;
 
@@ -480,11 +480,13 @@ public sealed class DetailsModel(
 
         if (recipe.Inclusions.Count > 0)
         {
-            foreach (var subId in recipe.Inclusions.Select(i => i.SubRecipeId).Distinct())
-            {
-                var sub = await recipes.GetByIdAsync(subId, ct);
-                if (sub is not null) subInfo[subId] = (sub.Name, sub.DefaultServings);
-            }
+            // Batch-resolve every distinct sub-recipe's name/DefaultServings in one round-trip (ADR-024
+            // read-layer companion to ADR-021) — was one recipes.GetByIdAsync per sub-recipe.
+            var subIds = recipe.Inclusions.Select(i => i.SubRecipeId).Distinct().ToList();
+            var subSummaries = await recipes.GetSummariesByIdsAsync(subIds, ct);
+            foreach (var subId in subIds)
+                if (subSummaries.TryGetValue(subId, out var summary))
+                    subInfo[subId] = (summary.Name, summary.DefaultServings);
 
             var exProductIds = expandedLines.Select(l => l.ProductId).Distinct().ToList();
             exProductLookup = exProductIds.Count > 0

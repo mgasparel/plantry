@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Plantry.Composition.Infrastructure (plantry-g3da.9, ADR-024, ratified option B of plantry-swe3):
+    the composition read layer's persistence home. Sits beside Plantry.Ai.Infrastructure as the second
+    sanctioned context-free infrastructure project — it belongs to no bounded context, so it is
+    deliberately absent from BoundaryTests' InfrastructureContexts sibling-reference registry (like
+    Ai.Infrastructure and SharedKernel).
+
+    Holds the one piece of state the dissolved Housekeeping bounded context ever owned: the Dismissal
+    tombstone aggregate + HousekeepingDbContext (schema/table names unchanged — no data migration).
+    Standing precedent for all future context dissolutions: layer-owned state (dismissals, view
+    preferences, materialized roll-ups) lands here, never in Plantry.Web. Detector/read-model code
+    that merely *reads* other contexts' schemas stays in Plantry.Web (ADR-021 cross-schema read models
+    are not persistence).
+
+    Deliberately has NO reference to Plantry.Web — Plantry.Web references THIS project instead. That is
+    the whole point of the move: Plantry.Migrator (owner-credential container, ADR-016/017) and
+    Plantry.Tests.Unit now depend on Plantry.Composition.Infrastructure for HousekeepingDbContext instead
+    of on the deployable web app.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -128,7 +128,7 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 | 8 | System | Writes a `cook_event` row: `recipe_id`, `servings_cooked`, `cooked_at` (C3). |
 | 9 | System | Returns user to Detail page; `FulfillmentResult` re-computed (stock has changed). |
 
-**Domain events emitted:** `RecipeCooked(recipeId, householdId, servingsCooked, cookedBy, at)` (O2)
+**Domain events designed to emit (not implemented — see recipes-domain-model.md §9):** `RecipeCooked(recipeId, householdId, servingsCooked, cookedBy, at)` (O2)
 
 **Edge cases:**
 - All ingredients `Missing` → warning shown, cook allowed; user decides
@@ -176,7 +176,7 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 | 9 | System | Persists `Recipe` aggregate. |
 | 10 | System | Navigates user to the new recipe's Detail page. |
 
-**Domain events emitted:** `RecipeCreated(recipeId, householdId, at)`
+**Domain events designed to emit (not implemented — see recipes-domain-model.md §9):** `RecipeCreated(recipeId, householdId, at)`
 
 **Edge cases:**
 - Duplicate name → validation error: "A recipe with this name already exists" (C4)
@@ -200,7 +200,7 @@ User Journeys (← here)  →  Ubiquitous Language  →  Domain Model  →  Data
 | 7 | System | Validates (same rules as Create). Ingredient collection fully replaced on save (new ordered list is authoritative). |
 | 8 | System | Returns user to Detail page showing updated recipe. |
 
-**Domain events emitted:** `RecipeUpdated(recipeId, householdId, at)`
+**Domain events designed to emit (not implemented — see recipes-domain-model.md §9):** `RecipeUpdated(recipeId, householdId, at)`
 
 **Edge cases:**
 - Renaming to an existing name → validation error (C4)

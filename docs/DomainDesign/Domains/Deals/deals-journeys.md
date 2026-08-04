@@ -94,7 +94,7 @@ processor — no user present). Not a user-facing journey; it produces the work 
 | 6 | System | For each newly-`confirmed` deal, runs the **confirm side effects** (DJ4 steps 3–4): writes a `deal` `PriceObservation` and refreshes match memory. |
 | 7 | System | Emits a signal that **N deals are pending review** for this household (feeds the Home review-banner, §0b / [plantry-bpw], and the Deals-page review section). |
 
-**Domain events emitted:** `FlyerImported(householdId, flyerImportId, storeId, pendingCount, at)`;
+**Domain events designed to emit (not implemented — see deals-domain-model.md §9):** `FlyerImported(householdId, flyerImportId, storeId, pendingCount, at)`;
 `DealConfirmed(...)` per auto-confirmed deal (DJ4).
 
 **Edge cases:**
@@ -139,7 +139,7 @@ ACL mental model.
 | 4 | System | On **Reject:** the deal flips to `rejected`; optionally records a **negative** memory (`normalized_name → no product`) so the same junk isn't re-queued. **No** price observation is written (D5). |
 | 5 | System | The queue shrinks; when empty, the Home banner clears. Confirmed deals immediately become **active** (if in-window) and light up costing/badges/alerts (D6/D10/D11). |
 
-**Domain events emitted:** `DealConfirmed(householdId, dealId, productId, storeId, validFrom, validTo, by, at)`
+**Domain events designed to emit (not implemented — see deals-domain-model.md §9):** `DealConfirmed(householdId, dealId, productId, storeId, validFrom, validTo, by, at)`
 on confirm/correct; `DealRejected(householdId, dealId, by, at)` on reject.
 
 **Edge cases:**

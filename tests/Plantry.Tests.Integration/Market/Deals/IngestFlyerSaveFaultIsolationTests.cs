@@ -13,7 +13,7 @@ namespace Plantry.Tests.Integration.Market.Deals;
 
 /// <summary>
 /// L3 <b>per-subscription unit-of-work isolation</b> (P5-6 / DJ2, plantry-60p9). The whole household shares
-/// ONE scoped <see cref="DealsDbContext"/> across every subscription in a cycle. EF keeps entities tracked
+/// ONE scoped <see cref="MarketDbContext"/> across every subscription in a cycle. EF keeps entities tracked
 /// when <c>SaveChanges</c> throws, so a save-fault in one subscription strands its Added/Deleted
 /// <see cref="Deal"/> rows in the shared context; the next subscription's commit would otherwise flush them
 /// — inserting the failed flyer's deals and deleting the household's prior Pending deals meant only to be
@@ -57,7 +57,7 @@ public sealed class IngestFlyerSaveFaultIsolationTests(PostgresFixture db) : IAs
         // Pending deal and stage the new one, then fault on save — this deal MUST survive untouched.
         var priorImport = FlyerImport.Start(
             _household, _refreshStore, "refresh-flyer", contentHash: [9, 9], Window(), "{\"v\":1}", _clock);
-        priorImport.MarkParsed(pendingCount: 1, _clock);
+        priorImport.MarkParsed(_clock);
         await ctx.FlyerImports.AddAsync(priorImport);
         await ctx.SaveChangesAsync(); // persist the import before the deal — the composite FK has no EF navigation
 
@@ -142,21 +142,21 @@ public sealed class IngestFlyerSaveFaultIsolationTests(PostgresFixture db) : IAs
     }
 
     /// <summary>
-    /// Builds a DealsDbContext armed for <paramref name="household"/> exactly as the worker does: an app_user
+    /// Builds a MarketDbContext armed for <paramref name="household"/> exactly as the worker does: an app_user
     /// connection (so RLS applies), the RLS connection interceptor bound to a fresh <see cref="ITenantContext"/>,
     /// and the EF query filter via <c>SetHouseholdId</c>.
     /// </summary>
-    private DealsDbContext ArmedContext(HouseholdId household, out ITenantContext tenant)
+    private MarketDbContext ArmedContext(HouseholdId household, out ITenantContext tenant)
     {
         var armed = new ArmedTenantContext();
         armed.Set(household.Value);
         tenant = armed;
 
-        var options = new DbContextOptionsBuilder<DealsDbContext>()
+        var options = new DbContextOptionsBuilder<MarketDbContext>()
             .UseNpgsql(db.AppUserConnectionString)
             .AddInterceptors(new HouseholdRlsConnectionInterceptor(armed))
             .Options;
-        var ctx = new DealsDbContext(options);
+        var ctx = new MarketDbContext(options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

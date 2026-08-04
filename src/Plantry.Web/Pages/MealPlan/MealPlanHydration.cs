@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 
 namespace Plantry.Web.Pages.MealPlan;
 

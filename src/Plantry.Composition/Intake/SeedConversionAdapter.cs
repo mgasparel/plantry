@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Intake.Application;
 using Plantry.SharedKernel.Domain;
 

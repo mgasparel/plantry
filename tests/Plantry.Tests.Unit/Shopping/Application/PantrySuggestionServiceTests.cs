@@ -1,4 +1,4 @@
-using Plantry.Shopping.Application;
+using Plantry.Planning.Application;
 
 namespace Plantry.Tests.Unit.Shopping.Application;
 

@@ -7,10 +7,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Domain;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -247,8 +247,8 @@ internal static class TodayProductBatchingCommon
         services.RemoveAll<IMealPlanCatalogProductReader>();
         services.AddSingleton<IMealPlanCatalogProductReader>(catalogReader);
 
-        services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
-        services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
+        services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
+        services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
         TodayDealsStubs.RegisterEmpty(services);
     }
@@ -267,6 +267,10 @@ internal sealed class TodayFixedPlanSlotConfigRepo(MealSlotConfig config) : IMea
 
 internal sealed class TodayFixedPlanRepo(MealPlan plan) : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
         => Task.FromResult<MealPlan?>(plan);
     public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)

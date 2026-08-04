@@ -52,7 +52,7 @@ public sealed class IngestFlyerIsolationTests(PostgresFixture db) : IAsyncLifeti
 
             var window = ValidityWindow.Create(new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7)).Value;
             var bImport = FlyerImport.Start(_householdB, _storeB, "b-flyer", [9, 9], window, "{\"b\":1}", Clock);
-            bImport.MarkParsed(pendingCount: 1, Clock);
+            bImport.MarkParsed(Clock);
             await ctx.FlyerImports.AddAsync(bImport);
             await ctx.SaveChangesAsync(); // persist the import before the deal — the composite FK has no EF navigation to order the inserts
 
@@ -129,21 +129,21 @@ public sealed class IngestFlyerIsolationTests(PostgresFixture db) : IAsyncLifeti
     }
 
     /// <summary>
-    /// Builds a DealsDbContext armed for <paramref name="household"/> exactly as the worker does: an
+    /// Builds a MarketDbContext armed for <paramref name="household"/> exactly as the worker does: an
     /// app_user connection (so RLS applies), the RLS connection interceptor bound to a fresh
     /// <see cref="ITenantContext"/>, and the EF query filter via <c>SetHouseholdId</c>.
     /// </summary>
-    private DealsDbContext ArmedContext(HouseholdId household, out ITenantContext tenant)
+    private MarketDbContext ArmedContext(HouseholdId household, out ITenantContext tenant)
     {
         var armed = new ArmedTenantContext();
         armed.Set(household.Value);
         tenant = armed;
 
-        var options = new DbContextOptionsBuilder<DealsDbContext>()
+        var options = new DbContextOptionsBuilder<MarketDbContext>()
             .UseNpgsql(db.AppUserConnectionString)
             .AddInterceptors(new HouseholdRlsConnectionInterceptor(armed))
             .Options;
-        var ctx = new DealsDbContext(options);
+        var ctx = new MarketDbContext(options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

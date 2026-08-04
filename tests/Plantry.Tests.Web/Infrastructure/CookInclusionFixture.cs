@@ -62,6 +62,33 @@ public static class CookInclusionFixture
         return (parent, sub);
     }
 
+    /// <summary>
+    /// Builds a TWO-level nested inclusion chain — Root includes Branch (== <see cref="Build"/>'s Parent)
+    /// includes Leaf (== <see cref="Build"/>'s Sub) — so <c>BuildInclusionGroupMetaAsync</c>'s
+    /// breadth-first level walk (plantry-g3da.3 critic pass 2) is exercised across TWO frontier levels,
+    /// not just one. Root "Party Platter" (4 servings) includes Branch "Nachos" at 2 servings (factor
+    /// 2/4 = 0.5); Branch (4 servings) includes Leaf "Nacho Cheese" at 2 servings (factor 2/4 = 0.5) — so
+    /// Leaf's effective servings from Root's perspective is <c>2 (Branch's own inclusion servings) × 0.5
+    /// (Root's batches of Branch) = 1</c>.
+    /// </summary>
+    public static (Recipe Root, Recipe Branch, Recipe Leaf) BuildNested()
+    {
+        var (branch, leaf) = Build();
+
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+        var root = Recipe.Create(hid, "Party Platter", defaultServings: 4, clock).Value;
+        root.ReplaceLines(
+            RecipeLineSet.Create(
+                ingredients: [],
+                inclusions: [new InclusionLine(branch.Id, Servings: 2m, GroupHeading: null, Ordinal: 1)],
+                root.Id).Value,
+            clock);
+
+        return (root, branch, leaf);
+    }
+
     public static IReadOnlyDictionary<Guid, CatalogProduct> Products() =>
         new Dictionary<Guid, CatalogProduct>
         {
@@ -207,6 +234,85 @@ internal sealed class CookInclusionFactory : WebApplicationFactory<Program>
 
             // CookRecipe's just-in-time yield-product resolution (plantry-iejb) requires ICatalogWriter —
             // not exercised by these inclusion tests, but the WAF must still boot.
+            services.RemoveAll<ICatalogWriter>();
+            services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+
+            services.RemoveAll<ITagRepository>();
+            services.AddSingleton<ITagRepository>(new FakeTagRepository(new Dictionary<TagId, string>()));
+
+            services.RemoveAll<IPriceReader>();
+            services.AddSingleton<IPriceReader>(new FakeDetailPriceReader(new Dictionary<Guid, PricePoint>()));
+        });
+    }
+}
+
+/// <summary>
+/// L4 WebApplicationFactory for the TWO-level nested inclusion case (<see cref="CookInclusionFixture
+/// .BuildNested"/>, plantry-g3da.3 critic pass 2) — proves <c>BuildInclusionGroupMetaAsync</c>'s
+/// breadth-first level walk resolves BOTH levels correctly (name + effective servings), not just one.
+/// Otherwise identical to <see cref="CookInclusionFactory"/>.
+/// </summary>
+internal sealed class NestedCookInclusionFactory : WebApplicationFactory<Program>
+{
+    public Recipe Root { get; }
+    public Recipe Branch { get; }
+    public Recipe Leaf { get; }
+
+    public NestedCookInclusionFactory()
+    {
+        var (root, branch, leaf) = CookInclusionFixture.BuildNested();
+        Root = root;
+        Branch = branch;
+        Leaf = leaf;
+    }
+
+    public Guid RecipeId => Root.Id.Value;
+
+    /// <summary>The '/'-joined InclusionId path to the ROOT-level inclusion (Branch, "Nachos").</summary>
+    public string RootInclusionPathKey => Root.Inclusions.Single().Id.Value.ToString();
+
+    /// <summary>The '/'-joined InclusionId path to the BRANCH-level inclusion (Leaf, "Nacho Cheese"),
+    /// qualified under the root inclusion's path.</summary>
+    public string LeafInclusionPathKey =>
+        $"{RootInclusionPathKey}/{Branch.Inclusions.Single().Id.Value}";
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddFakeExpiringSoonHorizon();
+            services.AddAuthentication(opts =>
+                {
+                    opts.DefaultScheme = TestAuthHandler.SchemeName;
+                    opts.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                    opts.DefaultChallengeScheme = TestAuthHandler.SchemeName;
+                })
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+
+            services.RemoveAll<IRecipeRepository>();
+            services.AddScoped<IRecipeRepository>(sp =>
+                new FakeMultiRecipeRepository(sp.GetRequiredService<ITenantContext>(), Root, Branch, Leaf));
+
+            services.RemoveAll<ICatalogProductReader>();
+            services.AddSingleton<ICatalogProductReader>(
+                new FakeCookCatalogReader(CookInclusionFixture.Products(), CookInclusionFixture.UnitCodes()));
+
+            services.RemoveAll<IInventoryStockReader>();
+            services.AddSingleton<IInventoryStockReader>(
+                new FakeCookStockReader(CookInclusionFixture.Stock()));
+
+            services.RemoveAll<IUnitConverter>();
+            services.AddSingleton<IUnitConverter>(new FakeCookUnitConverter());
+            services.AddFakeQuantityFormatter();
+
+            services.RemoveAll<IInventoryConsumer>();
+            services.AddSingleton<IInventoryConsumer>(new RecordingFakeCookInventoryConsumer());
+
+            services.RemoveAll<ICookEventRepository>();
+            services.AddSingleton<ICookEventRepository>(new FakeCookEventRepository());
+
             services.RemoveAll<ICatalogWriter>();
             services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
 

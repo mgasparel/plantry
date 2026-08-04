@@ -25,12 +25,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Intake\Plantry.Intake.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Inventory\Plantry.Inventory.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.MealPlanning\Plantry.MealPlanning.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Pantry\Plantry.Pantry.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Planning\Plantry.Planning.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Planning.Infrastructure\Plantry.Planning.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Recipes\Plantry.Recipes.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Market\Plantry.Market.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Shopping\Plantry.Shopping.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Web\Plantry.Web.csproj" />
   </ItemGroup>
 

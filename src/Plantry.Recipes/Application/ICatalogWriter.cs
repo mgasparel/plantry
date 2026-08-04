@@ -27,7 +27,7 @@ public interface ICatalogWriter
 
     /// <summary>
     /// Inline-creates a tracked product as a variant of an existing group product
-    /// (<see cref="Plantry.Catalog.Application.CreateVariantCommand"/>). Inherits unit/category from
+    /// (<see cref="Plantry.Pantry.Application.CreateVariantCommand"/>). Inherits unit/category from
     /// the parent group unless overrides are supplied. Throws when Catalog rejects the create (e.g.
     /// unknown parent, max-depth violation, duplicate name).
     /// </summary>
@@ -35,7 +35,7 @@ public interface ICatalogWriter
 
     /// <summary>
     /// Inline-creates a new group (abstract parent, <c>trackStock = false</c>) and its first tracked
-    /// variant (<see cref="Plantry.Catalog.Application.CreateGroupedProductCommand"/>) atomically.
+    /// variant (<see cref="Plantry.Pantry.Application.CreateGroupedProductCommand"/>) atomically.
     /// Returns the variant's product id (the stock-holding product). Throws when Catalog rejects the
     /// create (e.g. duplicate group or variant name, unknown unit).
     /// </summary>

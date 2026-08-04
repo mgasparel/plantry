@@ -1,11 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
+using Plantry.Pantry.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -16,10 +14,10 @@ using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Web.Inventory;
 using Plantry.Web.Recipes;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
-using InventoryProductStock = Plantry.Inventory.Domain.ProductStock;
-using CatalogCategoryRepository = Plantry.Catalog.Infrastructure.CategoryRepository;
-using CatalogLocationRepository = Plantry.Catalog.Infrastructure.LocationRepository;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
+using InventoryProductStock = Plantry.Pantry.Domain.ProductStock;
+using CatalogCategoryRepository = Plantry.Pantry.Infrastructure.CategoryRepository;
+using CatalogLocationRepository = Plantry.Pantry.Infrastructure.LocationRepository;
 
 namespace Plantry.Tests.Integration.Recipes;
 
@@ -329,8 +327,8 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
         var (catalog, stocks, _, tenant) = BuildInventoryDependencies(household);
         var catDb = NewCatalogDb(household);
         var conversions = new CatalogConversionProvider(
-            new Plantry.Catalog.Infrastructure.ProductRepository(catDb),
-            new Plantry.Catalog.Infrastructure.UnitRepository(catDb));
+            new Plantry.Pantry.Infrastructure.ProductRepository(catDb),
+            new Plantry.Pantry.Infrastructure.UnitRepository(catDb));
         var consumer = new InventoryConsumerAdapter(
             stocks, catalog, conversions, Clock, tenant, NullLogger<ConsumeStockCommand>.Instance);
 
@@ -344,8 +342,8 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
     {
         var invDb = NewInventoryDb(household);
         var catDb = NewCatalogDb(household);
-        var productRepo = new Plantry.Catalog.Infrastructure.ProductRepository(catDb);
-        var unitRepo = new Plantry.Catalog.Infrastructure.UnitRepository(catDb);
+        var productRepo = new Plantry.Pantry.Infrastructure.ProductRepository(catDb);
+        var unitRepo = new Plantry.Pantry.Infrastructure.UnitRepository(catDb);
         var categoryRepo = new CatalogCategoryRepository(catDb);
         var locationRepo = new CatalogLocationRepository(catDb);
         var catalog = new CatalogReadFacade(productRepo, new UnitCodesAccessor(unitRepo), categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());

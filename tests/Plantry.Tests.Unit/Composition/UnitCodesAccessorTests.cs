@@ -1,7 +1,7 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
-using Plantry.Web.Inventory;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using Plantry.Pantry.Application;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Unit.Composition;
 
@@ -13,7 +13,7 @@ namespace Plantry.Tests.Unit.Composition;
 /// <c>UnitCodesAccessorQueryCountTests</c> pins the same contract against a real Postgres
 /// <c>units</c> table via <c>QueryCountingInterceptor</c>.
 /// <para>
-/// <c>Plantry.Catalog.Domain.Unit</c> is aliased to <see cref="CatalogUnit"/> — this file's own
+/// <c>Plantry.Pantry.Domain.Unit</c> is aliased to <see cref="CatalogUnit"/> — this file's own
 /// namespace, <c>Plantry.Tests.Unit.Composition</c>, has an enclosing segment literally named
 /// <c>Unit</c> (<c>Plantry.Tests.Unit</c>), which shadows the unqualified domain type name.
 /// </para>

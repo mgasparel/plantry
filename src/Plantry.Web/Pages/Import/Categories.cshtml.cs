@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Migration.Grocy;
 
 namespace Plantry.Web.Pages.Import;

@@ -74,6 +74,52 @@ public sealed class RecipeRepository(RecipesDbContext db) : IRecipeRepository
         return results.ToDictionary(r => r.Id, r => r.Name);
     }
 
+    public async Task<IReadOnlyDictionary<RecipeId, RecipeSummary>> GetSummariesByIdsAsync(
+        IReadOnlyList<RecipeId> ids,
+        CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+            return new Dictionary<RecipeId, RecipeSummary>();
+
+        // Lightweight name+DefaultServings projection with no navigation includes (no Ingredients/Tags/
+        // Photo) — unlike GetRecipeNamesByIdAsync this does NOT filter ArchivedAt, matching GetByIdAsync's
+        // existence semantics (an inclusion may reference a sub-recipe archived after being included).
+        // The RLS interceptor scopes the query to the current household automatically (ADR-008).
+        var wanted = ids.ToHashSet();
+        var results = await db.Recipes
+            .Where(r => wanted.Contains(r.Id))
+            .Select(r => new { r.Id, r.Name, r.DefaultServings })
+            .ToListAsync(ct);
+
+        return results.ToDictionary(r => r.Id, r => new RecipeSummary(r.Id, r.Name, r.DefaultServings));
+    }
+
+    public async Task<IReadOnlyDictionary<RecipeId, IReadOnlyList<RecipeInclusionRow>>> GetInclusionsByParentIdsAsync(
+        IReadOnlyList<RecipeId> parentIds,
+        CancellationToken ct = default)
+    {
+        if (parentIds.Count == 0)
+            return new Dictionary<RecipeId, IReadOnlyList<RecipeInclusionRow>>();
+
+        // One projection query for every inclusion row belonging to ANY of the given parents — no
+        // Recipe aggregate materialization (mirrors ListInclusionEdgesAsync's discipline, narrowed by
+        // parent id). Lets a breadth-first tree walk resolve one whole level per call. The RLS query
+        // filter on Inclusion scopes rows to the current household automatically (ADR-008).
+        var wanted = parentIds.ToHashSet();
+        var rows = await db.Inclusions
+            .Where(i => wanted.Contains(i.RecipeId))
+            .Select(i => new { i.RecipeId, i.Id, i.SubRecipeId, i.Servings })
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(r => r.RecipeId)
+            .ToDictionary(
+                g => g.Key,
+                IReadOnlyList<RecipeInclusionRow> (g) => g
+                    .Select(r => new RecipeInclusionRow(r.Id, r.SubRecipeId, r.Servings))
+                    .ToList());
+    }
+
     public async Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default)
     {
         // Project only the two id columns — no aggregate materialization. The RLS query filter on

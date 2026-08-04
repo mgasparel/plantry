@@ -1,4 +1,4 @@
-using Plantry.Catalog.Application;
+using Plantry.Pantry.Application;
 
 namespace Plantry.Tests.Integration.Infrastructure;
 

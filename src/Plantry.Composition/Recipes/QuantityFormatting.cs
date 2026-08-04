@@ -1,5 +1,5 @@
 using System.Globalization;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 
 namespace Plantry.Web.Recipes;

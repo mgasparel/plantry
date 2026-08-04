@@ -1,0 +1,277 @@
+using Microsoft.EntityFrameworkCore;
+using Plantry.Planning.Application;
+using Plantry.Recipes.Application;
+using Plantry.Recipes.Domain;
+using Plantry.Recipes.Infrastructure;
+using Plantry.SharedKernel.Domain;
+
+namespace Plantry.Web.MealPlanning;
+
+/// <summary>
+/// Web-side adapter for <see cref="IRecipeReadModel"/> — supplies the MealPlanning context with
+/// recipe display facts from the Recipes context, over <see cref="RecipesDbContext"/>.
+/// Also computes live fulfillment/cost enrichment by invoking Recipes' domain services
+/// (<see cref="FulfillmentService"/> / <see cref="CostingService"/>) — MealPlanning borrows
+/// these computations and rolls them up, never reimplements them (domain-model §1).
+/// Lives in Plantry.Web (the composition root) to keep MealPlanning free of Recipes dependencies.
+///
+/// <para>The enrichment roll-up and ShopForWeek shortfall (J6) read a recipe's <b>expanded</b> view
+/// (recipe-composition.md §7, D4) via <see cref="RecipeExpansionService"/>, so a dish that draws its
+/// ingredients from included sub-recipes rolls up the SAME expanded cost/fulfillment/shortfall shown on the
+/// recipe's Details page (J5) — no J5/J6 drift. A meal-plan week is low-N (≈7–21 dishes), so each dish is
+/// expanded per call through the single repo-backed choke point. Defensive: if expansion fails because an
+/// inclusion dangles (a tampered request that bypassed the picker — N5 blocks archiving an included recipe,
+/// so this cannot happen for legitimate recipes), that dish degrades to FLAT computation rather than
+/// disappearing from the plan.</para>
+/// </summary>
+public sealed class RecipeReadModelAdapter(
+    RecipesDbContext db,
+    RecipeExpansionService expansion,
+    FulfillmentService fulfillmentService,
+    CostingService costingService,
+    IClock clock,
+    IRecipeRatingRepository ratings) : IRecipeReadModel
+{
+    public async Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
+    {
+        // Use the strongly-typed RecipeId so EF Core's value converter can translate the predicate.
+        // Accessing .Value directly on a converted type in a LINQ predicate causes a translation
+        // failure when combined with a HasQueryFilter that also uses a converted type.
+        var rid = RecipeId.From(recipeId);
+        // Project rather than load the entity: `r.Photo != null` becomes an EXISTS/JOIN, so the
+        // (potentially large) photo bytes are never hydrated just to report presence.
+        var row = await db.Recipes
+            .Where(r => r.Id == rid && r.ArchivedAt == null)
+            .Select(r => new
+            {
+                r.Id,
+                r.Name,
+                TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                r.DefaultServings,
+                HasPhoto = r.Photo != null,
+                r.CookTimeMinutes,
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (row is null) return null;
+
+        return new RecipeReadModel(
+            row.Id.Value, row.Name, row.TagIds, row.DefaultServings, row.HasPhoto, row.CookTimeMinutes);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<Guid, RecipeReadModel>> GetByIdsAsync(
+        IReadOnlyCollection<Guid> recipeIds, CancellationToken ct = default)
+    {
+        if (recipeIds.Count == 0) return new Dictionary<Guid, RecipeReadModel>();
+
+        // Use the strongly-typed RecipeId set in the predicate — same rationale as GetByIdAsync
+        // above: accessing .Value directly on a converted-type column in a LINQ predicate fails to
+        // translate when combined with this DbContext's HouseholdId-based HasQueryFilter.
+        var ids = recipeIds.Select(RecipeId.From).ToHashSet();
+        var rows = await db.Recipes
+            .Where(r => r.ArchivedAt == null && ids.Contains(r.Id))
+            .Select(r => new
+            {
+                r.Id,
+                r.Name,
+                TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                r.DefaultServings,
+                HasPhoto = r.Photo != null,
+                r.CookTimeMinutes,
+            })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(
+            r => r.Id.Value,
+            r => new RecipeReadModel(r.Id.Value, r.Name, r.TagIds, r.DefaultServings, r.HasPhoto, r.CookTimeMinutes));
+    }
+
+    public async Task<IReadOnlyList<RecipeReadModel>> SearchAsync(
+        string nameQuery, int maxResults = 20, CancellationToken ct = default)
+    {
+        var q = string.IsNullOrWhiteSpace(nameQuery) ? "" : nameQuery.Trim();
+
+        var rows = await db.Recipes
+            .Where(r => r.ArchivedAt == null &&
+                        (q == "" || EF.Functions.ILike(r.Name, $"%{q}%")))
+            .OrderBy(r => r.Name)
+            .Take(maxResults)
+            .Select(r => new
+            {
+                r.Id,
+                r.Name,
+                TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                r.DefaultServings,
+                HasPhoto = r.Photo != null,
+            })
+            .ToListAsync(ct);
+
+        return rows.Select(r => new RecipeReadModel(
+            r.Id.Value, r.Name, r.TagIds, r.DefaultServings, r.HasPhoto)).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<RecipeDishEnrichment?> GetEnrichmentAsync(
+        Guid recipeId,
+        int servings,
+        DateOnly today,
+        CancellationToken ct = default)
+    {
+        var rid = RecipeId.From(recipeId);
+        var recipe = await db.Recipes
+            .Include(r => r.Ingredients)
+            .FirstOrDefaultAsync(r => r.Id == rid && r.ArchivedAt == null, ct);
+
+        if (recipe is null) return null;
+
+        // Borrow Recipes' domain services — MealPlanning rolls up, never recomputes. Expand to the flat
+        // product-level view (D4 choke point) so included recipes' products are reflected; degrade to flat
+        // on the degenerate dangling-inclusion case (see class remarks).
+        var expandResult = await expansion.ExpandAsync(rid, ct);
+
+        IReadOnlyList<IngredientStatus> statuses;
+        bool hasExpiring;
+        CostPerServing cost;
+        if (expandResult.IsSuccess)
+        {
+            var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
+            var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+                effectiveLines, recipe.DefaultServings, servings, today, ct);
+            cost = await costingService.ComputeExpandedAsync(effectiveLines, recipe.DefaultServings, servings, ct);
+            statuses = fulfillment.Lines.Select(l => l.Status).ToList();
+            hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+        }
+        else
+        {
+            var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
+            cost = await costingService.ComputeAsync(recipe, servings, ct);
+            statuses = fulfillment.Lines.Select(l => l.Status).ToList();
+            hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+        }
+
+        // Compute fulfillment % from the (expanded or flat) line-level results.
+        // Untracked staples are excluded (always satisfied, C12). Only tracked lines contribute.
+        var trackedCount = statuses.Count(s => s != IngredientStatus.Untracked);
+
+        int pct;
+        if (trackedCount == 0)
+        {
+            // No tracked ingredients → treat as 100% (untracked-only recipe is always cookable).
+            pct = 100;
+        }
+        else
+        {
+            var inStockCount = statuses.Count(s => s == IngredientStatus.InStock);
+            pct = (int)Math.Round(100.0 * inStockCount / trackedCount);
+        }
+
+        // TotalCost = CostPerServing.Amount × servings (Amount is per-serving; we want the total).
+        decimal? totalCost = cost.Amount.HasValue ? cost.Amount.Value * servings : null;
+
+        return new RecipeDishEnrichment(
+            pct,
+            totalCost,
+            cost.Completeness == CostCompleteness.Partial,
+            hasExpiring);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<Guid, Guid>> FindSoleYieldPhotoRecipeIdsAsync(
+        IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+    {
+        if (productIds.Count == 0) return new Dictionary<Guid, Guid>();
+
+        // YieldProductId is a plain (unconverted) Guid? column (RecipesDbContext.cs:56), unlike the
+        // RecipeId/ProductId value-object keys elsewhere in this adapter — a straight HashSet<Guid>
+        // .Contains translates without the value-object EF-translation caveat those need.
+        var ids = productIds.ToHashSet();
+        var rows = await db.Recipes
+            .Where(r => r.ArchivedAt == null && r.YieldProductId != null && ids.Contains(r.YieldProductId.Value))
+            .Select(r => new { ProductId = r.YieldProductId!.Value, r.Id, HasPhoto = r.Photo != null })
+            .ToListAsync(ct);
+
+        // Group by producer product, keep only the unambiguous (exactly one producer-recipe) groups,
+        // then require that sole recipe to have a photo — collapses zero/many/no-photo to "absent".
+        return rows
+            .GroupBy(r => r.ProductId)
+            .Where(g => g.Count() == 1)
+            .Select(g => g.Single())
+            .Where(r => r.HasPhoto)
+            .ToDictionary(r => r.ProductId, r => r.Id.Value);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
+    {
+        // Targeted full-corpus query: does ANY non-archived recipe carry this tag?
+        // Never filtered by the 50-cap candidate list from SearchAsync.
+        var tid = TagId.From(tagId);
+        return await db.Recipes
+            .Where(r => r.ArchivedAt == null)
+            .AnyAsync(r => r.Tags.Any(t => t.TagId == tid), ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(
+        Guid recipeId,
+        int servings,
+        CancellationToken ct = default)
+    {
+        var rid = RecipeId.From(recipeId);
+        var recipe = await db.Recipes
+            .Include(r => r.Ingredients)
+            .FirstOrDefaultAsync(r => r.Id == rid && r.ArchivedAt == null, ct);
+
+        if (recipe is null) return [];
+
+        var today = clock.ToLocalDate(clock.UtcNow);
+
+        // Expand to the flat product-level view (D4 choke point) and compute shortfall over the expanded set,
+        // so ShopForWeek buys for included recipes' products too. Delegate to the shared shortfall calculator
+        // (Missing + Low, shortfall = scaledRequired − available) so this path and AddMissingToShoppingList
+        // (J5) cannot diverge. Degrade to flat on the degenerate dangling-inclusion case (see class remarks).
+        var expandResult = await expansion.ExpandAsync(rid, ct);
+
+        IReadOnlyList<IngredientShortfall> shortfallLines;
+        if (expandResult.IsSuccess)
+        {
+            var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
+            var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+                effectiveLines, recipe.DefaultServings, servings, today, ct);
+            shortfallLines = RecipeShortfallCalculator.Compute(
+                effectiveLines, fulfillment, recipe.DefaultServings, servings);
+        }
+        else
+        {
+            var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
+            shortfallLines = RecipeShortfallCalculator.Compute(recipe, fulfillment, servings);
+        }
+
+        return shortfallLines
+            .Select(s => new RecipeMissingIngredient(s.ProductId, s.ShortfallQuantity, s.UnitId))
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<Guid, RecipeRatingSummary>> GetRatingSummariesAsync(
+        IReadOnlyCollection<Guid> recipeIds, CancellationToken ct = default)
+    {
+        if (recipeIds.Count == 0) return new Dictionary<Guid, RecipeRatingSummary>();
+
+        var ids = recipeIds.Select(RecipeId.From).ToList();
+        var rows = await ratings.ListByRecipeIdsAsync(ids, ct);
+
+        // Mirrors BrowseRecipesQuery's MyStars/HouseholdAvg/RatedCount math (plantry-zlwp.1) — same
+        // Math.Round(..., 1) convention so the planner's household-average signal never drifts from
+        // what the household sees on Browse/Details for the same recipe.
+        return rows
+            .GroupBy(r => r.RecipeId.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => new RecipeRatingSummary(
+                    StarsByUserId: g.ToDictionary(r => r.UserId, r => r.Stars),
+                    HouseholdAvg: Math.Round(g.Average(r => (decimal)r.Stars), 1),
+                    RatedCount: g.Count()));
+    }
+}

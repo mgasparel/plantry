@@ -9,7 +9,7 @@ namespace Plantry.Recipes.Application;
 /// <para>All traffic crosses as raw <see cref="Guid"/> soft refs (DM-3). The merge rule (shopping.md
 /// resolved call 5) — incrementing quantity when an unchecked item for the same product already exists
 /// — is Shopping's concern: the adapter passes <c>intentionalDuplicate = false</c> to the underlying
-/// <see cref="Plantry.Shopping.Application.AddItemCommand"/> so the merge happens automatically.</para>
+/// <see cref="Plantry.Planning.Application.AddItemCommand"/> so the merge happens automatically.</para>
 /// </summary>
 public interface IShoppingListWriter
 {

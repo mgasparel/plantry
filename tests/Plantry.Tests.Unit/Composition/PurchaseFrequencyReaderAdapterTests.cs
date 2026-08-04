@@ -1,4 +1,4 @@
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 using Plantry.Web.Deals;
 
 namespace Plantry.Tests.Unit.Composition;

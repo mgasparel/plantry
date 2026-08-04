@@ -1,5 +1,4 @@
-using Plantry.Catalog.Infrastructure;
-using Plantry.Inventory.Infrastructure;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Infrastructure;
 using Plantry.SharedKernel;

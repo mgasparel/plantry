@@ -25,7 +25,7 @@ Recipes is fully designed: [journeys](DomainDesign/Domains/Recipes/recipes-journ
   Shopping's `AddItems` write path and a list the user can actually see. The Shopping list was
   scoped in Phase 1 but never built; it is now a Phase-2 deliverable. It is fully designed
   ([shopping.md](DomainDesign/DataModels/shopping.md), DM-18) and already scaffolded
-  (`Plantry.Shopping` / `.Infrastructure`), so Phase 2 **completes** it rather than starting it.
+  (`Plantry.Planning` / `.Infrastructure`), so Phase 2 **completes** it rather than starting it.
 - **Shopping scope is lean-but-coherent.** Build the core list — view + category grouping,
   manual add (product or free text), check-off, clear — plus the J5 add-missing hook. Defer
   only per-item notes and Phase-5 deal badges. The aim is a list that stands on its own (so

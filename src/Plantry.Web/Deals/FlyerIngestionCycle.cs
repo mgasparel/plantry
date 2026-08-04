@@ -1,4 +1,4 @@
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
@@ -69,9 +69,10 @@ public sealed class FlyerIngestionCycle(IServiceScopeFactory scopeFactory, ILogg
     /// <summary>
     /// Processes one household in a fresh scope with tenancy armed exactly as <c>RlsMiddleware</c> does:
     /// <see cref="TenantContext"/> (arms the Postgres GUC via the connection interceptor) plus
-    /// <c>SetHouseholdId</c> on every context the ingest + confirm side-effects touch — Deals, Catalog
-    /// (stores/products/units), and Pricing (the deal-sourced observation). Getting this wrong is a
-    /// cross-household leak; getting it half-right is a silent no-op — hence all of them, every household.
+    /// <c>SetHouseholdId</c> on every context the ingest + confirm side-effects touch — Market (deals +
+    /// the deal-sourced pricing observation, one context since plantry-g3da.7) and Catalog
+    /// (stores/products/units). Getting this wrong is a cross-household leak; getting it half-right is a
+    /// silent no-op — hence all of them, every household.
     /// </summary>
     public async Task RunForHouseholdAsync(HouseholdId household, CancellationToken ct = default)
     {
@@ -80,9 +81,8 @@ public sealed class FlyerIngestionCycle(IServiceScopeFactory scopeFactory, ILogg
 
         var id = household.Value;
         sp.GetRequiredService<TenantContext>().Set(id);          // arms Postgres RLS (app.household_id GUC)
-        sp.GetRequiredService<DealsDbContext>().SetHouseholdId(id);    // Deals EF query filter
+        sp.GetRequiredService<MarketDbContext>().SetHouseholdId(id);   // Market EF query filter (pricing + deals)
         sp.GetRequiredService<CatalogDbContext>().SetHouseholdId(id);  // Catalog: stores, products, units
-        sp.GetRequiredService<PricingDbContext>().SetHouseholdId(id);  // Pricing: deal-sourced observation
 
         await sp.GetRequiredService<IngestFlyer>().RunAsync(ct);
     }

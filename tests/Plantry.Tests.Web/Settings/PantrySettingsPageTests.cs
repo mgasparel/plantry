@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Inventory.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.Tests.Web.Infrastructure;
 
@@ -15,7 +15,7 @@ namespace Plantry.Tests.Web.Settings;
 /// closing a coverage gap on plantry-5yhd). The sibling /Settings/MealPlanning already has this L4
 /// coverage; this proves the horizon is genuinely "settable via the UI" end-to-end.
 ///
-/// Test seam: the page injects the CONCRETE sealed <see cref="Plantry.Inventory.Application.ExpiringSoonSettingsService"/>,
+/// Test seam: the page injects the CONCRETE sealed <see cref="Plantry.Pantry.Application.ExpiringSoonSettingsService"/>,
 /// so faking <c>IExpiringSoonHorizon</c> would not intercept it. Instead we replace the single port
 /// the real service reaches for the database through — <see cref="IHouseholdInventorySettingsRepository"/>
 /// — with an in-memory fake, and let the REAL service run. This exercises page binding, [Range]

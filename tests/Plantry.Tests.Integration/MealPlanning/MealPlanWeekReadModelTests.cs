@@ -1,9 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
@@ -15,7 +13,7 @@ using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Integration.Infrastructure;
 using Plantry.Web.MealPlanning;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Integration.MealPlanning;
 
@@ -570,10 +568,10 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         return ctx;
     }
 
-    private PricingDbContext NewPricingDb()
+    private MarketDbContext NewPricingDb()
     {
-        var opts = new DbContextOptionsBuilder<PricingDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new PricingDbContext(opts);
+        var opts = new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new MarketDbContext(opts);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

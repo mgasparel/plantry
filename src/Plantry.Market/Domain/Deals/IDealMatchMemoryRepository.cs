@@ -2,7 +2,7 @@ namespace Plantry.Market.Domain;
 
 /// <summary>
 /// Read/write port for the <see cref="DealMatchMemory"/> aggregate (§6 / DD3). RLS-scoped to the current
-/// household by <c>DealsDbContext</c>. The confirm orchestration (P5-5) upserts on the
+/// household by <c>MarketDbContext</c>. The confirm orchestration (P5-5) upserts on the
 /// <c>(household, store, normalized_name)</c> key — <see cref="FindByKeyAsync"/> then either
 /// <see cref="AddAsync"/> a new memory or <c>Repoint</c> the existing one — so the upsert is idempotent
 /// across re-drives.

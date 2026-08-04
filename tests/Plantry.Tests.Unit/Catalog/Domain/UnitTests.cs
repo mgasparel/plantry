@@ -1,8 +1,8 @@
 using Plantry.SharedKernel;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
-using Dimension = Plantry.Catalog.Domain.Dimension;
-using DisplayStyle = Plantry.Catalog.Domain.DisplayStyle;
-using UnitSystem = Plantry.Catalog.Domain.UnitSystem;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
+using Dimension = Plantry.Pantry.Domain.Dimension;
+using DisplayStyle = Plantry.Pantry.Domain.DisplayStyle;
+using UnitSystem = Plantry.Pantry.Domain.UnitSystem;
 
 namespace Plantry.Tests.Unit.Catalog.Domain;
 

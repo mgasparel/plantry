@@ -1,5 +1,5 @@
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Migration.Grocy;
@@ -93,7 +93,7 @@ public sealed class UnitCommitService(
                         continue;
                     }
 
-                    var dimension = Catalog.Domain.DimensionExtensions.Parse(row.Dimension);
+                    var dimension = DimensionExtensions.Parse(row.Dimension);
                     var cmd = new CreateUnitCommand(
                         row.PlantryCode, row.PlantryName,
                         dimension, row.FactorToBase,

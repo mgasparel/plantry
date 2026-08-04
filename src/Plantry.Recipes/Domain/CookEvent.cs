@@ -32,8 +32,7 @@ public sealed class CookEvent : AggregateRoot<CookEventId>
     /// Bare soft-ref (DM-3) to the MealPlanning <c>PlannedDish</c> this cook fulfilled, when the cook
     /// was launched from the meal plan (plantry-0eut). Null for a recipe-launched cook. This is the
     /// ONLY link between a cook and a plan — MealPlanning is never written to; the plan UI DERIVES
-    /// cooked state by querying for a CookEvent with a matching PlannedDishId (no RecipeCookedEvent
-    /// subscriber — ADR-014 guardrail, see the comment on RecipeCooked dispatch in CookRecipe.cs).
+    /// cooked state by querying for a CookEvent with a matching PlannedDishId.
     /// </summary>
     public Guid? PlannedDishId { get; private set; }
 

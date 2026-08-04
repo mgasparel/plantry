@@ -4,11 +4,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Domain;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -169,7 +168,7 @@ public sealed class FakeSessionProductRepository(Product product) : IProductRepo
 /// for why a literal constant id doesn't work here).</summary>
 public sealed class FakeSessionUnitRepository(Unit unit) : IUnitRepository
 {
-    public Task<Unit?> FindAsync(Plantry.Catalog.Domain.UnitId id, CancellationToken ct = default) =>
+    public Task<Unit?> FindAsync(Plantry.Pantry.Domain.UnitId id, CancellationToken ct = default) =>
         Task.FromResult(id == unit.Id ? unit : null);
     public Task<Unit?> FindByCodeAsync(string code, CancellationToken ct = default) => Task.FromResult<Unit?>(null);
     public Task<List<Unit>> ListAsync(CancellationToken ct = default) => Task.FromResult(new List<Unit>());
@@ -245,12 +244,12 @@ public sealed class IntakeHistorySessionFragmentFactory : WebApplicationFactory<
             services.AddScoped<IImportSessionRepository>(sp => new MultiSessionImportSessionRepository(
                 sp.GetRequiredService<ITenantContext>(), Committed, CommittedManual, Ready, Failed, Discarded, ForeignCommitted));
 
-            services.RemoveAll<Plantry.Catalog.Domain.IProductRepository>();
-            services.AddScoped<Plantry.Catalog.Domain.IProductRepository>(
+            services.RemoveAll<Plantry.Pantry.Domain.IProductRepository>();
+            services.AddScoped<Plantry.Pantry.Domain.IProductRepository>(
                 _ => new FakeSessionProductRepository(ExistingProduct));
 
-            services.RemoveAll<Plantry.Catalog.Domain.IUnitRepository>();
-            services.AddScoped<Plantry.Catalog.Domain.IUnitRepository>(
+            services.RemoveAll<Plantry.Pantry.Domain.IUnitRepository>();
+            services.AddScoped<Plantry.Pantry.Domain.IUnitRepository>(
                 _ => new FakeSessionUnitRepository(ExistingUnit));
 
             services.RemoveAll<IProductStockRepository>();

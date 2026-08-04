@@ -6,8 +6,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Infrastructure;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.SharedKernel.Domain;
 using Plantry.Web.MealPlanning;
 
@@ -158,8 +158,13 @@ public class MealPlanFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton(StockReader);
             services.RemoveAll<IMealPlanPriceReader>();
             services.AddSingleton<IMealPlanPriceReader>(new NullPriceReader());
-            services.RemoveAll<IMealPlanShoppingWriter>();
-            services.AddSingleton<IMealPlanShoppingWriter>(new NullShoppingWriter());
+            // ShopForWeekService calls Shopping's AddItemCommand directly (intra-context since the
+            // Planning merge, ADR-024) — stub its two dependencies instead of the former
+            // IMealPlanShoppingWriter port.
+            services.RemoveAll<IShoppingListRepository>();
+            services.AddSingleton<IShoppingListRepository>(new NullShoppingListRepository());
+            services.RemoveAll<IShoppingCatalogReader>();
+            services.AddSingleton<IShoppingCatalogReader>(new NullShoppingCatalogReader());
 
             if (EatWriter is { } eatWriter)
             {

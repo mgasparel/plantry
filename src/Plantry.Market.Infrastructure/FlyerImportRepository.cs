@@ -5,11 +5,11 @@ namespace Plantry.Market.Infrastructure;
 
 /// <summary>
 /// EF-backed repository for the <see cref="FlyerImport"/> aggregate (P5-6). All queries run through
-/// <see cref="DealsDbContext"/>'s household query filter (RLS-scoped), so the <c>(store, flyer_external_id)</c>
+/// <see cref="MarketDbContext"/>'s household query filter (RLS-scoped), so the <c>(store, flyer_external_id)</c>
 /// dedup lookup resolves only within the armed household — the third leg of the DD5 uniqueness key. The lookup
 /// matches only <see cref="PullStatus.Parsed"/> rows, mirroring the partial unique index (plantry-0l05).
 /// </summary>
-public sealed class FlyerImportRepository(DealsDbContext db) : IFlyerImportRepository
+public sealed class FlyerImportRepository(MarketDbContext db) : IFlyerImportRepository
 {
     public Task<FlyerImport?> FindParsedByDedupKeyAsync(Guid storeId, string flyerExternalId, CancellationToken ct = default) =>
         db.FlyerImports.FirstOrDefaultAsync(
@@ -38,7 +38,7 @@ public sealed class FlyerImportRepository(DealsDbContext db) : IFlyerImportRepos
 
     public async Task ExecuteInTransactionAsync(Func<CancellationToken, Task> action, CancellationToken ct = default)
     {
-        // Explicit transaction on the shared DealsDbContext so an import's whole materialization commits
+        // Explicit transaction on the shared MarketDbContext so an import's whole materialization commits
         // atomically (plantry-pwkm). Two saves live inside it — the FlyerImport INSERT then its deals — because
         // the deal → flyer_import composite FK is enforced yet unmodelled in EF, so EF cannot order the inserts
         // within a single save. On any exception the transaction is disposed without a commit and Postgres rolls

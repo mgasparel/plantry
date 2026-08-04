@@ -103,6 +103,8 @@ arrived — generated, auto-filled at any **PlanningScope**, or hand-assigned. P
 
 ## Domain Events
 
+> **Not implemented (plantry-g3da.4, ADR-024).** The dispatcher machinery and every concrete `IDomainEvent` were deleted after accumulating zero subscribers. The events below remain the *designed* model — reintroduce a concrete event + dispatcher when a genuine subscriber exists.
+
 | Event | Payload | Emitted when |
 |-------|---------|--------------|
 | **MealPlanned** | `householdId, weekStart, date, slotId, source` (`manual` \| `ai`)`, by, at` | A meal is saved into the plan — manually assigned/edited (J5, `source: manual`) **or** an AI suggestion accepted (J4, `source: ai`). |

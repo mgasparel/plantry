@@ -29,21 +29,16 @@
     <ProjectReference Include="..\..\src\Plantry.SharedKernel\Plantry.SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Identity\Plantry.Identity.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Identity.Infrastructure\Plantry.Identity.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Catalog\Plantry.Catalog.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Catalog.Infrastructure\Plantry.Catalog.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Inventory\Plantry.Inventory.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Inventory.Infrastructure\Plantry.Inventory.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Pantry\Plantry.Pantry.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Pantry.Infrastructure\Plantry.Pantry.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Market\Plantry.Market.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Market.Infrastructure\Plantry.Market.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Shopping\Plantry.Shopping.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Shopping.Infrastructure\Plantry.Shopping.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Planning\Plantry.Planning.csproj" />
+    <ProjectReference Include="..\..\src\Plantry.Planning.Infrastructure\Plantry.Planning.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Intake\Plantry.Intake.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Intake.Infrastructure\Plantry.Intake.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Recipes\Plantry.Recipes.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Recipes.Infrastructure\Plantry.Recipes.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.MealPlanning\Plantry.MealPlanning.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.MealPlanning.Infrastructure\Plantry.MealPlanning.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Plantry.Housekeeping.Infrastructure\Plantry.Housekeeping.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Migrator\Plantry.Migrator.csproj" />
     <ProjectReference Include="..\..\src\Plantry.Web\Plantry.Web.csproj" />
   </ItemGroup>

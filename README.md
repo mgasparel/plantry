@@ -113,7 +113,7 @@ E2E tests require a running instance and aren't part of the standard PR pipeline
 
 ### Mutation testing
 
-Domain logic in `Plantry.SharedKernel` and `Plantry.Catalog` (the conversion-resolution and
+Domain logic in `Plantry.SharedKernel` and `Plantry.Pantry` (the conversion-resolution and
 product-invariant core — `UnitConverter`, `Product`, `ExpiryDefaultResolver`) is checked with
 [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/). Stryker mutates one
 source project per run, so each domain has its own config:

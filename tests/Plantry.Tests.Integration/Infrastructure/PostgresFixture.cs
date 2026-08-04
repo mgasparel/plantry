@@ -45,7 +45,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         _respawner = await Respawner.CreateAsync(conn, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = MigrationTargets.All.Select(t => t.Schema).ToArray(),
+            SchemasToInclude = MigrationTargets.All.SelectMany(t => t.Schemas).ToArray(),
         });
     }
 

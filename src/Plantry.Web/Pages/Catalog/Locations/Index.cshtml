@@ -30,7 +30,7 @@
         </div>
         <div class="field field--inline">
             <label asp-for="Input.Type" class="field__label">Type</label>
-            <select asp-for="Input.Type" class="field__input" asp-items="Html.GetEnumSelectList<Plantry.Catalog.Domain.LocationType>()"></select>
+            <select asp-for="Input.Type" class="field__input" asp-items="Html.GetEnumSelectList<Plantry.Pantry.Domain.LocationType>()"></select>
             <span asp-validation-for="Input.Type" class="field__error"></span>
         </div>
         <button type="submit" class="btn btn--primary">Create location</button>

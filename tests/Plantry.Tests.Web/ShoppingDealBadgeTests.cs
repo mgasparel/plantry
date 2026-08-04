@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Plantry.Shopping.Application;
+using Plantry.Planning.Application;
 using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web;

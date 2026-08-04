@@ -19,8 +19,7 @@ namespace Plantry.Recipes.Application;
 /// <see cref="AuthorRecipeResult.NeedsConversion"/> when no path exists and writing the author-supplied
 /// factor on the retry. Tags are resolved by <see cref="TagId"/> — the picker posts known household tag
 /// ids; unknown or foreign ids are silently dropped (no minting). Persists through
-/// <see cref="IRecipeRepository"/> — RecipeCreated/RecipeUpdated flow out through the DomainEventDispatch
-/// interceptor on save.</para>
+/// <see cref="IRecipeRepository"/>.</para>
 /// </summary>
 public sealed class AuthorRecipe(
     IRecipeRepository recipes,

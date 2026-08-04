@@ -58,7 +58,11 @@ public sealed class MigrationTargetsConventionTests
         // by an un-relabeled schema). This test pins both so a future reorder fails loudly instead of
         // silently reintroducing either bug class.
         Assert.Equal("Plantry.Identity.Infrastructure", MigrationTargets.All[0].MigrationsAssembly);
-        Assert.Equal("Plantry.Housekeeping.Infrastructure", MigrationTargets.All[^1].MigrationsAssembly);
+        // "Plantry.Composition.Infrastructure" (was "Plantry.Web" before plantry-g3da.9, ADR-024
+        // ratified option B, moved HousekeepingDbContext's migrations into the read layer's standing
+        // persistence home; was "Plantry.Housekeeping.Infrastructure" before that, ADR-024 Phase A,
+        // plantry-g3da.2).
+        Assert.Equal("Plantry.Composition.Infrastructure", MigrationTargets.All[^1].MigrationsAssembly);
     }
 
     private static string RepoRoot()

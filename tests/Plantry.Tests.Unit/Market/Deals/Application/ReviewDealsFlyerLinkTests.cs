@@ -51,7 +51,7 @@ public sealed class ReviewDealsFlyerLinkTests
     {
         var window = ValidityWindow.Create(from, to).Value;
         var import = FlyerImport.Start(Household, storeId, externalId, contentHash: null, window, "{}", _clock);
-        import.MarkParsed(pendingCount: 1, _clock);
+        import.MarkParsed(_clock);
         _flyerImports.Items.Add(import);
     }
 

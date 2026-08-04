@@ -27,7 +27,7 @@
 
 ## Overall structure
 
-Plantry is a **modular monolith**: one .NET process, one PostgreSQL database, nine bounded contexts. There is no second backend tier, no JavaScript server, no message broker, and no SPA.
+Plantry is a **modular monolith**: one .NET process, one PostgreSQL database, eight bounded contexts. There is no second backend tier, no JavaScript server, no message broker, and no SPA.
 
 ```
 Browser
@@ -50,56 +50,50 @@ The UI renders domain state directly as HTML. There is no client-side domain mod
 
 ## Bounded contexts
 
-Eight contexts in one process and database, each with its own module/namespace, its own aggregates, and ID-only references across boundaries.
+Six contexts in one process and database, each with its own module/namespace, its own aggregates, and ID-only references across boundaries.
 
 | Context | Type | Phase | Owns |
 |---|---|---|---|
 | Identity & Access | generic | 1 | Household (tenant), User, membership, auth/session |
-| Catalog | supporting | 1 | Product (+SKUs, +conversions), Unit, Location, Category, expiry defaults |
-| Inventory | core | 1 | Stock lots, stock journal, FEFO consume, transfer, freeze/thaw, open |
+| Pantry | supporting/core | 1 | Product (+SKUs, +conversions), Unit, Location, Category, expiry defaults; stock lots, stock journal, FEFO consume, transfer, freeze/thaw, open. Catalog + Inventory merged per ADR-024 (2026-08-04) — two schemas retained (`catalog`, `inventory`), one bounded context. |
 | Intake | core | 1 | Receipt image, AI parse/match, import proposal, review-then-commit |
 | Market | supporting/core | 1→2, 5 | Price observations (purchase + deal), price read models; store subscription, flyer ingestion (ACL), deal, match queue + memory. Pricing + Deals merged per ADR-024 (2026-08-03) — two schemas retained (`pricing`, `deals`), one bounded context. |
 | Recipes | core | 2 | Recipe (+ingredients, +directions), cook flow; fulfillment & cost as read models |
-| Meal Planning | core | 3 | Meal plan, slots, AI plan proposal |
-| Shopping | supporting | 1 | Shopping list, items, check-off |
+| Planning | core/supporting | 1, 3 | Meal plan, slots, AI plan proposal; shopping list, items, check-off. Meal Planning + Shopping merged per ADR-024 (2026-08-03) — two schemas retained (`meal_planning`, `shopping`), one bounded context. |
 
 ### Context map
 
 ```mermaid
 graph TD
     IA["Identity &amp; Access<br/><i>generic</i>"]
-    CAT["Catalog<br/><i>supporting</i>"]
-    INV["Inventory<br/><i>core</i>"]
+    PAN["Pantry<br/><i>supporting/core</i>"]
     INT["Intake<br/><i>core</i>"]
     MKT["Market<br/><i>supporting/core</i>"]
     REC["Recipes<br/><i>core</i>"]
-    MP["Meal Planning<br/><i>core</i>"]
-    SHOP["Shopping<br/><i>supporting</i>"]
+    PLAN["Planning<br/><i>core/supporting</i>"]
 
-    IA -. "HouseholdId (shared kernel)" .-> CAT
+    IA -. "HouseholdId (shared kernel)" .-> PAN
 
-    CAT --> INV & INT & REC & SHOP & MKT
-    INT -- "record purchase" --> INV
+    PAN --> INT & REC & PLAN & MKT
+    INT -- "record purchase" --> PAN
     INT -- "purchase price" --> MKT
-    INV --> REC & MP & SHOP
-    MKT --> REC & MP & SHOP
-    REC -- "cook: consume" --> INV
-    REC --> MP & SHOP
-    MP --> SHOP
+    MKT --> REC & PLAN
+    REC -- "cook: consume" --> PAN
+    REC --> PLAN
 ```
 
 *Arrow = "supplies / is upstream of".*
 
 **Key relationships:**
 
-- **Catalog** is the universal upstream supplier. All other contexts reference catalog entities by ID only (`ProductId`, `UnitId`, `LocationId`). Nothing downstream mutates Catalog.
-- **Inventory** is the ground truth for stock. It receives commands (purchase, consume, transfer) from Intake and from Recipes' cook flow, and supplies fulfillment data to Recipes, Meal Planning, and Shopping.
-- **Market** (Pricing + Deals merged per ADR-024, 2026-08-03 — two schemas retained) is fed by two writers (Intake for purchase prices, its own flyer ingestion ACL for deal prices) and read by Recipes, Meal Planning, and Shopping for cost-per-serving/deal data. Its Deals half wraps an untrusted external source (flyer data) behind an Anticorruption Layer — raw input lands in a proposal/staging aggregate and only crosses into the confirmed `Deal`/price_observation after user confirmation, exactly like Intake's AI parse.
+- **Pantry** (Catalog + Inventory merged per ADR-024, 2026-08-04 — two schemas retained) is the universal upstream supplier and the ground truth for stock. All other contexts reference its catalog entities by ID only (`ProductId`, `UnitId`, `LocationId`); nothing downstream mutates the catalog half. It receives stock commands (purchase, consume, transfer) from Intake and from Recipes' cook flow, and supplies fulfillment data to Recipes and Planning. The former Inventory→Catalog take-stock ACL (`ITakeStockCatalogWriter`/`ITakeStockReader`) is now an intra-context call — both halves live in Plantry.Pantry.
+- **Market** (Pricing + Deals merged per ADR-024, 2026-08-03 — two schemas retained) is fed by two writers (Intake for purchase prices, its own flyer ingestion ACL for deal prices) and read by Recipes and Planning for cost-per-serving/deal data. Its Deals half wraps an untrusted external source (flyer data) behind an Anticorruption Layer — raw input lands in a proposal/staging aggregate and only crosses into the confirmed `Deal`/price_observation after user confirmation, exactly like Intake's AI parse.
+- **Planning** (Meal Planning + Shopping merged per ADR-024, 2026-08-03 — two schemas retained) is fed by Pantry, Market, and Recipes, and is Recipes' only downstream (the meal plan's "shop for the week" flow writes to the shopping list — an intra-context call now that both halves live in Plantry.Planning). Meal Planning's AI plan-generation half follows the same untrusted-input staging pattern as Intake and Market's Deals half.
 - **Intake** wraps an untrusted external source (AI model) behind an Anticorruption Layer — raw input lands in a proposal/staging aggregate and only crosses into core contexts after user confirmation.
 
 ### Integration
 
-Contexts communicate via **in-process application-service calls**. Where a downstream reaction should be loosely coupled (e.g., Market reacting to a purchase), **in-process domain events** decouple the caller from the subscriber without a message broker.
+Contexts communicate via **in-process application-service calls** — every real cross-context write today is a synchronous port call. A domain-event dispatcher for loosely-coupled reactions was built and then deleted (ADR-024, plantry-g3da.4) when it accumulated zero real subscribers; `AggregateRoot`'s raise/buffer mechanism remains available to reintroduce one when a genuine eventual-reaction need appears.
 
 ---
 
@@ -108,13 +102,11 @@ Contexts communicate via **in-process application-service calls**. Where a downs
 | Context | Aggregate roots |
 |---|---|
 | Identity & Access | `User`, `Household` |
-| Catalog | `Product` (with SKU + conversion children), `Location`, `Unit`, `Category` — within-dimension conversion is a `Unit.factor_to_base` column, not an aggregate (ADR-010 amended; DATA-MODEL DM-8). `Product` carries an optional `parent_product_id` (self-referencing FK) — see Product Groups below. |
-| Inventory | `ProductStock` (keyed by `household_id + product_id`, holds `StockEntry` lots + emits immutable `StockJournalEntry`) |
+| Pantry | `Product` (with SKU + conversion children, schema `catalog`), `Location`, `Unit`, `Category` — within-dimension conversion is a `Unit.factor_to_base` column, not an aggregate (ADR-010 amended; DATA-MODEL DM-8). `Product` carries an optional `parent_product_id` (self-referencing FK) — see Product Groups below. `ProductStock` (keyed by `household_id + product_id`, schema `inventory`, holds `StockEntry` lots + emits immutable `StockJournalEntry`) — Catalog and Inventory merged into one bounded context per ADR-024 (2026-08-04); `CatalogDbContext` and `InventoryDbContext` remain two separate DbContexts in one `Plantry.Pantry.Infrastructure` assembly (plantry-g3da.6) — the schemas themselves did not move or merge. `Product` and `ProductStock` (and their child aggregates) remain separate aggregate roots, modified one-per-transaction. |
 | Intake | `ImportSession` (1:1 `import_receipt` source binary; `ImportLine` children carry the AI proposal in `raw_parse` jsonb + typed resolved fields; per-row match + confidence, status lifecycle) — DATA-MODEL DM-15 |
-| Market | `PriceObservation` (append-only, schema `pricing`); `StoreSubscription`, `FlyerImport` (ACL provenance, `raw_flyer` jsonb quarantine), `Deal` (its own long-lived root), `DealMatchMemory` (schema `deals`) — the merchant *identity* `Store` is **Catalog-owned** (DM-16), referenced by ID (ADR-010 amended; DATA-MODEL DM-22). Pricing and Deals merged into one bounded context per ADR-024 (2026-08-03); each half keeps its own DbContext, schema, and migration history — no data migration. |
+| Market | `PriceObservation` (append-only, schema `pricing`); `StoreSubscription`, `FlyerImport` (ACL provenance, `raw_flyer` jsonb quarantine), `Deal` (its own long-lived root), `DealMatchMemory` (schema `deals`) — the merchant *identity* `Store` is **Catalog-owned** (DM-16), referenced by ID (ADR-010 amended; DATA-MODEL DM-22). Pricing and Deals merged into one bounded context per ADR-024 (2026-08-03); a single `MarketDbContext` owns both the `pricing` and `deals` schemas (unified plantry-g3da.7) — the schemas themselves did not move or merge. |
 | Recipes | `Recipe` (with `Ingredient` children); fulfillment and cost are read models, not aggregates |
-| Meal Planning | `MealPlan` (with `Slot` children), `MealSlotConfig`, `MealPlanProposal` (AI staging) |
-| Shopping | `ShoppingList` (with `Item` children) |
+| Planning | `MealPlan` (with `Slot` children), `MealSlotConfig`, `MealPlanProposal` (AI staging, schema `meal_planning`); `ShoppingList` (with `Item` children, schema `shopping`) — Meal Planning and Shopping merged into one bounded context per ADR-024 (2026-08-03); `MealPlanningDbContext` and `ShoppingDbContext` remain two separate DbContexts in one `Plantry.Planning.Infrastructure` assembly (plantry-g3da.5) — the schemas themselves did not move or merge. `MealPlan` and `ShoppingList` remain separate aggregate roots, modified one-per-transaction. |
 
 Aggregates are modified one-per-transaction. Cross-aggregate references are by ID only.
 
@@ -178,6 +170,7 @@ PostgreSQL is the single system of record. Notable choices:
 - **jsonb** for semi-structured AI output (proposal rows, parsed receipt data).
 - **`bytea` / large objects** for binary content (receipt images, recipe photos) — stored in the database alongside relational data for a single backup stream.
 - **No domain logic in the database** — triggers, stored procedures, and computed columns that encode business rules are out of scope.
+- **`Plantry.Composition.Infrastructure`** is the composition read layer's persistence home (ADR-024, plantry-g3da.9, ratified option B of plantry-swe3) — the sanctioned landing spot for layer-owned state from a dissolved bounded context (e.g. the Housekeeping/Tidy Up `Dismissal` tombstone) that doesn't belong to any surviving context, so it can't live in Plantry.Web (the composition root must never own persistence directly, and Plantry.Migrator must never reference the deployable web app).
 
 ---
 
@@ -196,8 +189,8 @@ Plantry runs as a **self-contained Docker stack**: the .NET web app + PostgreSQL
 - **AI model / provider selection** — per-task model (parse, match, plan) undecided.
 - ~~**Auth mechanism specifics**~~ — *resolved:* delegated to ASP.NET Core Identity (auth, sessions, password hashing, lockout); we own only `household`/`household_settings`/`household_invite` (ADR-008 amended; DATA-MODEL DM-6).
 - **Per-member roles / permissions** — deferred; v1 is flat.
-- ~~**Physical module layout**~~ — *resolved:* multiple projects — one domain project per bounded context (`Plantry.Identity`, `Plantry.Catalog`, `Plantry.Inventory`, `Plantry.Intake`, `Plantry.Pricing`, `Plantry.Shopping`) with a paired `*.Infrastructure` project per context and a shared `Plantry.SharedKernel`.
-- ~~**Domain-event dispatcher**~~ — *resolved:* wired in Phase 1 — an EF Core `DomainEventDispatchInterceptor` dispatches events after `SaveChanges`; Intake is the first emitter (`ImportSessionCommittedEvent`).
+- ~~**Physical module layout**~~ — *resolved:* multiple projects — one domain project per bounded context (`Plantry.Identity`, `Plantry.Pantry`, `Plantry.Intake`, `Plantry.Market`, `Plantry.Planning`, `Plantry.Recipes`) with a paired `*.Infrastructure` project per context and a shared `Plantry.SharedKernel`.
+- ~~**Domain-event dispatcher**~~ — *resolved (plantry-g3da.4, ADR-024):* deleted. The EF Core interceptor/buffer/dispatcher machinery and every concrete `IDomainEvent` implementation had zero real subscribers (the sole registered handler was a no-op logger) — carrying it unused was pure agent-misuse surface (ADR-018). `AggregateRoot`'s generic raise/buffer mechanism stays, ready for a concrete event + dispatcher to be reintroduced once a genuine cross-context subscriber is needed.
 - **Deals ACL specifics** — tied to Flipp access question.
 - ~~**Concrete PostgreSQL schema**~~ — *resolved:* all Phase-1 contexts decided — Pricing and Shopping schemas finalized in `DomainDesign/DataModels/pricing.md` and `DomainDesign/DataModels/shopping.md`. ADR-010 gives table groupings and FK discipline.
 - ~~**Cloud deployment target**~~ — *resolved for single-tenant:* production is a single host running Docker Compose, deployed from CI via GHCR (ADR-016); migrations run via an explicit migrator (ADR-017). A **hosted, multi-household** offering remains deferred until it is on the roadmap.

@@ -1,5 +1,5 @@
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 
@@ -13,7 +13,7 @@ namespace Plantry.Tests.Unit.Catalog.Application;
 public sealed class SetDefaultLocationCommandTests
 {
     private static readonly HouseholdId HouseholdId = Plantry.SharedKernel.HouseholdId.New();
-    private static readonly UnitId UnitId = Plantry.Catalog.Domain.UnitId.New();
+    private static readonly UnitId UnitId = Plantry.Pantry.Domain.UnitId.New();
     private static readonly IClock Clock = SystemClock.Instance;
 
     private static Product NewProduct(string name = "Flour") =>

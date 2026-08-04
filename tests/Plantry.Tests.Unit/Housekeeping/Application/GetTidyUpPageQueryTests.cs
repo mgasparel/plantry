@@ -1,5 +1,5 @@
-using Plantry.Housekeeping.Application;
-using Plantry.Housekeeping.Domain;
+using Plantry.Composition.Infrastructure;
+using Plantry.Web.Housekeeping;
 using Plantry.SharedKernel;
 using Xunit;
 

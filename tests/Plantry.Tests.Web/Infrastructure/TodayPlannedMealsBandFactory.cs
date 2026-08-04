@@ -6,10 +6,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Identity.Domain;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -132,8 +132,8 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
 
             // IHouseholdMemberReader — Today page now loads members for attendee avatars.
             // The fixture household has one member (the registering user — Guid.Empty for simplicity).
-            services.RemoveAll<Plantry.MealPlanning.Application.IHouseholdMemberReader>();
-            services.AddSingleton<Plantry.MealPlanning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
+            services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
+            services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
             // Empty Deals seams (plantry-bpw) — Today now consumes BrowseDeals for the deal banner.
             TodayDealsStubs.RegisterEmpty(services);
@@ -306,6 +306,10 @@ internal sealed class FakeTodayPlannedBandSlotConfigRepo : IMealSlotConfigReposi
 /// </summary>
 internal sealed class FakeTodayPlannedBandMealPlanRepo : IMealPlanRepository
 {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
     private readonly MealPlan _plan;
 
     public FakeTodayPlannedBandMealPlanRepo()
@@ -438,8 +442,8 @@ internal sealed class FakeTodayNullCatalogProductReader : IMealPlanCatalogProduc
 /// are also empty, so no attendee avatars render — the Today band shows slots without
 /// the attendees section. Inject real members here if an attendee-avatar test is added.
 /// </summary>
-internal sealed class FakeTodayPlannedBandMemberReader : Plantry.MealPlanning.Application.IHouseholdMemberReader
+internal sealed class FakeTodayPlannedBandMemberReader : Plantry.Planning.Application.IHouseholdMemberReader
 {
-    public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
+    public Task<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>>([]);
 }

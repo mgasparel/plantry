@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -13,8 +13,8 @@ namespace Plantry.Tests.Integration.MealPlanning;
 
 /// <summary>
 /// L3 integration tests for <see cref="RecipeReadModelAdapter.GetRatingSummariesAsync"/> (plantry-zlwp.5) —
-/// the batched rating lookup <see cref="Plantry.MealPlanning.Application.GeneratePlanService"/> uses to
-/// enrich <see cref="Plantry.MealPlanning.Domain.CandidateRecipe"/> with household/attendee rating signal.
+/// the batched rating lookup <see cref="Plantry.Planning.Application.GeneratePlanService"/> uses to
+/// enrich <see cref="Plantry.Planning.Domain.CandidateRecipe"/> with household/attendee rating signal.
 /// Exercises the real EF query + <see cref="RecipeRatingRepository"/> against a Postgres-backed
 /// <see cref="RecipesDbContext"/> (mirrors <see cref="RecipeReadModelAdapterBatchTests"/>'s rationale for
 /// this same adapter's other batched member — a pure-fake-backed unit test proves nothing about the

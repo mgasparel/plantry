@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Plantry.Housekeeping.Application;
-using Plantry.Housekeeping.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Composition.Infrastructure;
+using Plantry.Web.Housekeeping;
 
 namespace Plantry.Web.Pages.TidyUp;
 

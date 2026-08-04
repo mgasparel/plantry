@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Plantry.Composition;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 using Xunit;
 
 namespace Plantry.Tests.Architecture;

@@ -56,7 +56,7 @@ public sealed class ManageSubscriptions(
 
     /// <summary>
     /// The household's subscriptions (active + inactive) with resolved store names + last-pull status,
-    /// oldest first. RLS-scoped by <c>DealsDbContext</c>, so another household's rows never appear.
+    /// oldest first. RLS-scoped by <c>MarketDbContext</c>, so another household's rows never appear.
     /// </summary>
     public async Task<IReadOnlyList<SubscriptionView>> ListAsync(CancellationToken ct = default)
     {

@@ -1,5 +1,5 @@
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Migration.Grocy;

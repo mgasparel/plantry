@@ -1,4 +1,4 @@
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 
@@ -12,7 +12,7 @@ namespace Plantry.Tests.Unit.Catalog.Domain;
 public sealed class ProductTests
 {
     private static readonly HouseholdId HouseholdId = HouseholdId.New();
-    private static readonly UnitId UnitId = Plantry.Catalog.Domain.UnitId.New();
+    private static readonly UnitId UnitId = Plantry.Pantry.Domain.UnitId.New();
     private static readonly IClock Clock = SystemClock.Instance;
 
     private static Product NewProduct(string name = "Flour") =>
@@ -140,7 +140,7 @@ public sealed class ProductTests
     public void SetDefaultUnit_Stores_Value()
     {
         var product = NewProduct();
-        var newUnitId = Plantry.Catalog.Domain.UnitId.New();
+        var newUnitId = Plantry.Pantry.Domain.UnitId.New();
 
         product.SetDefaultUnit(newUnitId, Clock);
 
@@ -283,8 +283,8 @@ public sealed class ProductTests
     public void InheritFrom_Copies_Parent_Conversions_When_Variant_Has_None()
     {
         var parent = NewProduct("Parent");
-        var fromUnit = Plantry.Catalog.Domain.UnitId.New();
-        var toUnit = Plantry.Catalog.Domain.UnitId.New();
+        var fromUnit = Plantry.Pantry.Domain.UnitId.New();
+        var toUnit = Plantry.Pantry.Domain.UnitId.New();
         parent.AddConversion(fromUnit, toUnit, 120m, Clock);
         var variant = NewProduct("Variant");
 
@@ -302,9 +302,9 @@ public sealed class ProductTests
     public void InheritFrom_Does_Not_Copy_Conversions_When_Variant_Already_Has_Its_Own()
     {
         var parent = NewProduct("Parent");
-        parent.AddConversion(Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 120m, Clock);
+        parent.AddConversion(Plantry.Pantry.Domain.UnitId.New(), Plantry.Pantry.Domain.UnitId.New(), 120m, Clock);
         var variant = NewProduct("Variant");
-        var ownConversion = variant.AddConversion(Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 4m, Clock);
+        var ownConversion = variant.AddConversion(Plantry.Pantry.Domain.UnitId.New(), Plantry.Pantry.Domain.UnitId.New(), 4m, Clock);
 
         variant.InheritFrom(parent, Clock);
 
@@ -390,8 +390,8 @@ public sealed class ProductTests
     public void AddConversion_Appends_To_Conversions_And_Returns_It()
     {
         var product = NewProduct();
-        var fromUnit = Plantry.Catalog.Domain.UnitId.New();
-        var toUnit = Plantry.Catalog.Domain.UnitId.New();
+        var fromUnit = Plantry.Pantry.Domain.UnitId.New();
+        var toUnit = Plantry.Pantry.Domain.UnitId.New();
 
         var conversion = product.AddConversion(fromUnit, toUnit, 120m, Clock);
 
@@ -411,7 +411,7 @@ public sealed class ProductTests
         var product = NewProduct();
 
         var conversion = product.AddConversion(
-            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 120m, Clock);
+            Plantry.Pantry.Domain.UnitId.New(), Plantry.Pantry.Domain.UnitId.New(), 120m, Clock);
 
         Assert.Equal(ConversionSource.UserConfirmed, conversion.Source);
         Assert.False(conversion.IsAiSuggested);
@@ -423,7 +423,7 @@ public sealed class ProductTests
         var product = NewProduct();
 
         var conversion = product.AddConversion(
-            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 5m, Clock,
+            Plantry.Pantry.Domain.UnitId.New(), Plantry.Pantry.Domain.UnitId.New(), 5m, Clock,
             ConversionSource.AiSuggested);
 
         Assert.Equal(ConversionSource.AiSuggested, conversion.Source);
@@ -435,7 +435,7 @@ public sealed class ProductTests
     {
         var product = NewProduct();
         var conversion = product.AddConversion(
-            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 5m, Clock,
+            Plantry.Pantry.Domain.UnitId.New(), Plantry.Pantry.Domain.UnitId.New(), 5m, Clock,
             ConversionSource.AiSuggested);
 
         product.PromoteConversion(conversion.Id, Clock);
@@ -449,7 +449,7 @@ public sealed class ProductTests
     {
         var product = NewProduct();
         var conversion = product.AddConversion(
-            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 120m, Clock);
+            Plantry.Pantry.Domain.UnitId.New(), Plantry.Pantry.Domain.UnitId.New(), 120m, Clock);
 
         // Confirmed already → no-op success, no throw.
         product.PromoteConversion(conversion.Id, Clock);
@@ -469,8 +469,8 @@ public sealed class ProductTests
     public void AddConversion_UserConfirmed_Supersedes_An_Existing_Suggested_For_The_Same_Pair()
     {
         var product = NewProduct();
-        var from = Plantry.Catalog.Domain.UnitId.New();
-        var to = Plantry.Catalog.Domain.UnitId.New();
+        var from = Plantry.Pantry.Domain.UnitId.New();
+        var to = Plantry.Pantry.Domain.UnitId.New();
         product.AddConversion(from, to, 5m, Clock, ConversionSource.AiSuggested);
 
         var confirmed = product.AddConversion(from, to, 6m, Clock, ConversionSource.UserConfirmed);
@@ -486,8 +486,8 @@ public sealed class ProductTests
     public void AddConversion_Suggested_Does_Not_Duplicate_Or_Overwrite_An_Existing_Conversion()
     {
         var product = NewProduct();
-        var from = Plantry.Catalog.Domain.UnitId.New();
-        var to = Plantry.Catalog.Domain.UnitId.New();
+        var from = Plantry.Pantry.Domain.UnitId.New();
+        var to = Plantry.Pantry.Domain.UnitId.New();
         var confirmed = product.AddConversion(from, to, 6m, Clock, ConversionSource.UserConfirmed);
 
         var returned = product.AddConversion(from, to, 5m, Clock, ConversionSource.AiSuggested);
@@ -506,8 +506,8 @@ public sealed class ProductTests
     public void AddConversion_UserConfirmed_Replaces_Existing_UserConfirmed_For_Same_Pair_SameDirection()
     {
         var product = NewProduct();
-        var from = Plantry.Catalog.Domain.UnitId.New();
-        var to = Plantry.Catalog.Domain.UnitId.New();
+        var from = Plantry.Pantry.Domain.UnitId.New();
+        var to = Plantry.Pantry.Domain.UnitId.New();
         product.AddConversion(from, to, 5m, Clock, ConversionSource.UserConfirmed);
 
         var replacement = product.AddConversion(from, to, 6m, Clock, ConversionSource.UserConfirmed);
@@ -523,8 +523,8 @@ public sealed class ProductTests
     public void AddConversion_UserConfirmed_Replaces_Existing_UserConfirmed_For_Same_Pair_ReverseDirection()
     {
         var product = NewProduct();
-        var a = Plantry.Catalog.Domain.UnitId.New();
-        var b = Plantry.Catalog.Domain.UnitId.New();
+        var a = Plantry.Pantry.Domain.UnitId.New();
+        var b = Plantry.Pantry.Domain.UnitId.New();
         product.AddConversion(a, b, 5m, Clock, ConversionSource.UserConfirmed);
 
         // Reverse direction, same unordered pair {a, b} — must replace, not coexist. Two rows for
@@ -547,8 +547,8 @@ public sealed class ProductTests
         // guess actively contradicting the user's confirmed number. The lookup is now
         // unordered-pair, so this must leave exactly one row: the user's.
         var product = NewProduct();
-        var a = Plantry.Catalog.Domain.UnitId.New();
-        var b = Plantry.Catalog.Domain.UnitId.New();
+        var a = Plantry.Pantry.Domain.UnitId.New();
+        var b = Plantry.Pantry.Domain.UnitId.New();
         product.AddConversion(a, b, 5m, Clock, ConversionSource.AiSuggested);
 
         var confirmed = product.AddConversion(b, a, 3m, Clock, ConversionSource.UserConfirmed);
@@ -566,8 +566,8 @@ public sealed class ProductTests
     public void AddConversion_Suggested_Does_Not_Displace_An_Existing_Confirmed_In_The_Reverse_Direction()
     {
         var product = NewProduct();
-        var a = Plantry.Catalog.Domain.UnitId.New();
-        var b = Plantry.Catalog.Domain.UnitId.New();
+        var a = Plantry.Pantry.Domain.UnitId.New();
+        var b = Plantry.Pantry.Domain.UnitId.New();
         var confirmed = product.AddConversion(a, b, 6m, Clock, ConversionSource.UserConfirmed);
 
         // A suggestion for the reverse direction of the same pair must not fight the user's row.
@@ -589,8 +589,8 @@ public sealed class ProductTests
         // another route (e.g. EF materializing a product whose stored rows predate this migration).
         // Reflection stands in for that "loaded, not built through AddConversion" state.
         var product = NewProduct();
-        var a = Plantry.Catalog.Domain.UnitId.New();
-        var b = Plantry.Catalog.Domain.UnitId.New();
+        var a = Plantry.Pantry.Domain.UnitId.New();
+        var b = Plantry.Pantry.Domain.UnitId.New();
         var suggested = product.AddConversion(a, b, 5m, Clock, ConversionSource.AiSuggested);
         var colliding = InjectConversionBypassingInvariant(product, b, a, 3m, ConversionSource.UserConfirmed);
 
@@ -614,7 +614,7 @@ public sealed class ProductTests
     /// <see cref="Product.PromoteConversion"/>'s own guard defends against.
     /// </summary>
     private static ProductConversion InjectConversionBypassingInvariant(
-        Product product, Plantry.Catalog.Domain.UnitId from, Plantry.Catalog.Domain.UnitId to, decimal factor, ConversionSource source)
+        Product product, Plantry.Pantry.Domain.UnitId from, Plantry.Pantry.Domain.UnitId to, decimal factor, ConversionSource source)
     {
         var createMethod = typeof(ProductConversion).GetMethod(
             "Create", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
@@ -634,7 +634,7 @@ public sealed class ProductTests
         var parent = NewProduct("Bananas");
         var variant = NewProduct("Bananas (organic)");
         parent.AddConversion(
-            Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 5m, Clock,
+            Plantry.Pantry.Domain.UnitId.New(), Plantry.Pantry.Domain.UnitId.New(), 5m, Clock,
             ConversionSource.AiSuggested);
 
         variant.InheritFrom(parent, Clock);
@@ -647,7 +647,7 @@ public sealed class ProductTests
     public void RemoveConversion_Removes_Matching_Child()
     {
         var product = NewProduct();
-        var conversion = product.AddConversion(Plantry.Catalog.Domain.UnitId.New(), Plantry.Catalog.Domain.UnitId.New(), 120m, Clock);
+        var conversion = product.AddConversion(Plantry.Pantry.Domain.UnitId.New(), Plantry.Pantry.Domain.UnitId.New(), 120m, Clock);
 
         product.RemoveConversion(conversion.Id, Clock);
 

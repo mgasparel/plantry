@@ -767,7 +767,7 @@ public sealed record StockLotFact(
 
 /// <summary>
 /// Latest purchase-price observation for one product from <c>pricing.price_observation</c>.
-/// Mirrors <see cref="Plantry.MealPlanning.Application.MealPlanPricePoint"/> — a separate flat
+/// Mirrors <see cref="Plantry.Planning.Application.MealPlanPricePoint"/> — a separate flat
 /// record per ADR-021 (no port dependency in this read model).
 /// </summary>
 public sealed record PriceFact(

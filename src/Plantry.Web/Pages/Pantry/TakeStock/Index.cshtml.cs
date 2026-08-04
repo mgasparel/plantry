@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
 
 namespace Plantry.Web.Pages.Pantry.TakeStock;
 

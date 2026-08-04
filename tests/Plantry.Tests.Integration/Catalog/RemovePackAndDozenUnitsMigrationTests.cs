@@ -2,14 +2,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.Tests.Integration.Infrastructure;
 using Testcontainers.PostgreSql;
 using Xunit;
-using CatalogUnit = Plantry.Catalog.Domain.Unit;
+using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
 namespace Plantry.Tests.Integration.Catalog;
 
@@ -35,7 +35,7 @@ public sealed class RemovePackAndDozenUnitsMigrationTests : IAsyncLifetime
 {
     private const string BaselineMigration = "20260724132700_AddServingUnit";
     private const string MigrationUnderTest = "20260727061526_RemovePackAndDozenUnits";
-    private const string MigrationsAssembly = "Plantry.Catalog.Infrastructure";
+    private const string MigrationsAssembly = "Plantry.Pantry.Infrastructure";
 
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
         .WithImage("postgres:16-alpine")

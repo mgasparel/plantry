@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 
 namespace Plantry.Web.Pages.Shared;
 

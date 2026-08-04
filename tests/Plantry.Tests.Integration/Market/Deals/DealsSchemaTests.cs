@@ -92,7 +92,7 @@ public sealed class DealsSchemaTests(PostgresFixture db) : IAsyncLifetime
         // migration extends the policy the same way identity.households already carves out for its own
         // pre-auth cross-tenant read). Every household's subscription is visible.
         var noTenant = new TenantContext();
-        await using (var unarmed = new DealsDbContext(
+        await using (var unarmed = new MarketDbContext(
             BuildOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(noTenant))))
         {
             var subs = await unarmed.StoreSubscriptions.IgnoreQueryFilters().ToListAsync();
@@ -106,7 +106,7 @@ public sealed class DealsSchemaTests(PostgresFixture db) : IAsyncLifetime
         // read to A's own row only, proving the carve-out never leaks another household's once scoped.
         var tenantA = new TenantContext();
         tenantA.Set(_householdA.Value);
-        await using (var armed = new DealsDbContext(
+        await using (var armed = new MarketDbContext(
             BuildOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenantA))))
         {
             var subs = await armed.StoreSubscriptions.IgnoreQueryFilters().ToListAsync();
@@ -185,19 +185,19 @@ public sealed class DealsSchemaTests(PostgresFixture db) : IAsyncLifetime
         Assert.Null(persisted.FlyerImportId);
     }
 
-    private DbContextOptions<DealsDbContext> Options() =>
-        new DbContextOptionsBuilder<DealsDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<MarketDbContext> Options() =>
+        new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private static DbContextOptions<DealsDbContext> BuildOptions(string connStr, IInterceptor? interceptor = null)
+    private static DbContextOptions<MarketDbContext> BuildOptions(string connStr, IInterceptor? interceptor = null)
     {
-        var builder = new DbContextOptionsBuilder<DealsDbContext>().UseNpgsql(connStr);
+        var builder = new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(connStr);
         if (interceptor is not null) builder.AddInterceptors(interceptor);
         return builder.Options;
     }
 
-    private DealsDbContext NewDealsDb(HouseholdId household)
+    private MarketDbContext NewDealsDb(HouseholdId household)
     {
-        var ctx = new DealsDbContext(Options());
+        var ctx = new MarketDbContext(Options());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

@@ -1,10 +1,10 @@
 using Plantry.Identity.Domain;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -254,13 +254,13 @@ public sealed class TodayIndexModelTests
             Task.FromResult(hasStock);
 
         // Unused by IndexModel:
-        public Task<List<Inventory.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
-            Task.FromResult(new List<Inventory.Domain.ProductStock>());
-        public Task<Inventory.Domain.ProductStock?> FindForUpdateAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task<Inventory.Domain.ProductStock?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task<Inventory.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task AddAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<bool> TryAddAndSaveAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<Plantry.Pantry.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(new List<Plantry.Pantry.Domain.ProductStock>());
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindForUpdateAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task AddAsync(Plantry.Pantry.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> TryAddAndSaveAsync(Plantry.Pantry.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) => work(ct);
     }
@@ -346,6 +346,10 @@ public sealed class TodayIndexModelTests
     /// <summary>Null meal plan repo — returns no plan (simulates no meal plan created yet).</summary>
     private sealed class NullMealPlanRepo : IMealPlanRepository
     {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
         public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
             => Task.FromResult<MealPlan?>(null);
         public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
@@ -385,17 +389,17 @@ public sealed class TodayIndexModelTests
     }
 
     /// <summary>Stub horizon reader — returns the Inventory default so the roll-up window is well-defined.</summary>
-    private sealed class NullExpiringSoonHorizonReader : Plantry.MealPlanning.Application.IExpiringSoonHorizonReader
+    private sealed class NullExpiringSoonHorizonReader : Plantry.Planning.Application.IExpiringSoonHorizonReader
     {
         public Task<int> GetDaysAsync(CancellationToken ct = default)
             => Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
     }
 
     /// <summary>Null member reader — returns empty list (no attendee avatars in model tests).</summary>
-    private sealed class NullMemberReader : Plantry.MealPlanning.Application.IHouseholdMemberReader
+    private sealed class NullMemberReader : Plantry.Planning.Application.IHouseholdMemberReader
     {
-        public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
+        public Task<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>>([]);
     }
 }
 
@@ -571,13 +575,13 @@ public sealed class ExpiringWidgetModelTests
     {
         public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
             Task.FromResult(hasStock);
-        public Task<List<Inventory.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
-            Task.FromResult(new List<Inventory.Domain.ProductStock>());
-        public Task<Inventory.Domain.ProductStock?> FindForUpdateAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task<Inventory.Domain.ProductStock?> FindAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task<Inventory.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Inventory.Domain.ProductStock?>(null);
-        public Task AddAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<bool> TryAddAndSaveAsync(Inventory.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<Plantry.Pantry.Domain.ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+            Task.FromResult(new List<Plantry.Pantry.Domain.ProductStock>());
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindForUpdateAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task<Plantry.Pantry.Domain.ProductStock?> FindWithHistoryAsync(HouseholdId h, Guid p, CancellationToken ct = default) => Task.FromResult<Plantry.Pantry.Domain.ProductStock?>(null);
+        public Task AddAsync(Plantry.Pantry.Domain.ProductStock stock, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> TryAddAndSaveAsync(Plantry.Pantry.Domain.ProductStock stock, CancellationToken ct = default) => Task.FromResult(true);
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) => work(ct);
     }
@@ -666,6 +670,10 @@ public sealed class ExpiringWidgetModelTests
 
     private sealed class NullMealPlanRepo2 : IMealPlanRepository
     {
+    public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
+        IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>>(new Dictionary<Guid, PlannedMealSlotInfo>());
+
         public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
             => Task.FromResult<MealPlan?>(null);
         public Task<MealPlan> FindOrCreateAsync(HouseholdId householdId, DateOnly weekStart, IClock clock, CancellationToken ct = default)
@@ -702,16 +710,16 @@ public sealed class ExpiringWidgetModelTests
     }
 
     /// <summary>Stub horizon reader — returns the Inventory default so the roll-up window is well-defined.</summary>
-    private sealed class NullExpiringSoonHorizonReader2 : Plantry.MealPlanning.Application.IExpiringSoonHorizonReader
+    private sealed class NullExpiringSoonHorizonReader2 : Plantry.Planning.Application.IExpiringSoonHorizonReader
     {
         public Task<int> GetDaysAsync(CancellationToken ct = default)
             => Task.FromResult(HouseholdInventorySettings.DefaultExpiringSoonDays);
     }
 
-    private sealed class NullMemberReader2 : Plantry.MealPlanning.Application.IHouseholdMemberReader
+    private sealed class NullMemberReader2 : Plantry.Planning.Application.IHouseholdMemberReader
     {
-        public Task<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<Plantry.MealPlanning.Application.HouseholdMember>>([]);
+        public Task<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>> ListMembersAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Plantry.Planning.Application.HouseholdMember>>([]);
     }
 }
 

@@ -1,4 +1,4 @@
-using Plantry.MealPlanning.Domain;
+using Plantry.Planning.Domain;
 using Plantry.Web.Pages.Today;
 
 namespace Plantry.Tests.Web.Today;

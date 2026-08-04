@@ -180,17 +180,6 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.False(await repo2.NameExistsAsync(_household, "Tiramisu"));
     }
 
-    [Fact(DisplayName = "RecipeCreated domain event is emitted after Create")]
-    public void Recipe_Create_Emits_RecipeCreated_Event()
-    {
-        var recipe = Recipe.Create(_household, "Tiramisu", 8, _clock).Value;
-
-        var evt = Assert.Single(recipe.DomainEvents);
-        var created = Assert.IsType<RecipeCreatedEvent>(evt);
-        Assert.Equal(recipe.Id, created.RecipeId);
-        Assert.Equal(_household, created.HouseholdId);
-    }
-
     [Fact(DisplayName = "ListRecipeIdsWithPhotoAsync returns only ids of recipes that have a photo")]
     public async Task ListRecipeIdsWithPhotoAsync_Returns_Only_Photo_Recipe_Ids()
     {
@@ -278,6 +267,168 @@ public sealed class RecipeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         // Query scoped to _household — the foreign id must not resolve.
         await using var ctx = NewContext();
         var resolved = await new RecipeRepository(ctx).ResolveExistingIdsAsync([otherId]);
+
+        Assert.Empty(resolved);
+    }
+
+    // ── GetSummariesByIdsAsync (plantry-g3da.3 — inclusion preview batching) ─────
+
+    [Fact(DisplayName = "GetSummariesByIdsAsync resolves name + DefaultServings for existing ids, omits unknown ids")]
+    public async Task GetSummariesByIdsAsync_Resolves_Existing_Only()
+    {
+        var existing1 = await SeedRecipeAsync("Bolognese");
+        var existing2 = await SeedRecipeAsync("Tiramisu");
+        var unknown = RecipeId.New();
+
+        await using var ctx = NewContext();
+        var resolved = await new RecipeRepository(ctx)
+            .GetSummariesByIdsAsync([existing1, unknown, existing2]);
+
+        Assert.Equal(2, resolved.Count);
+        Assert.Equal(new RecipeSummary(existing1, "Bolognese", 2), resolved[existing1]);
+        Assert.Equal(new RecipeSummary(existing2, "Tiramisu", 2), resolved[existing2]);
+        Assert.DoesNotContain(unknown, resolved.Keys);
+    }
+
+    [Fact(DisplayName = "GetSummariesByIdsAsync resolves an archived recipe (differs from GetRecipeNamesByIdAsync)")]
+    public async Task GetSummariesByIdsAsync_Resolves_Archived_Recipe()
+    {
+        // GetRecipeNamesByIdAsync filters ArchivedAt == null; an inclusion may reference a sub-recipe
+        // archived after being included, and GetByIdAsync (the semantics this mirrors) does not filter
+        // archived — this batch method must not either.
+        var archivedId = await SeedRecipeAsync("Archived Sub-Recipe", archived: true);
+
+        await using var ctx = NewContext();
+        var resolved = await new RecipeRepository(ctx).GetSummariesByIdsAsync([archivedId]);
+
+        Assert.Contains(archivedId, resolved.Keys);
+        Assert.Equal("Archived Sub-Recipe", resolved[archivedId].Name);
+    }
+
+    [Fact(DisplayName = "GetSummariesByIdsAsync does not resolve another household's recipe")]
+    public async Task GetSummariesByIdsAsync_Does_Not_Leak_Across_Households()
+    {
+        var otherHousehold = HouseholdId.New();
+        RecipeId otherId;
+
+        // Seed the foreign recipe via a superuser context (no household query filter).
+        var opts = new DbContextOptionsBuilder<RecipesDbContext>()
+            .UseNpgsql(db.ConnectionString)
+            .Options;
+        await using (var superCtx = new RecipesDbContext(opts))
+        {
+            var recipe = Recipe.Create(otherHousehold, "Other Household Recipe", 4, _clock).Value;
+            recipe.ReplaceIngredients(
+                [new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            otherId = recipe.Id;
+            await superCtx.Recipes.AddAsync(recipe);
+            await superCtx.SaveChangesAsync();
+        }
+
+        // Query scoped to _household — the foreign id must not resolve (RLS isolation).
+        await using var ctx = NewContext();
+        var resolved = await new RecipeRepository(ctx).GetSummariesByIdsAsync([otherId]);
+
+        Assert.Empty(resolved);
+    }
+
+    // ── GetInclusionsByParentIdsAsync (plantry-g3da.3 critic pass 2 — Cook page BFS tree walk) ──
+
+    [Fact(DisplayName = "GetInclusionsByParentIdsAsync resolves every inclusion row for each requested parent")]
+    public async Task GetInclusionsByParentIdsAsync_Resolves_Rows_Per_Parent()
+    {
+        RecipeId subA, subB, parent1Id, parent2Id, parent3Id;
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            var a = Recipe.Create(_household, "Base A", 4, _clock).Value;
+            a.ReplaceIngredients([new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            var b = Recipe.Create(_household, "Base B", 4, _clock).Value;
+            b.ReplaceIngredients([new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            subA = a.Id; subB = b.Id;
+            await repo.AddAsync(a);
+            await repo.AddAsync(b);
+            await repo.SaveChangesAsync();
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new RecipeRepository(ctx);
+            // Parent1 includes both subs (two inclusion rows); Parent2 includes one; Parent3 (no inclusions,
+            // not requested below) proves the batch call is scoped to the ids it's given, not every parent.
+            var parent1 = Recipe.Create(_household, "Party Platter", 4, _clock).Value;
+            parent1.ReplaceLines(
+                RecipeLineSet.Create(
+                    [],
+                    [new InclusionLine(subA, 2m, null, 1), new InclusionLine(subB, 1m, null, 2)],
+                    parent1.Id).Value,
+                _clock);
+            var parent2 = Recipe.Create(_household, "Simple Combo", 2, _clock).Value;
+            parent2.ReplaceLines(
+                RecipeLineSet.Create([], [new InclusionLine(subA, 1m, null, 1)], parent2.Id).Value, _clock);
+            var parent3 = Recipe.Create(_household, "Standalone", 2, _clock).Value;
+            parent3.ReplaceIngredients([new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            parent1Id = parent1.Id; parent2Id = parent2.Id; parent3Id = parent3.Id;
+            await repo.AddAsync(parent1);
+            await repo.AddAsync(parent2);
+            await repo.AddAsync(parent3);
+            await repo.SaveChangesAsync();
+        }
+
+        await using var readCtx = NewContext();
+        var resolved = await new RecipeRepository(readCtx)
+            .GetInclusionsByParentIdsAsync([parent1Id, parent2Id]);
+
+        Assert.Equal(2, resolved.Count);
+        Assert.Equal(2, resolved[parent1Id].Count);
+        Assert.Contains(resolved[parent1Id], r => r.SubRecipeId == subA && r.Servings == 2m);
+        Assert.Contains(resolved[parent1Id], r => r.SubRecipeId == subB && r.Servings == 1m);
+        var parent2Row = Assert.Single(resolved[parent2Id]);
+        Assert.Equal(subA, parent2Row.SubRecipeId);
+        Assert.Equal(1m, parent2Row.Servings);
+        Assert.DoesNotContain(parent3Id, resolved.Keys); // not requested, and has no inclusions anyway
+    }
+
+    [Fact(DisplayName = "GetInclusionsByParentIdsAsync omits a requested parent with no inclusions")]
+    public async Task GetInclusionsByParentIdsAsync_Omits_Parent_Without_Inclusions()
+    {
+        var plainId = await SeedRecipeAsync("Plain Recipe");
+
+        await using var ctx = NewContext();
+        var resolved = await new RecipeRepository(ctx).GetInclusionsByParentIdsAsync([plainId]);
+
+        Assert.Empty(resolved);
+    }
+
+    [Fact(DisplayName = "GetInclusionsByParentIdsAsync does not resolve another household's inclusion rows")]
+    public async Task GetInclusionsByParentIdsAsync_Does_Not_Leak_Across_Households()
+    {
+        var otherHousehold = HouseholdId.New();
+        RecipeId otherParentId;
+
+        // Seed a foreign parent + inclusion via a superuser context (no household query filter).
+        var opts = new DbContextOptionsBuilder<RecipesDbContext>()
+            .UseNpgsql(db.ConnectionString)
+            .Options;
+        await using (var superCtx = new RecipesDbContext(opts))
+        {
+            var sub = Recipe.Create(otherHousehold, "Foreign Sub", 4, _clock).Value;
+            sub.ReplaceIngredients(
+                [new IngredientLine(Guid.CreateVersion7(), 1m, Guid.CreateVersion7(), null, 0)], _clock);
+            await superCtx.Recipes.AddAsync(sub);
+            await superCtx.SaveChangesAsync();
+
+            var parent = Recipe.Create(otherHousehold, "Foreign Parent", 4, _clock).Value;
+            parent.ReplaceLines(
+                RecipeLineSet.Create([], [new InclusionLine(sub.Id, 2m, null, 1)], parent.Id).Value, _clock);
+            otherParentId = parent.Id;
+            await superCtx.Recipes.AddAsync(parent);
+            await superCtx.SaveChangesAsync();
+        }
+
+        // Query scoped to _household — the foreign parent's inclusion rows must not resolve (RLS isolation).
+        await using var ctx = NewContext();
+        var resolved = await new RecipeRepository(ctx).GetInclusionsByParentIdsAsync([otherParentId]);
 
         Assert.Empty(resolved);
     }

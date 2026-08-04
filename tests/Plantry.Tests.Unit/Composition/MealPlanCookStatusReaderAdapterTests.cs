@@ -1,5 +1,5 @@
-using Plantry.Inventory.Application;
-using Plantry.MealPlanning.Application;
+using Plantry.Pantry.Application;
+using Plantry.Planning.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.MealPlanning;

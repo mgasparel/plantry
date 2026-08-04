@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
-using Plantry.Shopping.Infrastructure;
+using Plantry.Planning.Infrastructure;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -108,7 +108,7 @@ public sealed class ShoppingRlsIsolationTests(PostgresFixture db) : IAsyncLifeti
         {
             var list = await ctx.ShoppingLists.FirstAsync();
             var clock = SystemClock.Instance;
-            list.AddItem(Guid.CreateVersion7(), null, null, null, Plantry.Shopping.Domain.ItemSource.Manual, null, clock);
+            list.AddItem(Guid.CreateVersion7(), null, null, null, Plantry.Planning.Domain.ItemSource.Manual, null, clock);
             await ctx.SaveChangesAsync();
         }
 

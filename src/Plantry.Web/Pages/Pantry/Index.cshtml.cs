@@ -6,9 +6,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
-using Plantry.Inventory.Application;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -21,7 +20,7 @@ namespace Plantry.Web.Pages.Pantry;
 public sealed class IndexModel(
     InventoryQueryService queries,
     ICatalogReadFacade catalog,
-    Plantry.Inventory.Domain.IProductStockRepository stocks,
+    Plantry.Pantry.Domain.IProductStockRepository stocks,
     IUnitRepository units,
     ICategoryRepository categories,
     ILocationRepository locations,

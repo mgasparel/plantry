@@ -4,45 +4,35 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Plantry.Web;
 using Plantry.Ai.Infrastructure;
-using Plantry.Catalog.Application;
-using Plantry.Catalog.Domain;
-using Plantry.Catalog.Infrastructure;
+using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
+using Plantry.Pantry.Infrastructure;
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
 using Plantry.Composition;
-using Plantry.Housekeeping.Application;
-using Plantry.Housekeeping.Domain;
-using Plantry.Housekeeping.Infrastructure;
+using Plantry.Composition.Infrastructure;
 using Plantry.Identity.Application;
 using Plantry.Identity.Domain;
 using Plantry.Identity.Infrastructure;
-using Plantry.Inventory.Application;
-using Plantry.Inventory.Domain;
-using Plantry.Inventory.Infrastructure;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Intake.Infrastructure;
 using Plantry.Migration.Grocy;
-using Plantry.MealPlanning.Application;
-using Plantry.MealPlanning.Domain;
-using Plantry.MealPlanning.Infrastructure;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
+using Plantry.Planning.Infrastructure;
 using Plantry.Web.MealPlanning;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
-using Plantry.Shopping.Application;
-using Plantry.Shopping.Domain;
-using Plantry.Shopping.Infrastructure;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Background;
 using Plantry.Web.Deals;
 using Plantry.Web.Dev;
-using Plantry.Web.Events;
 using Plantry.Web.Housekeeping;
 using Plantry.Web.Intake;
-using Plantry.Web.Inventory;
 using Plantry.Web.Pricing;
 using Plantry.Web.Recipes;
 using Plantry.Web.Shopping;
@@ -174,12 +164,12 @@ builder.Services.AddDbContext<PlantryIdentityDbContext>((sp, opts) =>
 
 builder.Services.AddDbContext<CatalogDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Catalog.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 
 builder.Services.AddDbContext<InventoryDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Inventory.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 
 builder.Services.AddIdentity<AppUser, IdentityRole>(opts =>
@@ -274,15 +264,20 @@ builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 // adapter's product-dish leg (Plantry.Composition, AddCrossContextAdapters). Inventory-only, so it is
 // registered here like IPurchaseJournalReader rather than in the composition root.
 builder.Services.AddScoped<IJournalEntriesBySourceRefReader, JournalEntriesBySourceRefReader>();
+// CatalogConversionProvider / CatalogReadFacade now live in Plantry.Pantry.Application (ADR-024
+// plantry-g3da.6 Pantry merge) rather than bridging Plantry.Web across two assemblies, but stay
+// registered from the host like the other Pantry-only services above.
 builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider>();
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 // ITakeStockReader/ITakeStockCatalogWriter adapters → Plantry.Composition (AddCrossContextAdapters).
 
-// Pricing context
-builder.Services.AddDbContext<PricingDbContext>((sp, opts) =>
+// Market context (Pricing + Deals, unified into one DbContext — ADR-024 / plantry-g3da.7).
+builder.Services.AddDbContext<MarketDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Market.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+
+// Pricing context
 builder.Services.AddScoped<IPriceObservationRepository, PriceObservationRepository>();
 // IUnitPriceCalculator adapter → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<PricingQueries>();
@@ -295,32 +290,12 @@ builder.Services.AddScoped<PricingQueries>();
 builder.Services.AddScoped<PurchaseStoreBackfill>();
 builder.Services.AddSingleton<PurchaseStoreBackfillCycle>();
 
-// Intake context (hero AI receipt flow — ADR-007/ADR-010). The dispatch interceptor drains domain
-// events (e.g. ImportSessionCommittedEvent) after a successful SaveChanges; the AI parser, the four
-// cross-context port adapters, and the event handler are the seams ParseSessionCommand /
-// CommitSessionCommand are constructed over.
-// IDomainEventDispatcher + TransactionalDomainEventBuffer + the DomainEventDispatchInterceptor /
-// DomainEventCommitDispatchInterceptor pair → Plantry.Composition (AddCrossContextAdapters). The
-// DbContext .AddInterceptors(...) calls below resolve them. Event HANDLERS stay in this host:
-builder.Services.AddScoped<IDomainEventHandler<ImportSessionCommittedEvent>, ImportSessionCommittedLogHandler>();
-// GUARDRAIL (ADR-014): domain events dispatch on COMMIT with no transactional outbox. The dispatch
-// interceptor pair (DomainEventDispatchInterceptor + DomainEventCommitDispatchInterceptor) makes dispatch
-// transaction-aware (plantry-jvzk): a bare SaveChanges dispatches immediately post-commit, while events
-// raised INSIDE an explicit multi-save transaction are buffered and dispatched only when that transaction
-// commits — so a rolled-back transaction dispatches NOTHING (the pre-commit "phantom event on rollback"
-// window is CLOSED). What remains latent is the OTHER window: a process crash AFTER commit but before a
-// handler runs is still an at-most-once lost event — this is not an outbox. RecipeCookedEvent has no
-// subscriber today, so that window is harmless. Before registering the FIRST RecipeCookedEvent handler
-// here, either build the outbox or explicitly accept that handler as at-most-once — if it produces durable,
-// reconcilable output, prefer self-reconciliation (the plantry-292 saga pattern) over a generic outbox.
-
+// Intake context (hero AI receipt flow — ADR-007/ADR-010). The AI parser and the four cross-context
+// port adapters are the seams ParseSessionCommand / CommitSessionCommand are constructed over.
 builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Intake.Infrastructure"))
-        .AddInterceptors(
-            sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
-            sp.GetRequiredService<DomainEventDispatchInterceptor>(),
-            sp.GetRequiredService<DomainEventCommitDispatchInterceptor>()));
+        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 builder.Services.AddScoped<PendingReviewQuery>();
 
@@ -350,41 +325,33 @@ builder.Services.AddScoped<ITagRepository, TagRepository>();
 builder.Services.AddScoped<IRecipeRatingRepository, RecipeRatingRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
-// Shopping context (P2-S). Mutable working-state context — items edited in place and hard-deleted
+// Planning context (Meal Planning + Shopping, ADR-024). Plantry.Planning merges the former MealPlanning
+// and Shopping bounded contexts into one assembly (plantry-g3da.5) — MealPlanningDbContext and
+// ShoppingDbContext survive unchanged (separate schemas, separate migration histories; the DbContext-level
+// squash into one PlanningDbContext is explicitly a later follow-up phase, not this merge).
+
+// Shopping half. Mutable working-state context (P2-S) — items edited in place and hard-deleted
 // on clear (shopping.md resolved call 2). ShoppingReferenceDataSeeder seeds one list per household.
 builder.Services.AddDbContext<ShoppingDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Shopping.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Planning.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IShoppingListRepository, ShoppingListRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, ShoppingReferenceDataSeeder>();
 
-// Meal Planning context (Phase 3 / P3-0). MealPlanningReferenceDataSeeder seeds Breakfast/Lunch/Dinner
+// Meal Planning half (Phase 3 / P3-0). MealPlanningReferenceDataSeeder seeds Breakfast/Lunch/Dinner
 // default slots at household creation (DM-9). MealPlanningDbContext MUST be wired into RlsMiddleware
 // (see Tenancy/RlsMiddleware.cs) — the known P3-0 gotcha (see also bd memory rls-middleware-...).
 builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.MealPlanning.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Planning.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 
-// Deals context (Phase 5 / P5-0). DbContext + schema (P5-0); store subscriptions + §7e management (P5-2).
-// DealsDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0
-// gotcha: omit it and every Deals query filter returns nothing while writes silently succeed.
-// DealConfirmed/DealRejected (P5-5) and FlyerImportedEvent (P5-6) dispatch through the same interceptor pair
-// as Intake — no subscriber today (latent, like RecipeCookedEvent; see the ADR-014 guardrail above). The
-// dispatch interceptor drains + clears the buffered events on every save so they can't accumulate; because
-// FlyerImportedEvent is raised inside IngestFlyer's explicit two-save materialization transaction, the
-// transaction-aware pair holds it until COMMIT so an aborted import (rollback) fires no phantom event
-// (plantry-jvzk).
-builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
-    opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Market.Infrastructure"))
-        .AddInterceptors(
-            sp.GetRequiredService<HouseholdRlsConnectionInterceptor>(),
-            sp.GetRequiredService<DomainEventDispatchInterceptor>(),
-            sp.GetRequiredService<DomainEventCommitDispatchInterceptor>()));
+// Deals context (Phase 5 / P5-0). Store subscriptions + §7e management (P5-2). MarketDbContext (shared
+// with Pricing above) MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known
+// P2-0/P3-0 gotcha: omit it and every Market query filter returns nothing while writes silently succeed.
 
 // Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
 // ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters
@@ -458,19 +425,46 @@ builder.Services.AddHostedService<FlyerIngestionWorker>();
 builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
 builder.Services.AddHostedService<QueuedHostedService>();
 
-// Housekeeping context ("Tidy Up", tidy-up.md). Findings are computed live from other contexts'
-// application services (T4) and are never persisted — the DbContext + schema below back only the
-// Dismissal tombstone (T5/T9). HousekeepingDbContext MUST be wired into RlsMiddleware (see
-// Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0 gotcha. No domain-event dispatch interceptors:
-// Dismissal never raises domain events.
+// Housekeeping ("Tidy Up", tidy-up.md) — ADR-024 Phase A dissolved the Housekeeping bounded context;
+// its 7 read-only detectors are now ADR-021 cross-schema read models living directly in Plantry.Web
+// (the composition root). Dismissal — the only state Housekeeping ever owned — moved with them at
+// first, then moved again (plantry-g3da.9, ADR-024 ratified option B) into
+// Plantry.Composition.Infrastructure, the read layer's standing persistence home. Findings are
+// computed live from other contexts' schemas via IStockFactsReadModel/IRecipeFactsReadModel (T4) and
+// are never persisted — the DbContext + schema below back only the Dismissal tombstone (T5/T9).
+// HousekeepingDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known
+// P2-0/P3-0 gotcha. No domain-event dispatch interceptors: Dismissal never raises domain events.
+// MigrationsAssembly is "Plantry.Composition.Infrastructure" — the migrations live in that project's
+// Migrations/ folder alongside HousekeepingDbContext (schema/table unchanged).
 builder.Services.AddDbContext<HousekeepingDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Housekeeping.Infrastructure"))
+            npgsql => npgsql.MigrationsAssembly("Plantry.Composition.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IDismissalRepository, DismissalRepository>();
 builder.Services.AddScoped<GetTidyUpPageQuery>();
 builder.Services.AddScoped<DismissFindingCommand>();
 builder.Services.AddScoped<RestoreFindingCommand>();
+
+// Tidy Up's ADR-021 read models (ADR-024 Phase A) — raw SQL over an RLS-armed connection, shared by
+// the two detector families: IStockFactsReadModel backs D1/D3/D4/D6 (stock+catalog facts),
+// IRecipeFactsReadModel backs D2/D5/D7 (recipe+catalog+pricing facts). Registered Scoped, same
+// rationale as IMealPlanWeekReadModel — ITenantContext is request-scoped.
+builder.Services.AddScoped<IStockFactsReadModel>(sp =>
+    new StockFactsReadModel(appUserConnStr, sp.GetRequiredService<ITenantContext>()));
+builder.Services.AddScoped<IRecipeFactsReadModel>(sp =>
+    new RecipeFactsReadModel(appUserConnStr, sp.GetRequiredService<ITenantContext>()));
+
+// Tidy Up's 7 problem detectors (tidy-up.md T4/T8) — moved from Plantry.Composition's
+// AddCrossContextAdapters (ADR-024 Phase A: Plantry.Composition must never reference Plantry.Web
+// types, so this registration can only live here). Registered as IProblemDetector so
+// GetTidyUpPageQuery discovers every implementation via IEnumerable<IProblemDetector>.
+builder.Services.AddScoped<IProblemDetector, StockUnitUnconvertibleDetector>();
+builder.Services.AddScoped<IProblemDetector, RecipeConversionGapDetector>();
+builder.Services.AddScoped<IProblemDetector, StockExpiredDetector>();
+builder.Services.AddScoped<IProblemDetector, StapleNoLowStockAlertDetector>();
+builder.Services.AddScoped<IProblemDetector, RecipeIngredientNoPriceDetector>();
+builder.Services.AddScoped<IProblemDetector, MixedIncompatibleUnitsDetector>();
+builder.Services.AddScoped<IProblemDetector, RecipeLineUntrackedProductDetector>();
 // Singleton (T6): the badge count must survive across requests/scopes with its own TTL; the query
 // service and the dismiss/restore commands (all scoped) write/invalidate into it via the port.
 // IClock is registered Scoped (a singleton cannot safely consume it via constructor injection —
@@ -548,10 +542,12 @@ builder.Services.AddScoped<MoveMealService>();
 // Meal Planning — P3-4 roll-up + Shop for the week (plantry-ux2).
 // IMealPlanStockReader / IMealPlanPriceReader are MealPlanning-owned ACL ports onto the same
 // Inventory / Pricing stack used by Recipes — separate interface copies per context (DM-3).
-// IMealPlanShoppingWriter wraps Shopping's AddItemCommand with source="meal_plan" (DM-18).
+// ShopForWeekService calls Shopping's AddItemCommand with source=ItemSource.MealPlan directly — an
+// intra-context call since the MealPlanning/Shopping merge into Plantry.Planning (ADR-024, plantry-g3da.5;
+// formerly the IMealPlanShoppingWriter ACL port).
 // PlanFulfillmentService / PlanCostingService are stateless domain services that roll up
 // Recipes' enrichment across a meal's dishes — MealPlanning never recomputes these (domain-model §1).
-// IMealPlanStockReader + IMealPlanPriceReader + IMealPlanShoppingWriter adapters → Plantry.Composition (AddCrossContextAdapters).
+// IMealPlanStockReader + IMealPlanPriceReader adapters → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<PlanFulfillmentService>();
 builder.Services.AddScoped<PlanCostingService>();
 builder.Services.AddScoped<ShopForWeekService>();
@@ -600,9 +596,11 @@ else
 
 // Shopping ACL adapters → Plantry.Composition (AddCrossContextAdapters): IShoppingCatalogReader (→ Catalog,
 // P2-Sc), IShoppingPantryReader (→ Inventory, plantry-juh), IShoppingRecipeReader (→ Recipes, plantry-26g),
-// IShoppingMealPlanReader + IShoppingDealAttributionReader (attribution lines, plantry-jwyb), and
-// IShoppingDealReader (→ Pricing cheapest-active-deal badge, P5-9). All keep Shopping.Application off the
-// other contexts' EF contexts (ADR-002 / ADR-010 / Gate 2).
+// IShoppingDealAttributionReader (attribution lines, plantry-jwyb), and IShoppingDealReader (→ Pricing
+// cheapest-active-deal badge, P5-9). MealPlan-source attribution labels resolve via
+// IMealPlanRepository.FindSlotLabelsAsync directly — an intra-context call since the Planning merge
+// (ADR-024, plantry-g3da.5; formerly the IShoppingMealPlanReader ACL port). All keep Shopping.Application
+// off the other contexts' EF contexts (ADR-002 / ADR-010 / Gate 2).
 builder.Services.AddScoped<ShoppingListQueryService>();
 builder.Services.AddScoped<PantrySuggestionService>();
 

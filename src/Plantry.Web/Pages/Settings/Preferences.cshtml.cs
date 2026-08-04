@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Identity.Infrastructure;
-using Plantry.MealPlanning.Application;
+using Plantry.Planning.Application;
 
 namespace Plantry.Web.Pages.Settings;
 
