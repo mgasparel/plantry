@@ -247,6 +247,11 @@ internal static class TodayProductBatchingCommon
         services.RemoveAll<IMealPlanCatalogProductReader>();
         services.AddSingleton<IMealPlanCatalogProductReader>(catalogReader);
 
+        // Cook/eaten status port (plantry-ohmb) — these batching scenarios never cook/eat any dish,
+        // so an empty-result null double is enough; IndexModel still requires an instance to construct.
+        services.RemoveAll<IMealPlanCookStatusReader>();
+        services.AddSingleton<IMealPlanCookStatusReader>(new Plantry.Tests.Web.Infrastructure.NullCookStatusReader());
+
         services.RemoveAll<Plantry.Planning.Application.IHouseholdMemberReader>();
         services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 

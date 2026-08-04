@@ -216,6 +216,7 @@ public sealed class TodayIndexModelTests
             new NullMemberReader(),
             browseDeals,
             new NullTodayCatalogProductReader(),
+            new Plantry.Tests.Web.Infrastructure.NullCookStatusReader(),
             FixedClock,
             tenant);
     }
@@ -461,6 +462,7 @@ public sealed class ExpiringWidgetModelTests
             new NullMemberReader2(),
             browseDeals,
             new NullTodayCatalogProductReader(),
+            new Plantry.Tests.Web.Infrastructure.NullCookStatusReader(),
             FixedClock,
             tenant);
     }
