@@ -120,7 +120,7 @@ public sealed class StoreSubscriptionRepositoryTests(PostgresFixture db) : IAsyn
 
         // No tenant armed — the worker's actual boot path — sees the overall max (household B's later pull).
         var noTenant = new TenantContext();
-        await using (var unarmed = new DealsDbContext(
+        await using (var unarmed = new MarketDbContext(
             BuildAppUserOptions(new HouseholdRlsConnectionInterceptor(noTenant))))
         {
             var max = await new StoreSubscriptionRepository(unarmed).GetLastPulledAtAcrossHouseholdsAsync();
@@ -131,7 +131,7 @@ public sealed class StoreSubscriptionRepositoryTests(PostgresFixture db) : IAsyn
         // stray tenant-scoped call can never see another household's pull timestamp.
         var tenantA = new TenantContext();
         tenantA.Set(_householdA.Value);
-        await using (var armed = new DealsDbContext(
+        await using (var armed = new MarketDbContext(
             BuildAppUserOptions(new HouseholdRlsConnectionInterceptor(tenantA))))
         {
             var max = await new StoreSubscriptionRepository(armed).GetLastPulledAtAcrossHouseholdsAsync();
@@ -143,7 +143,7 @@ public sealed class StoreSubscriptionRepositoryTests(PostgresFixture db) : IAsyn
     public async Task GetLastPulledAtAcrossHouseholds_NoPullsRecorded_ReturnsNull()
     {
         var noTenant = new TenantContext();
-        await using var unarmed = new DealsDbContext(
+        await using var unarmed = new MarketDbContext(
             BuildAppUserOptions(new HouseholdRlsConnectionInterceptor(noTenant)));
 
         var max = await new StoreSubscriptionRepository(unarmed).GetLastPulledAtAcrossHouseholdsAsync();
@@ -151,18 +151,18 @@ public sealed class StoreSubscriptionRepositoryTests(PostgresFixture db) : IAsyn
         Assert.Null(max);
     }
 
-    private DealsDbContext NewRepoContext(HouseholdId household)
+    private MarketDbContext NewRepoContext(HouseholdId household)
     {
-        var options = new DbContextOptionsBuilder<DealsDbContext>()
+        var options = new DbContextOptionsBuilder<MarketDbContext>()
             .UseNpgsql(db.ConnectionString)
             .Options;
-        var ctx = new DealsDbContext(options);
+        var ctx = new MarketDbContext(options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }
 
-    private DbContextOptions<DealsDbContext> BuildAppUserOptions(IInterceptor interceptor) =>
-        new DbContextOptionsBuilder<DealsDbContext>()
+    private DbContextOptions<MarketDbContext> BuildAppUserOptions(IInterceptor interceptor) =>
+        new DbContextOptionsBuilder<MarketDbContext>()
             .UseNpgsql(db.AppUserConnectionString)
             .AddInterceptors(interceptor)
             .Options;

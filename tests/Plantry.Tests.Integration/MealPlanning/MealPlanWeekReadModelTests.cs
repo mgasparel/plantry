@@ -570,10 +570,10 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         return ctx;
     }
 
-    private PricingDbContext NewPricingDb()
+    private MarketDbContext NewPricingDb()
     {
-        var opts = new DbContextOptionsBuilder<PricingDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new PricingDbContext(opts);
+        var opts = new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new MarketDbContext(opts);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

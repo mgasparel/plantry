@@ -3,7 +3,7 @@ namespace Plantry.Market.Domain;
 /// <summary>
 /// Read/write port for the <see cref="StoreSubscription"/> aggregate (§3 / DJ1). The first Deals
 /// repository (P5-0 delivered the DbContext, not repos). Mirrors <c>MealPlanRepository</c> — reads and
-/// writes on one port — and is RLS-scoped to the current household by <c>DealsDbContext</c>, so every
+/// writes on one port — and is RLS-scoped to the current household by <c>MarketDbContext</c>, so every
 /// query returns only the signed-in household's rows.
 /// </summary>
 public interface IStoreSubscriptionRepository

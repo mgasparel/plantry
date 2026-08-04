@@ -324,21 +324,21 @@ public sealed class IngestFlyerAtomicMaterializeTests(PostgresFixture db) : IAsy
     }
 
     /// <summary>
-    /// Builds a DealsDbContext armed for <paramref name="household"/> exactly as the worker does: an app_user
+    /// Builds a MarketDbContext armed for <paramref name="household"/> exactly as the worker does: an app_user
     /// connection (so RLS applies), the RLS connection interceptor bound to a fresh <see cref="ITenantContext"/>,
     /// and the EF query filter via <c>SetHouseholdId</c>.
     /// </summary>
-    private DealsDbContext ArmedContext(HouseholdId household, out ITenantContext tenant)
+    private MarketDbContext ArmedContext(HouseholdId household, out ITenantContext tenant)
     {
         var armed = new ArmedTenantContext();
         armed.Set(household.Value);
         tenant = armed;
 
-        var options = new DbContextOptionsBuilder<DealsDbContext>()
+        var options = new DbContextOptionsBuilder<MarketDbContext>()
             .UseNpgsql(db.AppUserConnectionString)
             .AddInterceptors(new HouseholdRlsConnectionInterceptor(armed))
             .Options;
-        var ctx = new DealsDbContext(options);
+        var ctx = new MarketDbContext(options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

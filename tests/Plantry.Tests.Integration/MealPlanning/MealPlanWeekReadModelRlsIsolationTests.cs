@@ -244,10 +244,10 @@ public sealed class MealPlanWeekReadModelRlsIsolationTests(PostgresFixture db) :
         return ctx;
     }
 
-    private PricingDbContext NewPricingDb(HouseholdId household)
+    private MarketDbContext NewPricingDb(HouseholdId household)
     {
-        var opts = new DbContextOptionsBuilder<PricingDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new PricingDbContext(opts);
+        var opts = new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new MarketDbContext(opts);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

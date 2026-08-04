@@ -159,12 +159,12 @@ public sealed class FlyerImportRepositoryTests(PostgresFixture db) : IAsyncLifet
         }
     }
 
-    private DealsDbContext NewContext(HouseholdId household)
+    private MarketDbContext NewContext(HouseholdId household)
     {
-        var options = new DbContextOptionsBuilder<DealsDbContext>()
+        var options = new DbContextOptionsBuilder<MarketDbContext>()
             .UseNpgsql(db.ConnectionString)
             .Options;
-        var ctx = new DealsDbContext(options);
+        var ctx = new MarketDbContext(options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

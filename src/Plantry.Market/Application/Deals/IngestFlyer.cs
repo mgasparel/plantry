@@ -25,7 +25,7 @@ public sealed record IngestSummary(
 /// side effects) and queuing the rest for review. The convergence point of the Deals context.
 /// <para>
 /// <b>Tenancy (security-critical).</b> This service runs inside an already-armed household scope — the
-/// background worker sets <see cref="ITenantContext"/> and <c>DealsDbContext.SetHouseholdId</c> per
+/// background worker sets <see cref="ITenantContext"/> and <c>MarketDbContext.SetHouseholdId</c> per
 /// household before resolving it (there is no HTTP principal). It reads only the armed household's
 /// RLS-scoped rows and stamps every new aggregate with that household id. A null tenant is a
 /// programming error (the worker must arm first) and yields an empty cycle rather than a cross-tenant read.
@@ -75,7 +75,7 @@ public sealed class IngestFlyer(
             ct.ThrowIfCancellationRequested();
 
             // Isolate each subscription's unit of work: discard any changes a prior subscription left
-            // staged in the shared DealsDbContext but never committed. EF does NOT detach tracked entities
+            // staged in the shared MarketDbContext but never committed. EF does NOT detach tracked entities
             // when SaveChanges throws, so without this a save-fault in one subscription would strand its
             // Added/Deleted deals in the context and flush them into the NEXT subscription's commit —
             // inserting the failed flyer's deals and deleting a household's prior Pending deals meant only
@@ -180,7 +180,7 @@ public sealed class IngestFlyer(
 
             // ── Atomic materialization (plantry-pwkm, DD15) ─────────────────────────────────────────────
             // The envelope, its staged Pending deals, and the Parsed transition commit as ONE unit or not at
-            // all. imports + deals wrap the same DealsDbContext, so one transaction spans all three writes; the
+            // all. imports + deals wrap the same MarketDbContext, so one transaction spans all three writes; the
             // FlyerImport is INSERTed before its deals because the deal → flyer_import composite FK is enforced
             // yet has no EF navigation (EF cannot order the inserts within a single save). A hard crash between
             // the deal-persist and the Parsed transition rolls the whole write back — no partial FlyerImport row

@@ -10,24 +10,24 @@ using Plantry.Market.Infrastructure;
 
 #nullable disable
 
-namespace Plantry.Market.Infrastructure.Migrations.Deals
+namespace Plantry.Market.Infrastructure.Migrations.Market
 {
-    [DbContext(typeof(DealsDbContext))]
-    [Migration("20260707004825_MapValidityWindowAsComplexType")]
-    partial class MapValidityWindowAsComplexType
+    [DbContext(typeof(MarketDbContext))]
+    [Migration("20260804030207_InitialMarketSchema")]
+    partial class InitialMarketSchema
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasDefaultSchema("deals")
+                .HasDefaultSchema("pricing")
                 .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Plantry.Deals.Domain.Deal", b =>
+            modelBuilder.Entity("Plantry.Market.Domain.Deal", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -134,7 +134,7 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "ValidityWindow", "Plantry.Deals.Domain.Deal.ValidityWindow#ValidityWindow", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "ValidityWindow", "Plantry.Market.Domain.Deal.ValidityWindow#ValidityWindow", b1 =>
                         {
                             b1.IsRequired();
 
@@ -158,7 +158,7 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                     b.ToTable("deal", "deals");
                 });
 
-            modelBuilder.Entity("Plantry.Deals.Domain.DealMatchMemory", b =>
+            modelBuilder.Entity("Plantry.Market.Domain.DealMatchMemory", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -211,7 +211,7 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                     b.ToTable("deal_match_memory", "deals");
                 });
 
-            modelBuilder.Entity("Plantry.Deals.Domain.FlyerImport", b =>
+            modelBuilder.Entity("Plantry.Market.Domain.FlyerImport", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -264,7 +264,7 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "ValidityWindow", "Plantry.Deals.Domain.FlyerImport.ValidityWindow#ValidityWindow", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "ValidityWindow", "Plantry.Market.Domain.FlyerImport.ValidityWindow#ValidityWindow", b1 =>
                         {
                             b1.IsRequired();
 
@@ -285,12 +285,116 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
 
                     b.HasIndex("HouseholdId", "StoreId", "FlyerExternalId")
                         .IsUnique()
-                        .HasDatabaseName("ux_flyer_import_household_store_external");
+                        .HasDatabaseName("ux_flyer_import_household_store_external")
+                        .HasFilter("status = 'parsed'");
 
                     b.ToTable("flyer_import", "deals");
                 });
 
-            modelBuilder.Entity("Plantry.Deals.Domain.StoreSubscription", b =>
+            modelBuilder.Entity("Plantry.Market.Domain.PriceObservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("observation_id");
+
+                    b.Property<Guid?>("AmendsId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("amends_id");
+
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("household_id");
+
+                    b.Property<string>("MerchantText")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("merchant_text");
+
+                    b.Property<DateTimeOffset>("ObservedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("observed_at");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("price");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)")
+                        .HasColumnName("quantity");
+
+                    b.Property<Guid?>("SkuId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sku_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("source");
+
+                    b.Property<Guid?>("SourceRef")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_ref");
+
+                    b.Property<Guid?>("StoreId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("store_id");
+
+                    b.Property<Guid?>("SupersededById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("superseded_by_id");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("unit_id");
+
+                    b.Property<decimal?>("UnitPrice")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("numeric(12,6)")
+                        .HasColumnName("unit_price");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateOnly?>("ValidFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_from");
+
+                    b.Property<DateOnly?>("ValidTo")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_to");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AmendsId");
+
+                    b.HasIndex("SupersededById");
+
+                    b.HasIndex("HouseholdId", "ProductId")
+                        .HasDatabaseName("ix_price_observation_deal")
+                        .HasFilter("source = 'Deal'");
+
+                    b.HasIndex("HouseholdId", "ProductId", "ObservedAt")
+                        .HasDatabaseName("ix_price_observation_product");
+
+                    b.HasIndex("HouseholdId", "SkuId", "ObservedAt")
+                        .HasDatabaseName("ix_price_observation_sku")
+                        .HasFilter("sku_id IS NOT NULL");
+
+                    b.ToTable("price_observation", "pricing", t =>
+                        {
+                            t.HasCheckConstraint("ck_price_observation_valid_window", "valid_from <= valid_to");
+                        });
+                });
+
+            modelBuilder.Entity("Plantry.Market.Domain.StoreSubscription", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -313,6 +417,10 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                     b.Property<string>("LastFlyerExternalId")
                         .HasColumnType("text")
                         .HasColumnName("last_flyer_external_id");
+
+                    b.Property<DateTimeOffset?>("LastNewContentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_new_content_at");
 
                     b.Property<DateTimeOffset?>("LastPulledAt")
                         .HasColumnType("timestamp with time zone")
@@ -338,6 +446,19 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                         .HasDatabaseName("ux_store_subscription_household_store");
 
                     b.ToTable("store_subscription", "deals");
+                });
+
+            modelBuilder.Entity("Plantry.Market.Domain.PriceObservation", b =>
+                {
+                    b.HasOne("Plantry.Market.Domain.PriceObservation", null)
+                        .WithMany()
+                        .HasForeignKey("AmendsId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Plantry.Market.Domain.PriceObservation", null)
+                        .WithMany()
+                        .HasForeignKey("SupersededById")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
         }

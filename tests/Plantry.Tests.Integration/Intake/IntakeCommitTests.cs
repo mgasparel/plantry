@@ -336,10 +336,10 @@ public sealed class IntakeCommitTests(PostgresFixture db) : IAsyncLifetime
         return ctx;
     }
 
-    private PricingDbContext NewPricingDb()
+    private MarketDbContext NewPricingDb()
     {
-        var ctx = new PricingDbContext(
-            new DbContextOptionsBuilder<PricingDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new MarketDbContext(
+            new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

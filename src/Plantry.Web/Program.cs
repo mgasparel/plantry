@@ -274,11 +274,13 @@ builder.Services.AddScoped<IProductConversionProvider, CatalogConversionProvider
 builder.Services.AddScoped<ICatalogReadFacade, CatalogReadFacade>();
 // ITakeStockReader/ITakeStockCatalogWriter adapters → Plantry.Composition (AddCrossContextAdapters).
 
-// Pricing context
-builder.Services.AddDbContext<PricingDbContext>((sp, opts) =>
+// Market context (Pricing + Deals, unified into one DbContext — ADR-024 / plantry-g3da.7).
+builder.Services.AddDbContext<MarketDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Market.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+
+// Pricing context
 builder.Services.AddScoped<IPriceObservationRepository, PriceObservationRepository>();
 // IUnitPriceCalculator adapter → Plantry.Composition (AddCrossContextAdapters).
 builder.Services.AddScoped<PricingQueries>();
@@ -345,13 +347,9 @@ builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 
-// Deals context (Phase 5 / P5-0). DbContext + schema (P5-0); store subscriptions + §7e management (P5-2).
-// DealsDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known P2-0/P3-0
-// gotcha: omit it and every Deals query filter returns nothing while writes silently succeed.
-builder.Services.AddDbContext<DealsDbContext>((sp, opts) =>
-    opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Market.Infrastructure"))
-        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+// Deals context (Phase 5 / P5-0). Store subscriptions + §7e management (P5-2). MarketDbContext (shared
+// with Pricing above) MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the known
+// P2-0/P3-0 gotcha: omit it and every Market query filter returns nothing while writes silently succeed.
 
 // Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
 // ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters

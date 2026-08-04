@@ -3,16 +3,19 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Plantry.Market.Infrastructure.Migrations.Deals
+namespace Plantry.Market.Infrastructure.Migrations.Market
 {
     /// <inheritdoc />
-    public partial class InitialDealsSchema : Migration
+    public partial class InitialMarketSchema : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.EnsureSchema(
                 name: "deals");
+
+            migrationBuilder.EnsureSchema(
+                name: "pricing");
 
             migrationBuilder.CreateTable(
                 name: "deal",
@@ -37,14 +40,14 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                     match_reasoning = table.Column<string>(type: "text", nullable: true),
                     product_id = table.Column<Guid>(type: "uuid", nullable: true),
                     status = table.Column<string>(type: "text", nullable: false),
-                    valid_from = table.Column<DateOnly>(type: "date", nullable: false),
-                    valid_to = table.Column<DateOnly>(type: "date", nullable: false),
                     committed_price_observation_id = table.Column<Guid>(type: "uuid", nullable: true),
                     auto_matched = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     reviewed_by_user_id = table.Column<Guid>(type: "uuid", nullable: true),
                     reviewed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    valid_from = table.Column<DateOnly>(type: "date", nullable: false),
+                    valid_to = table.Column<DateOnly>(type: "date", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -82,19 +85,63 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                     store_id = table.Column<Guid>(type: "uuid", nullable: false),
                     flyer_external_id = table.Column<string>(type: "text", nullable: false),
                     content_hash = table.Column<byte[]>(type: "bytea", nullable: true),
-                    valid_from = table.Column<DateOnly>(type: "date", nullable: false),
-                    valid_to = table.Column<DateOnly>(type: "date", nullable: false),
                     raw_flyer = table.Column<string>(type: "jsonb", nullable: false),
                     status = table.Column<string>(type: "text", nullable: false),
                     error_detail = table.Column<string>(type: "text", nullable: true),
                     pulled_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     parsed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    valid_from = table.Column<DateOnly>(type: "date", nullable: false),
+                    valid_to = table.Column<DateOnly>(type: "date", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_flyer_import", x => x.flyer_import_id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "price_observation",
+                schema: "pricing",
+                columns: table => new
+                {
+                    observation_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    household_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    product_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    sku_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    price = table.Column<decimal>(type: "numeric(12,2)", precision: 12, scale: 2, nullable: false),
+                    quantity = table.Column<decimal>(type: "numeric(12,3)", precision: 12, scale: 3, nullable: false),
+                    unit_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    unit_price = table.Column<decimal>(type: "numeric(12,6)", precision: 12, scale: 6, nullable: true),
+                    source = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    merchant_text = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    store_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    valid_from = table.Column<DateOnly>(type: "date", nullable: true),
+                    valid_to = table.Column<DateOnly>(type: "date", nullable: true),
+                    source_ref = table.Column<Guid>(type: "uuid", nullable: true),
+                    observed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    user_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    amends_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    superseded_by_id = table.Column<Guid>(type: "uuid", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_price_observation", x => x.observation_id);
+                    table.CheckConstraint("ck_price_observation_valid_window", "valid_from <= valid_to");
+                    table.ForeignKey(
+                        name: "FK_price_observation_price_observation_amends_id",
+                        column: x => x.amends_id,
+                        principalSchema: "pricing",
+                        principalTable: "price_observation",
+                        principalColumn: "observation_id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_price_observation_price_observation_superseded_by_id",
+                        column: x => x.superseded_by_id,
+                        principalSchema: "pricing",
+                        principalTable: "price_observation",
+                        principalColumn: "observation_id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -108,6 +155,7 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                     postal_code = table.Column<string>(type: "text", nullable: false),
                     is_active = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
                     last_pulled_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    last_new_content_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     last_flyer_external_id = table.Column<string>(type: "text", nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
@@ -148,7 +196,40 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                 schema: "deals",
                 table: "flyer_import",
                 columns: new[] { "household_id", "store_id", "flyer_external_id" },
-                unique: true);
+                unique: true,
+                filter: "status = 'parsed'");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_price_observation_amends_id",
+                schema: "pricing",
+                table: "price_observation",
+                column: "amends_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_price_observation_deal",
+                schema: "pricing",
+                table: "price_observation",
+                columns: new[] { "household_id", "product_id" },
+                filter: "source = 'Deal'");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_price_observation_product",
+                schema: "pricing",
+                table: "price_observation",
+                columns: new[] { "household_id", "product_id", "observed_at" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_price_observation_sku",
+                schema: "pricing",
+                table: "price_observation",
+                columns: new[] { "household_id", "sku_id", "observed_at" },
+                filter: "sku_id IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_price_observation_superseded_by_id",
+                schema: "pricing",
+                table: "price_observation",
+                column: "superseded_by_id");
 
             migrationBuilder.CreateIndex(
                 name: "ux_store_subscription_household_store",
@@ -161,7 +242,9 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
             // The one enforced cross-aggregate FK in this schema. RESTRICT because flyer_import is
             // retained, never deleted. flyer_import_id is nullable for the deferred manual path (D12);
             // Postgres MATCH SIMPLE (the default) leaves the constraint unenforced when it is null.
-            // Created as raw SQL — the four aggregates are flat, so there is no EF navigation.
+            // Created as raw SQL — the four Deals aggregates are flat, so there is no EF navigation.
+            // Re-homed unchanged from the former DealsDbContext's InitialDealsSchema migration
+            // (plantry-g3da.7 squash — see MarketDbContext remarks).
             migrationBuilder.Sql(@"
                 ALTER TABLE deals.deal
                     ADD CONSTRAINT fk_deal_flyer_import_composite
@@ -171,6 +254,7 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
             ");
 
             // ── Domain CHECK constraints (single-row invariants) ───────────────────
+            // Re-homed unchanged from the former DealsDbContext's InitialDealsSchema migration.
             migrationBuilder.Sql(@"
                 -- Enum columns match the domain enums, persisted lowercase (data model deals.md).
                 ALTER TABLE deals.deal
@@ -201,11 +285,19 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
             ");
 
             // ── Per-household Row Level Security (ADR-008 / DM-1) ───────────────────
+            // Re-homed from the two former contexts' initial migrations. store_subscription's policy
+            // is the FINAL shape (post plantry-rb36's AllowCrossHouseholdStoreSubscriptionRead migration
+            // on the old DealsDbContext) — a fresh database never sees the intermediate plain-isolation
+            // version, so the squash starts straight from the carve-out policy the boot due-check
+            // (IStoreSubscriptionRepository.GetLastPulledAtAcrossHouseholdsAsync) depends on.
             migrationBuilder.Sql(@"
                 ALTER TABLE deals.store_subscription ENABLE ROW LEVEL SECURITY;
                 ALTER TABLE deals.store_subscription FORCE ROW LEVEL SECURITY;
                 CREATE POLICY household_isolation ON deals.store_subscription
-                  USING (household_id = NULLIF(current_setting('app.household_id', true), '')::uuid);
+                  USING (
+                    NULLIF(current_setting('app.household_id', true), '') IS NULL
+                    OR household_id = NULLIF(current_setting('app.household_id', true), '')::uuid
+                  );
 
                 ALTER TABLE deals.flyer_import ENABLE ROW LEVEL SECURITY;
                 ALTER TABLE deals.flyer_import FORCE ROW LEVEL SECURITY;
@@ -225,6 +317,15 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
                 GRANT USAGE ON SCHEMA deals TO app_user;
                 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA deals TO app_user;
                 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA deals TO app_user;
+
+                ALTER TABLE pricing.price_observation ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE pricing.price_observation FORCE ROW LEVEL SECURITY;
+                CREATE POLICY household_isolation ON pricing.price_observation
+                  USING (household_id = NULLIF(current_setting('app.household_id', true), '')::uuid);
+
+                GRANT USAGE ON SCHEMA pricing TO app_user;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pricing TO app_user;
+                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pricing TO app_user;
             ");
         }
 
@@ -232,6 +333,11 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql(@"
+                REVOKE ALL ON ALL TABLES IN SCHEMA pricing FROM app_user;
+                REVOKE ALL ON ALL SEQUENCES IN SCHEMA pricing FROM app_user;
+                REVOKE USAGE ON SCHEMA pricing FROM app_user;
+                DROP POLICY IF EXISTS household_isolation ON pricing.price_observation;
+
                 REVOKE ALL ON ALL TABLES IN SCHEMA deals FROM app_user;
                 REVOKE ALL ON ALL SEQUENCES IN SCHEMA deals FROM app_user;
                 REVOKE USAGE ON SCHEMA deals FROM app_user;
@@ -255,6 +361,10 @@ namespace Plantry.Market.Infrastructure.Migrations.Deals
             migrationBuilder.DropTable(
                 name: "flyer_import",
                 schema: "deals");
+
+            migrationBuilder.DropTable(
+                name: "price_observation",
+                schema: "pricing");
 
             migrationBuilder.DropTable(
                 name: "store_subscription",

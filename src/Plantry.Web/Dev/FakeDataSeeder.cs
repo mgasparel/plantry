@@ -40,8 +40,7 @@ public sealed class FakeDataSeeder(
     InventoryDbContext inventoryDb,
     RecipesDbContext recipesDb,
     MealPlanningDbContext mealPlanningDb,
-    PricingDbContext pricingDb,
-    DealsDbContext dealsDb,
+    MarketDbContext marketDb,
     IStoreRepository storeRepo,
     ConfirmDeal confirmDeal,
     RejectDeal rejectDeal,
@@ -676,8 +675,8 @@ public sealed class FakeDataSeeder(
                 userId));
         }
 
-        await pricingDb.PriceObservations.AddRangeAsync(observations, ct);
-        await pricingDb.SaveChangesAsync(ct);
+        await marketDb.PriceObservations.AddRangeAsync(observations, ct);
+        await marketDb.SaveChangesAsync(ct);
     }
 
     // ── Deals + flyer-review seeding (plantry-q9zr.14) ──────────────────────────────
@@ -766,8 +765,8 @@ public sealed class FakeDataSeeder(
         // hasNewContent: true — mirrors a genuine IngestFlyer new-import pull (the current-week import staged
         // above), so the seeded row exercises the "Confirmed current" badge path (plantry-fsmb).
         subscription.RecordPull(fixture.Flyer.ExternalId, clock, hasNewContent: true);
-        dealsDb.StoreSubscriptions.Add(subscription);
-        await dealsDb.SaveChangesAsync(ct);
+        marketDb.StoreSubscriptions.Add(subscription);
+        await marketDb.SaveChangesAsync(ct);
     }
 
     /// <summary>
@@ -788,8 +787,8 @@ public sealed class FakeDataSeeder(
         if (marked.IsFailure)
             throw new InvalidOperationException($"Seed flyer MarkParsed failed: {marked.Error.Description}");
 
-        dealsDb.FlyerImports.Add(import);
-        await dealsDb.SaveChangesAsync(ct); // INSERT the import before its deals (composite FK, no navigation)
+        marketDb.FlyerImports.Add(import);
+        await marketDb.SaveChangesAsync(ct); // INSERT the import before its deals (composite FK, no navigation)
 
         var deals = new List<Deal>(fixture.Deals.Count);
         foreach (var fd in fixture.Deals)
@@ -805,11 +804,11 @@ public sealed class FakeDataSeeder(
             var proposal = new MatchProposal(productId, ParseConfidence(fd.Confidence), fd.Reasoning);
 
             var deal = Deal.Stage(householdId, import.Id, storeId, raw, normalized, proposal, clock);
-            dealsDb.Deals.Add(deal);
+            marketDb.Deals.Add(deal);
             deals.Add(deal);
         }
 
-        await dealsDb.SaveChangesAsync(ct);
+        await marketDb.SaveChangesAsync(ct);
         return deals;
     }
 
@@ -983,16 +982,16 @@ public sealed class FakeDataSeeder(
 
                 // Price observations are append-only (no children) — delete before catalog so
                 // there is no dangling product_id soft-ref concern.
-                await pricingDb.PriceObservations.ExecuteDeleteAsync(ct);
+                await marketDb.PriceObservations.ExecuteDeleteAsync(ct);
 
                 // Deals (plantry-q9zr.14): child deals FIRST — deal → flyer_import is a RESTRICT FK, so a
                 // flyer_import cannot be deleted while its deals exist — then the flat subscription/memory
                 // roots. All soft-reference catalog store/product by Guid (no FK), so ordering vs catalog is
                 // free. ExecuteDelete honours the armed RLS query filter, staying within this household.
-                await dealsDb.Deals.ExecuteDeleteAsync(ct);
-                await dealsDb.FlyerImports.ExecuteDeleteAsync(ct);
-                await dealsDb.DealMatchMemories.ExecuteDeleteAsync(ct);
-                await dealsDb.StoreSubscriptions.ExecuteDeleteAsync(ct);
+                await marketDb.Deals.ExecuteDeleteAsync(ct);
+                await marketDb.FlyerImports.ExecuteDeleteAsync(ct);
+                await marketDb.DealMatchMemories.ExecuteDeleteAsync(ct);
+                await marketDb.StoreSubscriptions.ExecuteDeleteAsync(ct);
 
                 // Product cascade FK handles product_skus and product_conversions.
                 await catalogDb.Products.ExecuteDeleteAsync(ct);
@@ -1025,8 +1024,7 @@ public sealed class FakeDataSeeder(
         inventoryDb.SetHouseholdId(id);
         recipesDb.SetHouseholdId(id);
         mealPlanningDb.SetHouseholdId(id);
-        pricingDb.SetHouseholdId(id);
-        dealsDb.SetHouseholdId(id);
+        marketDb.SetHouseholdId(id);
     }
 
     private void DisarmTenant()
@@ -1037,8 +1035,7 @@ public sealed class FakeDataSeeder(
         inventoryDb.SetHouseholdId(Guid.Empty);
         recipesDb.SetHouseholdId(Guid.Empty);
         mealPlanningDb.SetHouseholdId(Guid.Empty);
-        pricingDb.SetHouseholdId(Guid.Empty);
-        dealsDb.SetHouseholdId(Guid.Empty);
+        marketDb.SetHouseholdId(Guid.Empty);
     }
 
     // ── Static seed data ──────────────────────────────────────────────────────────

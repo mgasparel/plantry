@@ -136,7 +136,7 @@ public sealed class IngestFlyerFailedRetryTests(PostgresFixture db) : IAsyncLife
     }
 
     private async Task<IngestSummary> RunCycleAsync(
-        DealsDbContext ctx, ITenantContext tenant, IDealRepository deals, int contentVersion)
+        MarketDbContext ctx, ITenantContext tenant, IDealRepository deals, int contentVersion)
     {
         var source = new StubFlyerSource();
         source.Enqueue(ExternalRef, new FlyerPullResult(
@@ -160,17 +160,17 @@ public sealed class IngestFlyerFailedRetryTests(PostgresFixture db) : IAsyncLife
         return await ingest.RunAsync();
     }
 
-    private DealsDbContext ArmedContext(HouseholdId household, out ITenantContext tenant)
+    private MarketDbContext ArmedContext(HouseholdId household, out ITenantContext tenant)
     {
         var armed = new ArmedTenantContext();
         armed.Set(household.Value);
         tenant = armed;
 
-        var options = new DbContextOptionsBuilder<DealsDbContext>()
+        var options = new DbContextOptionsBuilder<MarketDbContext>()
             .UseNpgsql(db.AppUserConnectionString)
             .AddInterceptors(new HouseholdRlsConnectionInterceptor(armed))
             .Options;
-        var ctx = new DealsDbContext(options);
+        var ctx = new MarketDbContext(options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

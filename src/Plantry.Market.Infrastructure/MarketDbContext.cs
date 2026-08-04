@@ -5,20 +5,34 @@ using Plantry.SharedKernel;
 namespace Plantry.Market.Infrastructure;
 
 /// <summary>
-/// EF DbContext for the Deals bounded context (<c>deals</c> schema). Owns four <b>flat</b> aggregates —
-/// <see cref="StoreSubscription"/>, <see cref="FlyerImport"/>, <see cref="Deal"/>,
-/// <see cref="DealMatchMemory"/> — none with child entities (domain model §2). The one enforced
-/// cross-aggregate FK, <c>deal.flyer_import_id → flyer_import(household_id, flyer_import_id)</c>
-/// (RESTRICT, nullable), is created in the migration as raw SQL and has <b>no</b> EF navigation (the
-/// deliberate flat-aggregate split from Intake).
+/// The single EF DbContext for the Market bounded context (ADR-024 Phase A). Unifies what were
+/// formerly two separate DbContexts — <c>PricingDbContext</c> and <c>DealsDbContext</c> — kept apart
+/// only during the interim (plantry-g3da.1) merge to avoid touching migration history. This context
+/// owns both physical schemas unchanged (plantry-g3da.7 does not move data — see ADR-024 §"Physical
+/// schemas do not move on day one"):
+/// <list type="bullet">
+/// <item><b>pricing</b> — <see cref="PriceObservation"/> (append-only aggregate root, no children).</item>
+/// <item><b>deals</b> — four <b>flat</b> aggregates: <see cref="StoreSubscription"/>,
+/// <see cref="FlyerImport"/>, <see cref="Deal"/>, <see cref="DealMatchMemory"/> (domain model §2). The
+/// one enforced cross-aggregate FK, <c>deal.flyer_import_id → flyer_import(household_id, flyer_import_id)</c>
+/// (RESTRICT, nullable), is created in the baseline migration as raw SQL and has <b>no</b> EF navigation
+/// (the deliberate flat-aggregate split from Intake).</item>
+/// </list>
+/// The EF migrations-history table (<c>__EFMigrationsHistory</c>) lives in the <c>pricing</c> schema —
+/// this context's default schema — reusing the location the old <c>PricingDbContext</c> already used,
+/// rather than introducing a third schema purely for bookkeeping.
 /// <para>
 /// The RlsMiddleware MUST call <see cref="SetHouseholdId"/> on this context for every authenticated
 /// request, exactly as for the other bounded-context DbContexts (the known P2-0/P3-0 gotcha: omitting
 /// it leaves _householdId as Guid.Empty and every EF query filter returns nothing).
 /// </para>
 /// </summary>
-public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : DbContext(options)
+public sealed class MarketDbContext(DbContextOptions<MarketDbContext> options) : DbContext(options)
 {
+    // ── Pricing ──────────────────────────────────────────────────────────────
+    public DbSet<PriceObservation> PriceObservations => Set<PriceObservation>();
+
+    // ── Deals ────────────────────────────────────────────────────────────────
     public DbSet<StoreSubscription> StoreSubscriptions => Set<StoreSubscription>();
     public DbSet<FlyerImport> FlyerImports => Set<FlyerImport>();
     public DbSet<Deal> Deals => Set<Deal>();
@@ -26,12 +40,79 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
-        builder.HasDefaultSchema("deals");
+        // Default schema covers Pricing; Deals entities are schema-qualified explicitly below —
+        // there is no single default schema for a context spanning two physical schemas.
+        builder.HasDefaultSchema("pricing");
 
-        // ── StoreSubscription aggregate root ─────────────────────────────────────
+        // ── PriceObservation aggregate root (pricing schema) ────────────────────
+        builder.Entity<PriceObservation>(b =>
+        {
+            b.ToTable("price_observation", t =>
+                t.HasCheckConstraint("ck_price_observation_valid_window", "valid_from <= valid_to"));
+            b.HasKey(p => p.Id);
+            b.Property(p => p.Id)
+                .HasConversion(id => id.Value, v => PriceObservationId.From(v))
+                .HasColumnName("observation_id")
+                .ValueGeneratedNever();
+            b.Property(p => p.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(p => p.ProductId).HasColumnName("product_id").IsRequired();
+            b.Property(p => p.SkuId).HasColumnName("sku_id");
+            b.Property(p => p.Price).HasColumnName("price").HasPrecision(12, 2).IsRequired();
+            b.Property(p => p.Quantity).HasColumnName("quantity").HasPrecision(12, 3).IsRequired();
+            b.Property(p => p.UnitId).HasColumnName("unit_id").IsRequired();
+            b.Property(p => p.UnitPrice).HasColumnName("unit_price").HasPrecision(12, 6);
+            b.Property(p => p.Source)
+                .HasConversion(s => s.ToDbValue(), v => PriceSourceExtensions.Parse(v))
+                .HasColumnName("source")
+                .HasMaxLength(20)
+                .IsRequired();
+            b.Property(p => p.MerchantText).HasColumnName("merchant_text").HasMaxLength(200);
+            b.Property(p => p.StoreId).HasColumnName("store_id");
+            b.Property(p => p.ValidFrom).HasColumnName("valid_from");
+            b.Property(p => p.ValidTo).HasColumnName("valid_to");
+            // Nullable — a Manual observation (plantry-3fqm) has no source document to point at.
+            b.Property(p => p.SourceRef).HasColumnName("source_ref");
+            b.Property(p => p.ObservedAt).HasColumnName("observed_at").IsRequired();
+            b.Property(p => p.UserId).HasColumnName("user_id").IsRequired();
+            // ADR-023 A7 — nullable self-FKs for the amendment supersede chain. Null on every ordinary row.
+            b.Property(p => p.AmendsId)
+                .HasConversion(id => id!.Value.Value, v => PriceObservationId.From(v))
+                .HasColumnName("amends_id");
+            b.Property(p => p.SupersededById)
+                .HasConversion(id => id!.Value.Value, v => PriceObservationId.From(v))
+                .HasColumnName("superseded_by_id");
+            b.HasOne<PriceObservation>()
+                .WithMany()
+                .HasForeignKey(p => p.AmendsId)
+                .HasPrincipalKey(p => p.Id)
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<PriceObservation>()
+                .WithMany()
+                .HasForeignKey(p => p.SupersededById)
+                .HasPrincipalKey(p => p.Id)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Latest-price read model: most recent observation per product or SKU.
+            b.HasIndex(p => new { p.HouseholdId, p.ProductId, p.ObservedAt })
+                .HasDatabaseName("ix_price_observation_product");
+            b.HasIndex(p => new { p.HouseholdId, p.SkuId, p.ObservedAt })
+                .HasDatabaseName("ix_price_observation_sku")
+                .HasFilter("sku_id IS NOT NULL");
+            // Cheapest-active-deal read model: deal rows only (source stored as 'Deal', DM-17).
+            b.HasIndex(p => new { p.HouseholdId, p.ProductId })
+                .HasDatabaseName("ix_price_observation_deal")
+                .HasFilter("source = 'Deal'");
+
+            b.HasQueryFilter(p => p.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── StoreSubscription aggregate root (deals schema) ─────────────────────
         builder.Entity<StoreSubscription>(b =>
         {
-            b.ToTable("store_subscription");
+            b.ToTable("store_subscription", "deals");
             b.HasKey(s => s.Id);
             b.Property(s => s.Id)
                 .HasConversion(id => id.Value, v => StoreSubscriptionId.From(v))
@@ -58,10 +139,10 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
             b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── FlyerImport aggregate root ───────────────────────────────────────────
+        // ── FlyerImport aggregate root (deals schema) ────────────────────────────
         builder.Entity<FlyerImport>(b =>
         {
-            b.ToTable("flyer_import");
+            b.ToTable("flyer_import", "deals");
             b.HasKey(f => f.Id);
             b.Property(f => f.Id)
                 .HasConversion(id => id.Value, v => FlyerImportId.From(v))
@@ -113,10 +194,10 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
             b.HasQueryFilter(f => f.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── Deal aggregate root ──────────────────────────────────────────────────
+        // ── Deal aggregate root (deals schema) ───────────────────────────────────
         builder.Entity<Deal>(b =>
         {
-            b.ToTable("deal");
+            b.ToTable("deal", "deals");
             b.HasKey(d => d.Id);
             b.Property(d => d.Id)
                 .HasConversion(id => id.Value, v => DealId.From(v))
@@ -127,7 +208,7 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
                 .HasColumnName("household_id")
                 .IsRequired();
             // Within-context composite FK anchor; nullable for the deferred manual path (D12).
-            // The FK constraint itself is created in the migration as raw SQL (no EF navigation).
+            // The FK constraint itself is created in the baseline migration as raw SQL (no EF navigation).
             b.Property(d => d.FlyerImportId)
                 .HasConversion(
                     id => id.HasValue ? id.Value.Value : (Guid?)null,
@@ -188,10 +269,10 @@ public sealed class DealsDbContext(DbContextOptions<DealsDbContext> options) : D
             b.HasQueryFilter(d => d.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── DealMatchMemory aggregate root ───────────────────────────────────────
+        // ── DealMatchMemory aggregate root (deals schema) ────────────────────────
         builder.Entity<DealMatchMemory>(b =>
         {
-            b.ToTable("deal_match_memory");
+            b.ToTable("deal_match_memory", "deals");
             b.HasKey(m => m.Id);
             b.Property(m => m.Id)
                 .HasConversion(id => id.Value, v => DealMatchMemoryId.From(v))

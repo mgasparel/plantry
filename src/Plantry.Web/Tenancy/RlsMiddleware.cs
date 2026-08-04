@@ -29,7 +29,7 @@ public sealed class RlsMiddleware(RequestDelegate next)
         HttpContext context, TenantContext tenant, CatalogDbContext catalogDb,
         PlantryIdentityDbContext identityDb, InventoryDbContext inventoryDb, IntakeDbContext intakeDb,
         RecipesDbContext recipesDb, ShoppingDbContext shoppingDb, MealPlanningDbContext mealPlanningDb,
-        PricingDbContext pricingDb, DealsDbContext dealsDb, HousekeepingDbContext housekeepingDb)
+        MarketDbContext marketDb, HousekeepingDbContext housekeepingDb)
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
@@ -45,8 +45,7 @@ public sealed class RlsMiddleware(RequestDelegate next)
                 recipesDb.SetHouseholdId(id);         // feeds the Recipes EF query filter
                 shoppingDb.SetHouseholdId(id);        // feeds the Shopping EF query filter
                 mealPlanningDb.SetHouseholdId(id);    // feeds the MealPlanning EF query filter
-                pricingDb.SetHouseholdId(id);         // feeds the Pricing EF query filter
-                dealsDb.SetHouseholdId(id);           // feeds the Deals EF query filter (P5-0)
+                marketDb.SetHouseholdId(id);           // feeds the Market (pricing + deals) EF query filter (P5-0, plantry-g3da.7)
                 housekeepingDb.SetHouseholdId(id);    // feeds the Housekeeping EF query filter (tidy-up.md)
             }
         }

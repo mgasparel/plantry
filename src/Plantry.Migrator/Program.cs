@@ -37,7 +37,7 @@ try
     // creates the app_user role that every other schema's RLS policies depend on.
     foreach (var target in MigrationTargets.All)
     {
-        Console.WriteLine($"  Migrating {target.DisplayName} ({target.Schema})…");
+        Console.WriteLine($"  Migrating {target.DisplayName} ({string.Join(", ", target.Schemas)})…");
         await using var db = target.CreateContext(ownerConnStr);
         await db.Database.MigrateAsync();
     }

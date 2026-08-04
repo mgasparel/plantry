@@ -53,8 +53,8 @@ public sealed class PurchaseStoreBackfillCycle(IServiceScopeFactory scopeFactory
     /// Processes one household in a fresh scope with tenancy armed exactly as <c>RlsMiddleware</c> does:
     /// <see cref="TenantContext"/> (arms the Postgres GUC via the connection interceptor) plus
     /// <c>SetHouseholdId</c> on every context the backfill touches — Catalog (store find-or-create) and
-    /// Pricing (the observation being enriched). Both must be armed or the sweep is a cross-household leak
-    /// (or a silent no-op) — hence both, every household.
+    /// Market (the pricing observation being enriched). Both must be armed or the sweep is a cross-household
+    /// leak (or a silent no-op) — hence both, every household.
     /// </summary>
     public async Task RunForHouseholdAsync(HouseholdId household, CancellationToken ct = default)
     {
@@ -64,7 +64,7 @@ public sealed class PurchaseStoreBackfillCycle(IServiceScopeFactory scopeFactory
         var id = household.Value;
         sp.GetRequiredService<TenantContext>().Set(id);              // arms Postgres RLS (app.household_id GUC)
         sp.GetRequiredService<CatalogDbContext>().SetHouseholdId(id); // Catalog: store find-or-create
-        sp.GetRequiredService<PricingDbContext>().SetHouseholdId(id); // Pricing: the observation being enriched
+        sp.GetRequiredService<MarketDbContext>().SetHouseholdId(id);  // Market: the pricing observation being enriched
 
         await sp.GetRequiredService<PurchaseStoreBackfill>().RunAsync(ct);
     }

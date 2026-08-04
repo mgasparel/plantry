@@ -12,7 +12,7 @@ public sealed record FlyerImportRef(Guid StoreId, DateOnly ValidFrom, DateOnly V
 
 /// <summary>
 /// Read/write port for the <see cref="FlyerImport"/> aggregate (§4 / DJ2). RLS-scoped to the current
-/// household by <c>DealsDbContext</c>, so every query returns only the signed-in household's rows. The
+/// household by <c>MarketDbContext</c>, so every query returns only the signed-in household's rows. The
 /// P5-6 <c>IngestFlyer</c> worker looks the import up by its dedup key — <c>(store_id, flyer_external_id)</c>
 /// within the household (DD5) — to decide between a no-op (byte-identical content), a fresh import, or a
 /// changed re-pull, and saves after each aggregate mutation so a mid-cycle crash leaves a consistent
@@ -53,7 +53,7 @@ public interface IFlyerImportRepository
     void Detach(FlyerImport import);
 
     /// <summary>
-    /// Runs <paramref name="action"/> inside a single database transaction on the shared <c>DealsDbContext</c>,
+    /// Runs <paramref name="action"/> inside a single database transaction on the shared <c>MarketDbContext</c>,
     /// committing on success and rolling back on any exception (plantry-pwkm). One import's materialization —
     /// the <c>Pulling</c> envelope, its staged <c>Pending</c> <see cref="Deal"/>s, and the <c>Parsed</c>
     /// transition — is written through this seam so it commits <b>atomically or not at all</b>: a hard crash
