@@ -68,7 +68,6 @@ describe("productUnitPicker", () => {
     }));
 
     assert.equal(picker.selectedUnitId, "");
-    assert.equal(picker.staleUnitCode, "g");
     assert.deepEqual(picker.options.map((o) => o.unitId), ["u-kg", "u-lb"]);
     assert.equal(picker.options.some((o) => o.unitId === "u-removed"), false);
   });
@@ -82,7 +81,6 @@ describe("productUnitPicker", () => {
     }));
 
     assert.equal(picker.selectedUnitId, "u-kg");
-    assert.equal(picker.staleUnitCode, null);
   });
 });
 

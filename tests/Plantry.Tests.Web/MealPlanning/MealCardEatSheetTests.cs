@@ -45,8 +45,8 @@ public sealed class MealCardEatSheetTests
         return new FormUrlEncodedContent(pairs);
     }
 
-    /// <summary>Finds the Eat button (<c>.mc-cook-act.eat</c>, NOT the always-present <c>.mc-cook-act-adjust</c>
-    /// secondary control) so auto-trigger assertions check the button that actually varies.</summary>
+    /// <summary>Finds the Eat button (<c>.mc-cook-act.eat</c>) — the sole action rendered for a pending
+    /// product dish since plantry-a6me removed the secondary "adjust quantity" pencil control.</summary>
     private static AngleSharp.Dom.IElement FindEatButton(string html) =>
         Parser.ParseDocument(html).QuerySelector(".mc-cook-act.eat")
             ?? throw new InvalidOperationException("No .mc-cook-act.eat button found.");
@@ -69,8 +69,6 @@ public sealed class MealCardEatSheetTests
             eatButton.GetAttribute("hx-get"));
         Assert.Null(eatButton.GetAttribute("hx-post"));
         Assert.Equal("#sheet-host", eatButton.GetAttribute("hx-target"));
-        // The manual-override secondary icon control is always present alongside.
-        Assert.Contains("mc-cook-act-adjust", html);
     }
 
     [Fact(DisplayName = "GET /MealPlan: plenty of on-hand stock leaves Eat a plain one-tap POST (no sheet auto-trigger)")]
@@ -88,14 +86,16 @@ public sealed class MealCardEatSheetTests
             $"/MealPlan?handler=Eat&plannedDishId={factory.Repo.ProductDishId:D}&date={factory.Repo.TodayIso}&slotId={EatActionFixture.LunchSlotId.Value:D}",
             eatButton.GetAttribute("hx-post"));
         Assert.Null(eatButton.GetAttribute("hx-get"));
-        // The manual-override secondary icon control is still present — always reachable regardless
-        // of the auto-trigger condition, and it DOES carry hx-get to the sheet (unlike the Eat button
-        // itself, asserted above).
-        var adjustButton = Parser.ParseDocument(html).QuerySelector(".mc-cook-act-adjust")
-            ?? throw new InvalidOperationException("No .mc-cook-act-adjust button found.");
-        Assert.Equal(
-            $"/MealPlan?handler=EatSheet&plannedDishId={factory.Repo.ProductDishId:D}&date={factory.Repo.TodayIso}&slotId={EatActionFixture.LunchSlotId.Value:D}",
-            adjustButton.GetAttribute("hx-get"));
+
+        // plantry-a6me regression guard: the secondary "adjust quantity" pencil control was removed
+        // entirely alongside the meal-card edit pencil — no #i-edit sprite reference should remain on
+        // a pending-product-dish row. Scoped to .meal-card (not the whole page) because the unrelated
+        // ghost/suggestion-cell "Edit suggestion" button legitimately still uses #i-edit
+        // (_GhostCell.cshtml, outside this ticket's scope).
+        foreach (var card in Parser.ParseDocument(html).QuerySelectorAll(".meal-card"))
+        {
+            Assert.DoesNotContain("#i-edit", card.InnerHtml);
+        }
     }
 
     // ── GET the sheet ─────────────────────────────────────────────────────────────────────────────

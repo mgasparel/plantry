@@ -4419,12 +4419,6 @@ button.sadd svg { width: 13px; height: 13px; }
 
 .plan-main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; flex: 1; min-height: 0; }
 
-/* Meal-plan page-header band (plantry-7yf1): the shared .page-header sits above the command
-   bar. The fluid full-viewport shell carries no padding of its own, so this band supplies the
-   horizontal inset and trims the primitive's default bottom margin to keep the tool compact. */
-.plan-head { padding: 22px 24px 0; flex-shrink: 0; }
-.plan-head .page-header { margin-bottom: 16px; }
-
 /* Scope the prototype's "hearth" radius scale to the planner + meal editor so cards,
    cells, popovers and the modal round exactly like ClaudeDesignProto (the app's global
    --radius-md/-sm are tighter). Buttons follow the proto, which rounds them at --radius-sm. */
@@ -5154,18 +5148,6 @@ button.sadd svg { width: 13px; height: 13px; }
 .meal-card.note .note-txt { font-size: 13.5px; font-weight: 600; color: var(--color-text-muted); }
 .meal-card.note .note-sub { font-size: 11px; color: var(--color-text-faint); }
 
-/* edit affordance */
-.mc-edit {
-  position: absolute; top: 7px; right: 7px; width: 24px; height: 24px; border-radius: 6px;
-  display: grid; place-items: center; border: 1px solid var(--color-border); background: var(--color-surface);
-  color: var(--color-text-faint); opacity: 0; transition: all .12s; z-index: 1;
-}
-.mcell:hover .mc-edit, .meal-card:hover .mc-edit, .mc-edit:focus-visible { opacity: 1; }
-.mc-edit:hover { color: var(--color-accent); border-color: var(--color-accent); background: var(--color-accent-subtle); }
-.mc-edit svg { width: 13px; height: 13px; }
-.meal-card .mc-edit { background: rgba(255,255,255,.9); border: none; color: var(--color-text-muted); box-shadow: 0 1px 5px rgba(0,0,0,.22); }
-.meal-card .mc-edit:hover { background: #fff; color: var(--color-accent); }
-
 /* ── cook strip / cooked state (plantry-0eut) ──────────────────────────────
    Footer zone on today's/past dish-based meal cards — one action or done row per dish.
    Pill + grayscale photo treatment when every dish in the meal is done (FINAL, 2026-07-23:
@@ -5178,13 +5160,6 @@ button.sadd svg { width: 13px; height: 13px; }
 .mc-cook-act.eat:hover { border-color: var(--color-info); }
 .mc-cook-act .act-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-cook-act .act-srv { flex: none; font-size: 11px; font-weight: 600; color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
-/* Eat row (plantry-yuy3): the Eat button plus a compact icon-only "adjust quantity" control that
-   always opens the confirm sheet — no room in the card for a second labeled button. */
-.mc-cook-row { display: flex; align-items: stretch; gap: 5px; width: 100%; }
-.mc-cook-row .mc-cook-act { width: auto; flex: 1; min-width: 0; }
-.mc-cook-act-adjust { display: flex; align-items: center; justify-content: center; flex: none; width: 30px; border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; color: var(--color-text-muted); }
-.mc-cook-act-adjust .icon { width: 13px; height: 13px; }
-.mc-cook-act-adjust:hover { border-color: var(--color-info); color: var(--color-info); }
 /* Done row — replaces the button once the dish is cooked/eaten. Not a button; nothing to press. */
 .mc-cook-done { display: flex; align-items: center; gap: 7px; padding: 6px 9px; font-size: 12px; font-weight: 600; color: var(--color-success); }
 .mc-cook-done .icon { width: 14px; height: 14px; flex: none; }
@@ -5320,33 +5295,89 @@ button.sadd svg { width: 13px; height: 13px; }
 .ed-dish .edd-main { flex: 1; min-width: 0; }
 .ed-dish .edd-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
 .ed-dish .edd-meta { font-size: 11.5px; color: var(--color-text-faint); display: flex; align-items: center; gap: 7px; margin-top: 2px; }
-/* Meal Planner product rows compose the canonical island stepper with the
-   reusable unit picker.  The controls sit beside one another while retaining
-   the library's focus rings and native select/optgroup semantics. */
-.product-quantity { display: flex; align-items: stretch; flex: none; min-width: 0; }
-.product-quantity > .stepper { flex: none; }
-.product-quantity .stepper__val:is(input) { width: 4.5rem; flex: 0 1 4.5rem; text-align: right; }
-.product-quantity .meal-unit-picker { display: flex; align-items: stretch; min-width: 0; }
-.product-quantity .meal-unit-picker__select {
-  width: auto;
-  min-width: 4.5rem;
-  flex: 0 0 auto;
-  margin-left: -1px;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-}
-.product-quantity .meal-unit-picker__stale {
+/* Meal Planner dish rows: recipe and product rows share ONE compact
+   quantity+unit composite so neither dominates the row (plantry-qybt — see
+   .preview/meal-editor-product-quantity.html for the reference). Both wrap
+   the canonical .stepper--compact primitive (compact borderless buttons,
+   bold centred tabular value) but suppress its own border/padding so a
+   single outer border spans the whole composite; a hairline divider then
+   separates a unit slot — a static read-only "srv" label for recipes
+   (locked, not focusable, no chevron) or a borderless inline <select> for
+   products (reuses UnitPicker's reachability/optgroup logic, restyled). */
+.mp-dish-qty {
   display: inline-flex;
   align-items: center;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border-strong);
-  border-radius: 0;
-  background: var(--color-surface-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
+  gap: 2px;
+  flex: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: 2px;
 }
-/* Keep focus rings above the neighbouring field. */
-.product-quantity .field__input:focus { position: relative; z-index: 1; }
+.mp-dish-qty:focus-within { border-color: var(--color-accent); }
+.mp-dish-qty > .stepper--compact { border: none; padding: 0; background: none; }
+/* Value slot grows with digit count (--mp-qty-digits, set by meal-planner.js from
+   d.servings/d.quantity's string length) so 3-digit product quantities (e.g. 250g)
+   don't clip — 1ch is exact for tabular-nums, +10px covers the 8px side padding
+   plus a hairline of slack. Defaults to 2 digits absent the custom property. */
+.mp-dish-qty .stepper__val:is(input, span) {
+  width: calc(var(--mp-qty-digits, 2) * 1ch + 10px);
+  min-width: 30px;
+  border: none;
+  background: none;
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 0 4px;
+}
+.mp-dish-qty .stepper__val:is(input):focus { outline: none; }
+.mp-dish-qty__unit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  border-left: 1px solid var(--color-border);
+  margin-left: 2px;
+  padding-left: 1px;
+}
+.mp-dish-qty__unit-label {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.mp-dish-qty__unit .meal-unit-picker__select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0 13px 0 5px;
+  height: 26px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.mp-dish-qty__unit .meal-unit-picker__select:hover { background: var(--color-surface-2); }
+.mp-dish-qty__unit .meal-unit-picker__select:focus { outline: none; }
+.mp-dish-qty__unit:not(.mp-dish-qty__unit--static)::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4.5px solid var(--color-text-faint);
+  pointer-events: none;
+}
 .ed-dish .edd-del { width: 30px; height: 30px; border-radius: 7px; border: 1px solid transparent; background: none; color: var(--color-text-faint); display: grid; place-items: center; flex: none; cursor: pointer; }
 .ed-dish .edd-del:hover { background: var(--color-danger-bg); color: var(--color-danger); }
 .ed-dish .edd-del svg { width: 15px; height: 15px; }

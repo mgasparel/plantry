@@ -118,7 +118,7 @@ public interface IRecipeReadModel
 
 /// <summary>Display facts for a recipe in the meal editor.</summary>
 /// <param name="HasPhoto">True when the recipe has a stored photo (served at
-/// <c>/Recipes/Details?id={RecipeId}&amp;handler=Photo</c>) — lets the dish picker show a thumbnail
+/// <c>/Recipes/{RecipeId}?handler=Photo</c>) — lets the dish picker show a thumbnail
 /// and fall back to an initial chip when absent.</param>
 /// <param name="CookTimeMinutes">Cook time in minutes; null when not set. Added for plantry-r2yf so
 /// Today's planned-meals band can resolve cook time from this port instead of reaching past it into

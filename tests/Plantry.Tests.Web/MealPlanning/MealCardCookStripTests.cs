@@ -119,11 +119,11 @@ public sealed class MealCardCookStripTests
         var cardTag = cardMatch.Value;
 
         // plantry-bg2v: role="button"/tabindex="0"/onkeydown moved OFF the card div — a button
-        // role must not wrap other interactive elements (pencil, cook-strip actions, Cook link).
+        // role must not wrap other interactive elements (cook-strip actions, Cook link).
         Assert.DoesNotContain("role=\"button\"", cardTag);
         Assert.DoesNotContain("tabindex=\"0\"", cardTag);
         // The onclick guard bails when the click target is (or is nested inside) an <a>/<button>,
-        // so the pencil, Cook link, Eat/Undo buttons, and the new hidden button keep their own
+        // so the Cook link, Eat/Undo buttons, and the hidden button keep their own
         // behavior (AC2). The literal guard text is written directly in the .cshtml and is NOT
         // HTML-encoded by Razor; only the @openEditorCall substitution downstream of it is (hence
         // the &amp;&amp; / &#x27; below).
@@ -159,29 +159,23 @@ public sealed class MealCardCookStripTests
         var dayDate = $"{factory.Repo.ThisWeekMonday:dddd} {factory.Repo.ThisWeekMonday:MMM d}";
         var breakfastOpenLabel = $"aria-label=\"Open meal details — {dayDate}, Breakfast\"";
         var lunchOpenLabel = $"aria-label=\"Open meal details — {dayDate}, Lunch\"";
-        var breakfastEditLabel = $"aria-label=\"Edit meal — {dayDate}, Breakfast\"";
-        var lunchEditLabel = $"aria-label=\"Edit meal — {dayDate}, Lunch\"";
 
         Assert.Contains(breakfastOpenLabel, html);
         Assert.Contains(lunchOpenLabel, html);
-        Assert.Contains(breakfastEditLabel, html);
-        Assert.Contains(lunchEditLabel, html);
 
-        // Every rendered .mc-open-details / .mc-edit label must be unique across the whole grid —
-        // this is the assertion that actually proves per-card variance (plantry-rhxv). AngleSharp
-        // DOM parsing, not hand-rolled regex, mirrors the established pattern in this project (e.g.
-        // MealCardEnrichmentTests.cs) and avoids an unbounded-match false pass.
+        // Every rendered .mc-open-details label must be unique across the whole grid — this is the
+        // assertion that actually proves per-card variance (plantry-rhxv). AngleSharp DOM parsing,
+        // not hand-rolled regex, mirrors the established pattern in this project (e.g.
+        // MealCardEnrichmentTests.cs) and avoids an unbounded-match false pass. (plantry-a6me: the
+        // .mc-edit pencil button that used to carry a parallel "Edit meal — …" label was removed;
+        // .mc-open-details is now the sole labeled affordance to check.)
         var doc = new AngleSharp.Html.Parser.HtmlParser().ParseDocument(html);
         var openLabels = doc.QuerySelectorAll("button.mc-open-details")
-            .Select(e => e.GetAttribute("aria-label")).ToList();
-        var editLabels = doc.QuerySelectorAll("button.mc-edit")
             .Select(e => e.GetAttribute("aria-label")).ToList();
         // Breakfast + Lunch + Dinner note card (Monday) + the two Wednesday Breakfast multi-meal
         // cards (plantry-0m9h) = 5 cards total.
         Assert.Equal(5, openLabels.Count);
-        Assert.Equal(5, editLabels.Count);   // .mc-edit renders before the isNote branch, so same five cards
         Assert.Equal(openLabels.Count, openLabels.Distinct().Count());
-        Assert.Equal(editLabels.Count, editLabels.Distinct().Count());
 
         // plantry-0m9h Part 1: the two Wednesday Breakfast cards share identical day+date+slot context
         // (same cell) — only the "(meal N of M)" ordinal suffix can distinguish them. This is the
@@ -191,12 +185,8 @@ public sealed class MealCardCookStripTests
         var multiDayDate = $"{factory.Repo.MultiMealDate:dddd} {factory.Repo.MultiMealDate:MMM d}";
         var multiOpenLabel1 = $"aria-label=\"Open meal details — {multiDayDate}, Breakfast (meal 1 of 2)\"";
         var multiOpenLabel2 = $"aria-label=\"Open meal details — {multiDayDate}, Breakfast (meal 2 of 2)\"";
-        var multiEditLabel1 = $"aria-label=\"Edit meal — {multiDayDate}, Breakfast (meal 1 of 2)\"";
-        var multiEditLabel2 = $"aria-label=\"Edit meal — {multiDayDate}, Breakfast (meal 2 of 2)\"";
         Assert.Contains(multiOpenLabel1, html);
         Assert.Contains(multiOpenLabel2, html);
-        Assert.Contains(multiEditLabel1, html);
-        Assert.Contains(multiEditLabel2, html);
 
         // And the single-meal Breakfast/Lunch/Dinner cards must NOT carry any ordinal suffix — the
         // exact byte-for-byte labels asserted above (with no "(meal N of M)" suffix) already prove
@@ -204,6 +194,15 @@ public sealed class MealCardCookStripTests
         // Contains assertions since the label text would no longer match verbatim. Belt-and-braces:
         // "(meal 1 of 1)" must never appear — that wording is only valid for MealCount > 1.
         Assert.DoesNotContain("(meal 1 of 1)", html);
+
+        // plantry-a6me regression guard: no pencil/edit icon renders on any meal card — scoped to
+        // .meal-card elements specifically (not the whole page) because the ghost/suggestion cell's
+        // "Edit suggestion before adding" button legitimately reuses the same #i-edit sprite for an
+        // unrelated, still-shipping affordance (_GhostCell.cshtml) outside this ticket's scope.
+        foreach (var card in doc.QuerySelectorAll(".meal-card"))
+        {
+            Assert.DoesNotContain("#i-edit", card.InnerHtml);
+        }
     }
 
     [Fact(DisplayName = "GET /MealPlan: static cell-level labels (add-meal/empty-add/empty-auto) are contextualised and vary per cell (plantry-0m9h)")]

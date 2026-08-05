@@ -47,42 +47,37 @@ export function groupUnitOptions(options) {
 }
 
 /**
- * Render a product unit picker.  A saved unit that is no longer reachable is
- * represented by the named stale part and is deliberately absent from the
- * select options; the disabled placeholder remains selected until the user
- * chooses a server-provided replacement.
+ * Render a product unit picker as a borderless inline select — the unit slot
+ * of the compact quantity+unit composite shared with recipe rows (see
+ * .mp-dish-qty in plenish.css). A saved unit that is no longer reachable is
+ * deliberately absent from the select options; there is no dedicated stale
+ * visual — the disabled "Choose unit…" placeholder remains selected until
+ * the user chooses a server-provided replacement. Reachability/optgroup
+ * semantics are unchanged.
  *
- * @param {{options:UnitOption[], selectedUnitId:string, staleUnitCode:string|null,
+ * @param {{options:UnitOption[], selectedUnitId:string,
  *          onChange:(unitId:string)=>void, ariaLabel?:string}} props
  */
-export function UnitPicker({ options, selectedUnitId, staleUnitCode, onChange, ariaLabel = "Unit" }) {
+export function UnitPicker({ options, selectedUnitId, onChange, ariaLabel = "Unit" }) {
   const groups = groupUnitOptions(options);
   return html`
-    <div class=${"meal-unit-picker" + (staleUnitCode ? " meal-unit-picker--stale" : "")}>
-      ${staleUnitCode && html`
-        <span class="meal-unit-picker__stale" aria-disabled="true"
-              title="Saved unit is no longer reachable">
-          ${staleUnitCode}
-        </span>
+    <select class="meal-unit-picker__select"
+            value=${selectedUnitId}
+            aria-label=${ariaLabel}
+            onChange=${(/** @type {Event} */ e) =>
+              onChange(/** @type {HTMLSelectElement} */ (e.target).value)}>
+      ${selectedUnitId === "" && html`
+        <option value="" disabled>Choose unit…</option>
       `}
-      <select class="field__input meal-unit-picker__select"
-              value=${selectedUnitId}
-              aria-label=${ariaLabel}
-              onChange=${(/** @type {Event} */ e) =>
-                onChange(/** @type {HTMLSelectElement} */ (e.target).value)}>
-        ${selectedUnitId === "" && html`
-          <option value="" disabled>Choose unit…</option>
-        `}
-        ${groups.map((group) => CANONICAL_DIMENSIONS.has(group.dimension)
-          ? html`<optgroup key=${group.dimension} label=${group.dimension}>
-              ${group.options.map((option) => html`
-                <option key=${option.unitId} value=${option.unitId}>${option.code}</option>
-              `)}
-            </optgroup>`
-          : group.options.map((option) => html`
+      ${groups.map((group) => CANONICAL_DIMENSIONS.has(group.dimension)
+        ? html`<optgroup key=${group.dimension} label=${group.dimension}>
+            ${group.options.map((option) => html`
               <option key=${option.unitId} value=${option.unitId}>${option.code}</option>
-            `))}
-      </select>
-    </div>
+            `)}
+          </optgroup>`
+        : group.options.map((option) => html`
+            <option key=${option.unitId} value=${option.unitId}>${option.code}</option>
+          `))}
+    </select>
   `;
 }

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using AngleSharp.Html.Parser;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -65,6 +66,30 @@ public sealed class WeekGridFragmentTests : IClassFixture<MealPlanFragmentFactor
         // Count day-head occurrences
         var count = CountOccurrences(html, "day-head");
         Assert.Equal(7, count);
+    }
+
+    [Fact(DisplayName = "GET /MealPlan renders no page-header band; .plan-bar is the first child of .plan-main (plantry-p9xq)")]
+    public async Task Get_MealPlan_Renders_No_PageHeader_Band()
+    {
+        var client = CreateClient();
+        AddHouseholdHeader(client);
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        var doc = await new HtmlParser().ParseDocumentAsync(html);
+
+        // The shared page-header primitive (and its page-scoped .plan-head wrapper) must be
+        // entirely absent — the plan bar sits flush under the app top bar with no title band.
+        Assert.Null(doc.QuerySelector(".plan-head"));
+        Assert.Null(doc.QuerySelector(".page-header"));
+
+        var planMain = doc.QuerySelector(".plan-main");
+        Assert.NotNull(planMain);
+        var firstElementChild = planMain!.Children.FirstOrDefault();
+        Assert.NotNull(firstElementChild);
+        Assert.Contains("plan-bar", firstElementChild!.ClassList);
     }
 
     [Fact(DisplayName = "Unauthenticated GET /MealPlan returns 401")]

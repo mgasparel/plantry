@@ -574,7 +574,7 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                   <div key=${idx} class="ed-dish">
                     ${d.hasPhoto && d.kind === "recipe"
                       ? html`<img class="edd-thumb edd-thumb--photo"
-                                  src=${"/Recipes/Details?id=" + d.itemId + "&handler=Photo"}
+                                  src=${"/Recipes/" + d.itemId + "?handler=Photo"}
                                   alt=${d.name} />`
                       : html`<div class="edd-thumb edd-thumb--chip">${d.name.charAt(0)}</div>`}
                     <div class="edd-main">
@@ -587,18 +587,26 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                       </div>
                     </div>
                     ${d.kind === "recipe"
-                      ? html`<${QuantityStepper}
-                          variant="compact"
-                          display=${true}
-                          value=${d.servings}
-                          ariaLabel=${"Servings for " + d.name}
-                          decreaseLabel="Fewer servings"
-                          increaseLabel="More servings"
-                          decreaseDisabled=${d.servings <= 1}
-                          onDecrease=${() => decServings(d)}
-                          onIncrease=${() => incServings(d)} />`
-                      : html`<div class="product-quantity" aria-label=${"Quantity for " + d.name}>
+                      ? html`<div class="mp-dish-qty" aria-label=${"Servings for " + d.name}
+                                  style=${"--mp-qty-digits:" + String(d.servings ?? "").length}>
                           <${QuantityStepper}
+                            variant="compact"
+                            display=${true}
+                            value=${d.servings}
+                            ariaLabel=${"Servings for " + d.name}
+                            decreaseLabel="Fewer servings"
+                            increaseLabel="More servings"
+                            decreaseDisabled=${d.servings <= 1}
+                            onDecrease=${() => decServings(d)}
+                            onIncrease=${() => incServings(d)} />
+                          <span class="mp-dish-qty__unit mp-dish-qty__unit--static">
+                            <span class="mp-dish-qty__unit-label">srv</span>
+                          </span>
+                        </div>`
+                      : html`<div class="mp-dish-qty" aria-label=${"Quantity for " + d.name}
+                                  style=${"--mp-qty-digits:" + String(d.quantity ?? "").length}>
+                          <${QuantityStepper}
+                            variant="compact"
                             value=${d.quantity}
                             min="0"
                             step=${d.dimension?.toLowerCase() === "count" ? "1" : "any"}
@@ -608,11 +616,13 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                             onInput=${(/** @type {string} */ raw) => setProductQuantity(d, raw)}
                             onDecrease=${() => adjustProductQuantity(d, -1)}
                             onIncrease=${() => adjustProductQuantity(d, 1)} />
-                          <${UnitPicker}
-                            options=${productUnitPicker(d).options}
-                            selectedUnitId=${productUnitPicker(d).selectedUnitId}
-                            staleUnitCode=${productUnitPicker(d).staleUnitCode}
-                            onChange=${(/** @type {string} */ unitId) => setProductUnit(d, unitId)} />
+                          <span class="mp-dish-qty__unit">
+                            <${UnitPicker}
+                              options=${productUnitPicker(d).options}
+                              selectedUnitId=${productUnitPicker(d).selectedUnitId}
+                              ariaLabel=${"Unit for " + d.name}
+                              onChange=${(/** @type {string} */ unitId) => setProductUnit(d, unitId)} />
+                          </span>
                         </div>`}
                     <button type="button" class="edd-del" onClick=${() => removeDish(idx)} aria-label="Remove dish">
                       <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>

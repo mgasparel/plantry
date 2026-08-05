@@ -1110,7 +1110,7 @@ public sealed class IndexModel(
                 fulfillmentPercent = (object?)enr?.FulfillmentPercent,
                 costPerServing = (object?)costPerServing,
                 hasPhoto = r.HasPhoto,
-                photoUrl = r.HasPhoto ? $"/Recipes/Details?id={r.RecipeId}&handler=Photo" : null,
+                photoUrl = r.HasPhoto ? $"/Recipes/{r.RecipeId}?handler=Photo" : null,
             });
         }
 

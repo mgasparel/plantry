@@ -564,10 +564,12 @@ public sealed class WeekGridJourneyTests(AppHostFixture appHost) : IAsyncLifetim
             await Assertions.Expect(noteCard.Locator(".note-txt")).ToContainTextAsync("Takeout");
 
             // ── Open the cell again for edit and Remove meal ──────────────────────
-            // .mc-edit calls openEditor with a real mealId (isEditing = true path).
-            var mcEdit = page.Locator(".mc-edit").First;
-            await Assertions.Expect(mcEdit).ToBeVisibleAsync();
-            await mcEdit.ClickAsync();
+            // The dedicated edit pencil was removed (plantry-a6me) — click the card's
+            // click-anywhere area (plantry-ely3) instead, which calls openEditor with a real
+            // mealId (isEditing = true path) exactly as the pencil used to.
+            var noteCardText = noteCard.Locator(".note-txt").First;
+            await Assertions.Expect(noteCardText).ToBeVisibleAsync();
+            await noteCardText.ClickAsync();
 
             await Assertions.Expect(dialog).ToBeVisibleAsync(new() { Timeout = 15_000 });
 

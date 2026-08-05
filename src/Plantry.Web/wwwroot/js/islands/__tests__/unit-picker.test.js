@@ -18,7 +18,7 @@ function flattenChildren(value) {
 
 /** @param {any} vnode */
 function selectFrom(vnode) {
-  return flattenChildren(vnode?.props?.children).find((child) => child?.type === "select");
+  return vnode?.type === "select" ? vnode : flattenChildren(vnode?.props?.children).find((child) => child?.type === "select");
 }
 
 describe("groupUnitOptions", () => {
@@ -60,7 +60,6 @@ describe("UnitPicker VNode contract", () => {
         { unitId: "srv", code: "srv", dimension: "count" },
       ],
       selectedUnitId: "srv",
-      staleUnitCode: null,
       onChange: (unitId) => { changed = unitId; },
     });
     const select = selectFrom(vnode);
@@ -87,7 +86,6 @@ describe("UnitPicker VNode contract", () => {
         { unitId: "srv", code: "srv", dimension: "Count" },
       ],
       selectedUnitId: "x",
-      staleUnitCode: null,
       onChange: () => {},
     });
     const select = selectFrom(vnode);
@@ -103,16 +101,16 @@ describe("UnitPicker VNode contract", () => {
     );
   });
 
-  it("keeps the placeholder and stale value visible without making stale selectable", () => {
+  it("keeps the placeholder visible without a dedicated stale visual (plantry-qybt)", () => {
     const vnode = UnitPicker({
       options: [{ unitId: "g", code: "g", dimension: "Mass" }],
       selectedUnitId: "",
-      staleUnitCode: "srv",
       onChange: () => {},
     });
-    const stale = flattenChildren(vnode.props.children).find((child) => child?.type === "span");
-    assert.equal(stale?.props.class, "meal-unit-picker__stale");
-    assert.equal(stale?.props.children, "srv");
+
+    // No stale-unit indicator is rendered — the composite relies on the
+    // disabled placeholder alone (see .mp-dish-qty in plenish.css).
+    assert.equal(vnode.type, "select");
 
     const select = selectFrom(vnode);
     const options = flattenChildren(select.props.children)
