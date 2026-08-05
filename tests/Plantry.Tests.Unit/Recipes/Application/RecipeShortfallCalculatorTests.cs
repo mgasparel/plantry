@@ -13,6 +13,8 @@ namespace Plantry.Tests.Unit.Recipes.Application;
 ///   <item>Missing line → shortfall equals full scaled required quantity (available = 0).</item>
 ///   <item>Low line → shortfall equals required − available (deficit only).</item>
 ///   <item>InStock line → excluded (shortfall would be 0 or negative).</item>
+///   <item>InStockViaSubstitute line → excluded — the substitution closure already covers it, so
+///     shopping auto-add is suppressed (plantry-aqpa.4).</item>
 ///   <item>Untracked line → excluded (C12).</item>
 ///   <item>Null Quantity/UnitId → skipped (untracked staple / malformed, R5).</item>
 ///   <item>Scaling is applied correctly (desiredServings / defaultServings).</item>
@@ -83,6 +85,29 @@ public sealed class RecipeShortfallCalculatorTests
 
         var fulfillment = BuildFulfillment([
             new IngredientFulfillment(ingredientId, IngredientStatus.InStock, null, AvailableQuantity: 200m),
+        ]);
+
+        var result = RecipeShortfallCalculator.Compute(recipe, fulfillment, desiredServings: 2);
+
+        Assert.Empty(result);
+    }
+
+    // ── InStockViaSubstitute → excluded (plantry-aqpa.4) ─────────────────────────
+
+    [Fact(DisplayName = "InStockViaSubstitute line is excluded from shortfall output — the substitution closure already covers it, so nothing is auto-added (plantry-aqpa.4)")]
+    public void InStockViaSubstitute_Line_Is_Excluded()
+    {
+        var unitId = Guid.CreateVersion7();
+        var productId = Guid.CreateVersion7();
+
+        var recipe = BuildRecipe(defaultServings: 2, productId, qty: 100m, unitId);
+        var ingredientId = recipe.Ingredients.Single().Id;
+
+        // FulfillmentService only reports InStockViaSubstitute when the combined direct+substitute
+        // closure meets or exceeds the scaled requirement — same "fully satisfied" shape as InStock,
+        // just a different status value, so the filter here must treat it the same way.
+        var fulfillment = BuildFulfillment([
+            new IngredientFulfillment(ingredientId, IngredientStatus.InStockViaSubstitute, null, AvailableQuantity: 100m),
         ]);
 
         var result = RecipeShortfallCalculator.Compute(recipe, fulfillment, desiredServings: 2);

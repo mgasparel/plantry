@@ -92,7 +92,93 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         Assert.Equal(100m, line.Quantity);
     }
 
+    // ── J6 shortfall is suppressed/reduced by the substitution closure (plantry-aqpa.4) ──────────
+    //
+    // Real DI wiring end to end: a real Postgres-backed SubstitutionReader (Plantry.Recipes.Infrastructure)
+    // resolves the edge seeded via the real SubstitutionRepository (mirrors SubstitutionTests.cs's
+    // seeding pattern), so this exercises the exact production composition
+    // (RecipeReadModelAdapter -> FulfillmentService -> ISubstitutionReader) rather than a fake reader.
+
+    [Fact(DisplayName = "GetMissingIngredientsAsync suppresses the shortfall when a real DB-backed substitution edge fully covers the requirement (plantry-aqpa.4)")]
+    public async Task GetMissingIngredientsAsync_Suppressed_When_Real_Substitution_Edge_Fully_Covers()
+    {
+        var unitId = Guid.CreateVersion7();
+        var chickpeasCanned = Guid.CreateVersion7();
+        var chickpeasDried = Guid.CreateVersion7();
+
+        var recipeId = await SeedFlatRecipeAsync(chickpeasCanned, qty: 100m, unitId);
+        await SeedSubstitutionEdgeAsync(chickpeasCanned, unitId, chickpeasDried, unitId);
+
+        await using var ctx = NewContext();
+        var adapter = BuildAdapter(ctx,
+            catalog: FakeCatalog.WithTrackedLeaf(chickpeasCanned, unitId).AddTrackedLeaf(chickpeasDried, unitId, "Chickpeas (dried)"),
+            // Direct stock alone is short (30 of 100), but the substitute covers the remainder.
+            stock: new FakeStock().Add(chickpeasCanned, 30m, unitId).Add(chickpeasDried, 70m, unitId),
+            prices: new FakePrices(),
+            substitutions: new SubstitutionReader(ctx));
+
+        var missing = await adapter.GetMissingIngredientsAsync(recipeId.Value, servings: 2);
+
+        Assert.Empty(missing);
+    }
+
+    [Fact(DisplayName = "GetMissingIngredientsAsync returns only the uncovered remainder against the recipe's own product when a real DB-backed substitution edge partially covers the requirement (plantry-aqpa.4)")]
+    public async Task GetMissingIngredientsAsync_Remainder_When_Real_Substitution_Edge_Partially_Covers()
+    {
+        var unitId = Guid.CreateVersion7();
+        var chickpeasCanned = Guid.CreateVersion7();
+        var chickpeasDried = Guid.CreateVersion7();
+
+        var recipeId = await SeedFlatRecipeAsync(chickpeasCanned, qty: 100m, unitId);
+        await SeedSubstitutionEdgeAsync(chickpeasCanned, unitId, chickpeasDried, unitId);
+
+        await using var ctx = NewContext();
+        var adapter = BuildAdapter(ctx,
+            catalog: FakeCatalog.WithTrackedLeaf(chickpeasCanned, unitId).AddTrackedLeaf(chickpeasDried, unitId, "Chickpeas (dried)"),
+            // Need 100; direct 30 + substitute 40 = 70 combined → still short 30.
+            stock: new FakeStock().Add(chickpeasCanned, 30m, unitId).Add(chickpeasDried, 40m, unitId),
+            prices: new FakePrices(),
+            substitutions: new SubstitutionReader(ctx));
+
+        var missing = await adapter.GetMissingIngredientsAsync(recipeId.Value, servings: 2);
+
+        var line = Assert.Single(missing);
+        // The list item is the RECIPE'S product (target) — never the substitute.
+        Assert.Equal(chickpeasCanned, line.ProductId);
+        Assert.NotEqual(chickpeasDried, line.ProductId);
+        Assert.Equal(30m, line.Quantity); // 100 required - (30 direct + 40 substitute) = 30
+        Assert.Equal(unitId, line.UnitId);
+    }
+
     // ── Seeding ──────────────────────────────────────────────────────────────────
+
+    /// <summary>Seeds a flat (no inclusions) recipe with a single ingredient — GetMissingIngredientsAsync
+    /// still routes through the expanded path (ExpandAsync is a no-op for a flat recipe), matching
+    /// production behaviour.</summary>
+    private async Task<RecipeId> SeedFlatRecipeAsync(Guid productId, decimal qty, Guid unitId)
+    {
+        await using var ctx = NewContext();
+        var repo = new RecipeRepository(ctx);
+        var recipe = Recipe.Create(_household, "Hummus", 2, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(productId, qty, unitId, null, 0)], Clock);
+        await repo.AddAsync(recipe);
+        await repo.SaveChangesAsync();
+        return recipe.Id;
+    }
+
+    /// <summary>Seeds a real Substitution edge via the repository (mirrors SubstitutionTests.cs's
+    /// seeding pattern) so the adapter's real <see cref="SubstitutionReader"/> resolves it.</summary>
+    private async Task SeedSubstitutionEdgeAsync(
+        Guid targetProductId, Guid targetUnitId, Guid substituteProductId, Guid substituteUnitId)
+    {
+        await using var ctx = NewContext();
+        var repo = new SubstitutionRepository(ctx);
+        var edge = Substitution.Create(
+            _household, targetProductId, targetQuantity: 1m, targetUnitId,
+            substituteProductId, substituteQuantity: 1m, substituteUnitId, Clock); // 1:1 ratio, same unit
+        await repo.AddAsync(edge);
+        await repo.SaveChangesAsync();
+    }
 
     /// <summary>
     /// Seeds a sub-recipe (DefaultServings 2, one tracked cheese ingredient of 100) and a parent
@@ -117,12 +203,14 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
     }
 
     private RecipeReadModelAdapter BuildAdapter(
-        RecipesDbContext ctx, FakeCatalog catalog, FakeStock stock, FakePrices prices)
+        RecipesDbContext ctx, FakeCatalog catalog, FakeStock stock, FakePrices prices,
+        ISubstitutionReader? substitutions = null)
     {
         // The expansion service reads through a repository over the SAME context the adapter queries,
         // mirroring the single scoped RecipesDbContext of a real request.
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
-        var fulfillment = new FulfillmentService(stock, catalog, new IdentityConverter(), new FixedHorizon(7), new FakeSubstitutions());
+        var fulfillment = new FulfillmentService(
+            stock, catalog, new IdentityConverter(), new FixedHorizon(7), substitutions ?? new FakeSubstitutions());
         var costing = new CostingService(prices, new IdentityConverter(), catalog);
         return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx));
     }
