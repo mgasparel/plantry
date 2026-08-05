@@ -253,6 +253,62 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         Assert.Equal("Dinner", resolved[thursdayMealId].MealType);
     }
 
+    // ── L3-f: cooked recipe dish is excluded (plantry-366k) ──────────────────
+
+    [Fact(DisplayName = "L3-f — ShopForWeek excludes a recipe dish that has already been cooked")]
+    public async Task ShopForWeek_ExcludesCookedRecipeDish()
+    {
+        var plan = MakeSingleRecipePlan(servings: 2);
+        await SeedMealPlanAsync(plan);
+
+        var dishId = plan.PlannedMeals.Single().PlannedDishes.Single().Id.Value;
+        var cookStatusReader = new FakeCookStatusReader(
+            new Dictionary<Guid, DishCookStatus> { [dishId] = new(Clock.UtcNow) });
+
+        var (mealPlanRepo, shopRepo, tenant) = BuildAdapters();
+        var recipeReader = new FakeMissingReader(_recipeId,
+            [new RecipeMissingIngredient(_productId, 1.5m, _unitId)]);
+        var stockReader = new NullMealPlanStockReader();
+
+        var svc = MakeService(mealPlanRepo, recipeReader, stockReader, shopRepo, tenant, cookStatusReader);
+        var result = await svc.ExecuteAsync(_household, Monday);
+
+        Assert.Equal(0, result.ItemsAdded);
+
+        await using var shopCtx = NewShoppingDb();
+        var list = await shopCtx.ShoppingLists.Include(l => l.Items).FirstAsync();
+        Assert.Empty(list.Items);
+    }
+
+    // ── L3-g: consumed product dish is excluded (plantry-366k) ───────────────
+
+    [Fact(DisplayName = "L3-g — ShopForWeek excludes a product dish that has already been eaten/consumed")]
+    public async Task ShopForWeek_ExcludesConsumedProductDish()
+    {
+        var productPlan = MealPlan.Start(_household, Monday, Clock);
+        productPlan.AssignMeal(Monday, _slotId,
+            [DishSpec.ForProduct(_productId, 2m, _unitId)],
+            null, "manual", Guid.Empty, Clock);
+        await SeedMealPlanAsync(productPlan);
+
+        var dishId = productPlan.PlannedMeals.Single().PlannedDishes.Single().Id.Value;
+        var cookStatusReader = new FakeCookStatusReader(
+            new Dictionary<Guid, DishCookStatus> { [dishId] = new(Clock.UtcNow) });
+
+        var (mealPlanRepo, shopRepo, tenant) = BuildAdapters();
+        var recipeReader = new FakeMissingReader(_recipeId, []);
+        var stockReader = new ZeroStockReader(_productId, _unitId);
+
+        var svc = MakeService(mealPlanRepo, recipeReader, stockReader, shopRepo, tenant, cookStatusReader);
+        var result = await svc.ExecuteAsync(_household, Monday);
+
+        Assert.Equal(0, result.ItemsAdded);
+
+        await using var shopCtx = NewShoppingDb();
+        var list = await shopCtx.ShoppingLists.Include(l => l.Items).FirstAsync();
+        Assert.Empty(list.Items);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private (MealPlanRepository mealPlanRepo, ShoppingListRepository shopRepo, SimpleTenantContext tenant) BuildAdapters()
@@ -277,9 +333,11 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
         IRecipeReadModel recipeReader,
         IMealPlanStockReader stockReader,
         ShoppingListRepository shopRepo,
-        SimpleTenantContext tenant) =>
+        SimpleTenantContext tenant,
+        IMealPlanCookStatusReader? cookStatusReader = null) =>
         new(mealPlanRepo, recipeReader, stockReader, shopRepo, NullShoppingCatalogReader.Instance,
-            Clock, tenant, NullLogger<ShopForWeekService>.Instance);
+            Clock, tenant, NullLogger<ShopForWeekService>.Instance,
+            cookStatusReader ?? new FakeCookStatusReader(new Dictionary<Guid, DishCookStatus>()));
 
     private MealPlan MakeSingleRecipePlan(int servings)
     {
@@ -387,5 +445,22 @@ internal sealed class ZeroStockReader(Guid knownProductId, Guid defaultUnitId) :
             return Task.FromResult<MealPlanProductStock?>(
                 new MealPlanProductStock(productId, 0m, defaultUnitId, null));
         return Task.FromResult<MealPlanProductStock?>(null);
+    }
+}
+
+/// <summary>
+/// Fixed <see cref="IMealPlanCookStatusReader"/> — returns exactly the pre-seeded statuses,
+/// filtered to what was asked for (plantry-366k). Mirrors the ACL port contract without exercising
+/// the real Recipes/Pantry-backed adapter, which is out of scope for this Planning-context L3 suite.
+/// </summary>
+internal sealed class FakeCookStatusReader(IReadOnlyDictionary<Guid, DishCookStatus> statuses) : IMealPlanCookStatusReader
+{
+    public Task<IReadOnlyDictionary<Guid, DishCookStatus>> GetStatusesAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, DishCookStatus> result = plannedDishIds
+            .Where(statuses.ContainsKey)
+            .ToDictionary(id => id, id => statuses[id]);
+        return Task.FromResult(result);
     }
 }
