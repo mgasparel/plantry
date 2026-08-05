@@ -574,7 +574,7 @@ function MealEditor({ state, members, token, assignUrl, clearUrl, rollupUrl, sea
                   <div key=${idx} class="ed-dish">
                     ${d.hasPhoto && d.kind === "recipe"
                       ? html`<img class="edd-thumb edd-thumb--photo"
-                                  src=${"/Recipes/Details?id=" + d.itemId + "&handler=Photo"}
+                                  src=${"/Recipes/" + d.itemId + "?handler=Photo"}
                                   alt=${d.name} />`
                       : html`<div class="edd-thumb edd-thumb--chip">${d.name.charAt(0)}</div>`}
                     <div class="edd-main">
