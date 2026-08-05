@@ -109,9 +109,10 @@ public sealed class MealPlanProductConversionJourneyTests(AppHostFixture appHost
             await Assertions.Expect(savedCard).ToBeVisibleAsync();
             await Assertions.Expect(savedCard).ToContainTextAsync("2 srv");
 
-            // Reopen the saved product through its own card. This proves the hydrated
-            // draft preserves both the quantity and the cross-dimension unit selection.
-            await savedCard.Locator(".mc-edit").ClickAsync();
+            // Reopen the saved product through its own card. The dedicated edit pencil was removed
+            // (plantry-a6me) — the card's click-anywhere handler (plantry-ely3) is now the mouse path,
+            // so click a non-interactive area of the card (.mc-photo) rather than a nested button/link.
+            await savedCard.Locator(".mc-photo").ClickAsync();
             await Assertions.Expect(dialog).ToBeVisibleAsync();
             await Assertions.Expect(dialog.Locator(".product-quantity input.stepper__val"))
                 .ToHaveValueAsync("2");

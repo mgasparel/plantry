@@ -16,11 +16,12 @@
     var allDishesDone = showStrip && cookDishes.Count > 0 && cookDishes.All(d => d.CookedAt.HasValue);
     var cellId = $"cell-{Model.SlotId.Value:N}-{Model.DateIso}";
 
-    // Per-card accessible-name context (plantry-rhxv): a week grid renders up to 21 cards, and both
-    // the hidden open-details button and the edit pencil previously shared one static label across
-    // every card ("Open meal details" / "Edit meal") — indistinguishable to a screen-reader user
-    // tabbing the grid. Day name + date + slot is stable and unique per card; deliberately NOT dish
-    // names/note text (spec:ready notes on plantry-rhxv) — those can be long, absent, or plural.
+    // Per-card accessible-name context (plantry-rhxv): a week grid renders up to 21 cards, and the
+    // hidden open-details button (formerly also the edit pencil, removed in plantry-a6me) previously
+    // shared one static label across every card ("Open meal details" / "Edit meal") — indistinguishable
+    // to a screen-reader user tabbing the grid. Day name + date + slot is stable and unique per card;
+    // deliberately NOT dish names/note text (spec:ready notes on plantry-rhxv) — those can be long,
+    // absent, or plural.
     var cardDate = DateOnly.ParseExact(Model.DateIso, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
     var cardContext = $"{cardDate:dddd} {cardDate:MMM d}, {Model.SlotLabel}";
     // plantry-0m9h: two-or-more meals in one slot render byte-identical cardContext above (same
@@ -34,10 +35,10 @@
         cardContext += $" (meal {Model.MealOrdinal} of {Model.MealCount})";
     }
 
-    // plantry-ely3: click-anywhere-opens-editor. Shared with the pencil's own onclick so both
-    // paths call the identical island bridge signature. The card-level handler guards against
-    // double-invocation (and against hijacking nested actions — Cook link, Eat/Undo, pencil) by
-    // bailing when the event target is itself (or is nested inside) an <a> or <button>; those
+    // plantry-ely3: click-anywhere-opens-editor. Shared with the hidden .mc-open-details button's
+    // onclick so both paths call the identical island bridge signature. The card-level handler
+    // guards against double-invocation (and against hijacking nested actions — Cook link, Eat/Undo)
+    // by bailing when the event target is itself (or is nested inside) an <a> or <button>; those
     // elements' own onclick/href handles the action instead.
     var openEditorCall = $"window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('{Model.DateIso}', '{Model.SlotId.Value}', '{meal.MealId:D}')";
 }
@@ -48,21 +49,12 @@
      onclick="if (!event.target.closest('a,button')) { @openEditorCall }">
 
     @* Keyboard/AT primary activation control (a11y fix, plantry-bg2v): role="button" on the card
-       itself was invalid — a button role must not wrap other interactive elements (the pencil,
-       cook-strip actions, Cook link), all of which it did. This hidden button is the sole
+       itself was invalid — a button role must not wrap other interactive elements (the former edit
+       pencil, cook-strip actions, Cook link), all of which it did. This hidden button is the sole
        keyboard/AT entry point; mouse users keep click-anywhere via the div's onclick above. Native
        <button> semantics mean no onkeydown handler is needed (Enter/Space are built in). *@
     <button class="mc-open-details sr-only" type="button" onclick="@openEditorCall" aria-label="Open meal details — @cardContext">
         Open meal details
-    </button>
-
-    @* Edit pencil — calls the meal-planner island bridge (plantry-2zvm.4: Preact island port).
-       Redundant with the card-level click-anywhere handler above (plantry-ely3); kept as a
-       discoverable affordance and explicit keyboard/focus target. *@
-    <button class="mc-edit"
-            onclick="window.__mealPlannerIsland && window.__mealPlannerIsland.openEditor('@Model.DateIso', '@Model.SlotId.Value', '@meal.MealId.ToString("D")')"
-            aria-label="Edit meal — @cardContext">
-        <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
     </button>
 
     @if (isNote)
@@ -243,32 +235,25 @@
                            <=10%-of-on-hand sliver (dish.NeedsEatConfirm, computed server-side at render
                            time — Plantry.Planning.Domain.UseUpZone.IsInUseUpZone), Eat itself opens
                            the confirm sheet instead of consuming directly, so a household doesn't get
-                           stuck with a useless dangling remainder. Either way, the secondary "Adjust
-                           quantity" icon button below always opens the same sheet, on demand. *@
+                           stuck with a useless dangling remainder. plantry-a6me: the separate "Adjust
+                           quantity" pencil button was removed — product dishes now get only this
+                           single full-width Eat action; a NeedsEatConfirm-false product can no longer
+                           be eaten at a non-default quantity from the card (accepted consequence). *@
                         var eatLabel = cookDishes.Count > 1 ? $"Eat {dish.Name}" : "Eat";
                         var eatSheetUrl = $"/MealPlan?handler=EatSheet&plannedDishId={dish.DishId}&date={Model.DateIso}&slotId={Model.SlotId.Value}";
                         var eatPostUrl = $"/MealPlan?handler=Eat&plannedDishId={dish.DishId}&date={Model.DateIso}&slotId={Model.SlotId.Value}";
-                        <div class="mc-cook-row">
-                            @* One button either way — hx-get/hx-post are conditional expressions so
-                               Razor omits whichever is null (standard conditional-attribute rendering),
-                               instead of writing the whole button twice for a 4-attribute difference. *@
-                            <button class="mc-cook-act eat" type="button"
-                                    hx-get="@(dish.NeedsEatConfirm ? eatSheetUrl : null)"
-                                    hx-post="@(dish.NeedsEatConfirm ? null : eatPostUrl)"
-                                    hx-target="@(dish.NeedsEatConfirm ? "#sheet-host" : "#" + cellId)"
-                                    hx-swap="@(dish.NeedsEatConfirm ? "innerHTML" : "outerHTML")">
-                                <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
-                                <span class="act-name">@eatLabel</span>
-                                <span class="act-srv">@(dish.Quantity?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? "?") @dish.UnitCode</span>
-                            </button>
-                            <button class="mc-cook-act-adjust" type="button"
-                                    hx-get="@eatSheetUrl"
-                                    hx-target="#sheet-host" hx-swap="innerHTML"
-                                    title="Adjust quantity before eating"
-                                    aria-label="Adjust quantity — @eatLabel">
-                                <svg class="icon" aria-hidden="true"><use href="#i-edit" /></svg>
-                            </button>
-                        </div>
+                        @* One button either way — hx-get/hx-post are conditional expressions so
+                           Razor omits whichever is null (standard conditional-attribute rendering),
+                           instead of writing the whole button twice for a 4-attribute difference. *@
+                        <button class="mc-cook-act eat" type="button"
+                                hx-get="@(dish.NeedsEatConfirm ? eatSheetUrl : null)"
+                                hx-post="@(dish.NeedsEatConfirm ? null : eatPostUrl)"
+                                hx-target="@(dish.NeedsEatConfirm ? "#sheet-host" : "#" + cellId)"
+                                hx-swap="@(dish.NeedsEatConfirm ? "innerHTML" : "outerHTML")">
+                            <svg class="icon" aria-hidden="true"><use href="#i-flame" /></svg>
+                            <span class="act-name">@eatLabel</span>
+                            <span class="act-srv">@(dish.Quantity?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? "?") @dish.UnitCode</span>
+                        </button>
                     }
                     else
                     {

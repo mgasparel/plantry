@@ -5154,18 +5154,6 @@ button.sadd svg { width: 13px; height: 13px; }
 .meal-card.note .note-txt { font-size: 13.5px; font-weight: 600; color: var(--color-text-muted); }
 .meal-card.note .note-sub { font-size: 11px; color: var(--color-text-faint); }
 
-/* edit affordance */
-.mc-edit {
-  position: absolute; top: 7px; right: 7px; width: 24px; height: 24px; border-radius: 6px;
-  display: grid; place-items: center; border: 1px solid var(--color-border); background: var(--color-surface);
-  color: var(--color-text-faint); opacity: 0; transition: all .12s; z-index: 1;
-}
-.mcell:hover .mc-edit, .meal-card:hover .mc-edit, .mc-edit:focus-visible { opacity: 1; }
-.mc-edit:hover { color: var(--color-accent); border-color: var(--color-accent); background: var(--color-accent-subtle); }
-.mc-edit svg { width: 13px; height: 13px; }
-.meal-card .mc-edit { background: rgba(255,255,255,.9); border: none; color: var(--color-text-muted); box-shadow: 0 1px 5px rgba(0,0,0,.22); }
-.meal-card .mc-edit:hover { background: #fff; color: var(--color-accent); }
-
 /* ── cook strip / cooked state (plantry-0eut) ──────────────────────────────
    Footer zone on today's/past dish-based meal cards — one action or done row per dish.
    Pill + grayscale photo treatment when every dish in the meal is done (FINAL, 2026-07-23:
@@ -5178,13 +5166,6 @@ button.sadd svg { width: 13px; height: 13px; }
 .mc-cook-act.eat:hover { border-color: var(--color-info); }
 .mc-cook-act .act-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-cook-act .act-srv { flex: none; font-size: 11px; font-weight: 600; color: var(--color-text-faint); font-variant-numeric: tabular-nums; }
-/* Eat row (plantry-yuy3): the Eat button plus a compact icon-only "adjust quantity" control that
-   always opens the confirm sheet — no room in the card for a second labeled button. */
-.mc-cook-row { display: flex; align-items: stretch; gap: 5px; width: 100%; }
-.mc-cook-row .mc-cook-act { width: auto; flex: 1; min-width: 0; }
-.mc-cook-act-adjust { display: flex; align-items: center; justify-content: center; flex: none; width: 30px; border: 1px solid var(--color-border-strong); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; color: var(--color-text-muted); }
-.mc-cook-act-adjust .icon { width: 13px; height: 13px; }
-.mc-cook-act-adjust:hover { border-color: var(--color-info); color: var(--color-info); }
 /* Done row — replaces the button once the dish is cooked/eaten. Not a button; nothing to press. */
 .mc-cook-done { display: flex; align-items: center; gap: 7px; padding: 6px 9px; font-size: 12px; font-weight: 600; color: var(--color-success); }
 .mc-cook-done .icon { width: 14px; height: 14px; flex: none; }
