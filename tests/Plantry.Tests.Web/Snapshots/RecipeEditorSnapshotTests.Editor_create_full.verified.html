@@ -418,7 +418,7 @@
              // Group heading is NO LONGER crammed into the summary — it is the section header now.
              const name = row.newStapleName ? row.newStapleName : row.productName;
              const parts = [];
-             if (!row.isUntracked &amp;&amp; row.qty) parts.push(this.fmtQty(row.qty) + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
+             if (row.qty) parts.push(this.fmtQty(row.qty) + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
              if (row.isUntracked) parts.push('untracked');
              return parts.length ? name + ' · ' + parts.join(' · ') : name;
          },
@@ -498,10 +498,19 @@
              row.productId = detail.value;
              row.productName = detail.name;
              row.isUntracked = detail.track === 'false';
-             if (row.isUntracked) { row.qty = ''; row.unitId = ''; row.defaultUnitId = ''; row.defaultUnitCode = ''; }
-             else if (detail.defaultUnit) { row.unitId = detail.defaultUnit; row.defaultUnitId = detail.defaultUnit; row.defaultUnitCode = detail.defaultUnitCode || ''; }
+             // plantry-bke5: picking an untracked product no longer wipes a quantity/unit the author
+             // already entered (domain rule R5 only requires qty/unit when TrackStock is true).
+             if (!row.isUntracked &amp;&amp; detail.defaultUnit) { row.unitId = detail.defaultUnit; row.defaultUnitId = detail.defaultUnit; row.defaultUnitCode = detail.defaultUnitCode || ''; }
              // Clear any stale conversion prompt when the product changes.
              row.needsConversion = false; row.conversionFactor = '';
+             // plantry-bke5: an untracked line never needs a conversion — drop the four-field equation and
+             // axis lists carried over from a previously picked tracked product, or the landed row renders a
+             // bogus conversion confirmation via rowShowConversion -> rowConvFilled.
+             if (row.isUntracked) {
+                 row.convLeftAmount = ''; row.convLeftUnitId = ''; row.convRightAmount = ''; row.convRightUnitId = '';
+                 row.stockUnits = []; row.recipeUnits = [];
+                 row.defaultUnitMissing = false; row.recipeUnitMissing = false;
+             }
          },
          _convCheckTimer: null,
          _triggerConversionCheck() {
@@ -1028,14 +1037,14 @@
 								</div>
 							</div>
 						</div>
-						<div class="form-grid__field" x-show="!draft.isUntracked &amp;&amp; (draft.productId || draft.newIsTracked)">
+						<div class="form-grid__field" x-show="draft.isUntracked || draft.productId || draft.newIsTracked">
 							<label class="form-grid__field__label">Quantity</label>
 							<div class="form-grid__field__control">
 								<input type="number" class="field__input" step="any" min="0" placeholder="e.g. 50" x-model="draft.qty" @input="sheetError = ''">
 								<span class="field__error" x-show="sheetError" x-cloak="" x-text="sheetError"></span>
 							</div>
 						</div>
-						<div class="form-grid__field" x-show="!draft.isUntracked &amp;&amp; (draft.productId || draft.newIsTracked)">
+						<div class="form-grid__field" x-show="draft.isUntracked || draft.productId || draft.newIsTracked">
 							<label class="form-grid__field__label">Unit</label>
 							<div class="form-grid__field__control">
 								<select class="field__input" x-model="draft.unitId">

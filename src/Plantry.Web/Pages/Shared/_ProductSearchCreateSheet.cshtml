@@ -81,7 +81,7 @@
                draft.newStapleName from the query so the typed text carries into the create view.
 
     ── TrackStock / slot ──────────────────────────────────────────────────────────────────────────────
-    Model.TrackStock = true  → qty + unit fields are shown for tracked products (Recipes).
+    Model.TrackStock = true  → qty + unit fields are shown for tracked products AND for untracked/staple rows (Recipes, plantry-bke5) — the domain never forbids a quantity on an untracked line.
     Model.TrackStock = false → qty + unit fields are never shown (Take Stock — count lives elsewhere).
     Model.ExtraFieldsPartial → optional partial name rendered ONCE between the two views and the
                                action bar (e.g. Take Stock count + location fields, P4-7). Rendering
@@ -197,10 +197,13 @@
                     @*
                         Quantity — shown when:
                           - A product was picked from search (draft.productId is set), OR
-                          - Editing a tracked inline-create row (draft.newIsTracked, plantry-orix),
-                        but NOT for untracked/staple rows (draft.isUntracked).
+                          - Editing a tracked inline-create row (draft.newIsTracked, plantry-orix), OR
+                          - Editing an untracked/staple row (draft.isUntracked, plantry-bke5) — the
+                            domain layer never forbids a quantity on an untracked line (AuthorRecipe.cs
+                            rule R5 only *requires* it when TrackStock is true), so the field stays
+                            visible and optional here too.
                     *@
-                    <div class="form-grid__field" x-show="!draft.isUntracked && (draft.productId || draft.newIsTracked)">
+                    <div class="form-grid__field" x-show="draft.isUntracked || draft.productId || draft.newIsTracked">
                         <label class="form-grid__field__label">Quantity</label>
                         <div class="form-grid__field__control">
                             <input type="number" class="field__input" step="any" min="0"
@@ -214,9 +217,10 @@
 
                     @*
                         Unit — shown under the same conditions as Quantity above.
-                        Also visible when editing a tracked inline-create row (draft.newIsTracked).
+                        Also visible when editing a tracked inline-create row (draft.newIsTracked) or an
+                        untracked/staple row carrying a quantity (draft.isUntracked, plantry-bke5).
                     *@
-                    <div class="form-grid__field" x-show="!draft.isUntracked && (draft.productId || draft.newIsTracked)">
+                    <div class="form-grid__field" x-show="draft.isUntracked || draft.productId || draft.newIsTracked">
                         <label class="form-grid__field__label">Unit</label>
                         <div class="form-grid__field__control">
                             <select class="field__input" x-model="draft.unitId">

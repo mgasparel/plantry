@@ -197,6 +197,31 @@ public static class RecipeEditorFixture
     }
 
     /// <summary>
+    /// plantry-bke5: an existing recipe whose sole ingredient is the untracked <see cref="SaltId"/> staple
+    /// carrying a real quantity + unit (5 g) — the round-trip shape the recipe editor UI previously
+    /// clobbered (hid the fields, wiped any typed value on product pick). The domain layer has always
+    /// allowed this (R5 only *requires* qty/unit when TrackStock is true); this fixture proves the edit
+    /// GET hydrates the row with qty/unit populated rather than blank.
+    /// </summary>
+    public static readonly RecipeId UntrackedWithQuantityRecipeId = RecipesDomain.RecipeId.From(
+        Guid.Parse("5a17ba00-0000-0000-0000-000000000010"));
+
+    public static Recipe BuildUntrackedWithQuantity()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Salted Dish", defaultServings: 2, clock).Value;
+        SetId(recipe, UntrackedWithQuantityRecipeId);
+        recipe.ReplaceIngredients(
+        [
+            // Untracked staple carrying a real quantity — legal per C12/R5, previously unrenderable.
+            new IngredientLine(SaltId, Quantity: 5m, UnitId: GramUnitId, GroupHeading: null, Ordinal: 0),
+        ], clock);
+        return recipe;
+    }
+
+    /// <summary>
     /// plantry-dnbe: an EXISTING recipe with a single tracked ingredient line for <see cref="DanglingDefaultId"/>
     /// (the "Olive Oil" product whose <c>DefaultUnitId</c> = <see cref="MissingDefaultUnitId"/> dangles outside
     /// the household unit list), authored against a resolvable recipe-line unit (<see cref="EachUnitId"/>). Editing

@@ -598,7 +598,7 @@
              // Group heading is NO LONGER crammed into the summary — it is the section header now.
              const name = row.newStapleName ? row.newStapleName : row.productName;
              const parts = [];
-             if (!row.isUntracked && row.qty) parts.push(this.fmtQty(row.qty) + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
+             if (row.qty) parts.push(this.fmtQty(row.qty) + (this.unitLabel(row.unitId) ? ' ' + this.unitLabel(row.unitId) : ''));
              if (row.isUntracked) parts.push('untracked');
              return parts.length ? name + ' · ' + parts.join(' · ') : name;
          },
@@ -678,10 +678,19 @@
              row.productId = detail.value;
              row.productName = detail.name;
              row.isUntracked = detail.track === 'false';
-             if (row.isUntracked) { row.qty = ''; row.unitId = ''; row.defaultUnitId = ''; row.defaultUnitCode = ''; }
-             else if (detail.defaultUnit) { row.unitId = detail.defaultUnit; row.defaultUnitId = detail.defaultUnit; row.defaultUnitCode = detail.defaultUnitCode || ''; }
+             // plantry-bke5: picking an untracked product no longer wipes a quantity/unit the author
+             // already entered (domain rule R5 only requires qty/unit when TrackStock is true).
+             if (!row.isUntracked && detail.defaultUnit) { row.unitId = detail.defaultUnit; row.defaultUnitId = detail.defaultUnit; row.defaultUnitCode = detail.defaultUnitCode || ''; }
              // Clear any stale conversion prompt when the product changes.
              row.needsConversion = false; row.conversionFactor = '';
+             // plantry-bke5: an untracked line never needs a conversion — drop the four-field equation and
+             // axis lists carried over from a previously picked tracked product, or the landed row renders a
+             // bogus conversion confirmation via rowShowConversion -> rowConvFilled.
+             if (row.isUntracked) {
+                 row.convLeftAmount = ''; row.convLeftUnitId = ''; row.convRightAmount = ''; row.convRightUnitId = '';
+                 row.stockUnits = []; row.recipeUnits = [];
+                 row.defaultUnitMissing = false; row.recipeUnitMissing = false;
+             }
          },
          _convCheckTimer: null,
          _triggerConversionCheck() {
