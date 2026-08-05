@@ -151,6 +151,34 @@ internal sealed class FakeRecipeRatingRepository : IRecipeRatingRepository
     }
 }
 
+internal sealed class FakeSubstitutionRepository : ISubstitutionRepository
+{
+    public List<Substitution> Items { get; } = [];
+    public int SaveChangesCalls { get; private set; }
+
+    public Task AddAsync(Substitution substitution, CancellationToken ct = default)
+    {
+        Items.Add(substitution);
+        return Task.CompletedTask;
+    }
+
+    public void Remove(Substitution substitution) => Items.Remove(substitution);
+
+    public Task<Substitution?> GetByIdAsync(SubstitutionId id, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(s => s.Id == id));
+
+    public Task<Substitution?> FindByPairAsync(
+        Guid substituteProductId, Guid targetProductId, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(s =>
+            s.SubstituteProductId == substituteProductId && s.TargetProductId == targetProductId));
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveChangesCalls++;
+        return Task.CompletedTask;
+    }
+}
+
 internal sealed class FakeHouseholdMemberReader : IHouseholdMemberReader
 {
     public List<HouseholdMember> Items { get; } = [];

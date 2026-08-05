@@ -73,3 +73,16 @@ public readonly record struct RecipeRatingId(Guid Value)
     public static RecipeRatingId From(Guid value) => new(value);
     public override string ToString() => Value.ToString();
 }
+
+/// <summary>
+/// Identity of a <c>Substitution</c> — a household-scoped directed edge declaring that one catalog
+/// product can stand in for another at a unit-bearing ratio (plantry-aqpa.1). UNIQUE (household_id,
+/// substitute_product_id, target_product_id) — directed pairs are distinct edges (A→B and B→A may both
+/// exist), unlike <c>ProductConversion</c>'s unordered-pair collapse (ADR-022 amendment).
+/// </summary>
+public readonly record struct SubstitutionId(Guid Value)
+{
+    public static SubstitutionId New() => new(Guid.CreateVersion7());
+    public static SubstitutionId From(Guid value) => new(value);
+    public override string ToString() => Value.ToString();
+}
