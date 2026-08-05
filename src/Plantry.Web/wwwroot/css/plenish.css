@@ -4419,12 +4419,6 @@ button.sadd svg { width: 13px; height: 13px; }
 
 .plan-main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; flex: 1; min-height: 0; }
 
-/* Meal-plan page-header band (plantry-7yf1): the shared .page-header sits above the command
-   bar. The fluid full-viewport shell carries no padding of its own, so this band supplies the
-   horizontal inset and trims the primitive's default bottom margin to keep the tool compact. */
-.plan-head { padding: 22px 24px 0; flex-shrink: 0; }
-.plan-head .page-header { margin-bottom: 16px; }
-
 /* Scope the prototype's "hearth" radius scale to the planner + meal editor so cards,
    cells, popovers and the modal round exactly like ClaudeDesignProto (the app's global
    --radius-md/-sm are tighter). Buttons follow the proto, which rounds them at --radius-sm. */
