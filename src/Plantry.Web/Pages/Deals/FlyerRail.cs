@@ -13,7 +13,8 @@ namespace Plantry.Web.Pages.Deals;
 /// <see cref="FlyerRail.Build"/> from <see cref="FlyerBlock.FlyerExternalId"/>: present only when a Parsed
 /// <see cref="Plantry.Market.Domain.FlyerImport"/> was resolved for this (store, window), and points at the
 /// verified Flipp store-search fallback (<see cref="FlyerRail.StoreSearchUrl"/>). The rail renders the link
-/// slot — in the big chip's meta or the compact active-flyer line, never per card — only when it is present.
+/// slot — in the big chip's meta, the compact done pill's store name, or the compact active-flyer line, never
+/// per card — only when it is present.
 /// </param>
 public sealed record FlyerRailChapter(
     string Key,

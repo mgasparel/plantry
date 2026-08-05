@@ -7,9 +7,11 @@
     with hx-push-url so a refresh is idempotent. Store name + validity dates appear ONLY here.
 
     ≤3 flyers: big .flyer-chip cards (store, count·expiry pill, valid range). >3: compact expiry-sorted
-    .flyer-pills with a .rail-summary roll-up above and the active flyer's detail demoted to the
-    .active-flyer-line below. The "View flyer" link slot renders only when a URL exists — the Flipp
-    store-search fallback the projection fills in (q9zr.7) when a Parsed source flyer resolves for the chapter.
+    .flyer-pills with a .rail-summary roll-up above — rendered only while at least one flyer is still waiting
+    (plantry-c4qk); with everything reviewed the roll-up has nothing to summarize and is omitted — and the
+    active flyer's detail demoted to the .active-flyer-line below. The "View flyer" link slot renders only when
+    a URL exists — the Flipp store-search fallback the projection fills in (q9zr.7) when a Parsed source flyer
+    resolves for the chapter.
 *@
 
 @if (Model.Chapters.Count == 0)
@@ -68,18 +70,35 @@
 }
 else
 {
-    <p class="rail-summary">
-        <b>@Model.WaitingCount flyers</b> waiting &middot; @Model.WaitingDeals deals &middot;
-        closest expiry <b>@Model.SoonestExpiryLabel</b>
-    </p>
+    @if (Model.WaitingCount > 0)
+    {
+        @* Roll-up only makes sense while something is still pending (plantry-c4qk) — with everything reviewed,
+           WaitingCount/WaitingDeals are 0 and SoonestExpiryDays falls through to its 0 default, which would
+           otherwise render the nonsense "0 flyers waiting · 0 deals · closest expiry today" above the done pills. *@
+        <p class="rail-summary">
+            <b>@Model.WaitingCount flyers</b> waiting &middot; @Model.WaitingDeals deals &middot;
+            closest expiry <b>@Model.SoonestExpiryLabel</b>
+        </p>
+    }
     <div class="flyers flyers--compact">
         @foreach (var f in Model.Chapters)
         {
             @if (f.IsDone)
             {
-                @* Confirm-finished flyer (plantry-8f7v): a display-only done pill — non-interactive, no hx-get. *@
+                @* Confirm-finished flyer (plantry-8f7v): a display-only done pill — non-interactive, no hx-get.
+                   The store name doubles as the "View flyer" link (plantry-c4qk) — a pill is too small for a
+                   second inline element, so the link slot is folded into the existing .store text rather than
+                   appended as its own control. Falls back to plain text when no source flyer resolved. *@
                 <span class="flyer-pill is-done" aria-label="@f.StoreName, all deals reviewed">
-                    <span class="store">@f.StoreName</span>
+                    @if (f.FlyerUrl is { } pillUrl)
+                    {
+                        <a class="store flyer-link" href="@pillUrl" target="_blank" rel="noopener"
+                           aria-label="@f.StoreName, view flyer">@f.StoreName</a>
+                    }
+                    else
+                    {
+                        <span class="store">@f.StoreName</span>
+                    }
                     <span class="d">&#10003;</span>
                 </span>
             }
