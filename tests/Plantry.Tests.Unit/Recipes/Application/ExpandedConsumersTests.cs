@@ -160,7 +160,7 @@ public sealed class ExpandedConsumersTests
         var parent = Seed(repo, "Nachos", 4, [], [new InclusionLine(sub.Id, 3m, null, 0)]);
 
         var effective = await ExpandAndAggregateAsync(repo, parent.Id);
-        var fulfillmentService = new FulfillmentService(stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader());
+        var fulfillmentService = new FulfillmentService(stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader(), new FakeSubstitutionReader());
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(effective, parent.DefaultServings, parent.DefaultServings, Today);
 
         var shortfall = RecipeShortfallCalculator.Compute(effective, fulfillment, parent.DefaultServings, parent.DefaultServings);
@@ -214,7 +214,7 @@ public sealed class ExpandedConsumersTests
         var parent = Seed(repo, "Caesar Deluxe", 2, [], [new InclusionLine(sub.Id, 2m, null, 0)]);
 
         var effective = await ExpandAndAggregateAsync(repo, parent.Id);
-        var fulfillmentService = new FulfillmentService(stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader());
+        var fulfillmentService = new FulfillmentService(stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader(), new FakeSubstitutionReader());
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(effective, parent.DefaultServings, parent.DefaultServings, Today);
 
         var line = Assert.Single(fulfillment.Lines);

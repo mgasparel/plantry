@@ -22,24 +22,27 @@
     var unitGap = item.UnitMismatch;
     var statusClass = unitGap ? "rd-ing-status--unitgap" : status switch
     {
-        IngredientStatus.InStock   => "rd-ing-status--have",
-        IngredientStatus.Low       => "rd-ing-status--low",
-        IngredientStatus.Missing   => "rd-ing-status--miss",
-        _                          => "rd-ing-status--untracked",
+        IngredientStatus.InStock              => "rd-ing-status--have",
+        IngredientStatus.InStockViaSubstitute => "rd-ing-status--viasub",
+        IngredientStatus.Low                  => "rd-ing-status--low",
+        IngredientStatus.Missing              => "rd-ing-status--miss",
+        _                                     => "rd-ing-status--untracked",
     };
     var iconRef = unitGap ? "#i-info" : status switch
     {
-        IngredientStatus.InStock   => "#i-check",
-        IngredientStatus.Low       => "#i-alert",
-        IngredientStatus.Missing   => "#i-alert",
-        _                          => "#i-recipe",
+        IngredientStatus.InStock              => "#i-check",
+        IngredientStatus.InStockViaSubstitute => "#i-check",
+        IngredientStatus.Low                  => "#i-alert",
+        IngredientStatus.Missing              => "#i-alert",
+        _                                     => "#i-recipe",
     };
     var subClass = unitGap ? "rd-ing-sub--unitgap" : status switch
     {
-        IngredientStatus.InStock   => "rd-ing-sub--have",
-        IngredientStatus.Low       => "rd-ing-sub--low",
-        IngredientStatus.Missing   => "rd-ing-sub--miss",
-        _                          => "rd-ing-sub--untracked",
+        IngredientStatus.InStock              => "rd-ing-sub--have",
+        IngredientStatus.InStockViaSubstitute => "rd-ing-sub--viasub",
+        IngredientStatus.Low                  => "rd-ing-sub--low",
+        IngredientStatus.Missing              => "rd-ing-sub--miss",
+        _                                     => "rd-ing-sub--untracked",
     };
     // Sub-label text.
     string subLabel;
@@ -54,6 +57,11 @@
     else if (status == IngredientStatus.InStock)
     {
         subLabel = "In your pantry";
+    }
+    else if (status == IngredientStatus.InStockViaSubstitute)
+    {
+        // plantry-aqpa.2: direct stock alone was short — a household substitution edge closed the gap.
+        subLabel = "In your pantry (via substitute)";
     }
     else if (status == IngredientStatus.Low)
     {

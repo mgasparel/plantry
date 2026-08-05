@@ -11,7 +11,11 @@
     var missingCount = fulfillment.Overall.MissingCount;
     var lowCount = fulfillment.Overall.LowCount;
     var totalTracked = fulfillment.Lines.Count(l => l.Status != IngredientStatus.Untracked);
-    var inStockCount = fulfillment.Lines.Count(l => l.Status == IngredientStatus.InStock);
+    // InStockViaSubstitute (plantry-aqpa.2) counts as fully satisfied here — the line needs nothing more
+    // bought, only whether the pantry alone or a household substitute covered it is display-level detail
+    // (the per-row dot/sub-label distinguish it; this headline/pct math treats both as "have").
+    var inStockCount = fulfillment.Lines.Count(l =>
+        l.Status is IngredientStatus.InStock or IngredientStatus.InStockViaSubstitute);
     var soonCount = fulfillment.Lines.Count(l => l.ExpiresWithinDays.HasValue);
     var pct = totalTracked > 0
         ? (int)Math.Round(100.0 * (inStockCount + lowCount) / totalTracked)

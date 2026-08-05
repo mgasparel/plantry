@@ -495,3 +495,19 @@ public sealed class FakeDetailUnitConverter : IUnitConverter
             : Plantry.SharedKernel.Result<decimal>.Failure(
                 Plantry.SharedKernel.Error.Custom("Test.NoPath", "No unit conversion path.")));
 }
+
+/// <summary>
+/// Empty <see cref="ISubstitutionReader"/> for the recipe detail L4 tests (plantry-aqpa.2) — no fixture
+/// scenario exercises substitution edges yet, so every product id resolves to "no substitutes",
+/// matching the fixture's existing mixed-status shape byte-for-byte.
+/// </summary>
+public sealed class FakeDetailSubstitutionReader : ISubstitutionReader
+{
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>> ListByTargetProductIdsAsync(
+        IReadOnlyList<Guid> targetProductIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>>(
+            new Dictionary<Guid, IReadOnlyList<SubstitutionEdge>>());
+
+    public Task<IReadOnlyList<SubstitutionEdge>> ListTouchingProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SubstitutionEdge>>([]);
+}

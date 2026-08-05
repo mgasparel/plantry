@@ -429,6 +429,9 @@ public sealed class RecipeInclusionTests
                 services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
                 services.AddFakeQuantityFormatter();
 
+                services.RemoveAll<ISubstitutionReader>();
+                services.AddSingleton<ISubstitutionReader>(new FakeDetailSubstitutionReader());
+
                 services.RemoveAll<IShoppingListWriter>();
                 services.AddSingleton<IShoppingListWriter>(new NullInclusionShoppingWriter());
 

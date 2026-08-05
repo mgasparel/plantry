@@ -47,7 +47,7 @@ public sealed class WeekBagEnricherTests
     /// </summary>
     private static WeekBagEnricher MakeEnricher(WeekBag bag) =>
         new(bag,
-            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader()),
+            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
             new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
             SystemClock.Instance,
             expiringSoonDays: 7);
@@ -512,6 +512,14 @@ public sealed class WeekBagEnricherTests
     {
         public Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
             Task.FromResult(Result<decimal>.Success(amount));
+    }
+
+    private sealed class NullSubstitutionReader : ISubstitutionReader
+    {
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>> ListByTargetProductIdsAsync(IReadOnlyList<Guid> targetProductIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>>(new Dictionary<Guid, IReadOnlyList<SubstitutionEdge>>());
+        public Task<IReadOnlyList<SubstitutionEdge>> ListTouchingProductAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<SubstitutionEdge>>([]);
     }
 
     private sealed class NullPriceReader : IPriceReader

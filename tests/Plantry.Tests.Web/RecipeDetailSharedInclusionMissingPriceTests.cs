@@ -196,6 +196,9 @@ public sealed class RecipeDetailSharedInclusionMissingPriceTests
                 services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
                 services.AddFakeQuantityFormatter();
 
+                services.RemoveAll<ISubstitutionReader>();
+                services.AddSingleton<ISubstitutionReader>(new FakeDetailSubstitutionReader());
+
                 services.RemoveAll<IShoppingListWriter>();
                 services.AddSingleton<IShoppingListWriter>(new NullSharedInclusionShoppingWriter());
                 services.RemoveAll<IShoppingListRepository>();

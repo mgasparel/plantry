@@ -122,7 +122,7 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         // The expansion service reads through a repository over the SAME context the adapter queries,
         // mirroring the single scoped RecipesDbContext of a real request.
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
-        var fulfillment = new FulfillmentService(stock, catalog, new IdentityConverter(), new FixedHorizon(7));
+        var fulfillment = new FulfillmentService(stock, catalog, new IdentityConverter(), new FixedHorizon(7), new FakeSubstitutions());
         var costing = new CostingService(prices, new IdentityConverter(), catalog);
         return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx));
     }

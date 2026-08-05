@@ -110,6 +110,12 @@ public class RecipeBrowseFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeBrowseUnitConverter());
 
+            // Substitution reader (plantry-aqpa.2): empty — no fixture scenario exercises substitution
+            // edges yet. Without this override FulfillmentService resolves the real Postgres-backed
+            // SubstitutionReader, which this factory's no-database setup cannot satisfy.
+            services.RemoveAll<ISubstitutionReader>();
+            services.AddSingleton<ISubstitutionReader>(new FakeBrowseSubstitutionReader());
+
             // Recipe rating repository (plantry-zlwp.1): BrowseRecipesQuery now batch-loads ratings per
             // row; the real RecipeRatingRepository needs a live RecipesDbContext/Postgres connection,
             // so it is replaced here like every other Postgres-backed seam above. Empty by default (see

@@ -182,6 +182,12 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
             services.AddFakeQuantityFormatter();
 
+            // Substitution reader (plantry-aqpa.2): empty — no fixture scenario exercises substitution
+            // edges yet. Without this override FulfillmentService resolves the real Postgres-backed
+            // SubstitutionReader, which this factory's no-database setup cannot satisfy.
+            services.RemoveAll<ISubstitutionReader>();
+            services.AddSingleton<ISubstitutionReader>(new FakeDetailSubstitutionReader());
+
             // Shopping list writer: no-op for GET-path tests (AddMissing is POST-only).
             // Satisfies the AddMissingToShoppingList DI constructor without a real Shopping DB.
             services.RemoveAll<IShoppingListWriter>();

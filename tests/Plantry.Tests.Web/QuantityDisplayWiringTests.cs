@@ -165,6 +165,9 @@ public sealed class QuantityDisplayWiringFactory : WebApplicationFactory<Program
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
 
+            services.RemoveAll<ISubstitutionReader>();
+            services.AddSingleton<ISubstitutionReader>(new FakeDetailSubstitutionReader());
+
             // The formatter over the fixture's real Fraction units — the seam under test.
             services.AddFakeQuantityFormatter(Units);
 

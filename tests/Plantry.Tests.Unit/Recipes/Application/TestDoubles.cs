@@ -179,6 +179,34 @@ internal sealed class FakeSubstitutionRepository : ISubstitutionRepository
     }
 }
 
+/// <summary>
+/// Substitution-edge read-side fake for <c>FulfillmentService</c> (plantry-aqpa.2). Empty by default —
+/// every existing test predates substitution and must keep behaving identically; call
+/// <see cref="Add"/> to opt a specific test into substitution edges.
+/// </summary>
+internal sealed class FakeSubstitutionReader : ISubstitutionReader
+{
+    private readonly Dictionary<Guid, List<SubstitutionEdge>> _byTarget = [];
+
+    public FakeSubstitutionReader Add(SubstitutionEdge edge)
+    {
+        if (!_byTarget.TryGetValue(edge.TargetProductId, out var list))
+            _byTarget[edge.TargetProductId] = list = [];
+        list.Add(edge);
+        return this;
+    }
+
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>> ListByTargetProductIdsAsync(
+        IReadOnlyList<Guid> targetProductIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>>(
+            targetProductIds
+                .Where(_byTarget.ContainsKey)
+                .ToDictionary(id => id, id => (IReadOnlyList<SubstitutionEdge>)_byTarget[id]));
+
+    public Task<IReadOnlyList<SubstitutionEdge>> ListTouchingProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SubstitutionEdge>>([]);
+}
+
 internal sealed class FakeHouseholdMemberReader : IHouseholdMemberReader
 {
     public List<HouseholdMember> Items { get; } = [];

@@ -695,6 +695,10 @@ public sealed class DetailsModel(
         var inStockCount = 0;
         var lowCount = 0;
         var missCount = 0;
+        // plantry-aqpa.2: satisfied only via a household substitution edge — counts toward inStockCount
+        // (fully satisfied, no shopping action needed) but tracked separately so the fold's worst-of-
+        // children dot can still surface "via substitute" when that is the worst outcome among children.
+        var viaSubCount = 0;
         for (var idx = 0; idx < childLines.Count; idx++)
         {
             var item = children[idx];
@@ -704,6 +708,7 @@ public sealed class DetailsModel(
             switch (item.Status)
             {
                 case IngredientStatus.InStock: inStockCount++; break;
+                case IngredientStatus.InStockViaSubstitute: inStockCount++; viaSubCount++; break;
                 case IngredientStatus.Low: lowCount++; break;
                 case IngredientStatus.Missing: missCount++; break;
             }
@@ -711,6 +716,7 @@ public sealed class DetailsModel(
         var worstStatus = trackedTotal == 0 ? IngredientStatus.Untracked
             : missCount > 0 ? IngredientStatus.Missing
             : lowCount > 0 ? IngredientStatus.Low
+            : viaSubCount > 0 ? IngredientStatus.InStockViaSubstitute
             : IngredientStatus.InStock;
         RollupChipView? chip = missCount > 0
             ? new RollupChipView($"{missCount} to buy", IngredientStatus.Missing)

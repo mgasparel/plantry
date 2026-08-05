@@ -92,7 +92,7 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
 
         var enricher = new WeekBagEnricher(
             bag,
-            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader()),
+            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
             new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
             Clock,
             expiringSoonDays: 7);
@@ -131,7 +131,7 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
 
         var enricher = new WeekBagEnricher(
             bag,
-            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader()),
+            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
             new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
             Clock,
             expiringSoonDays: 7);
@@ -168,6 +168,89 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
         Assert.Equal(4.00m, asyncTotalCost);
         Assert.Equal(asyncTotalCost, weekGridResult!.TotalCost);
         Assert.False(weekGridResult.CostIsPartial);
+    }
+
+    // ── Fulfillment: week-grid substitution parity (plantry-aqpa.2) ──────────────────────────────
+
+    [Fact(DisplayName = "plantry-aqpa.2: week-grid fulfillment applies a one-hop substitution edge the same way Recipe Details/Browse does (InStockViaSubstitute)")]
+    public async Task WeekGrid_Fulfillment_Applies_Substitution_Same_As_Async_ComputeAsync()
+    {
+        Guid flourId, riceFlourId;
+        await using (var setup = NewCatalogDb())
+        {
+            var flour = Product.Create(_household, "Flour", UnitId.From(_gramsId), Clock);
+            var riceFlour = Product.Create(_household, "Rice Flour", UnitId.From(_gramsId), Clock);
+            await setup.Products.AddRangeAsync(flour, riceFlour);
+            await setup.SaveChangesAsync();
+            flourId = flour.Id.Value;
+            riceFlourId = riceFlour.Id.Value;
+        }
+
+        // Flour is short on its own (100 g on hand, 500 g required); Rice Flour (1:1 ratio, same unit)
+        // has 1000 g on hand — combined 1100 g covers the requirement.
+        var locationId = await SeedLocationAsync("Pantry");
+        await SeedStockEntryAsync(flourId, locationId, quantity: 100m, unitId: _gramsId, expiryDate: null);
+        await SeedStockEntryAsync(riceFlourId, locationId, quantity: 1000m, unitId: _gramsId, expiryDate: null);
+
+        await using (var setup = NewRecipesDb())
+        {
+            var edge = Substitution.Create(
+                _household, flourId, targetQuantity: 1m, _gramsId,
+                riceFlourId, substituteQuantity: 1m, _gramsId, Clock);
+            await setup.Substitutions.AddAsync(edge);
+            await setup.SaveChangesAsync();
+        }
+
+        var recipeId = await SeedFlatRecipeAsync("Flatbread", defaultServings: 1, flourId, quantity: 500m, _gramsId);
+
+        // ── Week-grid path: MealPlanWeekReadModel.LoadAsync + WeekBagEnricher (pure Compute) ──────────
+        var rm = NewReadModel();
+        var bag = await rm.LoadAsync([recipeId], []);
+
+        // Pins the read-model fix directly: the substitute product's own stock must be in the bag.
+        Assert.True(bag.SubstitutionsByTargetProduct.ContainsKey(flourId));
+        Assert.NotNull(bag.GetStock(riceFlourId));
+
+        var enricher = new WeekBagEnricher(
+            bag,
+            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
+            new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
+            Clock,
+            expiringSoonDays: 7);
+
+        var weekGridResult = enricher.Enrich(recipeId, servings: 1, DateOnly.FromDateTime(DateTime.Today));
+        Assert.NotNull(weekGridResult);
+
+        // ── Async path: FulfillmentService.ComputeAsync fed the SAME facts (recipe, stock, substitution
+        //    edge) via the same in-memory fakes RecipeReadModelAdapter*Tests use for this class — the
+        //    real Recipe Details/Browse path (RecipeReadModelAdapter → ComputeAsync/ComputeExpandedAsync).
+        //    Proves the two consumers agree given identical inputs, without re-deriving a full
+        //    Postgres-backed adapter rig no other test in this file needs. ──
+        var asyncCatalog = new FakeCatalog()
+            .AddTrackedLeaf(flourId, _gramsId, "Flour")
+            .AddTrackedLeaf(riceFlourId, _gramsId, "Rice Flour");
+        var asyncStock = new FakeStock()
+            .Add(flourId, 100m, _gramsId)
+            .Add(riceFlourId, 1000m, _gramsId);
+        var asyncSubstitutions = new FakeSubstitutions().Add(
+            new SubstitutionEdge(Guid.NewGuid(), flourId, 1m, _gramsId, riceFlourId, 1m, _gramsId));
+
+        var recipe = Recipe.Create(_household, "Flatbread", 1, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(flourId, 500m, _gramsId, null, 0)], Clock);
+
+        var fulfillmentServiceAsync = new FulfillmentService(
+            asyncStock, asyncCatalog, new IdentityConverter(), new FixedHorizon(7), asyncSubstitutions);
+        var asyncFulfillment = await fulfillmentServiceAsync.ComputeAsync(
+            recipe, desiredServings: 1, today: DateOnly.FromDateTime(DateTime.Today));
+
+        var asyncLine = Assert.Single(asyncFulfillment.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, asyncLine.Status);
+
+        // Both paths must agree: combined 1100 g >= 500 g required → fully satisfied. Before the fix,
+        // the week grid's WeekBag never loaded substitution edges, so it would read the pre-substitution
+        // percentage (Flour alone: 100/500 → 0% InStock lines) while Recipe Details/Browse already read
+        // InStockViaSubstitute.
+        Assert.Equal(100, weekGridResult!.FulfillmentPercent);
     }
 
     // ── Seeding ──────────────────────────────────────────────────────────────────────────────────
@@ -381,6 +464,14 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
     {
         public Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
             Task.FromResult(Result<decimal>.Success(amount));
+    }
+
+    private sealed class NullSubstitutionReader : ISubstitutionReader
+    {
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>> ListByTargetProductIdsAsync(IReadOnlyList<Guid> targetProductIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>>(new Dictionary<Guid, IReadOnlyList<SubstitutionEdge>>());
+        public Task<IReadOnlyList<SubstitutionEdge>> ListTouchingProductAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<SubstitutionEdge>>([]);
     }
 
     private sealed class NullPriceReader : IPriceReader

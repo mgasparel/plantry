@@ -99,8 +99,9 @@ public sealed class ExpiringSoonHorizonAgreementTests
             offsets.Select((o, i) => new IngredientLine(o.Product, 10m, unit, null, i)).ToList(),
             Clock);
 
-        var svc = new FulfillmentService(null!, null!, null!, null!); // ports unused by the pure overload
-        var result = svc.Compute(recipe, 1, Today, catalogById, stockById, IdentityConverter, Horizon);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!); // ports unused by the pure overload
+        var result = svc.Compute(
+            recipe, 1, Today, catalogById, stockById, NoSubstitutions, IdentityConverter, IdentityUnitFactor, Horizon);
 
         // Map each flagged line back to its product via ingredient ordinal → same order we added them.
         var flagged = new HashSet<Guid>();
@@ -116,6 +117,16 @@ public sealed class ExpiringSoonHorizonAgreementTests
         from == to
             ? Result<decimal>.Success(amount)
             : Result<decimal>.Failure(Error.Custom("Test.NoPath", "No conversion path."));
+
+    private static Result<decimal> IdentityUnitFactor(Guid _, Guid from, Guid to) =>
+        from == to
+            ? Result<decimal>.Success(1m)
+            : Result<decimal>.Failure(Error.Custom("Test.NoPath", "No conversion path."));
+
+    // No test in this file exercises substitution edges (out of scope: this file pins the
+    // widget/recipe expiring-soon agreement, not substitution — plantry-aqpa.2).
+    private static readonly IReadOnlyDictionary<Guid, IReadOnlyList<Plantry.Recipes.Application.SubstitutionEdge>>
+        NoSubstitutions = new Dictionary<Guid, IReadOnlyList<Plantry.Recipes.Application.SubstitutionEdge>>();
 
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {

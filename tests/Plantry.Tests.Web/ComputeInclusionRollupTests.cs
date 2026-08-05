@@ -88,6 +88,59 @@ public sealed class ComputeInclusionRollupTests
         Assert.Equal(IngredientStatus.InStock, result.WorstStatus);
     }
 
+    // ── Substitution (plantry-aqpa.2) ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void InStockViaSubstitute_child_counts_toward_InStockCount()
+    {
+        var (items, lines) = Split(
+            Child(ProductA, IngredientStatus.InStockViaSubstitute),
+            Child(ProductB, IngredientStatus.InStock));
+
+        var result = DetailsModel.ComputeInclusionRollup(items, lines);
+
+        // No shopping action needed for either child — both count as satisfied.
+        Assert.Equal(2, result.InStockCount);
+        Assert.Equal(2, result.TrackedTotal);
+    }
+
+    [Fact]
+    public void InStockViaSubstitute_is_the_worst_status_when_no_child_is_missing_or_low()
+    {
+        var (items, lines) = Split(
+            Child(ProductA, IngredientStatus.InStock),
+            Child(ProductB, IngredientStatus.InStockViaSubstitute));
+
+        var result = DetailsModel.ComputeInclusionRollup(items, lines);
+
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, result.WorstStatus);
+    }
+
+    [Fact]
+    public void Missing_child_still_outranks_InStockViaSubstitute()
+    {
+        var (items, lines) = Split(
+            Child(ProductA, IngredientStatus.InStockViaSubstitute),
+            Child(ProductB, IngredientStatus.Missing));
+
+        var result = DetailsModel.ComputeInclusionRollup(items, lines);
+
+        Assert.Equal(IngredientStatus.Missing, result.WorstStatus);
+        Assert.Equal("1 to buy", result.Chip?.Label); // no chip noise for the satisfied-via-substitute child
+    }
+
+    [Fact]
+    public void InStockViaSubstitute_never_produces_a_rollup_chip()
+    {
+        var (items, lines) = Split(
+            Child(ProductA, IngredientStatus.InStockViaSubstitute),
+            Child(ProductB, IngredientStatus.InStock));
+
+        var result = DetailsModel.ComputeInclusionRollup(items, lines);
+
+        Assert.Null(result.Chip);
+    }
+
     // ── All-untracked ──────────────────────────────────────────────────────────────────────────
 
     [Fact]

@@ -108,6 +108,34 @@ public sealed class FulfillmentServiceTests
         }
     }
 
+    /// <summary>
+    /// One-hop substitution edges keyed by target product id (plantry-aqpa.2). Empty by default — every
+    /// pre-existing test in this file predates substitution and must keep behaving identically; call
+    /// <see cref="Add"/> to opt a specific test into substitution edges.
+    /// </summary>
+    private sealed class FakeSubstitutionReader : ISubstitutionReader
+    {
+        private readonly Dictionary<Guid, List<SubstitutionEdge>> _byTarget = [];
+
+        public FakeSubstitutionReader Add(SubstitutionEdge edge)
+        {
+            if (!_byTarget.TryGetValue(edge.TargetProductId, out var list))
+                _byTarget[edge.TargetProductId] = list = [];
+            list.Add(edge);
+            return this;
+        }
+
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>> ListByTargetProductIdsAsync(
+            IReadOnlyList<Guid> targetProductIds, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>>(
+                targetProductIds
+                    .Where(_byTarget.ContainsKey)
+                    .ToDictionary(id => id, id => (IReadOnlyList<SubstitutionEdge>)_byTarget[id]));
+
+        public Task<IReadOnlyList<SubstitutionEdge>> ListTouchingProductAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<SubstitutionEdge>>([]);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private sealed class Harness
@@ -115,12 +143,13 @@ public sealed class FulfillmentServiceTests
         public FakeInventoryStockReader Stock { get; } = new();
         public FakeCatalogProductReader Catalog { get; } = new();
         public IdentityUnitConverter Converter { get; } = new();
+        public FakeSubstitutionReader Substitutions { get; } = new();
 
         /// <summary>The "expiring soon" horizon the fake reader returns; defaults to 4 so the
         /// existing boundary tests exercise a 4-day window. Set before reading <see cref="Service"/>.</summary>
         public int HorizonDays { get; set; } = 4;
 
-        public FulfillmentService Service => new(Stock, Catalog, Converter, new FakeHorizonReader(HorizonDays));
+        public FulfillmentService Service => new(Stock, Catalog, Converter, new FakeHorizonReader(HorizonDays), Substitutions);
 
         private sealed class FakeHorizonReader(int days) : IExpiringSoonHorizonReader
         {
@@ -601,6 +630,323 @@ public sealed class FulfillmentServiceTests
         Assert.Equal(IngredientStatus.Missing, result.Lines[1].Status);
         Assert.Equal(IngredientStatus.Untracked, result.Lines[2].Status);
     }
+
+    // ── Substitution (plantry-aqpa.2) ───────────────────────────────────────────
+
+    /// <summary>Registers explicit (product, from, to) → factor conversions, unlike
+    /// <see cref="IdentityUnitConverter"/> which only ever succeeds for identical units. Needed for the
+    /// substitution tests that exercise a real cross-unit landing conversion.</summary>
+    private sealed class RegisteredPathsConverter : IUnitConverter
+    {
+        private readonly Dictionary<(Guid Product, Guid From, Guid To), decimal> _paths = [];
+
+        public RegisteredPathsConverter AddPath(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor)
+        {
+            _paths[(productId, fromUnitId, toUnitId)] = factor;
+            return this;
+        }
+
+        public Task<Result<decimal>> ConvertAsync(
+            Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default)
+        {
+            if (fromUnitId == toUnitId)
+                return Task.FromResult(Result<decimal>.Success(amount));
+            if (_paths.TryGetValue((productId, fromUnitId, toUnitId), out var factor))
+                return Task.FromResult(Result<decimal>.Success(amount * factor));
+            return Task.FromResult(Result<decimal>.Failure(
+                Error.Custom("Catalog.NoConversionPath", "No conversion path.")));
+        }
+    }
+
+    [Fact]
+    public async Task Substitute_Tops_Up_Short_Direct_Stock_To_InStockViaSubstitute()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+
+        h.Stock.Add(flour.Id, available: 100m, unit); // short — needs 500
+        h.Stock.Add(riceFlour.Id, available: 1000m, unit);
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, TargetQuantity: 1m, unit,
+            riceFlour.Id, SubstituteQuantity: 1m, unit)); // 1:1 ratio, same unit
+
+        var recipe = BuildRecipe(flour.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.Equal(1100m, line.AvailableQuantity); // 100 direct + 1000 substitute
+        Assert.True(result.Overall.FullyCookable); // InStockViaSubstitute is not Missing/Low
+    }
+
+    [Fact]
+    public async Task Substitute_Fully_Covers_Zero_Direct_Stock_To_InStockViaSubstitute()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+
+        // No direct stock at all — Missing on its own.
+        h.Stock.Add(riceFlour.Id, available: 600m, unit);
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlour.Id, 1m, unit));
+
+        var recipe = BuildRecipe(flour.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.Equal(600m, line.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task Substitute_Of_A_Substitute_Never_Contributes_One_Hop_No_Chaining()
+    {
+        // A ← B, B ← C: A's line only ever looks up edges whose TARGET is A. C's stock reaches A only
+        // by chaining through B's own edges — which the resolution order explicitly forbids ("ONE hop,
+        // no chaining"). B itself has zero stock, so if chaining ever fired, A would read C's ample
+        // stock and go InStockViaSubstitute; it must stay Missing instead.
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var a = h.Catalog.AddTrackedLeaf(unit, "A");
+        var b = h.Catalog.AddTrackedLeaf(unit, "B");
+        var c = h.Catalog.AddTrackedLeaf(unit, "C");
+
+        // No stock for A or B; C has ample stock, but only reachable via B's (never-consulted) edge.
+        h.Stock.Add(c.Id, available: 1000m, unit);
+
+        h.Substitutions.Add(new SubstitutionEdge(Guid.CreateVersion7(), a.Id, 1m, unit, b.Id, 1m, unit));
+        h.Substitutions.Add(new SubstitutionEdge(Guid.CreateVersion7(), b.Id, 1m, unit, c.Id, 1m, unit));
+
+        var recipe = BuildRecipe(a.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Missing, line.Status);
+        Assert.Null(line.AvailableQuantity); // C's stock never contributes — not even partially
+    }
+
+    [Fact]
+    public async Task Combined_Zero_With_Edge_Present_Stays_Missing()
+    {
+        // Direct stock is zero and the one substitute edge's product carries no stock either — the
+        // combined closure is 0, so status must stay Missing (not InStockViaSubstitute), pinning the
+        // combined == 0 branch of the Missing/Low/InStockViaSubstitute fork.
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+        // No stock added for either product.
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlour.Id, 1m, unit));
+
+        var recipe = BuildRecipe(flour.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Missing, line.Status);
+        Assert.Null(line.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task Untracked_Staple_Ignores_Its_Own_Substitution_Edge_C12()
+    {
+        // C12 (untracked staples are always satisfied) is checked before any substitution logic — an
+        // edge targeting an untracked staple must never be consulted, and the line must stay Untracked
+        // regardless of what the substitute's stock looks like.
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var salt = h.Catalog.AddUntracked("Salt");
+        var seaSalt = h.Catalog.AddTrackedLeaf(unit, "Sea Salt");
+        h.Stock.Add(seaSalt.Id, available: 1000m, unit);
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), salt.Id, 1m, unit, seaSalt.Id, 1m, unit));
+
+        // Untracked staple: null qty/unit allowed by R5 when track_stock = false.
+        var recipe = Recipe.Create(Household, "Soup", 4, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(salt.Id, null, null, null, 0)], Clock);
+
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Untracked, line.Status);
+        Assert.Null(line.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task Substitute_Insufficient_Combined_Stays_Low_Not_InStockViaSubstitute()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+
+        h.Stock.Add(flour.Id, available: 100m, unit);
+        h.Stock.Add(riceFlour.Id, available: 50m, unit); // combined 150 < 500 required
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlour.Id, 1m, unit));
+
+        var recipe = BuildRecipe(flour.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.Low, line.Status);
+        Assert.Equal(150m, line.AvailableQuantity); // Low/Missing computed over the combined closure
+    }
+
+    [Fact]
+    public async Task Direct_Stock_Already_Sufficient_Ignores_Substitutes()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+
+        h.Stock.Add(flour.Id, available: 500m, unit); // already meets the requirement
+        h.Stock.Add(riceFlour.Id, available: 1000m, unit);
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlour.Id, 1m, unit));
+
+        var recipe = BuildRecipe(flour.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        // Direct alone covers it — plain InStock, not InStockViaSubstitute (resolution order step 2:
+        // substitution is pursued only "if still short").
+        Assert.Equal(IngredientStatus.InStock, line.Status);
+        Assert.Equal(500m, line.AvailableQuantity); // substitute stock never added in
+    }
+
+    [Fact]
+    public async Task Substitute_That_Is_A_Parent_Rolls_Up_Its_Variants_At_Factor_One()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+
+        var v1 = Guid.CreateVersion7();
+        var v2 = Guid.CreateVersion7();
+        var riceFlourGroup = h.Catalog.AddParent([v1, v2], "Rice Flour");
+
+        h.Stock.Add(flour.Id, available: 0m, unit);
+        h.Stock.Add(v1, available: 200m, unit);
+        h.Stock.Add(v2, available: 300m, unit);
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlourGroup.Id, 1m, unit));
+
+        var recipe = BuildRecipe(flour.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        // DM-19 rollup applies to the substitute too (factor 1.0) — v1 + v2 = 500, not a second
+        // substitution hop.
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.Equal(500m, line.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task Substitute_Conversion_Failure_Contributes_Zero_Not_Exception()
+    {
+        var h = new Harness();
+        var unitA = Guid.CreateVersion7();
+        var unitB = Guid.CreateVersion7(); // no conversion path from unitA to unitB (IdentityUnitConverter)
+        var flour = h.Catalog.AddTrackedLeaf(unitA, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unitB, "Rice Flour");
+
+        h.Stock.Add(flour.Id, available: 100m, unitA);
+        h.Stock.Add(riceFlour.Id, available: 1000m, unitB); // real stock, but unconvertible unit
+
+        // Edge's SubstituteUnitId (unitA) differs from the substitute's own default unit (unitB) —
+        // the substitute's own-unit-graph conversion has no path.
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unitA, riceFlour.Id, 1m, unitA));
+
+        var recipe = BuildRecipe(flour.Id, 500m, unitA);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        // Partial visibility: the unconvertible substitute contributes zero, not an exception — status
+        // reflects the direct stock alone (Low, not InStockViaSubstitute).
+        Assert.Equal(IngredientStatus.Low, line.Status);
+        Assert.Equal(100m, line.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task Substitute_Expiry_Feeds_The_Combined_Soonest_Expiry()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+
+        h.Stock.Add(flour.Id, available: 100m, unit, soonestExpiry: null);
+        // Substitute expires in 2 days — within the 4-day horizon (Harness default).
+        h.Stock.Add(riceFlour.Id, available: 1000m, unit, soonestExpiry: Today.AddDays(2));
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlour.Id, 1m, unit));
+
+        var recipe = BuildRecipe(flour.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.Equal(2, line.ExpiresWithinDays); // substitute's own expiry feeds the line, same as DM-19
+    }
+
+    [Fact]
+    public async Task Substitute_Crosses_Edge_Ratio_And_Lands_Via_Target_Unit_Graph()
+    {
+        // recipes-domain-model.md's own worked example: 100 g dried chickpeas ≡ 260 g canned chickpeas.
+        // The line itself is authored in KILOGRAMS, so the target-unit landing hop (canned's own unit
+        // graph, grams → kilograms) is a real, non-identity conversion — not just the 1:1 edge ratio.
+        var grams = Guid.CreateVersion7();
+        var kilograms = Guid.CreateVersion7();
+
+        var stock = new FakeInventoryStockReader();
+        var catalog = new FakeCatalogProductReader();
+        var canned = catalog.AddTrackedLeaf(kilograms, "Chickpeas (canned)");
+        var dried = catalog.AddTrackedLeaf(grams, "Chickpeas (dried)");
+
+        stock.Add(canned.Id, available: 0m, kilograms); // no direct stock
+        stock.Add(dried.Id, available: 200m, grams);
+
+        var substitutions = new FakeSubstitutionReader();
+        substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), canned.Id, TargetQuantity: 260m, grams,
+            dried.Id, SubstituteQuantity: 100m, grams));
+
+        var converter = new RegisteredPathsConverter()
+            .AddPath(canned.Id, grams, kilograms, 0.001m); // 1 g = 0.001 kg (target's own unit graph)
+
+        var svc = new FulfillmentService(
+            stock, catalog, converter, new FakeHorizonReaderPublic(4), substitutions);
+
+        var recipe = Recipe.Create(Household, "Chana Masala", 4, Clock).Value;
+        recipe.ReplaceIngredients([new IngredientLine(canned.Id, 0.4m, kilograms, null, 0)], Clock);
+
+        var result = await svc.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        // 200 g dried × (260/100) = 520 g-equivalent, landed via 0.001 → 0.52 kg >= 0.4 kg required.
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.Equal(0.52m, line.AvailableQuantity);
+    }
+
+    private sealed class FakeHorizonReaderPublic(int days) : IExpiringSoonHorizonReader
+    {
+        public Task<int> GetDaysAsync(CancellationToken ct = default) => Task.FromResult(days);
+    }
 }
 
 /// <summary>
@@ -619,6 +965,19 @@ public sealed class FulfillmentServicePureOverloadTests
         from == to
             ? Result<decimal>.Success(amount)
             : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No path."));
+
+    // Identity unit-factor — same unit → factor 1; different unit → fail. Only exercised by the
+    // substitution-specific tests below (plantry-aqpa.2); every pre-existing test passes NoSubstitutions
+    // so this is never actually invoked for them.
+    private static Result<decimal> IdentityUnitFactor(Guid _, Guid from, Guid to) =>
+        from == to
+            ? Result<decimal>.Success(1m)
+            : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No path."));
+
+    // No substitution edges — every pre-existing test in this class predates substitution and must
+    // keep behaving identically (plantry-aqpa.2).
+    private static readonly IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>> NoSubstitutions =
+        new Dictionary<Guid, IReadOnlyList<SubstitutionEdge>>();
 
     private static CatalogProduct UntrackedProduct(Guid id) =>
         new(id, "Salt", TrackStock: false, DefaultUnitId: Guid.CreateVersion7(),
@@ -654,8 +1013,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var recipe = Recipe.Create(Household, "Omelette", 2, Clock).Value;
         recipe.ReplaceIngredients([new IngredientLine(productId, null, null, null, 0)], Clock);
 
-        var svc = new FulfillmentService(null!, null!, null!, null!); // ports unused by pure overload
-        var result = svc.Compute(recipe, 2, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!); // ports unused by pure overload
+        var result = svc.Compute(recipe, 2, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         Assert.Equal(IngredientStatus.Untracked, Assert.Single(result.Lines).Status);
         Assert.True(result.Overall.FullyCookable);
@@ -672,8 +1031,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 500m, unit) };
 
         var recipe = BuildRecipe(productId, 500m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         Assert.Equal(IngredientStatus.InStock, Assert.Single(result.Lines).Status);
         Assert.True(result.Overall.FullyCookable);
@@ -688,8 +1047,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 250m, unit) };
 
         var recipe = BuildRecipe(productId, 500m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(IngredientStatus.Low, line.Status);
@@ -707,8 +1066,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock>();
 
         var recipe = BuildRecipe(productId, 500m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
         Assert.Equal(1, result.Overall.MissingCount);
@@ -737,8 +1096,8 @@ public sealed class FulfillmentServicePureOverloadTests
         };
 
         var recipe = BuildRecipe(parentId, 500m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(IngredientStatus.InStock, line.Status);
@@ -759,8 +1118,8 @@ public sealed class FulfillmentServicePureOverloadTests
         };
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(3, line.ExpiresWithinDays);
@@ -778,8 +1137,8 @@ public sealed class FulfillmentServicePureOverloadTests
         };
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         Assert.Null(Assert.Single(result.Lines).ExpiresWithinDays);
     }
@@ -796,8 +1155,8 @@ public sealed class FulfillmentServicePureOverloadTests
         };
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         Assert.Equal(-3, Assert.Single(result.Lines).ExpiresWithinDays);
     }
@@ -822,8 +1181,8 @@ public sealed class FulfillmentServicePureOverloadTests
 
         // Converter: identity only — will fail for stockUnit → ingredientUnit
         var recipe = BuildRecipe(productId, 100m, ingredientUnit); // recipe asks for ingredientUnit
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         // Converter fails → available = 0 → Missing (not an exception)
         var line = Assert.Single(result.Lines);
@@ -845,8 +1204,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock>();
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(IngredientStatus.Missing, line.Status);
@@ -865,8 +1224,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 0m, stockUnit) };
 
         var recipe = BuildRecipe(productId, 100m, ingredientUnit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(IngredientStatus.Missing, line.Status);
@@ -883,8 +1242,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock> { [productId] = MakeStock(productId, 500m, unit) };
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         var line = Assert.Single(result.Lines);
         Assert.Equal(IngredientStatus.InStock, line.Status);
@@ -903,8 +1262,8 @@ public sealed class FulfillmentServicePureOverloadTests
         var stock = new Dictionary<Guid, ProductStock>();
 
         var recipe = BuildRecipe(productId, 100m, unit);
-        var svc = new FulfillmentService(null!, null!, null!, null!);
-        var result = svc.Compute(recipe, 4, Today, catalog, stock, IdentityConverter, expiringSoonDays: 4);
+        var svc = new FulfillmentService(null!, null!, null!, null!, null!);
+        var result = svc.Compute(recipe, 4, Today, catalog, stock, NoSubstitutions, IdentityConverter, IdentityUnitFactor, expiringSoonDays: 4);
 
         Assert.Equal(IngredientStatus.Missing, Assert.Single(result.Lines).Status);
     }
