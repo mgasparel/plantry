@@ -162,7 +162,9 @@ public sealed class RecipeReadModelAdapter(
         }
         else
         {
-            var inStockCount = statuses.Count(s => s == IngredientStatus.InStock);
+            // InStockViaSubstitute (plantry-aqpa.2) counts as fully satisfied here too — no shopping
+            // action needed, only the per-row display distinguishes how it was satisfied.
+            var inStockCount = statuses.Count(s => s is IngredientStatus.InStock or IngredientStatus.InStockViaSubstitute);
             pct = (int)Math.Round(100.0 * inStockCount / trackedCount);
         }
 

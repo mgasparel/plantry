@@ -3563,6 +3563,10 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
 /* unit gap (plantry-z2sr): stock on hand can't be converted to the recipe unit — info tone, not danger,
    matching the Cook page's cook-ing-status--unitgap treatment (plantry-qll2.5) */
 .rd-ing-status--unitgap { background: var(--color-info-bg); color: var(--color-info); }
+/* InStockViaSubstitute (plantry-aqpa.2): satisfied, but only via a household substitution edge, not
+   the recipe's own product — accent tone so it reads as "yes, but via a swap", distinct from a plain
+   InStock (success tone). */
+.rd-ing-status--viasub { background: var(--color-accent-subtle); color: var(--color-accent); }
 /* untracked: no colored box — just a small neutral dot for visual rhythm */
 .rd-ing-status--untracked {
   background: var(--color-surface-2);
@@ -3591,6 +3595,8 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
 /* unit gap (plantry-z2sr): honest "can't compare units" tone — info, with the explanatory popover inline */
 .rd-ing-sub--unitgap { color: var(--color-info); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
 .rd-ing-sub--untracked { color: var(--color-text-faint); font-style: italic; }
+/* InStockViaSubstitute (plantry-aqpa.2) — see .rd-ing-status--viasub */
+.rd-ing-sub--viasub { color: var(--color-accent); font-weight: 600; }
 
 .rd-ing-amt {
   font-family: var(--font-mono);
@@ -3998,6 +4004,20 @@ details.rd-sub-fold[open] .rd-sub-fold__chev { transform: rotate(90deg); }
 .cook-picker__incompat {
   background: var(--color-danger-bg);
   color: var(--color-danger);
+}
+
+/* Substitution candidates (plantry-aqpa.3) — same .suggest-opt shape as a direct variant, but the label
+   row above it gets its own margin (it follows the variant options, not the ingredient name) and each
+   option carries a second .rk line showing the ratio-converted deduction amount, distinct in tone from
+   the plain "have X" quantity so it reads as a computed consequence, not on-hand stock. */
+.cook-picker__label--substitute {
+  margin-top: 10px;
+}
+
+.suggest-opt--substitute .cook-picker__deduct {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-accent);
 }
 
 /* ── Inclusion groups on the Cook page (recipe-composition.md §6, D6/D7) ──

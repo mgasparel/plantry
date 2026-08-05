@@ -160,7 +160,7 @@ public sealed class ExpandedConsumersTests
         var parent = Seed(repo, "Nachos", 4, [], [new InclusionLine(sub.Id, 3m, null, 0)]);
 
         var effective = await ExpandAndAggregateAsync(repo, parent.Id);
-        var fulfillmentService = new FulfillmentService(stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader());
+        var fulfillmentService = new FulfillmentService(stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader(), new FakeSubstitutionReader());
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(effective, parent.DefaultServings, parent.DefaultServings, Today);
 
         var shortfall = RecipeShortfallCalculator.Compute(effective, fulfillment, parent.DefaultServings, parent.DefaultServings);
@@ -169,6 +169,96 @@ public sealed class ExpandedConsumersTests
         Assert.Equal(productS, line.ProductId);
         Assert.Equal(50m, line.ShortfallQuantity);   // need 150 (100 × 1.5), have 100 → short 50
         Assert.Equal(Unit, line.UnitId);
+    }
+
+    // ══ Shopping suppression over the substitution closure (plantry-aqpa.4) ═══════
+    //
+    // These exercise the real FulfillmentService + RecipeShortfallCalculator pipeline the way
+    // RecipeReadModelAdapter.GetMissingIngredientsAsync (J6/ShopForWeek) and AddMissingToShoppingList
+    // (J5) actually call it, so the suppress/remainder rule is pinned against the real closure
+    // computation rather than a hand-built FulfillmentResult.
+
+    [Fact(DisplayName = "Shortfall suppresses a line whose direct+substitute closure fully covers the requirement (plantry-aqpa.4)")]
+    public async Task Shortfall_Suppressed_When_Substitution_Closure_Covers_Requirement()
+    {
+        var repo = new FakeRecipeRepository();
+        var catalog = new FakeCatalogProductReader();
+        var stock = new FakeStockReader();
+
+        var chickpeasCanned = Guid.CreateVersion7();
+        var chickpeasDried = Guid.CreateVersion7();
+        catalog.RegisterTracked(chickpeasCanned, "Chickpeas (canned)");
+        catalog.RegisterTracked(chickpeasDried, "Chickpeas (dried)");
+
+        // Direct stock alone is short (30 of 100 needed), but the declared substitute covers the rest.
+        stock.Add(chickpeasCanned, available: 30m, Unit);
+        stock.Add(chickpeasDried, available: 70m, Unit);
+
+        var substitutions = new FakeSubstitutionReader().Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), chickpeasCanned, TargetQuantity: 1m, Unit,
+            chickpeasDried, SubstituteQuantity: 1m, Unit)); // 1:1 ratio, same unit
+
+        var recipe = Seed(repo, "Hummus", 2, [new IngredientLine(chickpeasCanned, 100m, Unit, null, 0)]);
+
+        var effective = await ExpandAndAggregateAsync(repo, recipe.Id);
+        var fulfillmentService = new FulfillmentService(
+            stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader(), substitutions);
+        var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+            effective, recipe.DefaultServings, recipe.DefaultServings, Today);
+
+        // Sanity: the closure resolves to InStockViaSubstitute, not Missing/Low.
+        var line = Assert.Single(fulfillment.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+
+        var shortfall = RecipeShortfallCalculator.Compute(
+            effective, fulfillment, recipe.DefaultServings, recipe.DefaultServings);
+
+        // Fully covered by the closure — nothing to auto-add.
+        Assert.Empty(shortfall);
+    }
+
+    [Fact(DisplayName = "Shortfall buys only the uncovered remainder against the target product, never the substitute, when the closure partially covers the requirement (plantry-aqpa.4)")]
+    public async Task Shortfall_Buys_Remainder_Against_Target_Product_When_Partially_Covered()
+    {
+        var repo = new FakeRecipeRepository();
+        var catalog = new FakeCatalogProductReader();
+        var stock = new FakeStockReader();
+
+        var chickpeasCanned = Guid.CreateVersion7();
+        var chickpeasDried = Guid.CreateVersion7();
+        catalog.RegisterTracked(chickpeasCanned, "Chickpeas (canned)");
+        catalog.RegisterTracked(chickpeasDried, "Chickpeas (dried)");
+
+        // Need 100; direct 30 + substitute 40 = 70 combined → still short 30, even though the substitute
+        // tops up the direct stock.
+        stock.Add(chickpeasCanned, available: 30m, Unit);
+        stock.Add(chickpeasDried, available: 40m, Unit);
+
+        var substitutions = new FakeSubstitutionReader().Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), chickpeasCanned, TargetQuantity: 1m, Unit,
+            chickpeasDried, SubstituteQuantity: 1m, Unit)); // 1:1 ratio, same unit
+
+        var recipe = Seed(repo, "Hummus", 2, [new IngredientLine(chickpeasCanned, 100m, Unit, null, 0)]);
+
+        var effective = await ExpandAndAggregateAsync(repo, recipe.Id);
+        var fulfillmentService = new FulfillmentService(
+            stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader(), substitutions);
+        var fulfillment = await fulfillmentService.ComputeExpandedAsync(
+            effective, recipe.DefaultServings, recipe.DefaultServings, Today);
+
+        // Sanity: still Low (combined closure < required), not Missing/InStockViaSubstitute.
+        var line = Assert.Single(fulfillment.Lines);
+        Assert.Equal(IngredientStatus.Low, line.Status);
+
+        var shortfall = RecipeShortfallCalculator.Compute(
+            effective, fulfillment, recipe.DefaultServings, recipe.DefaultServings);
+
+        var result = Assert.Single(shortfall);
+        // The list item is the RECIPE'S product (target) — never the substitute.
+        Assert.Equal(chickpeasCanned, result.ProductId);
+        Assert.NotEqual(chickpeasDried, result.ProductId);
+        Assert.Equal(30m, result.ShortfallQuantity); // 100 required - (30 direct + 40 substitute) = 30
+        Assert.Equal(Unit, result.UnitId);
     }
 
     // ══ Costing over the expanded view (AC: sub cost × factor) ════════════════════
@@ -214,7 +304,7 @@ public sealed class ExpandedConsumersTests
         var parent = Seed(repo, "Caesar Deluxe", 2, [], [new InclusionLine(sub.Id, 2m, null, 0)]);
 
         var effective = await ExpandAndAggregateAsync(repo, parent.Id);
-        var fulfillmentService = new FulfillmentService(stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader());
+        var fulfillmentService = new FulfillmentService(stock, catalog, new IdentityConverter(), new FakeExpiringSoonHorizonReader(), new FakeSubstitutionReader());
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(effective, parent.DefaultServings, parent.DefaultServings, Today);
 
         var line = Assert.Single(fulfillment.Lines);

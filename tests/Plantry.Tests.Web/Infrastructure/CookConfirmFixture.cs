@@ -248,6 +248,35 @@ public sealed class RecordingFakeCookInventoryConsumer : IInventoryConsumer
 public sealed record ConsumeCall(Guid ProductId, decimal Quantity, Guid UnitId);
 
 /// <summary>
+/// Substitution reader for Cook page tests (plantry-aqpa.3). Empty by default — every pre-existing Cook
+/// test predates substitution and must keep behaving identically; call <see cref="Add"/> to opt a
+/// specific test into one or more declared edges. Mirrors <c>FakeSubstitutionReader</c> in
+/// <c>FulfillmentServiceTests</c> (aqpa.2) and <c>FakeDetailSubstitutionReader</c> (Recipe Detail L4).
+/// </summary>
+public sealed class FakeCookSubstitutionReader : ISubstitutionReader
+{
+    private readonly Dictionary<Guid, List<SubstitutionEdge>> _byTarget = [];
+
+    public FakeCookSubstitutionReader Add(SubstitutionEdge edge)
+    {
+        if (!_byTarget.TryGetValue(edge.TargetProductId, out var list))
+            _byTarget[edge.TargetProductId] = list = [];
+        list.Add(edge);
+        return this;
+    }
+
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>> ListByTargetProductIdsAsync(
+        IReadOnlyList<Guid> targetProductIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>>(
+            targetProductIds
+                .Where(_byTarget.ContainsKey)
+                .ToDictionary(id => id, id => (IReadOnlyList<SubstitutionEdge>)_byTarget[id]));
+
+    public Task<IReadOnlyList<SubstitutionEdge>> ListTouchingProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SubstitutionEdge>>([]);
+}
+
+/// <summary>
 /// Recording IInventoryProducer for yield-on-cook OnPostAsync tests (plantry-854a). Captures every
 /// ProduceAsync call so tests can assert what (if anything) was stored as inventory.
 /// </summary>
@@ -375,6 +404,12 @@ public sealed class CookConfirmFragmentFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeCookUnitConverter());
+
+            // Substitution reader (plantry-aqpa.3) — empty by default (no fixture scenario here declares
+            // edges), matching the existing Cook L4 snapshot shape byte-for-byte. Without this override the
+            // real Postgres-backed SubstitutionReader resolves, which this no-database factory cannot satisfy.
+            services.RemoveAll<ISubstitutionReader>();
+            services.AddSingleton<ISubstitutionReader>(new FakeCookSubstitutionReader());
 
             // Quantity-display formatter (quantity-display.md) — decimal passthrough over the fixture's
             // Decimal-styled units, so integer quantities render exactly as before.

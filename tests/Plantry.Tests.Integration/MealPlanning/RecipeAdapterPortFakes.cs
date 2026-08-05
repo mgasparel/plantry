@@ -40,6 +40,15 @@ internal sealed class FakeCatalog : ICatalogProductReader
         return c;
     }
 
+    /// <summary>Adds an additional tracked leaf product, fluent-chainable — for a scenario needing more
+    /// than the single product <see cref="WithTrackedLeaf"/> seeds (e.g. a substitution edge's target
+    /// AND substitute product).</summary>
+    public FakeCatalog AddTrackedLeaf(Guid productId, Guid unitId, string name = "Product")
+    {
+        _products[productId] = new CatalogProduct(productId, name, TrackStock: true, unitId, null, false, []);
+        return this;
+    }
+
     public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(_products.GetValueOrDefault(productId));
 
@@ -84,6 +93,34 @@ internal sealed class IdentityConverter : IUnitConverter
 internal sealed class FixedHorizon(int days) : IExpiringSoonHorizonReader
 {
     public Task<int> GetDaysAsync(CancellationToken ct = default) => Task.FromResult(days);
+}
+
+/// <summary>
+/// Substitution-edge fake for the pure/async FulfillmentService paths (plantry-aqpa.2). Empty by
+/// default (no edges — every existing test in this folder predates substitution and must keep behaving
+/// identically); call <see cref="Add"/> to opt a specific test into substitution edges.
+/// </summary>
+internal sealed class FakeSubstitutions : ISubstitutionReader
+{
+    private readonly Dictionary<Guid, List<SubstitutionEdge>> _byTarget = [];
+
+    public FakeSubstitutions Add(SubstitutionEdge edge)
+    {
+        if (!_byTarget.TryGetValue(edge.TargetProductId, out var list))
+            _byTarget[edge.TargetProductId] = list = [];
+        list.Add(edge);
+        return this;
+    }
+
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>> ListByTargetProductIdsAsync(
+        IReadOnlyList<Guid> targetProductIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>>(
+            targetProductIds
+                .Where(_byTarget.ContainsKey)
+                .ToDictionary(id => id, id => (IReadOnlyList<SubstitutionEdge>)_byTarget[id]));
+
+    public Task<IReadOnlyList<SubstitutionEdge>> ListTouchingProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SubstitutionEdge>>([]);
 }
 
 /// <summary>Shared fixed clock for this folder's RecipeReadModelAdapter suites (missing-seam:iclock-web,

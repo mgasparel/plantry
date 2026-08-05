@@ -1,4 +1,5 @@
 using Npgsql;
+using Plantry.Recipes.Application;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
@@ -93,6 +94,24 @@ public sealed class MealPlanWeekReadModel(
         foreach (var ing in ingredientsByRecipe.Values.SelectMany(x => x))
             allProductIds.Add(ing.ProductId);
 
+        // ── Query 2b: Substitution edges (recipes, plantry-aqpa.2) ───────────────
+        // One batch query for edges whose TARGET is one of this week's ingredient/dish product ids —
+        // mirrors FulfillmentService.ResolveCatalogAndStockAsync's fulfillment-direction read
+        // (src/Plantry.Recipes/Domain/FulfillmentService.cs). Every distinct substitute product id is
+        // folded into allProductIds BEFORE Query 3 runs, so LoadProductsAsync's existing two-pass
+        // parent/variant expansion also covers a substitute that is itself a parent product (DM-19
+        // rollup, factor 1.0 — not a second substitution hop), and Query 5/3b (stock/conversions)
+        // naturally pick up the substitute + its variants via the same downstream unions they already
+        // compute over allProductIdList/products.
+        var substitutionsByTarget = new Dictionary<Guid, List<SubstitutionEdge>>();
+
+        if (allProductIds.Count > 0)
+        {
+            await LoadSubstitutionsAsync(conn, allProductIds.ToList(), substitutionsByTarget, ct);
+            foreach (var edge in substitutionsByTarget.Values.SelectMany(x => x))
+                allProductIds.Add(edge.SubstituteProductId);
+        }
+
         var allProductIdList = allProductIds.ToList();
 
         // ── Query 3: Products (catalog) ───────────────────────────────────────────
@@ -167,7 +186,10 @@ public sealed class MealPlanWeekReadModel(
                 kvp => (IReadOnlyList<ConversionFact>)kvp.Value),
             units,
             stockByProduct,
-            latestPriceByProduct);
+            latestPriceByProduct,
+            substitutionsByTarget.ToDictionary(
+                kvp => kvp.Key,
+                kvp => (IReadOnlyList<SubstitutionEdge>)kvp.Value));
     }
 
     // ── private loaders ──────────────────────────────────────────────────────────────────────────
@@ -390,6 +412,58 @@ public sealed class MealPlanWeekReadModel(
             }
 
             list.Add(new ConversionFact(productId, fromUnitId, toUnitId, factor));
+        }
+    }
+
+    private static async Task LoadSubstitutionsAsync(
+        NpgsqlConnection conn,
+        IReadOnlyList<Guid> targetProductIds,
+        Dictionary<Guid, List<SubstitutionEdge>> substitutionsByTarget,
+        CancellationToken ct)
+    {
+        // One batch query: every edge whose TARGET is one of this week's product ids — the
+        // fulfillment direction (plantry-aqpa.1's ISubstitutionReader.ListByTargetProductIdsAsync,
+        // mirrored here as raw SQL per this read model's ADR-021 cross-schema convention). RLS
+        // (armed above) scopes this to the current household — no explicit household_id filter needed,
+        // matching every other query in this file.
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                s.substitution_id,
+                s.target_product_id,
+                s.target_quantity,
+                s.target_unit_id,
+                s.substitute_product_id,
+                s.substitute_quantity,
+                s.substitute_unit_id
+            FROM recipes.substitution s
+            WHERE s.target_product_id = ANY(@ids)
+            """;
+        var param = cmd.CreateParameter();
+        param.ParameterName = "ids";
+        param.Value = targetProductIds.ToArray();
+        cmd.Parameters.Add(param);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var targetProductId = reader.GetGuid(1);
+            var edge = new SubstitutionEdge(
+                reader.GetGuid(0),
+                targetProductId,
+                reader.GetDecimal(2),
+                reader.GetGuid(3),
+                reader.GetGuid(4),
+                reader.GetDecimal(5),
+                reader.GetGuid(6));
+
+            if (!substitutionsByTarget.TryGetValue(targetProductId, out var list))
+            {
+                list = [];
+                substitutionsByTarget[targetProductId] = list;
+            }
+
+            list.Add(edge);
         }
     }
 
@@ -637,7 +711,8 @@ public sealed class WeekBag(
     IReadOnlyDictionary<Guid, IReadOnlyList<ConversionFact>> conversionsByProduct,
     IReadOnlyDictionary<Guid, UnitFact> units,
     IReadOnlyDictionary<Guid, StockFact> stockByProduct,
-    IReadOnlyDictionary<Guid, PriceFact> latestPriceByProduct)
+    IReadOnlyDictionary<Guid, PriceFact> latestPriceByProduct,
+    IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>? substitutionsByTargetProduct = null)
 {
     /// <summary>Recipes loaded this week, keyed by recipe_id.</summary>
     public IReadOnlyDictionary<Guid, RecipeFact> Recipes { get; } = recipes;
@@ -659,6 +734,16 @@ public sealed class WeekBag(
 
     /// <summary>Latest purchase-price observation per product (pricing), keyed by product_id.</summary>
     public IReadOnlyDictionary<Guid, PriceFact> LatestPriceByProduct { get; } = latestPriceByProduct;
+
+    /// <summary>
+    /// One-hop substitution edges (recipes, plantry-aqpa.1/aqpa.2) keyed by TARGET product id — a
+    /// product id absent from this dictionary has no substitutes. Optional constructor parameter
+    /// (defaults to empty) so existing direct <see cref="WeekBag"/> construction in tests is
+    /// unaffected; <see cref="MealPlanWeekReadModel.LoadAsync"/> always supplies the real batch-loaded
+    /// set.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>> SubstitutionsByTargetProduct { get; } =
+        substitutionsByTargetProduct ?? new Dictionary<Guid, IReadOnlyList<SubstitutionEdge>>();
 
     // ── O(1) lookup helpers ──────────────────────────────────────────────────────────────────────
 

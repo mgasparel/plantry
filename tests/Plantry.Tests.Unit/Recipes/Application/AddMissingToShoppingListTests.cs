@@ -82,14 +82,14 @@ public sealed class AddMissingToShoppingListTests
         public required AddMissingToShoppingList Service { get; init; }
     }
 
-    private Harness BuildHarness(bool authenticated = true)
+    private Harness BuildHarness(bool authenticated = true, ISubstitutionReader? substitutions = null)
     {
         var recipes = new FakeRecipeRepository();
         var catalog = new FakeCatalogProductReader();
         var stock = new FakeInventoryStockReader();
         var writer = new FakeShoppingListWriter();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : (Guid?)null);
-        var fulfillment = new FulfillmentService(stock, catalog, new IdentityUnitConverter(), new FakeExpiringSoonHorizonReader());
+        var fulfillment = new FulfillmentService(stock, catalog, new IdentityUnitConverter(), new FakeExpiringSoonHorizonReader(), substitutions ?? new FakeSubstitutionReader());
         var service = new AddMissingToShoppingList(recipes, fulfillment, new RecipeExpansionService(recipes), writer, Clock, tenant);
         return new Harness
         {
@@ -314,6 +314,78 @@ public sealed class AddMissingToShoppingListTests
 
         var call = Assert.Single(h.Writer.Calls); // single batch call
         Assert.Equal(2, call.Items.Count);
+    }
+
+    // ── Substitution closure suppresses/reduces auto-add (plantry-aqpa.4) ────────
+
+    [Fact(DisplayName = "NothingMissing when the direct+substitute closure fully covers the requirement (plantry-aqpa.4)")]
+    public async Task Returns_NothingMissing_When_Substitution_Closure_Fully_Covers()
+    {
+        var unitId = Guid.CreateVersion7();
+        var chickpeasCanned = Guid.CreateVersion7();
+        var chickpeasDried = Guid.CreateVersion7();
+
+        var substitutions = new FakeSubstitutionReader().Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), chickpeasCanned, TargetQuantity: 1m, unitId,
+            chickpeasDried, SubstituteQuantity: 1m, unitId)); // 1:1 ratio, same unit
+
+        var h = BuildHarness(substitutions: substitutions);
+        h.Catalog.RegisterTracked(chickpeasCanned, "Chickpeas (canned)");
+        h.Catalog.RegisterTracked(chickpeasDried, "Chickpeas (dried)");
+
+        // Direct stock alone is short (30 of 100 needed), but the substitute covers the remainder.
+        h.Stock.Add(chickpeasCanned, available: 30m, unitId);
+        h.Stock.Add(chickpeasDried, available: 70m, unitId);
+
+        var recipe = Recipe.Create(Household, "Hummus", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+            [new IngredientLine(chickpeasCanned, 100m, unitId, null, 0)],
+            Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, desiredServings: 2);
+
+        Assert.IsType<AddMissingResult.NothingMissing>(result);
+        Assert.Empty(h.Writer.Calls);
+    }
+
+    [Fact(DisplayName = "Only the uncovered remainder is added against the recipe's own product, never the substitute, when the closure partially covers the requirement (plantry-aqpa.4)")]
+    public async Task Adds_Only_Remainder_Against_Target_Product_When_Substitution_Closure_Partially_Covers()
+    {
+        var unitId = Guid.CreateVersion7();
+        var chickpeasCanned = Guid.CreateVersion7();
+        var chickpeasDried = Guid.CreateVersion7();
+
+        var substitutions = new FakeSubstitutionReader().Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), chickpeasCanned, TargetQuantity: 1m, unitId,
+            chickpeasDried, SubstituteQuantity: 1m, unitId)); // 1:1 ratio, same unit
+
+        var h = BuildHarness(substitutions: substitutions);
+        h.Catalog.RegisterTracked(chickpeasCanned, "Chickpeas (canned)");
+        h.Catalog.RegisterTracked(chickpeasDried, "Chickpeas (dried)");
+
+        // Need 100; direct 30 + substitute 40 = 70 combined → still short 30.
+        h.Stock.Add(chickpeasCanned, available: 30m, unitId);
+        h.Stock.Add(chickpeasDried, available: 40m, unitId);
+
+        var recipe = Recipe.Create(Household, "Hummus", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+            [new IngredientLine(chickpeasCanned, 100m, unitId, null, 0)],
+            Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, desiredServings: 2);
+
+        var added = Assert.IsType<AddMissingResult.Added>(result);
+        Assert.Equal(1, added.ItemCount);
+
+        var call = Assert.Single(h.Writer.Calls);
+        var item = Assert.Single(call.Items);
+        // The list item is the RECIPE'S product (target) — never the substitute.
+        Assert.Equal(chickpeasCanned, item.ProductId);
+        Assert.NotEqual(chickpeasDried, item.ProductId);
+        Assert.Equal(30m, item.Quantity); // 100 required - (30 direct + 40 substitute) = 30
+        Assert.Equal(unitId, item.UnitId);
     }
 
     // ── Inclusions: a parent's missing set includes its sub's products, scaled (recipe-composition.md §7) ──

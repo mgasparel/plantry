@@ -132,7 +132,7 @@ public sealed class BrowseRecipesQueryTests
         {
             var tenant = new FakeTenantContext(HouseholdGuid);
             var expansionSvc = new RecipeExpansionService(Recipes);
-            var fulfillmentSvc = new FulfillmentService(Stock, Catalog, Converter, new FakeExpiringSoonHorizonReader());
+            var fulfillmentSvc = new FulfillmentService(Stock, Catalog, Converter, new FakeExpiringSoonHorizonReader(), new FakeSubstitutionReader());
             var costingSvc = new CostingService(Prices, Converter, Catalog);
             Query = new BrowseRecipesQuery(Recipes, Tags, Ratings, Members, expansionSvc, fulfillmentSvc, costingSvc, tenant, queryClock ?? Clock);
         }

@@ -266,6 +266,9 @@ public sealed class InclusionPreviewQuantityDisplayTests
                 services.RemoveAll<IUnitConverter>();
                 services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
 
+                services.RemoveAll<ISubstitutionReader>();
+                services.AddSingleton<ISubstitutionReader>(new FakeDetailSubstitutionReader());
+
                 services.RemoveAll<IQuantityFormatter>();
                 services.AddSingleton<IQuantityFormatter>(Formatter);
 

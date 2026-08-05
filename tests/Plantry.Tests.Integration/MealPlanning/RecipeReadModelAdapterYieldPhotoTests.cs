@@ -231,7 +231,7 @@ public sealed class RecipeReadModelAdapterYieldPhotoTests(PostgresFixture db) : 
         // context (RecipeAdapterPortFakes.cs), mirroring RecipeReadModelAdapterExpandedTests's
         // fixture-sharing pattern.
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
-        var fulfillment = new FulfillmentService(new FakeStock(), new FakeCatalog(), new IdentityConverter(), new FixedHorizon(7));
+        var fulfillment = new FulfillmentService(new FakeStock(), new FakeCatalog(), new IdentityConverter(), new FixedHorizon(7), new FakeSubstitutions());
         var costing = new CostingService(new FakePrices(), new IdentityConverter(), new FakeCatalog());
         return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx));
     }

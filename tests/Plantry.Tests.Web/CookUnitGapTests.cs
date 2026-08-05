@@ -267,6 +267,12 @@ public sealed class CookUnitGapFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeUnitGapConverter());
+
+            // Substitution reader (plantry-aqpa.3) — empty by default, matching this fixture's existing
+            // shape byte-for-byte. Without this override the real Postgres-backed SubstitutionReader
+            // resolves, which this no-database factory cannot satisfy.
+            services.RemoveAll<ISubstitutionReader>();
+            services.AddSingleton<ISubstitutionReader>(new FakeCookSubstitutionReader());
             services.AddFakeQuantityFormatter();
 
             services.RemoveAll<IInventoryConsumer>();

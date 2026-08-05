@@ -14,17 +14,19 @@
 
     var statusClass = row.WorstStatus switch
     {
-        IngredientStatus.InStock => "rd-ing-status--have",
-        IngredientStatus.Low     => "rd-ing-status--low",
-        IngredientStatus.Missing => "rd-ing-status--miss",
-        _                        => "rd-ing-status--untracked",
+        IngredientStatus.InStock              => "rd-ing-status--have",
+        IngredientStatus.InStockViaSubstitute => "rd-ing-status--viasub",
+        IngredientStatus.Low                  => "rd-ing-status--low",
+        IngredientStatus.Missing              => "rd-ing-status--miss",
+        _                                     => "rd-ing-status--untracked",
     };
     var subLabelClass = row.TrackedTotalCount == 0 ? "rd-ing-sub--untracked" : row.WorstStatus switch
     {
-        IngredientStatus.InStock => "rd-ing-sub--have",
-        IngredientStatus.Low     => "rd-ing-sub--low",
-        IngredientStatus.Missing => "rd-ing-sub--miss",
-        _                        => "rd-ing-sub--have",
+        IngredientStatus.InStock              => "rd-ing-sub--have",
+        IngredientStatus.InStockViaSubstitute => "rd-ing-sub--viasub",
+        IngredientStatus.Low                  => "rd-ing-sub--low",
+        IngredientStatus.Missing              => "rd-ing-sub--miss",
+        _                                     => "rd-ing-sub--have",
     };
     // "N of M tracked in your pantry" — N = tracked children fully in stock, M = distinct tracked
     // children (untracked staples excluded from both, matching the roll-up chip's worst-of-children

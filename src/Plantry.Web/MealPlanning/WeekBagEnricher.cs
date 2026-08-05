@@ -107,8 +107,13 @@ internal sealed class WeekBagEnricher
         var stockById = BuildStockById(catalogById, converter);
         var priceById = BuildPriceById(ingredients, catalogById);
 
-        // Fulfillment (pure — zero round-trips).
-        var fulfillment = _fulfillmentService.Compute(recipe, servings, today, catalogById, stockById, converter, _expiringSoonDays);
+        // Fulfillment (pure — zero round-trips). The week bag's substitution edges (plantry-aqpa.2,
+        // LoadAsync's Query 2b) are threaded through exactly like catalogById/stockById, so a recipe
+        // whose direct stock alone is short but a household substitute covers it reads
+        // InStockViaSubstitute here too — the same answer Recipe Details/Browse would give.
+        var fulfillment = _fulfillmentService.Compute(
+            recipe, servings, today, catalogById, stockById, _bag.SubstitutionsByTargetProduct, converter,
+            UnitFactorFrom(converter), _expiringSoonDays);
 
         // Cost (pure — zero round-trips).
         var cost = _costingService.Compute(recipe, servings, catalogById, priceById, converter);
@@ -126,7 +131,10 @@ internal sealed class WeekBagEnricher
         }
         else
         {
-            var inStockCount = trackedLines.Count(l => l.Status == IngredientStatus.InStock);
+            // InStockViaSubstitute (plantry-aqpa.2) counts as fully satisfied — reachable now that
+            // ComputeEnrichment threads the bag's substitution edges through.
+            var inStockCount = trackedLines.Count(l =>
+                l.Status is IngredientStatus.InStock or IngredientStatus.InStockViaSubstitute);
             pct = (int)Math.Round(100.0 * inStockCount / trackedLines.Count);
         }
 
@@ -167,27 +175,43 @@ internal sealed class WeekBagEnricher
 
     /// <summary>
     /// Builds the CatalogProduct lookup for the pure FulfillmentService.Compute overload.
-    /// Includes the product itself and its variant children when it is a parent (DM-19).
+    /// Includes the product itself and its variant children when it is a parent (DM-19), plus —
+    /// for any ingredient with one-hop substitution edges (plantry-aqpa.2) — each substitute product
+    /// and ITS variant children too, mirroring FulfillmentService.ResolveCatalogAndStockAsync's own
+    /// catalog union (src/Plantry.Recipes/Domain/FulfillmentService.cs). The bag's LoadAsync already
+    /// folded every substitute product id into its own product/stock/conversion queries, so
+    /// <see cref="WeekBag.GetProduct"/> resolves them without a further round-trip here.
     /// </summary>
     private IReadOnlyDictionary<Guid, CatalogProduct> BuildCatalogById(
         IReadOnlyList<IngredientFact> ingredients)
     {
         var result = new Dictionary<Guid, CatalogProduct>();
 
-        foreach (var ing in ingredients)
+        void AddWithVariants(Guid productId)
         {
-            var productFact = _bag.GetProduct(ing.ProductId);
-            if (productFact is null) continue;
+            var fact = _bag.GetProduct(productId);
+            if (fact is null) return;
 
-            AddProductIfAbsent(result, productFact);
+            AddProductIfAbsent(result, fact);
 
-            // Include variant children so FulfillmentService can roll up DM-19 parent stock.
-            foreach (var variantId in productFact.VariantProductIds)
+            // Include variant children so FulfillmentService can roll up DM-19 parent stock — applies
+            // equally to a direct ingredient's parent product and to a substitute that is itself a
+            // parent (factor 1.0, not a second substitution hop).
+            foreach (var variantId in fact.VariantProductIds)
             {
                 var variantFact = _bag.GetProduct(variantId);
                 if (variantFact is not null)
                     AddProductIfAbsent(result, variantFact);
             }
+        }
+
+        foreach (var ing in ingredients)
+        {
+            AddWithVariants(ing.ProductId);
+
+            if (_bag.SubstitutionsByTargetProduct.TryGetValue(ing.ProductId, out var edges))
+                foreach (var edge in edges)
+                    AddWithVariants(edge.SubstituteProductId);
         }
 
         return result;
@@ -332,4 +356,15 @@ internal sealed class WeekBagEnricher
             return UnitConverter.Convert(amount, fromUnitId, toUnitId, unitShapes, conversionShapes);
         };
     }
+
+    /// <summary>
+    /// Derives the amount-independent unit-factor delegate <see cref="FulfillmentService.Compute"/>
+    /// requires from the exact-amount <paramref name="converter"/> — probes with amount 1, which is
+    /// exact because <see cref="UnitConverter.Convert(decimal,Guid,Guid,System.Collections.Generic.IReadOnlyCollection{UnitConverter.UnitShape},System.Collections.Generic.IReadOnlyCollection{UnitConverter.ConversionShape})"/>
+    /// is provably linear/multiplicative (plantry-aqpa.2) — used for a substitution edge's
+    /// target-unit landing hop.
+    /// </summary>
+    private static Func<Guid, Guid, Guid, Result<decimal>> UnitFactorFrom(
+        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter) =>
+        (productId, fromUnitId, toUnitId) => converter(productId, 1m, fromUnitId, toUnitId);
 }

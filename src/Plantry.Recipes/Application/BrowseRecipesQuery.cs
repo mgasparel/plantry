@@ -234,9 +234,11 @@ public sealed class BrowseRecipesQuery(
         IReadOnlyDictionary<Guid, HouseholdMember> memberById,
         Guid? userId)
     {
-        // inStock = lines that are InStock or Untracked (satisfied)
+        // inStock = lines that are InStock, InStockViaSubstitute (plantry-aqpa.2 — fully satisfied via a
+        // household substitution edge, no shopping action needed), or Untracked (satisfied).
         var totalTracked = statuses.Count(s => s != IngredientStatus.Untracked);
-        var inStock = statuses.Count(s => s is IngredientStatus.InStock or IngredientStatus.Untracked);
+        var inStock = statuses.Count(s => s is
+            IngredientStatus.InStock or IngredientStatus.InStockViaSubstitute or IngredientStatus.Untracked);
 
         // Fulfillment percentage (0–100): ratio of InStock+Untracked to all lines.
         // Recipes with no tracked ingredients are trivially 100% cookable.

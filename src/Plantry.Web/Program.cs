@@ -323,6 +323,9 @@ builder.Services.AddScoped<ICookEventRepository, CookEventRepository>();
 builder.Services.AddScoped<ITagRepository, TagRepository>();
 // Per-user recipe ratings (plantry-zlwp.1) — the RecipeRating aggregate's repository.
 builder.Services.AddScoped<IRecipeRatingRepository, RecipeRatingRepository>();
+// Ingredient substitutions (plantry-aqpa.1) — the Substitution aggregate's repository + read seam.
+builder.Services.AddScoped<ISubstitutionRepository, SubstitutionRepository>();
+builder.Services.AddScoped<ISubstitutionReader, SubstitutionReader>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
 // Planning context (Meal Planning + Shopping, ADR-024). Plantry.Planning merges the former MealPlanning

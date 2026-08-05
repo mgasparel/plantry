@@ -172,10 +172,18 @@ else
                 </div>
             }
 
-            @* Variant Disambiguation Picker (C7/C11) *@
-            @if (line.IsParent && line.VariantOptions.Count > 0)
+            @* Variant Disambiguation Picker (C7/C11), extended with substitution candidates (plantry-aqpa.3) —
+               widened to also render for a plain leaf line that carries no catalog variants of its own but
+               DOES have a declared substitution edge. For that case CookModel populates VariantOptions with
+               ONE synthetic entry — the line's own direct product, auto-selected — so the picker still
+               offers "the direct product/variants + each substitute" (never JUST the substitutes), and the
+               user can click back to the default without reloading the page. Gated on VariantOptions/
+               Substitutes content, not IsParent, so a leaf line with neither renders nothing (unchanged). *@
+            @if (line.VariantOptions.Count > 0 || line.Substitutes.Count > 0)
             {
                 <div class="cook-picker" id="cook-picker-@key">
+                    @if (line.VariantOptions.Count > 0)
+                    {
                     <div class="cook-picker__label">Choose variant</div>
                     <div class="suggest-opts">
                         @foreach (var variant in line.VariantOptions)
@@ -228,9 +236,56 @@ else
                             }
                         }
                     </div>
-                    @* Hidden input carries the chosen variant id to the form post. Direct ingredients use
-                       the flat PickerSelections[ingredientId] contract (unchanged); expanded inclusion lines
-                       post the path-qualified InclusionPickerSelections[lineKey] map. *@
+                    }
+
+                    @* Substitution candidates (plantry-aqpa.3): one-hop, household-declared edges targeting
+                       this line's product. Rendered in the SAME picker/hidden-input mechanism as a direct
+                       variant swap — a substitute is just another selectable product id — so there is no
+                       per-line splitting UI (mixed direct+substitute fulfillment is out of scope here,
+                       matching the direct picker's own single-choice contract). Never pre-selected: direct
+                       stock (or its best variant) stays the default/preselected choice whenever sufficient. *@
+                    @if (line.Substitutes.Count > 0)
+                    {
+                        <div class="cook-picker__label cook-picker__label--substitute">Or substitute</div>
+                        <div class="suggest-opts">
+                            @foreach (var sub in line.Substitutes)
+                            {
+                                var subIdStr = sub.ProductId.ToString();
+                                <button type="button"
+                                        class="suggest-opt suggest-opt--substitute"
+                                        :class="{ 'sel': pickerVariant('@key') === '@subIdStr' }"
+                                        @@click="setVariant('@key', '@subIdStr')"
+                                        :disabled="@skippedExpr">
+                                    <svg class="icon" aria-hidden="true"
+                                         x-show="pickerVariant('@key') === '@subIdStr'">
+                                        <use href="#i-check" />
+                                    </svg>
+                                    @sub.ProductName
+                                    <span class="rk">
+                                        @if (sub.AvailableQuantity > 0)
+                                        {
+                                            @(FormatQty(sub.AvailableQuantity))
+                                            @(" ")@sub.UnitCode
+                                        }
+                                        else
+                                        {
+                                            <span>none</span>
+                                        }
+                                    </span>
+                                    @* The GET-time deduction figure is hidden the moment the user overrides
+                                       the quantity (plantry-aqpa.3 arbiter ruling 2 — ADR-020 §7 forbids
+                                       re-deriving the three-hop unit/edge conversion client-side, so hiding
+                                       the stale claim is the compliant option; POST already recomputes
+                                       truthfully from effectiveQty). *@
+                                    <span class="rk cook-picker__deduct" x-show="!isModified('@key')">will use ~@(FormatQty(sub.DeductQuantity)) @sub.UnitCode</span>
+                                </button>
+                            }
+                        </div>
+                    }
+
+                    @* Hidden input carries the chosen variant/substitute id to the form post. Direct
+                       ingredients use the flat PickerSelections[ingredientId] contract (unchanged); expanded
+                       inclusion lines post the path-qualified InclusionPickerSelections[lineKey] map. *@
                     @if (!line.IsInclusion)
                     {
                         <input type="hidden"

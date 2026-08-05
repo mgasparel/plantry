@@ -425,6 +425,59 @@ namespace Plantry.Recipes.Infrastructure.Migrations
                     b.ToTable("recipe_tag", "recipes");
                 });
 
+            modelBuilder.Entity("Plantry.Recipes.Domain.Substitution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("substitution_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("household_id");
+
+                    b.Property<Guid>("SubstituteProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("substitute_product_id");
+
+                    b.Property<decimal>("SubstituteQuantity")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)")
+                        .HasColumnName("substitute_quantity");
+
+                    b.Property<Guid>("SubstituteUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("substitute_unit_id");
+
+                    b.Property<Guid>("TargetProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_product_id");
+
+                    b.Property<decimal>("TargetQuantity")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)")
+                        .HasColumnName("target_quantity");
+
+                    b.Property<Guid>("TargetUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_unit_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HouseholdId", "SubstituteProductId", "TargetProductId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_substitution_household_substitute_target");
+
+                    b.ToTable("substitution", "recipes");
+                });
+
             modelBuilder.Entity("Plantry.Recipes.Domain.Tag", b =>
                 {
                     b.Property<Guid>("Id")

@@ -27,6 +27,7 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
     public DbSet<RecipeRating> RecipeRatings => Set<RecipeRating>();
+    public DbSet<Substitution> Substitutions => Set<Substitution>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -399,6 +400,38 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
                 .IsUnique()
                 .HasDatabaseName("ux_recipe_rating_household_recipe_user");
             b.HasQueryFilter(r => r.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<Substitution>(b =>
+        {
+            b.ToTable("substitution");
+            b.HasKey(s => s.Id);
+            b.Property(s => s.Id)
+                .HasConversion(id => id.Value, v => SubstitutionId.From(v))
+                .HasColumnName("substitution_id")
+                .ValueGeneratedNever();
+            b.Property(s => s.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            // Soft-refs (DM-3) to Catalog products/units — no FK, bare Guid columns, matching
+            // Ingredient.ProductId/UnitId and RecipeRating.UserId.
+            b.Property(s => s.TargetProductId).HasColumnName("target_product_id").IsRequired();
+            b.Property(s => s.TargetQuantity).HasColumnName("target_quantity").HasPrecision(12, 3).IsRequired();
+            b.Property(s => s.TargetUnitId).HasColumnName("target_unit_id").IsRequired();
+            b.Property(s => s.SubstituteProductId).HasColumnName("substitute_product_id").IsRequired();
+            b.Property(s => s.SubstituteQuantity).HasColumnName("substitute_quantity").HasPrecision(12, 3).IsRequired();
+            b.Property(s => s.SubstituteUnitId).HasColumnName("substitute_unit_id").IsRequired();
+            b.Property(s => s.CreatedAt).HasColumnName("created_at");
+            b.Property(s => s.UpdatedAt).HasColumnName("updated_at");
+
+            // UNIQUE (household_id, substitute_product_id, target_product_id) — directed pairs are
+            // distinct edges (A→B and B→A may both exist), unlike ProductConversion's unordered-pair
+            // collapse (ADR-022 amendment); the create command's replace-on-duplicate upsert key.
+            b.HasIndex(s => new { s.HouseholdId, s.SubstituteProductId, s.TargetProductId })
+                .IsUnique()
+                .HasDatabaseName("ux_substitution_household_substitute_target");
+            b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });
     }
 
