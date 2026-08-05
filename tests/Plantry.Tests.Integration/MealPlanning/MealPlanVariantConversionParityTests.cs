@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Plantry.Pantry.Domain;
 using Plantry.Pantry.Infrastructure;
@@ -94,10 +95,12 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
             bag,
             new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
             new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
+            new RecipeExpansionService(new NullRecipeRepository()),
             Clock,
-            expiringSoonDays: 7);
+            expiringSoonDays: 7,
+            NullLogger<WeekBagEnricher>.Instance);
 
-        var result = enricher.Enrich(recipeId, servings: 1, DateOnly.FromDateTime(DateTime.Today));
+        var result = await enricher.EnrichAsync(recipeId, servings: 1, DateOnly.FromDateTime(DateTime.Today));
 
         Assert.NotNull(result);
         // 240 g available >= 200 g required → InStock → the sole tracked line is 100% fulfilled.
@@ -133,10 +136,12 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
             bag,
             new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
             new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
+            new RecipeExpansionService(new NullRecipeRepository()),
             Clock,
-            expiringSoonDays: 7);
+            expiringSoonDays: 7,
+            NullLogger<WeekBagEnricher>.Instance);
 
-        var weekGridResult = enricher.Enrich(recipeId, servings: 1, DateOnly.FromDateTime(DateTime.Today));
+        var weekGridResult = await enricher.EnrichAsync(recipeId, servings: 1, DateOnly.FromDateTime(DateTime.Today));
         Assert.NotNull(weekGridResult);
 
         // ── Async path: real Recipes ports wired over the real Catalog/Pricing schema — the same
@@ -215,10 +220,12 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
             bag,
             new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
             new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
+            new RecipeExpansionService(new NullRecipeRepository()),
             Clock,
-            expiringSoonDays: 7);
+            expiringSoonDays: 7,
+            NullLogger<WeekBagEnricher>.Instance);
 
-        var weekGridResult = enricher.Enrich(recipeId, servings: 1, DateOnly.FromDateTime(DateTime.Today));
+        var weekGridResult = await enricher.EnrichAsync(recipeId, servings: 1, DateOnly.FromDateTime(DateTime.Today));
         Assert.NotNull(weekGridResult);
 
         // ── Async path: FulfillmentService.ComputeAsync fed the SAME facts (recipe, stock, substitution
@@ -251,6 +258,141 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
         // percentage (Flour alone: 100/500 → 0% InStock lines) while Recipe Details/Browse already read
         // InStockViaSubstitute.
         Assert.Equal(100, weekGridResult!.FulfillmentPercent);
+    }
+
+    // ── Costing: week-grid cost matches the async expanded path for a sub-recipe inclusion (plantry-yqse) ──
+
+    /// <summary>
+    /// Regression for plantry-yqse: before the fix, <see cref="MealPlanWeekReadModel.LoadRecipesAsync"/>
+    /// only ever loaded the WEEK'S OWN recipe ids and their direct <c>recipe_ingredient</c> rows — a
+    /// recipe that included a sub-recipe had the sub's ingredients entirely absent from the bag, so
+    /// <see cref="WeekBagEnricher"/> costed only the parent's direct lines while Recipe Details and the
+    /// edit-meal popup (both routed through <see cref="RecipeExpansionService"/>) costed the full expanded
+    /// total. Pins the fix: the inclusion-closure query widens the loaded recipe/ingredient set to the
+    /// sub, and <see cref="WeekBagEnricher"/> now expands through the SAME <see cref="RecipeExpansionService"/>
+    /// choke point before costing — so the week-grid figure must equal the async expanded-costing path,
+    /// and (the discriminating assertion) must be STRICTLY GREATER than what a flat, direct-ingredients-only
+    /// figure would have been, proving the sub-recipe's cost is actually included, not merely tolerated.
+    /// </summary>
+    [Fact(DisplayName = "plantry-yqse: week-grid cost matches the async expanded CostingService path for a recipe with a sub-recipe inclusion")]
+    public async Task WeekGrid_Cost_Matches_AsyncExpandedCostingServicePath_ForSubRecipeInclusion()
+    {
+        Guid pitaId, yogurtId;
+        await using (var setup = NewCatalogDb())
+        {
+            var pita = Product.Create(_household, "Pita Bread", UnitId.From(_gramsId), Clock);
+            var yogurt = Product.Create(_household, "Yogurt", UnitId.From(_gramsId), Clock);
+            await setup.Products.AddRangeAsync(pita, yogurt);
+            await setup.SaveChangesAsync();
+            pitaId = pita.Id.Value;
+            yogurtId = yogurt.Id.Value;
+        }
+
+        // $0.01/g pita, $0.02/g yogurt — deliberately different rates so a dropped sub-recipe would
+        // undercount the total rather than coincidentally landing on the same figure.
+        await SeedPriceObservationAsync(pitaId, price: 2.00m, quantity: 200m, _gramsId, unitPrice: null, DateTime.UtcNow);
+        await SeedPriceObservationAsync(yogurtId, price: 8.00m, quantity: 400m, _gramsId, unitPrice: null, DateTime.UtcNow);
+
+        // Sub-recipe: "Tzatziki Sauce", default 4 servings, 400 g yogurt ($8.00 total, $2.00/serving).
+        // Parent: "Gyro Wrap", default 2 servings, 200 g pita direct + one inclusion of 2 servings of
+        // Tzatziki (= half the sub's default batch) — flat-only cost would be pita alone ($2.00);
+        // the correct expanded cost adds half the sub's ingredient cost (200 g yogurt, $4.00) → $6.00.
+        var subId = await SeedFlatRecipeAsync("Tzatziki Sauce", defaultServings: 4, yogurtId, quantity: 400m, _gramsId);
+
+        Guid parentRecipeId;
+        await using (var ctx = NewRecipesDb())
+        {
+            var repo = new RecipeRepository(ctx);
+            var parent = Recipe.Create(_household, "Gyro Wrap", 2, Clock).Value;
+            parent.ReplaceLines(
+                RecipeLineSet.Create(
+                    [new IngredientLine(pitaId, 200m, _gramsId, null, 0)],
+                    [new InclusionLine(RecipeId.From(subId), 2m, null, 1)],
+                    parent.Id).Value,
+                Clock);
+            parentRecipeId = parent.Id.Value;
+            await repo.AddAsync(parent);
+            await repo.SaveChangesAsync();
+        }
+
+        // ── Week-grid path: MealPlanWeekReadModel.LoadAsync + WeekBagEnricher (expanded via RecipeExpansionService) ──
+        var rm = NewReadModel();
+        var bag = await rm.LoadAsync([parentRecipeId], []);
+
+        // Pins the read-model half of the fix directly: the sub-recipe's own ingredients must be in the
+        // bag even though only the PARENT id was requested.
+        Assert.True(bag.Recipes.ContainsKey(subId), "Inclusion-closure query must load the sub-recipe too.");
+        Assert.NotEmpty(bag.GetIngredients(subId));
+
+        var enricher = new WeekBagEnricher(
+            bag,
+            new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
+            new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
+            new RecipeExpansionService(new NullRecipeRepository()),
+            Clock,
+            expiringSoonDays: 7,
+            NullLogger<WeekBagEnricher>.Instance);
+
+        var weekGridResult = await enricher.EnrichAsync(parentRecipeId, servings: 2, DateOnly.FromDateTime(DateTime.Today));
+        Assert.NotNull(weekGridResult);
+
+        // ── Async path: real Recipes ports over the real Catalog/Pricing schema, expanded through
+        //    RecipeExpansionService exactly as Recipe Details (Details.cshtml.cs) and the edit-meal popup
+        //    (RecipeReadModelAdapter.GetEnrichmentAsync) already do. ──
+        await using var catalogDb = NewCatalogDb();
+        await using var pricingDb = NewPricingDb();
+        await using var recipesDb = NewRecipesDb();
+
+        var productRepo = new ProductRepository(catalogDb);
+        var unitRepo = new UnitRepository(catalogDb);
+        var categoryRepo = new CategoryRepository(catalogDb);
+
+        var catalogReader = new CatalogProductReaderAdapter(productRepo, unitRepo, categoryRepo);
+        var unitConverter = new RecipesUnitConverterAdapter(productRepo, unitRepo);
+        var priceReader = new PriceReaderAdapter(new PricingQueries(new PriceObservationRepository(pricingDb)), Clock);
+        var costingServiceAsync = new CostingService(priceReader, unitConverter, catalogReader);
+
+        var recipeRepo = new RecipeRepository(recipesDb);
+        var expansionService = new RecipeExpansionService(recipeRepo);
+        var parentRecipeIdTyped = RecipeId.From(parentRecipeId);
+
+        var expandResult = await expansionService.ExpandAsync(parentRecipeIdTyped);
+        Assert.True(expandResult.IsSuccess);
+        var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
+
+        var asyncCost = await costingServiceAsync.ComputeExpandedAsync(effectiveLines, defaultServings: 2, desiredServings: 2);
+        var asyncTotalCost = asyncCost.Amount.HasValue ? asyncCost.Amount.Value * 2 : (decimal?)null;
+
+        // ── Edit-meal-popup path: the REAL RecipeReadModelAdapter (not a re-implementation of its
+        //    expand→cost sequence) — this is the actual class MealPlan/Index.cshtml.cs's edit-meal
+        //    popup calls (PlanCostingService.ComputeDishCostAsync → RecipeReadModelAdapter.
+        //    GetEnrichmentAsync). Reuses the SAME real catalog/unit/price ports as the Recipe-Details
+        //    leg above; stock/expiring-soon/substitution are irrelevant to the cost assertion (no stock
+        //    was seeded, so a real stock read would be empty too) and are faked purely to keep the
+        //    fulfillment half of GetEnrichmentAsync from needing its own DB-backed wiring. ──
+        var fulfillmentServiceForAdapter = new FulfillmentService(
+            new NullStockReader(), catalogReader, unitConverter, new NullExpiringSoonHorizonReader(), new NullSubstitutionReader());
+        var adapter = new RecipeReadModelAdapter(
+            recipesDb, expansionService, fulfillmentServiceForAdapter, costingServiceAsync, Clock,
+            new RecipeRatingRepository(recipesDb));
+
+        var adapterResult = await adapter.GetEnrichmentAsync(parentRecipeId, servings: 2, DateOnly.FromDateTime(DateTime.Today));
+        Assert.NotNull(adapterResult);
+
+        // All three paths must agree — before the fix the week grid never expanded the inclusion at
+        // all, so it would have costed only the direct pita line ($2.00) while Recipe Details and the
+        // edit-meal popup already costed the full expanded total ($6.00).
+        Assert.Equal(6.00m, asyncTotalCost);
+        Assert.Equal(6.00m, adapterResult!.TotalCost);
+        Assert.Equal(asyncTotalCost, weekGridResult!.TotalCost);
+        Assert.Equal(adapterResult.TotalCost, weekGridResult.TotalCost);
+        Assert.False(weekGridResult.CostIsPartial);
+        Assert.False(adapterResult.CostIsPartial);
+
+        // Discriminating assertion: strictly greater than the flat (direct-ingredients-only) figure —
+        // proves the sub-recipe's cost is actually folded in, not just structurally tolerated.
+        Assert.True(weekGridResult.TotalCost > 2.00m,
+            "Expanded cost must exceed the flat direct-ingredients-only figure — the sub-recipe must contribute.");
     }
 
     // ── Seeding ──────────────────────────────────────────────────────────────────────────────────
@@ -425,7 +567,7 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
         return ctx;
     }
 
-    // ── Null-returning port fakes for the pure WeekBagEnricher.Enrich path ─────────────────────────
+    // ── Null-returning port fakes for the pure WeekBagEnricher.EnrichAsync path ────────────────────
     // WeekBagEnricher only invokes the pure Compute overloads (all data supplied via the pre-loaded
     // WeekBag), so these ports are never actually called — mirrors WeekBagEnricherTests' fakes.
 

@@ -35,11 +35,21 @@ public interface IMealPlanWeekReadModel
 ///
 /// Lives in Plantry.Web (the composition root) — the one project that legitimately references
 /// every context (ADR-021 rule 3).
+///
+/// <para><paramref name="onCommandExecuting"/> is a test-only diagnostic hook (always null in
+/// production — the composition root never passes it): raw <c>NpgsqlConnection</c> usage here has
+/// no EF-style <c>DbCommandInterceptor</c> seam, so this is the query-count verification point
+/// <c>MealPlanWeekReadModelQueryCountTests</c> uses to prove ADR-021's guarantee — query count stays
+/// flat regardless of meal/dish/ingredient count — "not just by eye". Invoked once, with a short
+/// label, immediately after every <c>conn.CreateCommand()</c> call in this file (one call per actual
+/// round-trip), so a future change that reintroduces a per-recipe/per-ingredient query loop fails
+/// that test instead of silently regressing the ADR.</para>
 /// </summary>
 public sealed class MealPlanWeekReadModel(
     string connectionString,
     ITenantContext tenant,
-    IClock clock) : IMealPlanWeekReadModel
+    IClock clock,
+    Action<string>? onCommandExecuting = null) : IMealPlanWeekReadModel
 {
     /// <summary>
     /// Loads the full week's raw inputs for a given set of recipe and product ids gathered
@@ -66,6 +76,7 @@ public sealed class MealPlanWeekReadModel(
         // there is no tenant, write an empty string so a pooled connection can never inherit a
         // previous tenant's app.household_id. Uses parameterized set_config (no string interpolation).
         await using var armCmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("ArmRls");
         armCmd.CommandText = "SELECT set_config('app.household_id', @household_id, false)";
         var hidParam = armCmd.CreateParameter();
         hidParam.ParameterName = "household_id";
@@ -78,15 +89,35 @@ public sealed class MealPlanWeekReadModel(
         // in-hand before this method is called. This read model supplies the enrichment inputs;
         // the planned meals themselves are loaded through the domain aggregate path.
 
-        // ── Query 2: Recipes + ingredients (cross-schema: recipes) ───────────────
-        // One query loads all recipe rows and their ingredient children for every recipe on
-        // the page. Uses fully-qualified schema names per ADR-021.
-        var recipes = new Dictionary<Guid, RecipeFact>();
-        var ingredientsByRecipe = new Dictionary<Guid, List<IngredientFact>>();
+        // ── Query 1b: Inclusion closure (cross-schema: recipes, plantry-yqse) ────
+        // A recipe on the page may include a sub-recipe (recipe-composition.md D4), and that sub may
+        // itself include another — the transitive closure. One recursive query walks recipe_inclusion
+        // from the week's recipe ids to every reachable sub-recipe id, with a per-path visited guard so
+        // a defensive cycle (N4 should prevent this at save) terminates instead of recursing forever.
+        // The closure ids are folded into the recipe id set BEFORE Query 2 runs, so every sub-recipe's
+        // own ingredients/products/stock/prices/conversions load through the exact same downstream
+        // queries the week's own recipes already use — no second, parallel loading path (ADR-021 rule 1:
+        // SQL fetches data, C# — WeekBagEnricher, via RecipeExpansionService — keeps the math).
+        var inclusionsByRecipe = new Dictionary<Guid, List<InclusionFact>>();
+        var recipeIdsWithClosure = recipeIds;
 
         if (recipeIds.Count > 0)
         {
-            await LoadRecipesAsync(conn, recipeIds, recipes, ingredientsByRecipe, ct);
+            var closureIds = new HashSet<Guid>(recipeIds);
+            await LoadInclusionClosureAsync(conn, recipeIds, closureIds, inclusionsByRecipe, ct);
+            recipeIdsWithClosure = closureIds.ToList();
+        }
+
+        // ── Query 2: Recipes + ingredients (cross-schema: recipes) ───────────────
+        // One query loads all recipe rows and their ingredient children for every recipe on
+        // the page — widened to the inclusion closure above, so a sub-recipe's own ingredients load
+        // too. Uses fully-qualified schema names per ADR-021.
+        var recipes = new Dictionary<Guid, RecipeFact>();
+        var ingredientsByRecipe = new Dictionary<Guid, List<IngredientFact>>();
+
+        if (recipeIdsWithClosure.Count > 0)
+        {
+            await LoadRecipesAsync(conn, recipeIdsWithClosure, recipes, ingredientsByRecipe, ct);
         }
 
         // Collect all product ids from recipe ingredients (union with explicit product dishes).
@@ -189,12 +220,15 @@ public sealed class MealPlanWeekReadModel(
             latestPriceByProduct,
             substitutionsByTarget.ToDictionary(
                 kvp => kvp.Key,
-                kvp => (IReadOnlyList<SubstitutionEdge>)kvp.Value));
+                kvp => (IReadOnlyList<SubstitutionEdge>)kvp.Value),
+            inclusionsByRecipe.ToDictionary(
+                kvp => kvp.Key,
+                kvp => (IReadOnlyList<InclusionFact>)kvp.Value));
     }
 
     // ── private loaders ──────────────────────────────────────────────────────────────────────────
 
-    private static async Task LoadRecipesAsync(
+    private async Task LoadRecipesAsync(
         NpgsqlConnection conn,
         IReadOnlyList<Guid> recipeIds,
         Dictionary<Guid, RecipeFact> recipes,
@@ -205,6 +239,7 @@ public sealed class MealPlanWeekReadModel(
         // LEFT JOIN so recipes with zero ingredients are still returned (name display).
         // Uses fully-qualified schema names (ADR-021).
         await using var cmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadRecipesAsync");
         cmd.CommandText = """
             SELECT
                 r.recipe_id,
@@ -261,7 +296,88 @@ public sealed class MealPlanWeekReadModel(
         }
     }
 
-    private static async Task LoadProductsAsync(
+    /// <summary>
+    /// One recursive round-trip that walks <c>recipes.recipe_inclusion</c> from
+    /// <paramref name="rootRecipeIds"/> to every transitively-reachable sub-recipe id
+    /// (recipe-composition.md D4/N4, plantry-yqse). Adds every recipe id touched — both sides of every
+    /// edge — into <paramref name="closureIds"/>, and every edge row (grouped by owning recipe id) into
+    /// <paramref name="inclusionsByRecipe"/>, ordinal-ordered per recipe.
+    ///
+    /// The <c>visited</c> array carries the recipe ids already walked on the CURRENT path; a candidate
+    /// edge whose owning recipe id is already in that array is dropped rather than followed — a
+    /// defensive guard against a cyclic inclusion (N4 should prevent this at save; RecipeExpansionService
+    /// carries the identical per-branch guard for the in-memory walk this closure feeds). Stays one query
+    /// regardless of tree depth or width (ADR-021's flat-query-count guarantee).
+    /// </summary>
+    private async Task LoadInclusionClosureAsync(
+        NpgsqlConnection conn,
+        IReadOnlyList<Guid> rootRecipeIds,
+        HashSet<Guid> closureIds,
+        Dictionary<Guid, List<InclusionFact>> inclusionsByRecipe,
+        CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadInclusionClosureAsync");
+        cmd.CommandText = """
+            WITH RECURSIVE inclusion_closure AS (
+                SELECT
+                    ri.inclusion_id, ri.recipe_id, ri.sub_recipe_id, ri.servings, ri.group_heading, ri.ordinal,
+                    ARRAY[ri.recipe_id] AS visited
+                FROM recipes.recipe_inclusion ri
+                WHERE ri.recipe_id = ANY(@ids)
+              UNION ALL
+                SELECT
+                    ri.inclusion_id, ri.recipe_id, ri.sub_recipe_id, ri.servings, ri.group_heading, ri.ordinal,
+                    ic.visited || ri.recipe_id
+                FROM recipes.recipe_inclusion ri
+                JOIN inclusion_closure ic ON ri.recipe_id = ic.sub_recipe_id
+                WHERE NOT (ri.recipe_id = ANY(ic.visited))
+            )
+            SELECT DISTINCT inclusion_id, recipe_id, sub_recipe_id, servings, group_heading, ordinal
+            FROM inclusion_closure
+            """;
+        var param = cmd.CreateParameter();
+        param.ParameterName = "ids";
+        param.Value = rootRecipeIds.ToArray();
+        cmd.Parameters.Add(param);
+
+        // Belt-and-braces: the SELECT DISTINCT above already collapses the per-path duplicate rows a
+        // recipe reachable via two closure paths would otherwise emit (the recursive CTE fans out once
+        // per DFS path, not once per distinct edge), but a second guard on the C# side means a future
+        // change to the SQL projection (e.g. adding a column that breaks DISTINCT's dedup) fails safe
+        // instead of silently double-counting a sub-recipe's cost/fulfillment — the exact regression
+        // class this ticket exists to fix.
+        var seenInclusionIds = new HashSet<Guid>();
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var inclusionId = reader.GetGuid(0);
+            var recipeId = reader.GetGuid(1);
+            var subRecipeId = reader.GetGuid(2);
+            var servings = reader.GetDecimal(3);
+            var groupHeading = reader.IsDBNull(4) ? null : reader.GetString(4);
+            var ordinal = reader.GetInt32(5);
+
+            closureIds.Add(recipeId);
+            closureIds.Add(subRecipeId);
+
+            if (!seenInclusionIds.Add(inclusionId))
+                continue;
+
+            if (!inclusionsByRecipe.TryGetValue(recipeId, out var list))
+            {
+                list = [];
+                inclusionsByRecipe[recipeId] = list;
+            }
+            list.Add(new InclusionFact(inclusionId, recipeId, subRecipeId, servings, groupHeading, ordinal));
+        }
+
+        foreach (var list in inclusionsByRecipe.Values)
+            list.Sort((a, b) => a.Ordinal.CompareTo(b.Ordinal));
+    }
+
+    private async Task LoadProductsAsync(
         NpgsqlConnection conn,
         IReadOnlyList<Guid> productIds,
         Dictionary<Guid, ProductFact> products,
@@ -271,6 +387,7 @@ public sealed class MealPlanWeekReadModel(
         // Two passes: (1) load the requested ids; (2) load variant children of any parent products.
         // This matches the DM-19 rollup pattern in FulfillmentService.
         await using var cmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadProductsAsync");
         cmd.CommandText = """
             SELECT
                 p.id,
@@ -316,6 +433,7 @@ public sealed class MealPlanWeekReadModel(
         if (parentIds.Count > 0)
         {
             await using var varCmd = conn.CreateCommand();
+            onCommandExecuting?.Invoke("LoadProductsAsync.Variants");
             varCmd.CommandText = """
                 SELECT
                     p.id,
@@ -376,13 +494,14 @@ public sealed class MealPlanWeekReadModel(
         }
     }
 
-    private static async Task LoadConversionsAsync(
+    private async Task LoadConversionsAsync(
         NpgsqlConnection conn,
         IReadOnlyList<Guid> productIds,
         Dictionary<Guid, List<ConversionFact>> conversionsByProduct,
         CancellationToken ct)
     {
         await using var cmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadConversionsAsync");
         cmd.CommandText = """
             SELECT
                 c.product_id,
@@ -415,7 +534,7 @@ public sealed class MealPlanWeekReadModel(
         }
     }
 
-    private static async Task LoadSubstitutionsAsync(
+    private async Task LoadSubstitutionsAsync(
         NpgsqlConnection conn,
         IReadOnlyList<Guid> targetProductIds,
         Dictionary<Guid, List<SubstitutionEdge>> substitutionsByTarget,
@@ -427,6 +546,7 @@ public sealed class MealPlanWeekReadModel(
         // (armed above) scopes this to the current household — no explicit household_id filter needed,
         // matching every other query in this file.
         await using var cmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadSubstitutionsAsync");
         cmd.CommandText = """
             SELECT
                 s.substitution_id,
@@ -467,13 +587,14 @@ public sealed class MealPlanWeekReadModel(
         }
     }
 
-    private static async Task LoadUnitsAsync(
+    private async Task LoadUnitsAsync(
         NpgsqlConnection conn,
         Dictionary<Guid, UnitFact> units,
         CancellationToken ct)
     {
         // Load all units for this household — cacheable; small row count.
         await using var cmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadUnitsAsync");
         cmd.CommandText = """
             SELECT
                 u.id,
@@ -499,7 +620,7 @@ public sealed class MealPlanWeekReadModel(
         }
     }
 
-    private static async Task LoadStockAsync(
+    private async Task LoadStockAsync(
         NpgsqlConnection conn,
         IReadOnlyList<Guid> productIds,
         Dictionary<Guid, StockFact> stockByProduct,
@@ -510,6 +631,7 @@ public sealed class MealPlanWeekReadModel(
         // The domain services (FulfillmentService) convert across units using the loaded
         // conversions — SQL only aggregates, never converts.
         await using var cmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadStockAsync");
         cmd.CommandText = """
             SELECT
                 e.product_id,
@@ -564,7 +686,7 @@ public sealed class MealPlanWeekReadModel(
         }
     }
 
-    private static async Task LoadLatestPricesAsync(
+    private async Task LoadLatestPricesAsync(
         NpgsqlConnection conn,
         IReadOnlyList<Guid> productIds,
         DateOnly today,
@@ -590,6 +712,7 @@ public sealed class MealPlanWeekReadModel(
         // original's observed_at, so without this filter DISTINCT ON's arbitrary tie-break can surface
         // an amended-away row, and for any row superseded by a later-observed live row this always would).
         await using var baselineCmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadLatestPricesAsync.Baseline");
         baselineCmd.CommandText = """
             SELECT DISTINCT ON (p.product_id)
                 p.product_id,
@@ -633,6 +756,7 @@ public sealed class MealPlanWeekReadModel(
         // A leg-2 row always wins over leg 1 for its product (EffectiveCostablePriceAsync's
         // precedence), so this overwrite runs after leg 1 unconditionally.
         await using var dealCmd = conn.CreateCommand();
+        onCommandExecuting?.Invoke("LoadLatestPricesAsync.Deal");
         dealCmd.CommandText = """
             SELECT DISTINCT ON (p.product_id)
                 p.product_id,
@@ -712,7 +836,8 @@ public sealed class WeekBag(
     IReadOnlyDictionary<Guid, UnitFact> units,
     IReadOnlyDictionary<Guid, StockFact> stockByProduct,
     IReadOnlyDictionary<Guid, PriceFact> latestPriceByProduct,
-    IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>? substitutionsByTargetProduct = null)
+    IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>>? substitutionsByTargetProduct = null,
+    IReadOnlyDictionary<Guid, IReadOnlyList<InclusionFact>>? inclusionsByRecipe = null)
 {
     /// <summary>Recipes loaded this week, keyed by recipe_id.</summary>
     public IReadOnlyDictionary<Guid, RecipeFact> Recipes { get; } = recipes;
@@ -745,6 +870,18 @@ public sealed class WeekBag(
     public IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>> SubstitutionsByTargetProduct { get; } =
         substitutionsByTargetProduct ?? new Dictionary<Guid, IReadOnlyList<SubstitutionEdge>>();
 
+    /// <summary>
+    /// Inclusion edges (recipe-composition.md D4, plantry-yqse) keyed by the OWNING (parent) recipe id —
+    /// a recipe id absent from this dictionary declares no inclusions. Covers the FULL transitive closure
+    /// reachable from the week's own recipes (<see cref="MealPlanWeekReadModel.LoadInclusionClosureAsync"/>),
+    /// so a sub-recipe's own inclusions (a sub that itself includes another sub) are present too — not just
+    /// the week's top-level recipes'. Optional constructor parameter (defaults to empty) so existing direct
+    /// <see cref="WeekBag"/> construction in tests is unaffected; <see cref="MealPlanWeekReadModel.LoadAsync"/>
+    /// always supplies the real batch-loaded set.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, IReadOnlyList<InclusionFact>> InclusionsByRecipe { get; } =
+        inclusionsByRecipe ?? new Dictionary<Guid, IReadOnlyList<InclusionFact>>();
+
     // ── O(1) lookup helpers ──────────────────────────────────────────────────────────────────────
 
     /// <summary>Returns the recipe fact, or null when the recipe is not in this bag.</summary>
@@ -754,6 +891,10 @@ public sealed class WeekBag(
     /// <summary>Returns ingredients for a recipe, or an empty list when none are loaded.</summary>
     public IReadOnlyList<IngredientFact> GetIngredients(Guid recipeId) =>
         IngredientsByRecipe.TryGetValue(recipeId, out var list) ? list : [];
+
+    /// <summary>Returns inclusion edges owned by a recipe, or an empty list when it declares none.</summary>
+    public IReadOnlyList<InclusionFact> GetInclusions(Guid recipeId) =>
+        InclusionsByRecipe.TryGetValue(recipeId, out var list) ? list : [];
 
     /// <summary>Returns the product fact, or null when the product is not in this bag.</summary>
     public ProductFact? GetProduct(Guid productId) =>
@@ -799,6 +940,20 @@ public sealed record IngredientFact(
     Guid ProductId,
     decimal? Quantity,
     Guid? UnitId,
+    int Ordinal);
+
+/// <summary>
+/// One inclusion (included sub-recipe) edge from <c>recipes.recipe_inclusion</c> (recipe-composition.md
+/// D4, plantry-yqse). <see cref="RecipeId"/> is the OWNING (parent) recipe; <see cref="SubRecipeId"/> is
+/// the included sub-recipe. Mirrors the domain <c>Inclusion</c> entity's shape, flattened for the ADR-021
+/// cross-schema bag.
+/// </summary>
+public sealed record InclusionFact(
+    Guid InclusionId,
+    Guid RecipeId,
+    Guid SubRecipeId,
+    decimal Servings,
+    string? GroupHeading,
     int Ordinal);
 
 /// <summary>

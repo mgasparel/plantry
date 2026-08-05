@@ -46,12 +46,14 @@ public sealed class IndexModel(
     IMealPlanStockReader stockReader,
     Plantry.Recipes.Domain.FulfillmentService recipesFulfillmentService,
     Plantry.Recipes.Domain.CostingService recipesCostingService,
+    Plantry.Recipes.Application.RecipeExpansionService recipesExpansionService,
     Plantry.Recipes.Application.IExpiringSoonHorizonReader expiringSoonHorizon,
     DisplayCurrencyAccessor displayCurrency,
     ITenantContext tenant,
     UserManager<AppUser> userManager,
     IClock clock,
     ILogger<IndexModel> logger,
+    ILoggerFactory loggerFactory,
     IMealPlanUnitConverter? unitConverter = null) : PageModel
 {
     public DateOnly WeekStart { get; private set; }
@@ -1218,7 +1220,9 @@ public sealed class IndexModel(
 
         var bag = await weekReadModel.LoadAsync(recipeIds.ToList(), productIds.ToList(), ct);
         var expiringSoonDays = await expiringSoonHorizon.GetDaysAsync(ct);
-        var enricher = new WeekBagEnricher(bag, recipesFulfillmentService, recipesCostingService, clock, expiringSoonDays);
+        var enricher = new WeekBagEnricher(
+            bag, recipesFulfillmentService, recipesCostingService, recipesExpansionService, clock,
+            expiringSoonDays, loggerFactory.CreateLogger<WeekBagEnricher>());
 
         // Populate recipe name cache so _WeekGrid.cshtml ghost-cell name resolution
         // uses the in-memory bag instead of per-recipe GetByIdAsync calls (ADR-021).
@@ -1455,7 +1459,7 @@ public sealed class IndexModel(
 
                         if (dish.RecipeId.HasValue)
                         {
-                            var dishEnr = enricher.Enrich(dish.RecipeId.Value, dish.Servings ?? 0, today);
+                            var dishEnr = await enricher.EnrichAsync(dish.RecipeId.Value, dish.Servings ?? 0, today, ct);
                             if (dishEnr is not null)
                             {
                                 totalFulfillmentPct += dishEnr.FulfillmentPercent;
@@ -1713,26 +1717,26 @@ public sealed class IndexModel(
     /// using the pre-loaded <paramref name="enricher"/> (no further DB round-trips per ghost cell).
     /// Best-effort: failures are silently swallowed so a broken enrichment never hides the ghost cell.
     /// </summary>
-    private Task LoadGhostEnrichmentsAsync(WeekBagEnricher enricher, CancellationToken ct)
+    private async Task LoadGhostEnrichmentsAsync(WeekBagEnricher enricher, CancellationToken ct)
     {
         GhostEnrichments = [];
-        if (PendingProposals.Count == 0) return Task.CompletedTask;
+        if (PendingProposals.Count == 0) return;
 
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         foreach (var (key, proposal) in PendingProposals)
         {
-            var enrichment = BuildGhostEnrichmentFromBag(enricher, proposal, today);
+            var enrichment = await BuildGhostEnrichmentFromBagAsync(enricher, proposal, today, ct);
             if (enrichment is not null) GhostEnrichments[key] = enrichment;
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Computes ghost-cell enrichment from the pre-loaded bag (pure, no IO).
+    /// Computes ghost-cell enrichment from the pre-loaded bag (no further DB round-trips per ghost
+    /// cell — expansion, when needed, runs purely over already-loaded bag facts, ADR-021 rule 1).
     /// Best-effort: returns null on an empty proposal or when no recipe facts are in the bag.
     /// </summary>
-    private MealFulfillmentVm? BuildGhostEnrichmentFromBag(
-        WeekBagEnricher enricher, ProposedMeal pending, DateOnly today)
+    private async Task<MealFulfillmentVm?> BuildGhostEnrichmentFromBagAsync(
+        WeekBagEnricher enricher, ProposedMeal pending, DateOnly today, CancellationToken ct)
     {
         if (pending.Dishes.Count == 0) return null;
         try
@@ -1746,7 +1750,7 @@ public sealed class IndexModel(
 
             foreach (var dish in pending.Dishes)
             {
-                var enr = enricher.Enrich(dish.RecipeId, dish.Servings, today);
+                var enr = await enricher.EnrichAsync(dish.RecipeId, dish.Servings, today, ct);
                 if (enr is null) continue;
 
                 totalFulfillPct += enr.FulfillmentPercent;

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -49,8 +50,10 @@ public sealed class WeekBagEnricherTests
         new(bag,
             new FulfillmentService(new NullStockReader(), new NullCatalogReader(), new NullConverter(), new NullExpiringSoonHorizonReader(), new NullSubstitutionReader()),
             new CostingService(new NullPriceReader(), new NullConverter(), new NullCatalogReader()),
+            new RecipeExpansionService(new NullRecipeRepository()),
             SystemClock.Instance,
-            expiringSoonDays: 7);
+            expiringSoonDays: 7,
+            NullLogger<WeekBagEnricher>.Instance);
 
     // ── Multi-unit lot summing ────────────────────────────────────────────────────
 
@@ -64,7 +67,7 @@ public sealed class WeekBagEnricherTests
     /// which is below the required 500 g → Low or Missing → wrong fulfillment %.
     /// </summary>
     [Fact(DisplayName = "BuildStockById sums multi-unit lots into the default unit — 300g + 0.5kg = 800g → InStock")]
-    public void MultiUnitLots_SummedIntoDefaultUnit_YieldsCorrectFulfillment()
+    public async Task MultiUnitLots_SummedIntoDefaultUnit_YieldsCorrectFulfillment()
     {
         // Recipe: 1 ingredient, 500 g, defaultServings=1.
         // Desired servings = 1 → scale = 1.0 → required = 500 g.
@@ -116,7 +119,7 @@ public sealed class WeekBagEnricherTests
         var enricher = MakeEnricher(bag);
         var today = DateOnly.FromDateTime(DateTime.Today);
 
-        var result = enricher.Enrich(RecipeId, servings: 1, today);
+        var result = await enricher.EnrichAsync(RecipeId, servings: 1, today);
 
         Assert.NotNull(result);
         Assert.Equal(100, result.FulfillmentPercent); // 1/1 tracked ingredient InStock = 100 %
@@ -133,7 +136,7 @@ public sealed class WeekBagEnricherTests
     /// the behaviour is stable for that single-non-default-unit case too.
     /// </summary>
     [Fact(DisplayName = "BuildStockById converts non-default-unit lot to default — 0.4kg = 400g → Low (400g < 500g required)")]
-    public void SingleNonDefaultUnitLot_ConvertedToDefault_YieldsCorrectFulfillment()
+    public async Task SingleNonDefaultUnitLot_ConvertedToDefault_YieldsCorrectFulfillment()
     {
         var bag = new WeekBag(
             recipes: new Dictionary<Guid, RecipeFact>
@@ -177,7 +180,7 @@ public sealed class WeekBagEnricherTests
         var enricher = MakeEnricher(bag);
         var today = DateOnly.FromDateTime(DateTime.Today);
 
-        var result = enricher.Enrich(RecipeId, servings: 1, today);
+        var result = await enricher.EnrichAsync(RecipeId, servings: 1, today);
 
         Assert.NotNull(result);
         // 1 tracked ingredient, 0 fully InStock (Low) → 0 % fulfillment.
@@ -206,7 +209,7 @@ public sealed class WeekBagEnricherTests
     /// failed against the pre-fix implementation.
     /// </summary>
     [Fact(DisplayName = "Two Count-dimension units with no ProductConversion do not free-scale — parity with Inventory.Consume (plantry-jvd7)")]
-    public void CountDimensionUnits_WithNoProductConversion_DoNotFreeScale()
+    public async Task CountDimensionUnits_WithNoProductConversion_DoNotFreeScale()
     {
         var bag = new WeekBag(
             recipes: new Dictionary<Guid, RecipeFact>
@@ -248,7 +251,7 @@ public sealed class WeekBagEnricherTests
         var enricher = MakeEnricher(bag);
         var today = DateOnly.FromDateTime(DateTime.Today);
 
-        var result = enricher.Enrich(RecipeId, servings: 1, today);
+        var result = await enricher.EnrichAsync(RecipeId, servings: 1, today);
 
         Assert.NotNull(result);
         Assert.Equal(0, result!.FulfillmentPercent); // Missing, not InStock — the dz lot cannot free-scale to each.
@@ -279,7 +282,7 @@ public sealed class WeekBagEnricherTests
     /// before/after discriminator for AC3.
     /// </summary>
     [Fact(DisplayName = "Multi-hop ProductConversion chain now resolves through the week-bag path — new capability (plantry-jvd7)")]
-    public void MultiHopProductConversionChain_ResolvesThroughWeekBagPath()
+    public async Task MultiHopProductConversionChain_ResolvesThroughWeekBagPath()
     {
         var bag = new WeekBag(
             recipes: new Dictionary<Guid, RecipeFact>
@@ -333,7 +336,7 @@ public sealed class WeekBagEnricherTests
         var enricher = MakeEnricher(bag);
         var today = DateOnly.FromDateTime(DateTime.Today);
 
-        var result = enricher.Enrich(RecipeId, servings: 1, today);
+        var result = await enricher.EnrichAsync(RecipeId, servings: 1, today);
 
         Assert.NotNull(result);
         // 1 pk = 600 g = 600/105 cup = 600/105/0.75 srv ≈ 7.619 srv, above the 5 srv required —
@@ -354,7 +357,7 @@ public sealed class WeekBagEnricherTests
     /// red — verified empirically before landing this fix.
     /// </summary>
     [Fact(DisplayName = "Null FactorToBase on a Mass unit coalesces to 1m — pins the AC5 behaviour-preserving mapping (plantry-jvd7)")]
-    public void NullFactorToBase_OnMassUnit_CoalescesToOne_AndCostsCorrectly()
+    public async Task NullFactorToBase_OnMassUnit_CoalescesToOne_AndCostsCorrectly()
     {
         var bag = new WeekBag(
             recipes: new Dictionary<Guid, RecipeFact>
@@ -393,7 +396,7 @@ public sealed class WeekBagEnricherTests
         var enricher = MakeEnricher(bag);
         var today = DateOnly.FromDateTime(DateTime.Today);
 
-        var result = enricher.Enrich(RecipeId, servings: 4, today);
+        var result = await enricher.EnrichAsync(RecipeId, servings: 4, today);
 
         Assert.NotNull(result);
         // $2.00 / 500 mys = $0.004/mys; mys<->g is 1:1 under the null->1m coalesce, so $0.004/g.
@@ -413,7 +416,7 @@ public sealed class WeekBagEnricherTests
     /// the MealPlan week grid figure and the Recipe Details page figure for the same recipe.
     /// </summary>
     [Fact(DisplayName = "Parent-referencing ingredient with a priced variant shows a cost in the week rollup (DM-19)")]
-    public void ParentReferencingIngredient_WithPricedVariant_ShowsCostInWeekRollup()
+    public async Task ParentReferencingIngredient_WithPricedVariant_ShowsCostInWeekRollup()
     {
         var parentId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
         var variantId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000003");
@@ -463,12 +466,347 @@ public sealed class WeekBagEnricherTests
         var enricher = MakeEnricher(bag);
         var today = DateOnly.FromDateTime(DateTime.Today);
 
-        var result = enricher.Enrich(RecipeId, servings: 4, today);
+        var result = await enricher.EnrichAsync(RecipeId, servings: 4, today);
 
         Assert.NotNull(result);
         // 250g × $0.004/g = $1.00 total for 4 servings (per-serving $0.25 × 4 servings = $1.00).
         Assert.Equal(1.00m, result!.TotalCost);
         Assert.False(result.CostIsPartial);
+    }
+
+    // ── Sub-recipe inclusion expansion (plantry-yqse) ───────────────────────────────
+
+    /// <summary>
+    /// Regression for plantry-yqse: <see cref="WeekBagEnricher.EnrichAsync"/> must expand a recipe with a
+    /// sub-recipe inclusion through <see cref="RecipeExpansionService"/> before costing — the same
+    /// choke point Recipe Details and the edit-meal popup use — instead of costing only the parent's
+    /// direct ingredients. Parent (2 default servings) has a direct pita line ($2.00) plus an inclusion
+    /// of 2 servings of a 4-default-serving sub (Tzatziki, $8.00 total / 4 = $2.00 per sub-serving, so
+    /// 2 sub-servings = $4.00). Expanded total = $2.00 + $4.00 = $6.00 — a flat-only figure would read
+    /// only $2.00.
+    /// </summary>
+    [Fact(DisplayName = "Enrich expands a sub-recipe inclusion and folds its cost into the total (plantry-yqse)")]
+    public async Task Enrich_ExpandsSubRecipeInclusion_FoldsCostIntoTotal()
+    {
+        var subId = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000002");
+        var pitaId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000010");
+        var yogurtId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000011");
+        var pitaIngId = Guid.Parse("cccccccc-0000-0000-0000-000000000010");
+        var yogurtIngId = Guid.Parse("cccccccc-0000-0000-0000-000000000011");
+
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Gyro Wrap", DefaultServings: 2),
+                [subId] = new RecipeFact(subId, "Tzatziki", DefaultServings: 4),
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                [RecipeId] = [new IngredientFact(pitaIngId, RecipeId, pitaId, Quantity: 200m, UnitId: GramUnitId, Ordinal: 0)],
+                [subId] = [new IngredientFact(yogurtIngId, subId, yogurtId, Quantity: 400m, UnitId: GramUnitId, Ordinal: 0)],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [pitaId] = new ProductFact(pitaId, "Pita", TrackStock: true, GramUnitId, null, false, false, []),
+                [yogurtId] = new ProductFact(yogurtId, "Yogurt", TrackStock: true, GramUnitId, null, false, false, []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [GramUnitId] = new UnitFact(GramUnitId, "g", "grams", "mass", FactorToBase: 1m, IsBase: true),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>(),
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>
+            {
+                // $2.00 for 200g pita → $0.01/g; $8.00 for 400g yogurt → $0.02/g.
+                [pitaId] = new PriceFact(pitaId, Price: 2.00m, Quantity: 200m, UnitId: GramUnitId, UnitPrice: null, ObservedAt: DateTime.UtcNow),
+                [yogurtId] = new PriceFact(yogurtId, Price: 8.00m, Quantity: 400m, UnitId: GramUnitId, UnitPrice: null, ObservedAt: DateTime.UtcNow),
+            },
+            substitutionsByTargetProduct: null,
+            inclusionsByRecipe: new Dictionary<Guid, IReadOnlyList<InclusionFact>>
+            {
+                [RecipeId] = [new InclusionFact(Guid.NewGuid(), RecipeId, subId, Servings: 2m, GroupHeading: null, Ordinal: 1)],
+            });
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = await enricher.EnrichAsync(RecipeId, servings: 2, today);
+
+        Assert.NotNull(result);
+        Assert.Equal(6.00m, result!.TotalCost);
+        Assert.False(result.CostIsPartial);
+    }
+
+    /// <summary>
+    /// Regression for the fulfillment half of plantry-yqse's design step 3 ("Fulfillment too …
+    /// otherwise the card would show a correct price against a wrong cookability") — every other test
+    /// in this ticket pins cost only, so a regression that reverted <c>ComputeEnrichmentAsync</c> to feed
+    /// <see cref="FulfillmentService.Compute"/> the FLAT (direct-ingredients-only) recipe while still
+    /// expanding for costing would pass every other assertion here. Same Gyro Wrap / Tzatziki shape as
+    /// <see cref="Enrich_ExpandsSubRecipeInclusion_FoldsCostIntoTotal"/>, but the root's own product
+    /// (pita) is fully in stock while the sub's product (yogurt) has NONE — so the expanded view has
+    /// exactly 2 tracked lines, 1 InStock (pita), 1 Missing (yogurt) → 50%. Under the pre-fix flat-only
+    /// view the sub's yogurt line would be entirely invisible to fulfillment, leaving pita as the sole
+    /// tracked line → a wrong 100%; the discriminating assertion pins that this can no longer happen.
+    /// </summary>
+    [Fact(DisplayName = "Enrich expands a sub-recipe inclusion and folds its cost into fulfillment too (plantry-yqse)")]
+    public async Task Enrich_ExpandsSubRecipeInclusion_FoldsFulfillmentIntoResult()
+    {
+        var subId = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000006");
+        var pitaId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000016");
+        var yogurtId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000017");
+        var pitaIngId = Guid.Parse("cccccccc-0000-0000-0000-000000000016");
+        var yogurtIngId = Guid.Parse("cccccccc-0000-0000-0000-000000000017");
+
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Gyro Wrap", DefaultServings: 2),
+                [subId] = new RecipeFact(subId, "Tzatziki", DefaultServings: 4),
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                [RecipeId] = [new IngredientFact(pitaIngId, RecipeId, pitaId, Quantity: 200m, UnitId: GramUnitId, Ordinal: 0)],
+                [subId] = [new IngredientFact(yogurtIngId, subId, yogurtId, Quantity: 400m, UnitId: GramUnitId, Ordinal: 0)],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [pitaId] = new ProductFact(pitaId, "Pita", TrackStock: true, GramUnitId, null, false, false, []),
+                [yogurtId] = new ProductFact(yogurtId, "Yogurt", TrackStock: true, GramUnitId, null, false, false, []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [GramUnitId] = new UnitFact(GramUnitId, "g", "grams", "mass", FactorToBase: 1m, IsBase: true),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>
+            {
+                // The ROOT's own product is fully in stock (1000g >= the 200g required)...
+                [pitaId] = new StockFact(pitaId, Lots: [new StockLotFact(pitaId, GramUnitId, 1000m)], SoonestExpiry: null),
+                // ...but the SUB's product has NO stock at all — omitted entirely (FulfillmentService
+                // treats an absent product as zero, same convention as every other bag in this file).
+            },
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>(),
+            substitutionsByTargetProduct: null,
+            inclusionsByRecipe: new Dictionary<Guid, IReadOnlyList<InclusionFact>>
+            {
+                [RecipeId] = [new InclusionFact(Guid.NewGuid(), RecipeId, subId, Servings: 2m, GroupHeading: null, Ordinal: 1)],
+            });
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = await enricher.EnrichAsync(RecipeId, servings: 2, today);
+
+        Assert.NotNull(result);
+        // 2 tracked expanded lines (pita InStock, yogurt Missing) → 1/2 = 50%.
+        Assert.Equal(50, result!.FulfillmentPercent);
+        // Discriminator: the pre-fix flat-only view never sees the sub's yogurt line at all, so its
+        // sole tracked line (pita, InStock) would read 100% — a silently wrong cookability signal.
+        Assert.NotEqual(100, result.FulfillmentPercent);
+    }
+
+    /// <summary>
+    /// Defensive degrade (mirrors <c>RecipeReadModelAdapter.GetEnrichmentAsync</c>'s identical fallback):
+    /// an inclusion referencing a sub-recipe that is NOT in the bag (dangling — N4/N5 should prevent
+    /// this for a legitimately saved recipe) must not throw or blank the cell. It degrades to the flat,
+    /// direct-ingredients-only figure instead.
+    /// </summary>
+    [Fact(DisplayName = "Enrich degrades to flat computation when an inclusion's sub-recipe is absent from the bag")]
+    public async Task Enrich_DegradesToFlat_WhenInclusionSubRecipeIsDangling()
+    {
+        var danglingSubId = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000003");
+        var pitaId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000012");
+        var pitaIngId = Guid.Parse("cccccccc-0000-0000-0000-000000000012");
+
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Gyro Wrap", DefaultServings: 2),
+                // danglingSubId is intentionally absent from Recipes/IngredientsByRecipe.
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                [RecipeId] = [new IngredientFact(pitaIngId, RecipeId, pitaId, Quantity: 200m, UnitId: GramUnitId, Ordinal: 0)],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [pitaId] = new ProductFact(pitaId, "Pita", TrackStock: true, GramUnitId, null, false, false, []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [GramUnitId] = new UnitFact(GramUnitId, "g", "grams", "mass", FactorToBase: 1m, IsBase: true),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>(),
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>
+            {
+                [pitaId] = new PriceFact(pitaId, Price: 2.00m, Quantity: 200m, UnitId: GramUnitId, UnitPrice: null, ObservedAt: DateTime.UtcNow),
+            },
+            substitutionsByTargetProduct: null,
+            inclusionsByRecipe: new Dictionary<Guid, IReadOnlyList<InclusionFact>>
+            {
+                [RecipeId] = [new InclusionFact(Guid.NewGuid(), RecipeId, danglingSubId, Servings: 2m, GroupHeading: null, Ordinal: 1)],
+            });
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = await enricher.EnrichAsync(RecipeId, servings: 2, today);
+
+        Assert.NotNull(result);
+        // Degrades to the flat pita-only figure rather than throwing or reading null/partial from a
+        // failed expansion.
+        Assert.Equal(2.00m, result!.TotalCost);
+        Assert.False(result.CostIsPartial);
+    }
+
+    /// <summary>
+    /// Companion to the read model's own dedup regression (plantry-yqse pass 1 critic finding): proves
+    /// that when a mid-level recipe's inclusion edge is present EXACTLY ONCE in the bag — the invariant
+    /// <c>MealPlanWeekReadModel</c>'s <c>SELECT DISTINCT</c> + <c>seenInclusionIds</c> guard now
+    /// guarantees even when both a root and its own sub are requested together — the root's expanded
+    /// cost is the correct, non-doubled figure. A three-level chain (root → mid → leaf) mirrors the
+    /// scenario the read-model regression pins, but exercises the enricher's own expansion/costing math
+    /// directly rather than the SQL loader.
+    /// </summary>
+    [Fact(DisplayName = "Enrich does not double-count a sub-recipe's cost when its inclusion edge is listed exactly once (plantry-yqse)")]
+    public async Task Enrich_DoesNotDoubleCount_WhenInclusionEdgeListedOnce()
+    {
+        var midId = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000004");
+        var leafId = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000005");
+        var pitaId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000013");
+        var yogurtId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000014");
+        var garlicId = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000015");
+        var pitaIngId = Guid.Parse("cccccccc-0000-0000-0000-000000000013");
+        var yogurtIngId = Guid.Parse("cccccccc-0000-0000-0000-000000000014");
+        var garlicIngId = Guid.Parse("cccccccc-0000-0000-0000-000000000015");
+
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Gyro Wrap", DefaultServings: 2),
+                [midId] = new RecipeFact(midId, "Tzatziki", DefaultServings: 4),
+                [leafId] = new RecipeFact(leafId, "Garlic Paste", DefaultServings: 1),
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                [RecipeId] = [new IngredientFact(pitaIngId, RecipeId, pitaId, Quantity: 200m, UnitId: GramUnitId, Ordinal: 0)],
+                [midId] = [new IngredientFact(yogurtIngId, midId, yogurtId, Quantity: 400m, UnitId: GramUnitId, Ordinal: 0)],
+                [leafId] = [new IngredientFact(garlicIngId, leafId, garlicId, Quantity: 10m, UnitId: GramUnitId, Ordinal: 0)],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [pitaId] = new ProductFact(pitaId, "Pita", TrackStock: true, GramUnitId, null, false, false, []),
+                [yogurtId] = new ProductFact(yogurtId, "Yogurt", TrackStock: true, GramUnitId, null, false, false, []),
+                [garlicId] = new ProductFact(garlicId, "Garlic", TrackStock: true, GramUnitId, null, false, false, []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [GramUnitId] = new UnitFact(GramUnitId, "g", "grams", "mass", FactorToBase: 1m, IsBase: true),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>(),
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>
+            {
+                // $2.00/200g pita → $0.01/g; $8.00/400g yogurt → $0.02/g; $1.00/10g garlic → $0.10/g.
+                [pitaId] = new PriceFact(pitaId, Price: 2.00m, Quantity: 200m, UnitId: GramUnitId, UnitPrice: null, ObservedAt: DateTime.UtcNow),
+                [yogurtId] = new PriceFact(yogurtId, Price: 8.00m, Quantity: 400m, UnitId: GramUnitId, UnitPrice: null, ObservedAt: DateTime.UtcNow),
+                [garlicId] = new PriceFact(garlicId, Price: 1.00m, Quantity: 10m, UnitId: GramUnitId, UnitPrice: null, ObservedAt: DateTime.UtcNow),
+            },
+            substitutionsByTargetProduct: null,
+            inclusionsByRecipe: new Dictionary<Guid, IReadOnlyList<InclusionFact>>
+            {
+                // Each edge listed EXACTLY ONCE — the invariant the read model now guarantees.
+                [RecipeId] = [new InclusionFact(Guid.NewGuid(), RecipeId, midId, Servings: 2m, GroupHeading: null, Ordinal: 1)],
+                [midId] = [new InclusionFact(Guid.NewGuid(), midId, leafId, Servings: 1m, GroupHeading: null, Ordinal: 1)],
+            });
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = await enricher.EnrichAsync(RecipeId, servings: 2, today);
+
+        Assert.NotNull(result);
+        // pita 200g @ $0.01/g = $2.00 (root direct).
+        // mid contributes 2/4 servings of its own batch: 200g yogurt @ $0.02/g = $4.00.
+        // mid's own inclusion of leaf contributes 1/1 serving of leaf's batch, scaled by mid's own
+        // 2/4 factor: 10g garlic × (1/1) × (2/4) = 5g @ $0.10/g = $0.50.
+        // Total = $2.00 + $4.00 + $0.50 = $6.50 — NOT $2.00 + $8.00 + $1.00 = $11.00 (which is what
+        // a duplicated-edge bug would produce by walking mid or leaf twice).
+        Assert.Equal(6.50m, result!.TotalCost);
+        Assert.False(result.CostIsPartial);
+    }
+
+    /// <summary>
+    /// Regression for the pass-3 critic finding on plantry-yqse: expansion + aggregation must run
+    /// UNCONDITIONALLY, not only when a recipe has inclusions. <c>recipes.recipe_ingredient</c> has no
+    /// product-uniqueness constraint (only UNIQUE (recipe_id, ordinal)), so a recipe may legitimately
+    /// list the same (ProductId, UnitId) twice (e.g. 100 g butter for the dough + 100 g for the
+    /// topping). <see cref="ExpandedLineAggregation.AggregateByProductAndUnit"/> merges those into ONE
+    /// 200 g line — the view Recipe Details and <c>RecipeReadModelAdapter.GetEnrichmentAsync</c>
+    /// always cost/fulfill. A no-inclusions short-circuit that fed the UNAGGREGATED two-line view to
+    /// <see cref="FulfillmentService.Compute"/> would judge each 100 g line against the 150 g lot
+    /// independently (both InStock → 100%), while the aggregated view needs 200 g &gt; 150 g on hand
+    /// (Low → 0%) — the exact card-vs-detail disagreement class this ticket exists to close.
+    /// </summary>
+    [Fact(DisplayName = "Enrich aggregates duplicate product lines even when the recipe has no inclusions (plantry-yqse)")]
+    public async Task Enrich_AggregatesDuplicateProductLines_WhenRecipeHasNoInclusions()
+    {
+        var ing2Id = Guid.Parse("cccccccc-0000-0000-0000-000000000018");
+
+        var bag = new WeekBag(
+            recipes: new Dictionary<Guid, RecipeFact>
+            {
+                [RecipeId] = new RecipeFact(RecipeId, "Butter Pastry", DefaultServings: 1),
+            },
+            ingredientsByRecipe: new Dictionary<Guid, IReadOnlyList<IngredientFact>>
+            {
+                // The SAME (ProductId, GramUnitId) listed twice — 100 g each (ordinals 0 and 1).
+                [RecipeId] =
+                [
+                    new IngredientFact(Ing1Id, RecipeId, ProductId, Quantity: 100m, UnitId: GramUnitId, Ordinal: 0),
+                    new IngredientFact(ing2Id, RecipeId, ProductId, Quantity: 100m, UnitId: GramUnitId, Ordinal: 1),
+                ],
+            },
+            products: new Dictionary<Guid, ProductFact>
+            {
+                [ProductId] = new ProductFact(
+                    ProductId, "Butter",
+                    TrackStock: true,
+                    DefaultUnitId: GramUnitId,
+                    ParentProductId: null,
+                    HasVariants: false,
+                    Archived: false,
+                    VariantProductIds: []),
+            },
+            conversionsByProduct: new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            units: new Dictionary<Guid, UnitFact>
+            {
+                [GramUnitId] = new UnitFact(GramUnitId, "g", "grams", "mass", FactorToBase: 1m, IsBase: true),
+            },
+            stockByProduct: new Dictionary<Guid, StockFact>
+            {
+                // 150 g on hand: covers EITHER 100 g line alone, but NOT the aggregated 200 g.
+                [ProductId] = new StockFact(
+                    ProductId,
+                    Lots: [new StockLotFact(ProductId, GramUnitId, 150m)],
+                    SoonestExpiry: null),
+            },
+            latestPriceByProduct: new Dictionary<Guid, PriceFact>());
+
+        var enricher = MakeEnricher(bag);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var result = await enricher.EnrichAsync(RecipeId, servings: 1, today);
+
+        Assert.NotNull(result);
+        // Aggregated: ONE 200 g line, 150 g on hand → Low → 0/1 InStock → 0%.
+        Assert.Equal(0, result!.FulfillmentPercent);
+        // Discriminator: the un-aggregated two-line view would judge each 100 g line against the
+        // 150 g lot independently → 2/2 InStock → a wrong 100%.
+        Assert.NotEqual(100, result.FulfillmentPercent);
     }
 
     // ── Null-returning port fakes ─────────────────────────────────────────────────

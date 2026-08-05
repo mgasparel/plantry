@@ -1,4 +1,5 @@
 using Plantry.Recipes.Application;
+using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 
@@ -130,4 +131,32 @@ internal sealed class FixedClock(DateTimeOffset now, TimeZoneInfo? zone = null) 
 {
     public DateTimeOffset UtcNow { get; } = now;
     public TimeZoneInfo Zone { get; } = zone ?? TimeZoneInfo.Utc;
+}
+
+/// <summary>
+/// <see cref="IRecipeRepository"/> fake for constructing a bare <see cref="RecipeExpansionService"/> in
+/// tests that only ever call its batched in-memory overload (<c>ExpandAsync(RecipeId,
+/// IReadOnlyDictionary&lt;RecipeId,Recipe&gt;, CancellationToken)</c>) — that overload's resolver never
+/// touches the injected repository, so every member here throws if actually invoked (a real call would
+/// signal a test wiring bug, not expected behaviour). Shared by <see cref="WeekBagEnricherTests"/> and
+/// <see cref="MealPlanVariantConversionParityTests"/>, both of which construct a
+/// <c>WeekBagEnricher</c> — which needs a <see cref="RecipeExpansionService"/> instance but, for these
+/// flat-recipe scenarios, never exercises expansion at all (plantry-yqse).
+/// </summary>
+internal sealed class NullRecipeRepository : IRecipeRepository
+{
+    private static NotSupportedException NotSupported() =>
+        new("NullRecipeRepository should never be called — only RecipeExpansionService's batched " +
+            "in-memory overload is exercised in these tests, which never touches the repository.");
+
+    public Task AddAsync(Recipe recipe, CancellationToken ct = default) => throw NotSupported();
+    public Task<Recipe?> GetByIdAsync(RecipeId id, CancellationToken ct = default) => throw NotSupported();
+    public Task SaveChangesAsync(CancellationToken ct = default) => throw NotSupported();
+    public Task<bool> NameExistsAsync(HouseholdId householdId, string name, CancellationToken ct = default) => throw NotSupported();
+    public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) => throw NotSupported();
+    public Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default) => throw NotSupported();
+    public Task<bool> AnyForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) => throw NotSupported();
+    public Task<IReadOnlyDictionary<RecipeId, string>> GetRecipeNamesByIdAsync(IReadOnlyList<RecipeId> ids, CancellationToken ct = default) => throw NotSupported();
+    public Task<IReadOnlyList<RecipeInclusionEdge>> ListInclusionEdgesAsync(CancellationToken ct = default) => throw NotSupported();
+    public Task<IReadOnlySet<RecipeId>> GetIncluderIdsAsync(RecipeId subRecipeId, bool transitive = false, CancellationToken ct = default) => throw NotSupported();
 }
