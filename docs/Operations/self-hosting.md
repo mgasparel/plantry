@@ -49,6 +49,7 @@ Required in `.env`:
 | `POSTGRES_PASSWORD` | Database owner. Only applied on first volume init — set once. |
 | `APP_USER_PASSWORD` | Least-privilege runtime role; the migrator sets it, the app uses it. |
 | `DP_CERT_PASSWORD` | DataProtection key ring encryption passphrase — see below. |
+| `TZ` | **Optional**, defaults to `UTC`. IANA timezone name (e.g. `America/Toronto`) for the `plantry-web` and `migrator` containers. Without it, local-time displays (Today, MealPlan week grid, etc.) show UTC instead of your local time — `TimeZoneInfo.Local` resolves from the container's `TZ`. |
 | AI API key | **Optional.** Without it, the receipt/meal-plan AI shows a locked-feature UI and the rest of the app works normally. Operators bring their own key. |
 
 Demo/seed data is Development-only, so a self-hosted instance starts empty.
