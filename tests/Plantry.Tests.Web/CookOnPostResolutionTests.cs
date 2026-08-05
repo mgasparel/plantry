@@ -432,6 +432,12 @@ internal sealed class CookPostFactory : WebApplicationFactory<Program>
             services.AddSingleton<IUnitConverter>(new FakeCookUnitConverter());
             services.AddFakeQuantityFormatter();
 
+            // Substitution reader (plantry-aqpa.3) — empty by default, matching this fixture's existing
+            // shape byte-for-byte. Without this override the real Postgres-backed SubstitutionReader
+            // resolves, which this no-database factory cannot satisfy.
+            services.RemoveAll<ISubstitutionReader>();
+            services.AddSingleton<ISubstitutionReader>(new FakeCookSubstitutionReader());
+
             // Recording consumer — the same instance is shared across requests so the test
             // can inspect calls after the POST completes.
             services.RemoveAll<IInventoryConsumer>();

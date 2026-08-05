@@ -37,6 +37,7 @@ public sealed class CookModel(
     IQuantityFormatter quantityFormatter,
     RecipeExpansionService expansion,
     CookRecipe cookService,
+    ISubstitutionReader substitutionReader,
     ILogger<CookModel> logger) : PageModel
 {
     [BindProperty(SupportsGet = true)]
@@ -297,9 +298,31 @@ public sealed class CookModel(
             ? await catalog.ResolveUnitCodesAsync(variantUnitIds, ct)
             : new Dictionary<Guid, string>();
 
+        // Substitution (plantry-aqpa.3, C11 amendment): batch-resolve one-hop edges targeting any of this
+        // recipe's line products, plus the catalog/stock facts needed to price each substitute's own
+        // available stock and the ratio-converted deduction amount. Kept as an independent block (not
+        // folded into the line-product catalogById/stockById above) so the substitution feature is fully
+        // additive — a household that never declares an edge pays no extra cost beyond one empty batch
+        // lookup, and the existing direct-product pipeline above is untouched.
+        var (substitutionsByTarget, subCatalogById, subStockById) =
+            await ResolveSubstitutionDataAsync(allProductIds, ct);
+        var subVariantIds = subCatalogById.Values
+            .Where(p => p.IsParent)
+            .SelectMany(p => p.VariantProductIds)
+            .Distinct()
+            .ToList();
+        var subVariantSummaries = subVariantIds.Count > 0
+            ? await catalog.ResolveSummariesAsync(subVariantIds, ct)
+            : new Dictionary<Guid, CatalogProductSummary>();
+        var subStockUnitIds = subStockById.Values.Select(s => s.DefaultUnitId).Distinct().ToList();
+        var subStockUnitCodes = subStockUnitIds.Count > 0
+            ? await catalog.ResolveUnitCodesAsync(subStockUnitIds, ct)
+            : new Dictionary<Guid, string>();
+
         var renderContext = new CookRenderContext(
             catalogById, unitCodes, variantSummaries, variantDefaultUnits,
-            stockById, stockUnitCodes, variantUnitCodes);
+            stockById, stockUnitCodes, variantUnitCodes,
+            substitutionsByTarget, subCatalogById, subStockById, subVariantSummaries, subStockUnitCodes);
 
         // Inclusion group metadata (sub name + effective servings) via a household-scoped walk of the
         // inclusion tree (recipe-composition.md §6, D2): effective servings = Inclusion.Servings × the
@@ -499,6 +522,27 @@ public sealed class CookModel(
                 IsShortfall: false);
         }
 
+        // Substitution options (plantry-aqpa.3, C11 amendment): offered alongside the direct product/
+        // variants whenever a one-hop edge targets this line's product, regardless of whether the direct
+        // product itself is a parent or a leaf — never auto-chosen (the picker is the human checkpoint).
+        var substituteOptions = new List<SubstituteOptionView>();
+        if (scaledQty.HasValue && line.UnitId.HasValue &&
+            ctx.SubstitutionsByTarget.TryGetValue(line.ProductId, out var targetingEdges) && targetingEdges.Count > 0)
+        {
+            var candidates = await ComputeSubstituteCandidatesAsync(
+                line.ProductId, scaledQty.Value, line.UnitId.Value,
+                ctx.SubstitutionsByTarget, ctx.SubCatalogById, ctx.SubStockById, ct);
+
+            substituteOptions = candidates.Select(c => new SubstituteOptionView(
+                ProductId: c.ProductId,
+                ProductName: ctx.SubCatalogById.TryGetValue(c.ProductId, out var subProduct) ? subProduct.Name
+                    : ctx.SubVariantSummaries.TryGetValue(c.ProductId, out var subVariant) ? subVariant.Name
+                    : "(unknown)",
+                AvailableQuantity: c.AvailableQuantity,
+                DeductQuantity: c.DeductQuantity,
+                UnitCode: ctx.SubStockUnitCodes.GetValueOrDefault(c.UnitId))).ToList();
+        }
+
         if (product.IsParent && line.Quantity.HasValue && line.UnitId.HasValue)
         {
             // Parent product: build variant options with stock and auto-selection (C7/C11).
@@ -558,6 +602,23 @@ public sealed class CookModel(
             // Mark best as auto-selected.
             options = options.Select(o => o with { IsAutoSelected = o.VariantId == bestVariantId }).ToList();
 
+            // Degenerate catalog shape (plantry-aqpa.3 arbiter ruling 6): a parent product with ZERO live
+            // variant children (VariantProductIds empty or all archived) that also carries a substitution
+            // edge would otherwise render substitutes ONLY — the same irreversibility bug pass 1's leaf
+            // fix addressed (setVariant only ever assigns, never clears), and a violation of the ticket's
+            // own rule that substitutes are offered "alongside the direct product/variants", never alone.
+            // Append the same synthetic direct entry the leaf branch builds below.
+            if (options.Count == 0 && substituteOptions.Count > 0)
+            {
+                options.Add(new VariantOptionView(
+                    VariantId: line.ProductId,
+                    VariantName: product.Name,
+                    AvailableQuantity: 0m,
+                    UnitCode: unitCode,
+                    IsCompatible: true,
+                    IsAutoSelected: true));
+            }
+
             // Total available for shortfall computation (sum across compatible variants in ingredient unit).
             var totalAvailable = options
                 .Where(o => o.IsCompatible)
@@ -578,7 +639,8 @@ public sealed class CookModel(
                 IsParent: true,
                 VariantOptions: options,
                 AvailableQuantity: totalAvailable,
-                IsShortfall: isShortfall);
+                IsShortfall: isShortfall,
+                SubstituteOptions: substituteOptions);
         }
 
         // Leaf product.
@@ -624,6 +686,28 @@ public sealed class CookModel(
             // claim the pantry is short.
             var isShortfall = !isUnitGap && scaledQty.HasValue && availableInIngUnit < scaledQty.Value;
 
+            // Substitution (plantry-aqpa.3 critic fix): a leaf line's picker previously rendered ONLY the
+            // "Or substitute" buttons — the direct product itself was never a selectable option, and
+            // setVariant() only ever assigns (never clears), so one mis-click on a substitute could not be
+            // undone without reloading the page. Populate a single synthetic "direct" option — the line's
+            // own product, its own on-hand, auto-selected — so a leaf-with-substitutes line offers the
+            // SAME "direct product/variants + each substitute" choice a parent line already does, and
+            // stays clickable back to the default. A leaf line with NO substitutes keeps VariantOptions
+            // empty exactly as before (the picker gate below only renders when this list — or
+            // SubstituteOptions — is non-empty), so byte-for-byte behaviour is unchanged everywhere else.
+            var leafVariantOptions = substituteOptions.Count > 0
+                ? (IReadOnlyList<VariantOptionView>)
+                [
+                    new VariantOptionView(
+                        VariantId: line.ProductId,
+                        VariantName: product.Name,
+                        AvailableQuantity: availableInIngUnit,
+                        UnitCode: unitCode,
+                        IsCompatible: true,
+                        IsAutoSelected: true),
+                ]
+                : [];
+
             return new CookLineView(
                 IngredientId: ingredientId,
                 LineKey: lineKey,
@@ -636,12 +720,13 @@ public sealed class CookModel(
                 UnitCode: unitCode,
                 IsUntracked: false,
                 IsParent: false,
-                VariantOptions: [],
+                VariantOptions: leafVariantOptions,
                 AvailableQuantity: availableInIngUnit,
                 IsShortfall: isShortfall,
                 IsUnitGap: isUnitGap,
                 StockQuantity: stockQuantity,
-                StockUnitCode: stockUnitCode);
+                StockUnitCode: stockUnitCode,
+                SubstituteOptions: substituteOptions);
         }
     }
 
@@ -760,6 +845,26 @@ public sealed class CookModel(
         // ── Inclusion-line inputs (path-qualified), keyed by lineKey ──────────────────────────────
         var skippedInclusionLines = SkippedInclusionLineKeys.ToHashSet();
 
+        // Substitution (plantry-aqpa.3): resolved once up front so a posted picker selection can be
+        // recognised as a substitute candidate (vs. a direct catalog variant) below. Never trust the
+        // client's arithmetic — ComputeSubstituteCandidatesAsync is the SAME algorithm the GET-side
+        // picker used to display these amounts, recomputed here from the posted (possibly overridden)
+        // quantity so the consume always matches what CookConsumeLine records.
+        var postLineProductIds = expandedLines.Select(l => l.ProductId).Distinct().ToList();
+        var (substitutionsByTarget, subCatalogById, subStockById) =
+            await ResolveSubstitutionDataAsync(postLineProductIds, ct);
+
+        // Direct-variant membership (plantry-aqpa.3 critic fix): needed to tell a real catalog variant
+        // of line.ProductId apart from a posted id that is neither a direct variant NOR (any longer) a
+        // resolvable substitute candidate — e.g. the edge was deleted, the substitute's stock aggregate
+        // disappeared, or a conversion path broke between the GET render and this POST. Without this
+        // check the code below could fall through to allocating the RECIPE's raw quantity, in the
+        // RECIPE's unit, against a foreign product id — an untruthful stock-journal/costing entry the
+        // ticket explicitly forbids (a broken path must disqualify the option, never silently misdeduct).
+        var postCatalogById = postLineProductIds.Count > 0
+            ? (await catalog.FindManyWithVariantsAsync(postLineProductIds, ct)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+            : new Dictionary<Guid, CatalogProduct>();
+
         var resolutions = new List<IngredientResolution>();
 
         // Whole-inclusion skips (D7): one resolution per skipped inclusion path prefix.
@@ -807,11 +912,45 @@ public sealed class CookModel(
 
             if (hasPicker)
             {
-                // User selected a specific variant; allocate the effective quantity to it.
                 var unitId = line.UnitId ?? Guid.Empty;
+                VariantAllocation? allocation = null;
+
+                // Substitution (plantry-aqpa.3): try to resolve the posted product as a substitute
+                // candidate FIRST. When it is, the consumed quantity/unit must be the ratio-converted
+                // DEDUCTION from that candidate's OWN stock, not the recipe's effective quantity in the
+                // recipe's unit — so CookConsumeLine (and the stock journal) record what was actually
+                // taken from the substitute, truthfully.
+                if (line.UnitId.HasValue && substitutionsByTarget.ContainsKey(line.ProductId))
+                {
+                    var candidates = await ComputeSubstituteCandidatesAsync(
+                        line.ProductId, effectiveQty, line.UnitId.Value,
+                        substitutionsByTarget, subCatalogById, subStockById, ct);
+                    var chosenSubstitute = candidates.FirstOrDefault(c => c.ProductId == chosenVariantId);
+                    if (chosenSubstitute is not null)
+                        allocation = new VariantAllocation(
+                            chosenSubstitute.ProductId, chosenSubstitute.DeductQuantity, chosenSubstitute.UnitId);
+                }
+
+                if (allocation is null)
+                {
+                    // Not a (still-resolvable) substitute. Confirm the posted id is a genuine direct
+                    // catalog variant of line.ProductId — the pre-aqpa.3 contract, unchanged — before
+                    // allocating the recipe's raw effective quantity/unit to it. A posted id that is
+                    // NEITHER a direct variant NOR a resolvable substitute (edge deleted, substitute
+                    // stock gone, or a conversion path broke between GET and this POST) must never reach
+                    // the untruthful "raw quantity against a foreign product" allocation — fall back to
+                    // the line's own direct product instead, exactly as if no picker entry were posted.
+                    var isDirectVariant = chosenVariantId == line.ProductId ||
+                        (postCatalogById.TryGetValue(line.ProductId, out var lineProduct) &&
+                         lineProduct.VariantProductIds.Contains(chosenVariantId));
+
+                    allocation = new VariantAllocation(
+                        isDirectVariant ? chosenVariantId : line.ProductId, effectiveQty, unitId);
+                }
+
                 resolutions.Add(new IngredientResolution(ingId, IsSkipped: false, Allocations:
                 [
-                    new VariantAllocation(chosenVariantId, effectiveQty, unitId),
+                    allocation,
                 ], Path: line.Path));
             }
             else if (hasOverride)
@@ -897,7 +1036,150 @@ public sealed class CookModel(
         IReadOnlyDictionary<Guid, Guid> VariantDefaultUnits,
         IReadOnlyDictionary<Guid, Plantry.Recipes.Application.ProductStock> StockById,
         IReadOnlyDictionary<Guid, string> StockUnitCodes,
-        IReadOnlyDictionary<Guid, string> VariantUnitCodes);
+        IReadOnlyDictionary<Guid, string> VariantUnitCodes,
+        IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>> SubstitutionsByTarget,
+        IReadOnlyDictionary<Guid, CatalogProduct> SubCatalogById,
+        IReadOnlyDictionary<Guid, Plantry.Recipes.Application.ProductStock> SubStockById,
+        IReadOnlyDictionary<Guid, CatalogProductSummary> SubVariantSummaries,
+        IReadOnlyDictionary<Guid, string> SubStockUnitCodes);
+
+    // ── Substitution (plantry-aqpa.3, C11 amendment) ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Batch-resolves one-hop substitution edges (plantry-aqpa.1) targeting any of <paramref name="lineProductIds"/>,
+    /// plus the catalog/stock facts (including DM-19 variant rollup, factor 1.0 — not a second substitution
+    /// hop) needed to price each substitute candidate. Mirrors <see cref="FulfillmentService"/>'s
+    /// ResolveCatalogAndStockAsync (aqpa.2) but scoped to ONLY the substitute side — the recipe's own
+    /// direct-product catalog/stock is resolved separately by the caller (GET's existing pipeline, or
+    /// POST's per-line resolution) and is not duplicated here. Empty when no edge targets any of the
+    /// given products (the common case for a household that has declared no substitutions).
+    /// </summary>
+    private async Task<(
+        IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>> EdgesByTarget,
+        IReadOnlyDictionary<Guid, CatalogProduct> CatalogById,
+        IReadOnlyDictionary<Guid, Plantry.Recipes.Application.ProductStock> StockById)>
+        ResolveSubstitutionDataAsync(IReadOnlyList<Guid> lineProductIds, CancellationToken ct)
+    {
+        if (lineProductIds.Count == 0)
+            return (
+                new Dictionary<Guid, IReadOnlyList<SubstitutionEdge>>(),
+                new Dictionary<Guid, CatalogProduct>(),
+                new Dictionary<Guid, Plantry.Recipes.Application.ProductStock>());
+
+        var edgesByTarget = await substitutionReader.ListByTargetProductIdsAsync(lineProductIds, ct);
+        if (edgesByTarget.Count == 0)
+            return (
+                edgesByTarget,
+                new Dictionary<Guid, CatalogProduct>(),
+                new Dictionary<Guid, Plantry.Recipes.Application.ProductStock>());
+
+        var substituteIds = edgesByTarget.Values
+            .SelectMany(edges => edges.Select(e => e.SubstituteProductId))
+            .Distinct()
+            .ToList();
+        var catalogById = (await catalog.FindManyWithVariantsAsync(substituteIds, ct))
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        var stockIds = new HashSet<Guid>();
+        foreach (var (id, product) in catalogById)
+        {
+            if (!product.TrackStock) continue;
+            if (product.IsParent)
+                foreach (var v in product.VariantProductIds)
+                    stockIds.Add(v);
+            else
+                stockIds.Add(id);
+        }
+        var stockById = stockIds.Count > 0
+            ? await stockReader.FindStockBatchAsync(stockIds.ToList(), ct)
+            : new Dictionary<Guid, Plantry.Recipes.Application.ProductStock>();
+
+        return (edgesByTarget, catalogById, stockById);
+    }
+
+    /// <summary>
+    /// Computes every substitute candidate available for one line's product (plantry-aqpa.3). For each
+    /// one-hop edge whose target is <paramref name="targetProductId"/>, the substitute's own stock (DM-19
+    /// rollup applies to the substitute too — factor 1.0, not a second substitution hop — so a substitute
+    /// that is itself a parent product yields one candidate per live variant child) is priced two ways:
+    /// its plain available quantity (own stock, own unit), and the amount that would be DEDUCTED to cover
+    /// <paramref name="requiredQuantity"/> of <paramref name="requiredUnitId"/> — the required quantity
+    /// converted into the edge's target unit via the target product's own unit graph, crossed over the
+    /// edge ratio, then landed in the candidate's own default/stock unit via ITS unit graph. A broken
+    /// conversion at either hop disqualifies that one candidate (it is simply omitted) rather than
+    /// erroring the picker or the cook — matching the direct-variant picker's partial-visibility rule.
+    /// Called identically by the GET render path (to list every option) and by OnPostAsync (to recompute,
+    /// never trust, the deduction amount for whichever candidate the user actually posted) — one algorithm,
+    /// two callers, so a submitted cook can never diverge from what the picker displayed.
+    /// </summary>
+    private async Task<List<SubstituteCandidate>> ComputeSubstituteCandidatesAsync(
+        Guid targetProductId,
+        decimal requiredQuantity,
+        Guid requiredUnitId,
+        IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>> substitutionsByTarget,
+        IReadOnlyDictionary<Guid, CatalogProduct> subCatalogById,
+        IReadOnlyDictionary<Guid, Plantry.Recipes.Application.ProductStock> subStockById,
+        CancellationToken ct)
+    {
+        var results = new List<SubstituteCandidate>();
+        if (!substitutionsByTarget.TryGetValue(targetProductId, out var edges))
+            return results;
+
+        foreach (var edge in edges)
+        {
+            if (!subCatalogById.TryGetValue(edge.SubstituteProductId, out var substituteProduct) ||
+                !substituteProduct.TrackStock)
+                continue; // no substitute stock to draw from
+
+            // Hop A: required qty (in the line's unit) → the edge's TARGET unit, via the target product's
+            // own unit graph. Converts the ACTUAL amount (not a factor-of-1 probe multiplied afterwards) —
+            // this is a persisted deduction quantity, not a display figure, and UnitConverter's own BFS
+            // deliberately carries the real amount through to avoid the sub-epsilon residue that composing
+            // a separate multiplier can leave.
+            var targetConv = requiredUnitId == edge.TargetUnitId
+                ? Result<decimal>.Success(requiredQuantity)
+                : await unitConverter.ConvertAsync(targetProductId, requiredQuantity, requiredUnitId, edge.TargetUnitId, ct);
+            if (targetConv.IsFailure)
+                continue; // no path — every candidate under this edge is disqualified
+            var qtyInTargetUnit = targetConv.Value;
+
+            // Hop B: cross the edge ratio into the substitute's declared unit.
+            var qtyInSubstituteUnit = qtyInTargetUnit * (edge.SubstituteQuantity / edge.TargetQuantity);
+
+            var candidateIds = substituteProduct.IsParent
+                ? substituteProduct.VariantProductIds
+                : [edge.SubstituteProductId];
+
+            foreach (var candidateId in candidateIds)
+            {
+                if (!subStockById.TryGetValue(candidateId, out var stock))
+                    continue; // no stock record
+
+                // Hop C: land the substitute-unit amount in the candidate's OWN default/stock unit, via
+                // ITS unit graph (each variant/leaf may carry its own household conversions).
+                var deductConv = edge.SubstituteUnitId == stock.DefaultUnitId
+                    ? Result<decimal>.Success(qtyInSubstituteUnit)
+                    : await unitConverter.ConvertAsync(
+                        candidateId, qtyInSubstituteUnit, edge.SubstituteUnitId, stock.DefaultUnitId, ct);
+                if (deductConv.IsFailure)
+                    continue; // broken path — disqualify this one candidate, not the cook
+
+                results.Add(new SubstituteCandidate(
+                    candidateId, stock.AvailableQuantity, deductConv.Value, stock.DefaultUnitId));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// One priced substitute candidate (plantry-aqpa.3) — either a substitute leaf product or one live
+    /// variant child of a substitute parent (DM-19 rollup, factor 1.0). <see cref="AvailableQuantity"/> and
+    /// <see cref="DeductQuantity"/> are both expressed in <see cref="UnitId"/> — the candidate's own
+    /// default/stock unit — so the picker can show "have X / will use ≈Y" in one unit.
+    /// </summary>
+    private sealed record SubstituteCandidate(
+        Guid ProductId, decimal AvailableQuantity, decimal DeductQuantity, Guid UnitId);
 
     /// <summary>Per-inclusion-path display metadata (sub-recipe name + effective servings in this cook).</summary>
     private sealed record GroupMeta(string SubName, decimal EffectiveServings);
@@ -1001,6 +1283,14 @@ public sealed record CookInclusionGroupView(
 /// The display code for the (possibly re-expressed) unit <paramref name="DisplayQuantity"/> renders in —
 /// e.g. "cup" when 4 tbsp simplified to ¼ cup. Equals <paramref name="UnitCode"/> at scale 1.
 /// </param>
+/// <param name="SubstituteOptions">
+/// One-hop substitution candidates (plantry-aqpa.3, C11 amendment) offered alongside the direct product/
+/// variants whenever a declared edge targets this line's product — populated regardless of
+/// <see cref="IsParent"/>, since a plain leaf ingredient can carry substitutes too. Never auto-selected:
+/// direct stock stays the default/preselected choice whenever sufficient (the picker is the human
+/// checkpoint the v1 design leans on). Empty when no edge targets this product, or every candidate's
+/// conversion path was broken (disqualified from the picker, not the cook).
+/// </param>
 public sealed record CookLineView(
     Guid IngredientId,
     string LineKey,
@@ -1020,8 +1310,14 @@ public sealed record CookLineView(
     decimal? StockQuantity = null,
     string? StockUnitCode = null,
     string? DisplayQuantity = null,
-    string? DisplayUnitCode = null)
+    string? DisplayUnitCode = null,
+    IReadOnlyList<SubstituteOptionView>? SubstituteOptions = null)
 {
+    /// <summary>Non-null accessor — <see cref="SubstituteOptions"/> is nullable only so the positional
+    /// record constructor can default it without breaking every pre-existing named-argument call site;
+    /// every caller (page code and view markup) should read through here.</summary>
+    public IReadOnlyList<SubstituteOptionView> Substitutes => SubstituteOptions ?? [];
+
     /// <summary>
     /// "Use it up" (plantry-1dnk) eligibility — the single source of truth Cook.cshtml's Alpine
     /// on-hand seed and _CookIngredientRow's pill/chip/clamp markup both gate on, so they can never
@@ -1050,6 +1346,26 @@ public sealed record VariantOptionView(
     string? UnitCode,
     bool IsCompatible,
     bool IsAutoSelected);
+
+/// <summary>
+/// One substitute option within the C11 picker (plantry-aqpa.3) — a household-declared one-hop
+/// substitution edge's candidate (the substitute product itself, or one live variant child when the
+/// substitute is a parent, DM-19 rollup factor 1.0). Never auto-selected — direct stock stays the
+/// default/preselected choice whenever sufficient (the picker is the human checkpoint).
+/// </summary>
+/// <param name="AvailableQuantity">The candidate's own on-hand stock, in <see cref="UnitCode"/>.</param>
+/// <param name="DeductQuantity">
+/// The amount that would actually be DEDUCTED from this candidate's stock if chosen — the line's
+/// required quantity converted through the edge ratio and each product's own unit graph — expressed in
+/// the SAME <see cref="UnitCode"/> as <see cref="AvailableQuantity"/> so the row can show "have X / will
+/// use ≈Y" in one unit (quantity-display.md conventions).
+/// </param>
+public sealed record SubstituteOptionView(
+    Guid ProductId,
+    string ProductName,
+    decimal AvailableQuantity,
+    decimal DeductQuantity,
+    string? UnitCode);
 
 /// <summary>Form input model for the variant picker selection (one per parent-product ingredient).</summary>
 public sealed record PickerSelectionInput
