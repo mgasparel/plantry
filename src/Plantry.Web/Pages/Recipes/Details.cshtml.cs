@@ -436,6 +436,18 @@ public sealed class DetailsModel(
         // §7) — shared by direct rows AND inclusion child rows below.
         var fulfillmentByKey = fulfillment.Lines.ToDictionary(l => (l.ProductId, l.UnitId));
 
+        // Substitute names for the InStockViaSubstitute display touchpoint (plantry-aqpa.5) — batch-resolved
+        // once for every distinct substitute product id any line's ContributingSubstituteProductIds names,
+        // since those products are not necessarily among this recipe's own ingredient products (and so are
+        // not already covered by productLookup/exProductLookup below).
+        var substituteIds = fulfillment.Lines
+            .SelectMany(l => l.ContributingSubstituteProductIds ?? [])
+            .Distinct()
+            .ToList();
+        var substituteNameLookup = substituteIds.Count > 0
+            ? await catalog.ResolveSummariesAsync(substituteIds, ct)
+            : new Dictionary<Guid, CatalogProductSummary>();
+
         IngredientItemView BuildItem(
             Guid productId, Guid? unitId, decimal? quantity,
             IReadOnlyDictionary<Guid, CatalogProductSummary> products,
@@ -455,6 +467,10 @@ public sealed class DetailsModel(
             // vulgar-fraction snap once the servings stepper moves the amount off scale 1.
             var isFractionStyle = unitId.HasValue && styles.GetValueOrDefault(unitId.Value);
             fulfillmentByKey.TryGetValue((productId, unitId), out var f);
+            var substituteNames = (f?.ContributingSubstituteProductIds ?? [])
+                .Select(id => substituteNameLookup.TryGetValue(id, out var s) ? s.Name : "(unknown product)")
+                .Distinct()
+                .ToList();
             return new IngredientItemView(
                 ProductName: product?.Name ?? "(unknown product)",
                 ProductId: productId,
@@ -462,6 +478,7 @@ public sealed class DetailsModel(
                 UnitCode: unitCode,
                 IsUntracked: isUntracked,
                 Status: f?.Status ?? IngredientStatus.Untracked,
+                SubstituteNames: substituteNames,
                 ExpiresWithinDays: f?.ExpiresWithinDays,
                 UnitMismatch: f?.UnitMismatch ?? false,
                 DisplayQuantity: displayQuantity,
@@ -1047,6 +1064,13 @@ public sealed record RollupChipView(string Label, IngredientStatus Tone);
 /// of always falling back to a bare decimal. False for untracked / quantity-less lines and for any
 /// <c>Decimal</c>-styled unit.
 /// </param>
+/// <param name="SubstituteNames">
+/// Display-only (plantry-aqpa.5): distinct substitute product names resolved from
+/// <see cref="Plantry.Recipes.Domain.IngredientFulfillment.ContributingSubstituteProductIds"/>, threaded
+/// through unfiltered by status — so a <see cref="IngredientStatus.Low"/> line partially covered by a
+/// substitute also carries names here, not only <see cref="IngredientStatus.InStockViaSubstitute"/>.
+/// <c>_IngredientRow.cshtml</c> reads this list only in the <c>InStockViaSubstitute</c> branch.
+/// </param>
 public sealed record IngredientItemView(
     string ProductName,
     Guid ProductId,
@@ -1057,7 +1081,8 @@ public sealed record IngredientItemView(
     int? ExpiresWithinDays,
     bool UnitMismatch = false,
     string? DisplayQuantity = null,
-    bool IsFractionStyle = false);
+    bool IsFractionStyle = false,
+    IReadOnlyList<string>? SubstituteNames = null);
 
 /// <summary>A derived direction block produced by <see cref="DetailsModel.ParseDirections"/> (C13).</summary>
 public sealed record DirectionBlock(

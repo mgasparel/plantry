@@ -61,7 +61,11 @@
     else if (status == IngredientStatus.InStockViaSubstitute)
     {
         // plantry-aqpa.2: direct stock alone was short — a household substitution edge closed the gap.
-        subLabel = "In your pantry (via substitute)";
+        // plantry-aqpa.5: name the substitute(s) that closed it — display only, no authoring affordance
+        // here (that lives on the substitute product's own detail page).
+        subLabel = item.SubstituteNames is { Count: > 0 } names
+            ? $"In your pantry (via {string.Join(", ", names)})"
+            : "In your pantry (via substitute)";
     }
     else if (status == IngredientStatus.Low)
     {

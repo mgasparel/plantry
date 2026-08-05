@@ -105,11 +105,11 @@ public sealed class FulfillmentService(
         var resultLines = new List<ExpandedIngredientFulfillment>(lines.Count);
         foreach (var line in lines)
         {
-            var (status, expires, available, unitMismatch) = ComputeLineCore(
+            var (status, expires, available, unitMismatch, contributingSubstitutes) = ComputeLineCore(
                 line.ProductId, line.Quantity, line.UnitId,
                 scale, catalogById, stockById, substitutionsByTarget, today, converter, unitFactor, expiringSoonDays);
             resultLines.Add(new ExpandedIngredientFulfillment(
-                line.ProductId, line.UnitId, status, expires, available, unitMismatch));
+                line.ProductId, line.UnitId, status, expires, available, unitMismatch, contributingSubstitutes));
         }
 
         var overall = BuildOverall(resultLines.Select(l => l.Status));
@@ -334,10 +334,10 @@ public sealed class FulfillmentService(
         var lines = new List<IngredientFulfillment>(ingredients.Count);
         foreach (var ingredient in ingredients)
         {
-            var (status, expires, available, unitMismatch) = ComputeLineCore(
+            var (status, expires, available, unitMismatch, contributingSubstitutes) = ComputeLineCore(
                 ingredient.ProductId, ingredient.Quantity, ingredient.UnitId,
                 scale, catalogById, stockById, substitutionsByTarget, today, converter, unitFactor, expiringSoonDays);
-            lines.Add(new IngredientFulfillment(ingredient.Id, status, expires, available, unitMismatch));
+            lines.Add(new IngredientFulfillment(ingredient.Id, status, expires, available, unitMismatch, contributingSubstitutes));
         }
 
         return new FulfillmentResult(BuildOverall(lines.Select(l => l.Status)), lines);
@@ -357,7 +357,7 @@ public sealed class FulfillmentService(
     /// the cookability rollup — it exists purely so the UI can distinguish "can't compare units" from
     /// "not in pantry". Does no IO.
     /// </summary>
-    private static (IngredientStatus Status, int? ExpiresWithinDays, decimal? AvailableQuantity, bool UnitMismatch) ComputeLineCore(
+    private static (IngredientStatus Status, int? ExpiresWithinDays, decimal? AvailableQuantity, bool UnitMismatch, IReadOnlyList<Guid> ContributingSubstituteProductIds) ComputeLineCore(
         Guid productId,
         decimal? quantity,
         Guid? unitId,
@@ -372,12 +372,12 @@ public sealed class FulfillmentService(
     {
         // Unresolvable product → Missing.
         if (!catalogById.TryGetValue(productId, out var catalogProduct))
-            return (IngredientStatus.Missing, null, null, false);
+            return (IngredientStatus.Missing, null, null, false, []);
 
         // Untracked staple (track_stock = false) is always satisfied (C12) — and, defensively, a null
         // quantity/unit ("to taste") is treated the same even on a tracked product (R5).
         if (!catalogProduct.TrackStock || quantity is null || unitId is null)
-            return (IngredientStatus.Untracked, null, null, false);
+            return (IngredientStatus.Untracked, null, null, false, []);
 
         var scaledRequired = quantity.Value * scale;
 
@@ -410,6 +410,12 @@ public sealed class FulfillmentService(
         // Substitution (plantry-aqpa.2), pursued only when direct stock (incl. DM-19 rollup) is short —
         // one hop, no chaining: apply every edge whose TARGET is this line's product.
         var substituteContribution = 0m;
+        // Display-only (plantry-aqpa.5): the substitute product ids that actually landed a positive
+        // contribution toward this line — surfaced to the UI so a InStockViaSubstitute row can name
+        // which product closed the gap, without claiming a precise per-substitute split (the pantry
+        // touchpoint is display-only; it does not attempt to reproduce the exact deduction math the
+        // Cook page's C11 picker computes at consume time).
+        var contributingSubstitutes = new List<Guid>();
         if (directAvailable < scaledRequired &&
             substitutionsByTarget.TryGetValue(productId, out var edges))
         {
@@ -451,7 +457,10 @@ public sealed class FulfillmentService(
                 // Land in the line's unit via the target product's own unit graph.
                 var factor = unitFactor(productId, edge.TargetUnitId, unitId.Value);
                 if (factor.IsSuccess)
+                {
                     substituteContribution += qtyInTargetUnit * factor.Value;
+                    contributingSubstitutes.Add(edge.SubstituteProductId);
+                }
                 // Conversion failure on the landing hop contributes zero — same partial-visibility rule.
             }
         }
@@ -480,7 +489,7 @@ public sealed class FulfillmentService(
                 expiresWithinDays = daysUntilExpiry;
         }
 
-        return (status, expiresWithinDays, combinedAvailable > 0m ? combinedAvailable : null, unitMismatch);
+        return (status, expiresWithinDays, combinedAvailable > 0m ? combinedAvailable : null, unitMismatch, contributingSubstitutes);
     }
 
     private static FulfillmentOverall BuildOverall(IEnumerable<IngredientStatus> statuses)
@@ -557,12 +566,22 @@ public enum IngredientStatus
 /// not empty. Lets the UI show an honest "can't compare units" explanation instead of "Not in your
 /// pantry". Never affects the status or the cookability rollup.
 /// </param>
+/// <param name="ContributingSubstituteProductIds">
+/// Display-only (plantry-aqpa.5): substitute products (soft ref → catalog.product) whose stock landed a
+/// positive contribution toward this line, in no particular order. Populated whenever a substitution
+/// edge contributed — <b>not only</b> when <paramref name="Status"/> is
+/// <see cref="IngredientStatus.InStockViaSubstitute"/>: a <see cref="IngredientStatus.Low"/> line that
+/// substitutes only partially covered also carries entries here. The UI (Recipe Details' ingredient
+/// row) reads this list only in the <c>InStockViaSubstitute</c> branch; several edges may all
+/// contribute, and the UI names them without claiming a precise per-substitute quantity split.
+/// </param>
 public sealed record IngredientFulfillment(
     IngredientId IngredientId,
     IngredientStatus Status,
     int? ExpiresWithinDays,
     decimal? AvailableQuantity,
-    bool UnitMismatch = false);
+    bool UnitMismatch = false,
+    IReadOnlyList<Guid>? ContributingSubstituteProductIds = null);
 
 /// <summary>
 /// Top-level summary of whether a recipe is fully cookable.
@@ -597,13 +616,17 @@ public sealed record FulfillmentResult(
 /// Display-only (plantry-z2sr): true when <paramref name="Status"/> is Missing <b>only</b> because real
 /// on-hand stock could not be converted to the recipe unit (see <see cref="IngredientFulfillment.UnitMismatch"/>).
 /// </param>
+/// <param name="ContributingSubstituteProductIds">
+/// Display-only (plantry-aqpa.5): see <see cref="IngredientFulfillment.ContributingSubstituteProductIds"/>.
+/// </param>
 public sealed record ExpandedIngredientFulfillment(
     Guid ProductId,
     Guid? UnitId,
     IngredientStatus Status,
     int? ExpiresWithinDays,
     decimal? AvailableQuantity,
-    bool UnitMismatch = false);
+    bool UnitMismatch = false,
+    IReadOnlyList<Guid>? ContributingSubstituteProductIds = null);
 
 /// <summary>
 /// The complete cookability computation over a recipe's <b>expanded</b> view at a given serving count

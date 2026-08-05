@@ -21,7 +21,15 @@ public sealed class CreateSubstitution(
     IClock clock,
     ILogger<CreateSubstitution> logger)
 {
-    public async Task<Result> ExecuteAsync(CreateSubstitutionCommand command, CancellationToken ct = default)
+    /// <summary>
+    /// Authors the edge. The returned <see cref="Result{T}.Value"/> tells the caller whether this
+    /// duplicate-pair upsert replaced an existing edge (<c>true</c>) or inserted a new one
+    /// (<c>false</c>) — the command already knows the answer from its own <c>FindByPairAsync</c> lookup
+    /// below, so a caller that needs to distinguish "added" from "replaced" (e.g. the product detail
+    /// page's toast wording, plantry-aqpa.5) reads it here rather than re-deriving it with a second,
+    /// redundant read through the write-side <see cref="ISubstitutionRepository"/> seam.
+    /// </summary>
+    public async Task<Result<bool>> ExecuteAsync(CreateSubstitutionCommand command, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdGuid)
         {
@@ -69,6 +77,7 @@ public sealed class CreateSubstitution(
         var existing = await substitutions.FindByPairAsync(
             command.SubstituteProductId, command.TargetProductId, ct);
 
+        bool replaced;
         if (existing is null)
         {
             var substitution = Substitution.Create(
@@ -77,6 +86,7 @@ public sealed class CreateSubstitution(
                 command.SubstituteProductId, command.SubstituteQuantity, command.SubstituteUnitId,
                 clock);
             await substitutions.AddAsync(substitution, ct);
+            replaced = false;
         }
         else
         {
@@ -84,13 +94,14 @@ public sealed class CreateSubstitution(
                 command.TargetQuantity, command.TargetUnitId,
                 command.SubstituteQuantity, command.SubstituteUnitId,
                 clock);
+            replaced = true;
         }
 
         await substitutions.SaveChangesAsync(ct);
         logger.LogInformation(
             "Substitution edge authored: {SubstituteProductId} -> {TargetProductId}.",
             command.SubstituteProductId, command.TargetProductId);
-        return Result.Success();
+        return Result<bool>.Success(replaced);
     }
 }
 

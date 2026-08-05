@@ -38,6 +38,7 @@ public sealed class CreateSubstitutionTests
         var result = await service.ExecuteAsync(Command());
 
         Assert.True(result.IsSuccess);
+        Assert.False(result.Value); // inserted a fresh edge, not a replace
         var edge = Assert.Single(substitutions.Items);
         Assert.Equal(TargetProduct, edge.TargetProductId);
         Assert.Equal(400m, edge.TargetQuantity);
@@ -55,6 +56,7 @@ public sealed class CreateSubstitutionTests
         var result = await service.ExecuteAsync(Command(targetQuantity: 500m, substituteQuantity: 200m));
 
         Assert.True(result.IsSuccess);
+        Assert.True(result.Value); // replaced the existing edge, not an insert
         var edge = Assert.Single(substitutions.Items);
         Assert.Equal(500m, edge.TargetQuantity);
         Assert.Equal(200m, edge.SubstituteQuantity);

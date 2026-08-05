@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.ComponentModel.DataAnnotations;
+using System.Text;
+using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -7,10 +9,12 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Plantry.Pantry.Application;
 using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
+using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Pages.Shared;
+using Plantry.Web.TagHelpers;
 
 namespace Plantry.Web.Pages.Catalog.Products;
 
@@ -32,6 +36,14 @@ public sealed class DetailModel(
     ILogger<MakeVariantCommand> makeVariantLogger,
     ILogger<CreateVariantCommand> createVariantLogger,
     ApplyDeferredUnitGaps deferredUnitGaps,
+    // Substitutions (plantry-aqpa.5) — the Recipes-owned concept is authored here because this is
+    // where the household is standing when they think "what can stand in for this?" (composition,
+    // not a context violation: the page model calls Recipes' own application seams directly, the
+    // same pattern Cook.cshtml.cs already uses for the fulfillment/cook-picker touchpoints).
+    ISubstitutionReader substitutionReader,
+    ISubstitutionRepository substitutionRepository,
+    ILogger<CreateSubstitution> createSubstitutionLogger,
+    ILogger<DeleteSubstitution> deleteSubstitutionLogger,
     ILogger<DetailModel> logger) : PageModel
 {
     public ProductId Id { get; private set; }
@@ -63,6 +75,13 @@ public sealed class DetailModel(
     public AddConversionInputModel ConversionInput { get; set; } = new();
     public MakeVariantInputModel VariantInput { get; set; } = new();
     public AddVariantInputModel AddVariantInput { get; set; } = new();
+
+    /// <summary>Every substitution edge touching this product, both directions (plantry-aqpa.5).</summary>
+    public IReadOnlyList<SubstitutionListItem> Substitutions { get; private set; } = [];
+    public AddSubstitutionInputModel SubstitutionInput { get; set; } = new();
+
+    /// <summary>Every other active product this household could pick as the substitute/target side.</summary>
+    public IReadOnlyList<SelectListItem> SubstitutionProductOptions { get; private set; } = [];
 
     public sealed class InputModel
     {
@@ -141,6 +160,46 @@ public sealed class DetailModel(
         public decimal Factor { get; set; }
     }
 
+    /// <summary>
+    /// Input for authoring a <see cref="Plantry.Recipes.Domain.Substitution"/> edge from this product's
+    /// detail page (plantry-aqpa.5). <see cref="Direction"/> picks which side of the edge this product
+    /// is on: "in" — the other product satisfies THIS one (this product is the edge's target); "out" —
+    /// THIS product satisfies the other one (this product is the edge's substitute). No edit in v1 —
+    /// delete + re-add is the repair path, matching <c>ProductConversion</c>.
+    /// </summary>
+    public sealed class AddSubstitutionInputModel
+    {
+        // RegularExpression (not just Required) — Direction picks which side of the edge THIS product
+        // lands on; a stale/garbled posted value that is neither "in" nor "out" must round-trip as a
+        // field error rather than the OnPostAddSubstitutionAsync isIncoming check silently treating any
+        // non-"in" value as "out" and authoring the edge in the reverse direction.
+        [Required(ErrorMessage = "Select a direction.")]
+        [RegularExpression("^(in|out)$", ErrorMessage = "Select a direction.")]
+        public string Direction { get; set; } = "in";
+
+        [Required(ErrorMessage = "Select the other product.")]
+        [Display(Name = "Other product")]
+        public Guid? OtherProductId { get; set; }
+
+        [Required(ErrorMessage = "Enter the amount of this product.")]
+        [Range(0.000001, double.MaxValue, ErrorMessage = "Amount must be positive.")]
+        [Display(Name = "Amount of this product")]
+        public decimal? ThisQuantity { get; set; }
+
+        [Required(ErrorMessage = "Select a unit for this product.")]
+        [Display(Name = "Unit for this product")]
+        public Guid? ThisUnitId { get; set; }
+
+        [Required(ErrorMessage = "Enter the amount of the other product.")]
+        [Range(0.000001, double.MaxValue, ErrorMessage = "Amount must be positive.")]
+        [Display(Name = "Amount of the other product")]
+        public decimal? OtherQuantity { get; set; }
+
+        [Required(ErrorMessage = "Select a unit for the other product.")]
+        [Display(Name = "Unit for the other product")]
+        public Guid? OtherUnitId { get; set; }
+    }
+
     public sealed class MakeVariantInputModel
     {
         [Required(ErrorMessage = "Select a parent product.")]
@@ -180,7 +239,28 @@ public sealed class DetailModel(
         await LoadExpiryPolicyEditorsAsync(entity!);
         SeedAddVariantInput(entity!);
         await LoadOptionsAsync();
+        await LoadSubstitutionsAsync();
         return Page();
+    }
+
+    /// <summary>
+    /// htmx typeahead endpoint backing the "Add substitution" other-product search (plantry-aqpa.5) —
+    /// the existing product search/typeahead pattern (mirrors Pantry Index's
+    /// <c>OnGetFilterProductsAsync</c>). Excludes this product itself (self-substitution is a domain
+    /// error the picker should never even offer).
+    /// </summary>
+    public async Task<ContentResult> OnGetFilterSubstitutionProductsAsync(Guid id, string? q)
+    {
+        var matches = (await products.ListActiveAsync(HttpContext.RequestAborted))
+            .Where(p => p.Id.Value != id)
+            .Where(p => string.IsNullOrWhiteSpace(q) || p.Name.Contains(q.Trim(), StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(20)
+            .Select(p => new SelectListItem(p.Name, p.Id.Value.ToString()));
+
+        var html = new StringBuilder();
+        SearchableSelectTagHelper.AppendOptions(html, matches, HtmlEncoder.Default);
+        return Content(html.ToString(), "text/html");
     }
 
     public async Task<IActionResult> OnPostAsync(Guid id, [Bind(Prefix = "Input")] InputModel input)
@@ -280,6 +360,54 @@ public sealed class DetailModel(
         await TryApplyDeferredUnitGapsAsync(id);
 
         TempData["ToastMessage"] = "Conversion confirmed.";
+        return RedirectToPage(new { id });
+    }
+
+    /// <summary>
+    /// Authors a <see cref="Plantry.Recipes.Domain.Substitution"/> edge touching this product
+    /// (plantry-aqpa.5) — either direction, per <see cref="AddSubstitutionInputModel.Direction"/>.
+    /// A duplicate directed pair replaces the existing edge's ratio (the domain's upsert rule,
+    /// <see cref="CreateSubstitution"/>) rather than being rejected — surfaced here as a distinct toast
+    /// message so the household can tell "added" from "replaced" apart, per the ticket's "surface the
+    /// domain rule as a clear inline message" requirement.
+    /// </summary>
+    public async Task<IActionResult> OnPostAddSubstitutionAsync(Guid id, [Bind(Prefix = "SubstitutionInput")] AddSubstitutionInputModel input)
+    {
+        Id = ProductId.From(id);
+        SubstitutionInput = input;
+        if (!ModelState.IsValid) return await ReloadAsync();
+
+        var isIncoming = input.Direction == "in";
+        var otherProductId = input.OtherProductId!.Value;
+        var targetProductId = isIncoming ? id : otherProductId;
+        var targetQuantity = (isIncoming ? input.ThisQuantity : input.OtherQuantity)!.Value;
+        var targetUnitId = (isIncoming ? input.ThisUnitId : input.OtherUnitId)!.Value;
+        var substituteProductId = isIncoming ? otherProductId : id;
+        var substituteQuantity = (isIncoming ? input.OtherQuantity : input.ThisQuantity)!.Value;
+        var substituteUnitId = (isIncoming ? input.OtherUnitId : input.ThisUnitId)!.Value;
+
+        var cmd = new CreateSubstitution(substitutionRepository, tenant, clock, createSubstitutionLogger);
+        var result = await cmd.ExecuteAsync(
+            new CreateSubstitutionCommand(
+                targetProductId, targetQuantity, targetUnitId,
+                substituteProductId, substituteQuantity, substituteUnitId),
+            HttpContext.RequestAborted);
+        if (result.IsFailure) return await ReloadWithErrorAsync(result.Error);
+
+        // The command itself already knows whether this upserted onto an existing edge (its own
+        // FindByPairAsync lookup) — read that off Result.Value rather than re-deriving it here with a
+        // second, redundant read through the write-side ISubstitutionRepository seam.
+        TempData["ToastMessage"] = result.Value
+            ? "Substitution updated — replaced the existing ratio for this pair."
+            : "Substitution added.";
+        return RedirectToPage(new { id });
+    }
+
+    public async Task<IActionResult> OnPostRemoveSubstitutionAsync(Guid id, Guid substitutionId)
+    {
+        var cmd = new DeleteSubstitution(substitutionRepository, deleteSubstitutionLogger);
+        await cmd.ExecuteAsync(new DeleteSubstitutionCommand(SubstitutionId.From(substitutionId)), HttpContext.RequestAborted);
+        TempData["ToastMessage"] = "Substitution removed.";
         return RedirectToPage(new { id });
     }
 
@@ -426,6 +554,7 @@ public sealed class DetailModel(
             SeedAddVariantInput(entity!);
 
         await LoadOptionsAsync();
+        await LoadSubstitutionsAsync();
         return Page();
     }
 
@@ -624,8 +753,77 @@ public sealed class DetailModel(
             .Where(p => p.Id != Id && !p.IsVariant)
             .Select(p => new SelectListItem(p.Name, p.Id.Value.ToString()))
             .ToList();
+
+        // Substitutions (plantry-aqpa.5) may target/be-satisfied-by any other active product — no
+        // parent/variant restriction the way ParentOptions has, since a substitution edge is a plain
+        // catalog-product-to-catalog-product relationship.
+        SubstitutionProductOptions = candidates
+            .Where(p => p.Id != Id)
+            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(p => new SelectListItem(p.Name, p.Id.Value.ToString()))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Loads every substitution edge touching this product, both directions, phrased from this
+    /// product's point of view (plantry-aqpa.5) — mirrors <see cref="LoadOptionsAsync"/>'s "reload
+    /// alongside the rest of the page" role, called from both <see cref="OnGetAsync"/> and
+    /// <see cref="ReloadAsync"/>.
+    /// </summary>
+    private async Task LoadSubstitutionsAsync()
+    {
+        var edges = await substitutionReader.ListTouchingProductAsync(Id.Value, HttpContext.RequestAborted);
+        if (edges.Count == 0)
+        {
+            Substitutions = [];
+            return;
+        }
+
+        var otherProductIds = edges
+            .Select(e => e.TargetProductId == Id.Value ? e.SubstituteProductId : e.TargetProductId)
+            .Distinct()
+            .Select(ProductId.From)
+            .ToList();
+        var otherProducts = await products.ListByIdsAsync(otherProductIds, HttpContext.RequestAborted);
+        var otherProductNames = otherProducts.ToDictionary(p => p.Id.Value, p => p.Name);
+
+        var unitCodesById = (await units.ListAsync(HttpContext.RequestAborted)).ToDictionary(u => u.Id.Value, u => u.Code);
+        string UnitCode(Guid unitId) => unitCodesById.GetValueOrDefault(unitId, "?");
+        string ProductName(Guid productId) => otherProductNames.GetValueOrDefault(productId, "(unknown product)");
+
+        Substitutions = edges
+            .Select(edge =>
+            {
+                var isIncoming = edge.TargetProductId == Id.Value;
+                var otherProductId = isIncoming ? edge.SubstituteProductId : edge.TargetProductId;
+                var otherName = ProductName(otherProductId);
+                var primaryText = isIncoming ? $"Satisfied by {otherName}" : $"Stands in for {otherName}";
+                var ratioText = isIncoming
+                    ? $"{edge.SubstituteQuantity.ToString("0.######")} {UnitCode(edge.SubstituteUnitId)} of {otherName} ≡ {edge.TargetQuantity.ToString("0.######")} {UnitCode(edge.TargetUnitId)} of this"
+                    : $"{edge.SubstituteQuantity.ToString("0.######")} {UnitCode(edge.SubstituteUnitId)} of this ≡ {edge.TargetQuantity.ToString("0.######")} {UnitCode(edge.TargetUnitId)} of {otherName}";
+                return new SubstitutionListItem(edge.Id, isIncoming, otherProductId, otherName, primaryText, ratioText);
+            })
+            // Incoming ("satisfied by") edges first, then outgoing ("stands in for") — a stable,
+            // direction-grouped order rather than raw storage order.
+            .OrderByDescending(s => s.IsIncoming)
+            .ThenBy(s => s.OtherProductName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 }
+
+/// <summary>
+/// One row of the product detail "Substitutions" list (plantry-aqpa.5) — a display-ready projection of
+/// a <see cref="Plantry.Recipes.Application.SubstitutionEdge"/> phrased from the current product's point
+/// of view. <see cref="IsIncoming"/> distinguishes "another product satisfies this one" (edge's target
+/// is this product) from "this product satisfies another" (edge's substitute is this product).
+/// </summary>
+public sealed record SubstitutionListItem(
+    Guid Id,
+    bool IsIncoming,
+    Guid OtherProductId,
+    string OtherProductName,
+    string PrimaryText,
+    string RatioText);
 
 public enum ProductExpiryMode
 {

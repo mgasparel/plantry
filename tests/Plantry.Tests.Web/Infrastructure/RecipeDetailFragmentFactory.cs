@@ -126,6 +126,22 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
     /// </summary>
     protected virtual IReadOnlyDictionary<Guid, ProductStock> Stock => RecipeDetailFixture.Stock(Today);
 
+    /// <summary>
+    /// Catalog products the Detail page resolves ingredient (and, since plantry-aqpa.5, substitute)
+    /// names from. Default is the fixture's four-product set. A derived factory overrides this to add
+    /// a substitute product that is never itself an ingredient line (e.g.
+    /// <see cref="RecipeDetailViaSubstituteFactory"/>).
+    /// </summary>
+    protected virtual IReadOnlyDictionary<Guid, CatalogProduct> Products => RecipeDetailFixture.Products();
+
+    /// <summary>
+    /// Substitution edges (plantry-aqpa.1/.2/.5) the Detail page's fulfillment computation and
+    /// substitute-name touchpoint read. Default is empty — no fixture scenario exercises substitution
+    /// edges by default. A derived factory overrides this to exercise the "in stock via substitute"
+    /// display touchpoint (<see cref="RecipeDetailViaSubstituteFactory"/>).
+    /// </summary>
+    protected virtual ISubstitutionReader SubstitutionReader => new FakeDetailSubstitutionReader();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Non-Development: skips startup migrations/seeding and the Dev-pages gate.
@@ -166,7 +182,7 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             // Catalog product reader: returns the fixture product set + unit codes.
             services.RemoveAll<ICatalogProductReader>();
             services.AddSingleton<ICatalogProductReader>(
-                new FakeCatalogProductReader(RecipeDetailFixture.Products(), RecipeDetailFixture.UnitCodes()));
+                new FakeCatalogProductReader(Products, RecipeDetailFixture.UnitCodes()));
 
             // Inventory stock reader: mixed statuses (Pasta=InStock, Tomatoes=Low, Garlic=Missing).
             services.RemoveAll<IInventoryStockReader>();
@@ -182,11 +198,11 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<IUnitConverter>(new FakeDetailUnitConverter());
             services.AddFakeQuantityFormatter();
 
-            // Substitution reader (plantry-aqpa.2): empty — no fixture scenario exercises substitution
-            // edges yet. Without this override FulfillmentService resolves the real Postgres-backed
-            // SubstitutionReader, which this factory's no-database setup cannot satisfy.
+            // Substitution reader (plantry-aqpa.1/.2/.5): default empty. Without this override
+            // FulfillmentService resolves the real Postgres-backed SubstitutionReader, which this
+            // factory's no-database setup cannot satisfy.
             services.RemoveAll<ISubstitutionReader>();
-            services.AddSingleton<ISubstitutionReader>(new FakeDetailSubstitutionReader());
+            services.AddSingleton(SubstitutionReader);
 
             // Shopping list writer: no-op for GET-path tests (AddMissing is POST-only).
             // Satisfies the AddMissingToShoppingList DI constructor without a real Shopping DB.

@@ -487,6 +487,7 @@ internal sealed class ProductCreateTrackStockFactory : WebApplicationFactory<Pro
         {
             services.AddFakeExpiringSoonHorizon();
             services.AddFakeHouseholdExpiryDefaults();
+            services.AddFakeSubstitutions();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -536,6 +537,7 @@ internal sealed class ProductDetailTrackStockFactory : WebApplicationFactory<Pro
         {
             services.AddFakeExpiringSoonHorizon();
             services.AddFakeHouseholdExpiryDefaults();
+            services.AddFakeSubstitutions();
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

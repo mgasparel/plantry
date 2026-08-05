@@ -659,6 +659,38 @@ public sealed class FulfillmentServiceTests
     }
 
     [Fact]
+    public async Task Substitute_Multiple_Edges_Contributing_All_Named()
+    {
+        // plantry-aqpa.5: several household-authored edges may all top up the same short line — the
+        // display-only touchpoint on the recipe detail page names every substitute that actually
+        // landed a contribution, not just the first one found.
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+        var almondFlour = h.Catalog.AddTrackedLeaf(unit, "Almond Flour");
+
+        h.Stock.Add(flour.Id, available: 100m, unit); // short — needs 500
+        h.Stock.Add(riceFlour.Id, available: 250m, unit);
+        h.Stock.Add(almondFlour.Id, available: 250m, unit);
+
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, TargetQuantity: 1m, unit, riceFlour.Id, SubstituteQuantity: 1m, unit));
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, TargetQuantity: 1m, unit, almondFlour.Id, SubstituteQuantity: 1m, unit));
+
+        var recipe = BuildRecipe(flour.Id, 500m, unit);
+        var result = await h.Service.ComputeAsync(recipe, desiredServings: 4, today: Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.Equal(600m, line.AvailableQuantity); // 100 direct + 250 + 250 substitute
+        Assert.Equal(
+            new[] { riceFlour.Id, almondFlour.Id },
+            (line.ContributingSubstituteProductIds ?? []).OrderBy(id => id == riceFlour.Id ? 0 : 1));
+    }
+
+    [Fact]
     public async Task Substitute_Tops_Up_Short_Direct_Stock_To_InStockViaSubstitute()
     {
         var h = new Harness();
@@ -680,6 +712,8 @@ public sealed class FulfillmentServiceTests
         Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
         Assert.Equal(1100m, line.AvailableQuantity); // 100 direct + 1000 substitute
         Assert.True(result.Overall.FullyCookable); // InStockViaSubstitute is not Missing/Low
+        // plantry-aqpa.5: the display-only touchpoint names which substitute closed the gap.
+        Assert.Equal([riceFlour.Id], line.ContributingSubstituteProductIds);
     }
 
     [Fact]
@@ -729,6 +763,7 @@ public sealed class FulfillmentServiceTests
         var line = Assert.Single(result.Lines);
         Assert.Equal(IngredientStatus.Missing, line.Status);
         Assert.Null(line.AvailableQuantity); // C's stock never contributes — not even partially
+        Assert.Empty(line.ContributingSubstituteProductIds ?? []);
     }
 
     [Fact]

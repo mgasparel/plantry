@@ -249,3 +249,84 @@
         </form>
     </div>
 </div>
+
+@*
+    ── Substitutions (plantry-aqpa.5) ──────────────────────────────────────────────────────────────
+    What can stand in for this product, and what it stands in for — household-authored, directed,
+    unit-bearing edges owned by the Recipes context (Substitution.cs), authored here because this is
+    where the user is standing when they think "what can stand in for this?" (composition, not a
+    context violation — mirrors the Conversions card's plain form-post/redirect house style rather
+    than an htmx sheet, since this page's sibling list+add sections already establish that pattern).
+    No edit in v1 — remove + re-add, matching Conversions.
+*@
+<div class="card" id="substitutions">
+    <div class="card__head">
+        <div>
+            <h3 class="card__head-title">Substitutions</h3>
+            <p class="card__head-sub">What can stand in for this product, and what it stands in for.</p>
+        </div>
+    </div>
+    <div class="card__body">
+        @if (Model.Substitutions.Count > 0)
+        {
+            <ul class="catalog-list" role="list">
+                @foreach (var sub in Model.Substitutions)
+                {
+                    <li class="catalog-list__item">
+                        <span class="catalog-list__primary">@sub.PrimaryText</span>
+                        <span class="catalog-list__secondary">@sub.RatioText</span>
+                        <form method="post" asp-page-handler="RemoveSubstitution" asp-route-id="@product.Id.Value" asp-route-substitutionId="@sub.Id" class="catalog-list__action"
+                              onsubmit="return confirm('Remove this substitution?');">
+                            <button type="submit" class="btn btn--ghost btn--sm">Remove</button>
+                        </form>
+                    </li>
+                }
+            </ul>
+        }
+        else
+        {
+            <p class="empty-state">No substitutions declared for this product yet.</p>
+        }
+        <form method="post" asp-page-handler="AddSubstitution" asp-route-id="@product.Id.Value" class="form-stack">
+            <div class="form-grid">
+                <field asp-for="SubstitutionInput.Direction" stacked full label="Direction">
+                    <select asp-for="SubstitutionInput.Direction" class="field__input">
+                        <option value="in">Another product satisfies this one</option>
+                        <option value="out">This product satisfies another</option>
+                    </select>
+                    <span asp-validation-for="SubstitutionInput.Direction" class="field__error"></span>
+                </field>
+                <field asp-for="SubstitutionInput.OtherProductId" stacked full label="Other product">
+                    <searchable-select asp-for="SubstitutionInput.OtherProductId"
+                                        items="Model.SubstitutionProductOptions"
+                                        search-url="@Url.Page("./Detail", "FilterSubstitutionProducts", new { id = product.Id.Value })"
+                                        placeholder="Search products…" />
+                    <span asp-validation-for="SubstitutionInput.OtherProductId" class="field__error"></span>
+                </field>
+                <field asp-for="SubstitutionInput.ThisQuantity" stacked label="Amount of this product">
+                    <input asp-for="SubstitutionInput.ThisQuantity" class="field__input" type="number" step="any" min="0" placeholder="e.g. 100" />
+                    <span asp-validation-for="SubstitutionInput.ThisQuantity" class="field__error"></span>
+                </field>
+                <field asp-for="SubstitutionInput.ThisUnitId" stacked label="Unit for this product">
+                    <select asp-for="SubstitutionInput.ThisUnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Select a unit —</option>
+                    </select>
+                    <span asp-validation-for="SubstitutionInput.ThisUnitId" class="field__error"></span>
+                </field>
+                <field asp-for="SubstitutionInput.OtherQuantity" stacked label="Amount of the other product">
+                    <input asp-for="SubstitutionInput.OtherQuantity" class="field__input" type="number" step="any" min="0" placeholder="e.g. 260" />
+                    <span asp-validation-for="SubstitutionInput.OtherQuantity" class="field__error"></span>
+                </field>
+                <field asp-for="SubstitutionInput.OtherUnitId" stacked label="Unit for the other product">
+                    <select asp-for="SubstitutionInput.OtherUnitId" class="field__input" asp-items="Model.UnitOptions">
+                        <option value="">— Select a unit —</option>
+                    </select>
+                    <span asp-validation-for="SubstitutionInput.OtherUnitId" class="field__error"></span>
+                </field>
+            </div>
+            <div>
+                <button type="submit" class="btn btn--primary">Add substitution</button>
+            </div>
+        </form>
+    </div>
+</div>
