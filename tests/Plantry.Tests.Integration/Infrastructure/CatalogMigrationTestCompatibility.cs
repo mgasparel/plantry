@@ -17,4 +17,15 @@ internal static class CatalogMigrationTestCompatibility
                 ADD COLUMN IF NOT EXISTS never_expires_after_freezing boolean NULL,
                 ADD COLUMN IF NOT EXISTS never_expires_after_thawing boolean NULL;
             """);
+
+    /// <summary>
+    /// Same bridge as <see cref="AddProductNeverExpiryColumnsAsync"/>, for the <c>is_produced</c>
+    /// column introduced by <c>20260805210929_AddProductIsProduced</c> (plantry-sn6v).
+    /// </summary>
+    public static Task AddProductIsProducedColumnAsync(CatalogDbContext db) =>
+        db.Database.ExecuteSqlRawAsync(
+            """
+            ALTER TABLE catalog.products
+                ADD COLUMN IF NOT EXISTS is_produced boolean NOT NULL DEFAULT false;
+            """);
 }

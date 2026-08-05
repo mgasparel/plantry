@@ -29,10 +29,18 @@ public interface IShoppingPantryReader
     /// Returns all household pantry products that are restock candidates: running low
     /// (<see cref="ShoppingPantryStockLevel.IsLow"/> is <c>true</c>, i.e. 0 &lt; onHand ≤ threshold)
     /// OR out (<c>OnHand ≤ 0</c>). Out products are included even though their <c>IsLow</c> is
-    /// <c>false</c> — a depleted staple is as much a restock candidate as a low one. Used by the
-    /// "Running low in your pantry" suggestions strip (plantry-48l) to discover which products to
-    /// surface regardless of whether they are already on the current shopping list. The caller is
-    /// responsible for excluding products already present on the list and for applying the display cap.
+    /// <c>false</c> — a depleted staple is as much a restock candidate as a low one.
+    ///
+    /// <para><b>Excludes produced products</b> (Catalog's <c>Product.IsProduced</c> — a recipe yield or
+    /// cook leftover, "made at home, not bought", plantry-sn6v) even when they read as low or out: a
+    /// produced product is not a restock candidate by definition, so it is never a "buy this" suggestion.
+    /// The exclusion lives here, in the adapter, rather than in the caller — every consumer of this
+    /// port inherits the fix for free.</para>
+    ///
+    /// Used by the "Running low in your pantry" suggestions strip (plantry-48l) to discover which
+    /// products to surface regardless of whether they are already on the current shopping list. The
+    /// caller is responsible for excluding products already present on the list and for applying the
+    /// display cap.
     /// </summary>
     Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
         CancellationToken ct = default);

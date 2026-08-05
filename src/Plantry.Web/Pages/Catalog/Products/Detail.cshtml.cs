@@ -129,6 +129,16 @@ public sealed class DetailModel(
         /// </summary>
         [Display(Name = "Track stock")]
         public bool TrackStock { get; set; } = true;
+
+        /// <summary>
+        /// Whether this product was produced at home (a recipe yield or cook leftover, "made, not
+        /// bought", plantry-sn6v) rather than bought (Product.IsProduced) — read-mostly explanation
+        /// for why the product never surfaces as a "Running low" restock suggestion; a household can
+        /// clear it if they do start buying the thing (or set it manually for a product they've
+        /// decided is home-made).
+        /// </summary>
+        [Display(Name = "Homemade (not a restock suggestion)")]
+        public bool IsProduced { get; set; }
     }
 
     public sealed class AddSkuInputModel
@@ -279,7 +289,7 @@ public sealed class DetailModel(
         var cmd = new UpdateProductCommand(
             Id, Input.Name, Input.DefaultUnitId!.Value, Input.CategoryId, Input.DefaultLocationId,
             Input.DefaultDueDays, Input.DefaultDueDaysAfterOpening, afterFreezing.Days,
-            afterThawing.Days, Input.TrackStock, products, units, categories, locations, clock,
+            afterThawing.Days, Input.TrackStock, Input.IsProduced, products, units, categories, locations, clock,
             logger: updateProductLogger,
             neverExpiresAfterFreezing: afterFreezing.Never,
             neverExpiresAfterThawing: afterThawing.Never);
@@ -587,6 +597,7 @@ public sealed class DetailModel(
             AfterFreezingMode = InitialMode(product, thawing: false),
             AfterThawingMode = InitialMode(product, thawing: true),
             TrackStock = product.TrackStock,
+            IsProduced = product.IsProduced,
         };
     }
 

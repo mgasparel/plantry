@@ -562,6 +562,9 @@ public sealed class CookRecipeTests
         var created = Assert.Single(h.CatalogWriter.TrackedProductsCreated);
         Assert.Equal("Test Recipe (leftovers)", created.Name);
         Assert.Equal(ServingUnitId, created.DefaultUnitId);
+        // plantry-sn6v: the auto-created leftovers product carries IsProduced = true — "made, not
+        // bought" — so it never surfaces as a "Running low" purchase suggestion once eaten down.
+        Assert.True(created.IsProduced);
 
         // It is produced into inventory this cook...
         var produceCall = Assert.Single(h.Producer.Calls);

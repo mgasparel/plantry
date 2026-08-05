@@ -217,15 +217,15 @@ public sealed class RecipeEditorPostFactory : WebApplicationFactory<Program>
 internal sealed class FakeCatalogWriter : ICatalogWriter
 {
     public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId, decimal Factor)> ConversionsAdded { get; } = [];
-    public List<(string Name, Guid DefaultUnitId, Guid? CategoryId)> TrackedProductsCreated { get; } = [];
+    public List<(string Name, Guid DefaultUnitId, Guid? CategoryId, bool IsProduced)> TrackedProductsCreated { get; } = [];
 
     public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
-    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
+    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, bool isProduced = false, CancellationToken ct = default)
     {
         var id = Guid.NewGuid();
-        TrackedProductsCreated.Add((name, defaultUnitId, categoryId));
+        TrackedProductsCreated.Add((name, defaultUnitId, categoryId, isProduced));
         return Task.FromResult(id);
     }
 

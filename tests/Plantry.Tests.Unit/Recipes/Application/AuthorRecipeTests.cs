@@ -818,7 +818,43 @@ public sealed class AuthorRecipeTests
         var created = Assert.Single(h.Writer.TrackedProductsCreated);
         Assert.Equal("Nacho Cheese", created.Name);
         Assert.Equal(yieldUnit, created.DefaultUnitId);
+        // plantry-sn6v: the auto-created yield product carries IsProduced = true — "made, not bought" —
+        // so it never surfaces as a "Running low" purchase suggestion once its stock depletes.
+        Assert.True(created.IsProduced);
         Assert.NotNull(recipe.YieldProductId);
+    }
+
+    [Fact]
+    public async Task Create_With_Yield_Enabled_And_Explicit_Product_Choice_Does_Not_Auto_Create()
+    {
+        // plantry-sn6v: when the author explicitly picks an EXISTING product as the yield target
+        // (AuthorRecipe.ApplyYieldAsync's `command.YieldProductId is { } chosen` branch), no Catalog
+        // create happens at all — the chosen product's IsProduced flag (whatever it already is,
+        // default false for an ordinary purchased product) is left untouched. They may well buy it too.
+        var h = BuildHarness();
+        var unit = Guid.CreateVersion7();
+        var ingredientProduct = h.Products.AddTracked(unit);
+        var yieldUnit = Guid.CreateVersion7();
+        var chosenYieldProduct = h.Products.AddTracked(yieldUnit, name: "Store-Bought Crust");
+
+        var command = new AuthorRecipeCommand(
+            RecipeId: null,
+            Name: "Quiche",
+            DefaultServings: 4,
+            Lines: [new AuthorIngredientLine(ingredientProduct.Id, 200m, unit, null, 0)],
+            TagIds: [],
+            YieldEnabled: true,
+            YieldQuantity: 1m,
+            YieldUnitId: yieldUnit,
+            YieldProductId: chosenYieldProduct.Id);
+
+        var result = await h.Service.ExecuteAsync(command);
+
+        Assert.IsType<AuthorRecipeResult.Saved>(result);
+        // No Catalog create for the explicitly-chosen product — it is neither newly minted nor flagged.
+        Assert.Empty(h.Writer.TrackedProductsCreated);
+        var recipe = Assert.Single(h.Recipes.Items);
+        Assert.Equal(chosenYieldProduct.Id, recipe.YieldProductId);
     }
 
     [Fact]

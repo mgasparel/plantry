@@ -23,7 +23,14 @@ public interface ICatalogWriter
     /// the product participates in stock tracking. Category is optional. Recipes have no location
     /// concept so no <c>defaultLocationId</c> is passed. Throws when Catalog rejects the create.
     /// </summary>
-    Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default);
+    /// <param name="isProduced">
+    /// Pass <c>true</c> only when this create is auto-minting a recipe yield or cook leftover product
+    /// (plantry-sn6v) — never for an ordinary ingredient create. Sets Catalog's <c>Product.IsProduced</c>
+    /// flag ("made at home, not bought"), which excludes the product from restock-candidate surfaces
+    /// (e.g. the Shopping "Running low" strip) since a produced product is never a purchase suggestion.
+    /// Defaults to <c>false</c> so every other caller is unaffected.
+    /// </param>
+    Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, bool isProduced = false, CancellationToken ct = default);
 
     /// <summary>
     /// Inline-creates a tracked product as a variant of an existing group product

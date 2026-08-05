@@ -27,7 +27,8 @@ public sealed class ProductCommandsTests
             int? defaultDueDaysAfterFreezing = null,
             int? defaultDueDaysAfterThawing = null,
             bool? neverExpiresAfterFreezing = null,
-            bool? neverExpiresAfterThawing = null) =>
+            bool? neverExpiresAfterThawing = null,
+            bool isProduced = false) =>
             new(
                 product.Id,
                 name ?? product.Name,
@@ -39,6 +40,7 @@ public sealed class ProductCommandsTests
                 defaultDueDaysAfterFreezing ?? product.DefaultDueDaysAfterFreezing,
                 defaultDueDaysAfterThawing ?? product.DefaultDueDaysAfterThawing,
                 trackStock,
+                isProduced,
                 Products,
                 Units,
                 Categories,
@@ -97,6 +99,39 @@ public sealed class ProductCommandsTests
         // The posted "false" must be ignored entirely — a parent can never hold stock
         // (CanHoldStock is false), so the flag stays at whatever it already was.
         Assert.True(parent.TrackStock);
+    }
+
+    [Fact]
+    public async Task Update_Sets_IsProduced_From_Editor_Override()
+    {
+        // plantry-sn6v: a user clears the auto-minted flag on a yield product they've started buying.
+        var f = MakeFixture();
+        var product = Product.Create(HouseholdId, "Nacho Cheese", f.Unit.Id, Clock, isProduced: true);
+        f.Products.Items.Add(product);
+        Assert.True(product.IsProduced);
+
+        var result = await f.BuildCommand(product, trackStock: true, isProduced: false).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.False(product.IsProduced);
+    }
+
+    [Fact]
+    public async Task Parent_Product_IsProduced_Flag_Is_Unaffected_By_Posted_Value()
+    {
+        // plantry-sn6v: like TrackStock (Parent_Product_TrackStock_Flag_Is_Unaffected_By_Posted_Value
+        // above), IsProduced is meaningless for a parent — parents can never hold stock, so they
+        // never enter the restock-suggestion candidacy loop, and InheritFrom deliberately does not
+        // cascade the flag to variants. The posted value is ignored for a parent.
+        var f = MakeFixture();
+        var parent = Product.Create(HouseholdId, "Bubly", f.Unit.Id, Clock, trackStock: true);
+        parent.SetHasVariants(true, Clock);
+        f.Products.Items.Add(parent);
+
+        var result = await f.BuildCommand(parent, trackStock: false, isProduced: true).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.False(parent.IsProduced);
     }
 
     [Fact]

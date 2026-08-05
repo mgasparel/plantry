@@ -208,6 +208,76 @@ public sealed class ShoppingPantryReaderAdapterTests
         Assert.DoesNotContain(result, l => l.ProductId == eggsId); // in-stock excluded
     }
 
+    // ── Produced-product exclusion (plantry-sn6v): a recipe yield/leftover is never a buy suggestion ─
+
+    [Fact(DisplayName = "GetLowStockProducts — excludes a produced product even when it reads as out")]
+    public async Task GetLowStockProducts_ExcludesProducedProduct_WhenOut()
+    {
+        var leftoversId = Guid.Parse("11111111-1111-1111-1111-000000000004");
+
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStock(leftoversId)); // no lots — reads as out (OnHand ≤ 0)
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(leftoversId, defaultUnitId: EachId, defaultUnitCode: "ea", isProduced: true);
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetLowStockProductsAsync();
+
+        Assert.DoesNotContain(result, l => l.ProductId == leftoversId);
+    }
+
+    [Fact(DisplayName = "GetLowStockProducts — excludes a produced product even when running low")]
+    public async Task GetLowStockProducts_ExcludesProducedProduct_WhenRunningLow()
+    {
+        var leftoversId = Guid.Parse("11111111-1111-1111-1111-000000000005");
+
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLotAndThreshold(leftoversId, quantity: 1m, LitreId, threshold: 3m));
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(leftoversId, defaultUnitId: LitreId, defaultUnitCode: "L", isProduced: true);
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetLowStockProductsAsync();
+
+        Assert.DoesNotContain(result, l => l.ProductId == leftoversId);
+    }
+
+    [Fact(DisplayName = "GetLowStockProducts — an ordinary purchased product going out still appears (regression guard on the exclusion)")]
+    public async Task GetLowStockProducts_OrdinaryProduct_StillIncluded_NotOverExcluded()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithThresholdNoLots(MilkId, threshold: 3m)); // out, ordinary purchased product
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L", isProduced: false);
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetLowStockProductsAsync();
+
+        Assert.Contains(result, l => l.ProductId == MilkId);
+    }
+
+    [Fact(DisplayName = "GetStockLevels — a produced product's on-hand level still resolves (exclusion is restock-candidate-only)")]
+    public async Task GetStockLevels_ProducedProduct_StillResolves()
+    {
+        // The exclusion is specific to GetLowStockProductsAsync's restock-candidate semantics —
+        // GetStockLevelsAsync (used by e.g. a product detail page asking about a specific product)
+        // must still report a produced product's real on-hand level.
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLot(MilkId, 2m, LitreId));
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L", isProduced: true);
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetStockLevelsAsync([MilkId]);
+
+        var level = Assert.Single(result).Value;
+        Assert.Equal(2m, level.OnHand);
+    }
+
     [Fact(DisplayName = "GetStockLevels — product with multiple lots: OnHand is the sum")]
     public async Task GetStockLevels_MultipleLots_OnHandIsSumOfActiveLots()
     {
@@ -391,8 +461,8 @@ file sealed class FakePantryCatalogFacade : ICatalogReadFacade
     private readonly List<CatalogProductInfo> _products = [];
     private readonly Dictionary<Guid, string> _unitCodes = [];
 
-    public void AddProduct(Guid id, Guid defaultUnitId, string defaultUnitCode) =>
-        _products.Add(new CatalogProductInfo(id, "Product", null, defaultUnitId, defaultUnitCode, CanHoldStock: true));
+    public void AddProduct(Guid id, Guid defaultUnitId, string defaultUnitCode, bool isProduced = false) =>
+        _products.Add(new CatalogProductInfo(id, "Product", null, defaultUnitId, defaultUnitCode, CanHoldStock: true, IsProduced: isProduced));
 
     /// <summary>Registers a unit id → code mapping for <see cref="GetUnitCodesAsync"/>. Needed when a
     /// test exercises the DisplayQuantity fallback-to-lot-unit path (plantry-2hfi), which reports the

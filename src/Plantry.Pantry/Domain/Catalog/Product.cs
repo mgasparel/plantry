@@ -25,6 +25,21 @@ public sealed class Product : AggregateRoot<ProductId>
     /// intake) mints the product with <c>track_stock = false</c>; the user can enable tracking later.
     /// </summary>
     public bool TrackStock { get; private set; } = true;
+
+    /// <summary>
+    /// True when this product was produced at home (a recipe yield or cook leftover, plantry-sn6v)
+    /// rather than bought — "made, not bought". Default false for every ordinary purchased product.
+    /// Set true only at the one Catalog-mutating call sites that auto-mint a yield/leftover product
+    /// (<see cref="Plantry.Pantry.Application.CreateProductCommand"/>'s <c>isProduced</c> parameter,
+    /// invoked from <c>AuthorRecipe.ApplyYieldAsync</c> and <c>CookRecipe</c>'s leftover auto-create) —
+    /// never when an author or cook picks an <b>existing</b> product as the yield/leftover target, since
+    /// that product may well be bought too. Drives the restock-candidate exclusion in
+    /// <c>ShoppingPantryReaderAdapter.GetLowStockProductsAsync</c>: a produced product is not a restock
+    /// candidate by definition, so it never appears as a "Running low" purchase suggestion. A user can
+    /// override the flag from the product editor if they do start buying the thing.
+    /// </summary>
+    public bool IsProduced { get; private set; }
+
     public int? DefaultDueDays { get; private set; }
     public int? DefaultDueDaysAfterOpening { get; private set; }
     public int? DefaultDueDaysAfterFreezing { get; private set; }
@@ -59,13 +74,14 @@ public sealed class Product : AggregateRoot<ProductId>
 
     private Product() { } // EF
 
-    private Product(ProductId id, HouseholdId householdId, string name, UnitId defaultUnitId, bool trackStock, DateTimeOffset now)
+    private Product(ProductId id, HouseholdId householdId, string name, UnitId defaultUnitId, bool trackStock, bool isProduced, DateTimeOffset now)
     {
         Id = id;
         HouseholdId = householdId;
         Name = name;
         DefaultUnitId = defaultUnitId;
         TrackStock = trackStock;
+        IsProduced = isProduced;
         CreatedAt = now;
         UpdatedAt = now;
     }
@@ -74,10 +90,14 @@ public sealed class Product : AggregateRoot<ProductId>
     /// Pass <c>false</c> to mint an untracked staple (inline auto-create, C12); defaults to <c>true</c>
     /// for ordinary stock-holding goods.
     /// </param>
-    public static Product Create(HouseholdId householdId, string name, UnitId defaultUnitId, IClock clock, bool trackStock = true)
+    /// <param name="isProduced">
+    /// Pass <c>true</c> only when auto-minting a recipe yield/leftover product (plantry-sn6v); defaults
+    /// to <c>false</c> for every ordinary purchased product. See <see cref="IsProduced"/>.
+    /// </param>
+    public static Product Create(HouseholdId householdId, string name, UnitId defaultUnitId, IClock clock, bool trackStock = true, bool isProduced = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        return new Product(ProductId.New(), householdId, name.Trim(), defaultUnitId, trackStock, clock.UtcNow);
+        return new Product(ProductId.New(), householdId, name.Trim(), defaultUnitId, trackStock, isProduced, clock.UtcNow);
     }
 
     public bool IsArchived => ArchivedAt is not null;
@@ -116,6 +136,15 @@ public sealed class Product : AggregateRoot<ProductId>
     public void SetTrackStock(bool trackStock, IClock clock)
     {
         TrackStock = trackStock;
+        Touch(clock);
+    }
+
+    /// <summary>User override of the auto-minted "produced at home" flag (plantry-sn6v) — lets a
+    /// household correct a mis-flagged product (e.g. they now also buy a former yield product, or
+    /// the backfill over-flagged an author-chosen yield target) from the product editor.</summary>
+    public void SetProduced(bool isProduced, IClock clock)
+    {
+        IsProduced = isProduced;
         Touch(clock);
     }
 
