@@ -119,23 +119,20 @@ export function dishMeta(d, symbol = "$") {
 /**
  * Prepare the product-unit picker from the server's reachable options.
  *
- * A saved unit can become unreachable after a catalog conversion is removed.  Keep
- * that saved code available to the UI as a read-only stale indicator, but never add
- * it to the select's options: a replacement must come from the server-provided
- * reachable list before the draft can be saved again.
+ * A saved unit can become unreachable after a catalog conversion is removed. There is
+ * no dedicated stale-unit visual (plantry-qybt): when the saved unit is unreachable,
+ * `selectedUnitId` is simply empty, and the compact composite's disabled "Choose
+ * unit…" placeholder shows until the user picks a server-provided replacement.
  *
  * @param {DishDraft} d
- * @returns {{options:{unitId:string,code:string,dimension:string}[],selectedUnitId:string,staleUnitCode:string|null}}
+ * @returns {{options:{unitId:string,code:string,dimension:string}[],selectedUnitId:string}}
  */
 export function productUnitPicker(d) {
   const options = [...(d.unitOptions ?? [])];
   const selectedUnitId = d.unitId && options.some((o) => o.unitId === d.unitId)
     ? d.unitId
     : "";
-  const staleUnitCode = d.unitId && selectedUnitId === ""
-    ? (d.unitCode || "?")
-    : null;
-  return { options, selectedUnitId, staleUnitCode };
+  return { options, selectedUnitId };
 }
 
 // ── dishInput ───────────────────────────────────────────────────────────────

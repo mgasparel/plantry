@@ -1237,8 +1237,11 @@
         <code>QuantityStepper</code> primitive from <code>/js/islands/quantity-stepper.js</code>.
         It emits this same <code>.stepper</code>, <code>.stepper__btn</code>, and
         <code>.stepper__val</code> contract; only the callbacks and draft values belong to the island.
-        Use <code>UnitPicker</code> from <code>/js/islands/unit-picker.js</code> beside it when a
-        product quantity also needs the shared reachable-unit optgroups.
+        Use <code>UnitPicker</code> from <code>/js/islands/unit-picker.js</code> in the unit slot of
+        a <code>.mp-dish-qty</code> composite when a product quantity also needs the shared
+        reachable-unit optgroups — see Meal Planner's dish rows, where recipe and product rows share
+        one compact quantity+unit container and only the unit slot differs (static "srv" label vs.
+        this select).
     </p>
     <pre class="code-sample"><code>@("import { QuantityStepper } from \"./quantity-stepper.js\";\n\n&lt;${QuantityStepper}\n  value={quantity}\n  onInput={setQuantity}\n  onDecrease={() =&gt; adjust(-1)}\n  onIncrease={() =&gt; adjust(1)} /&gt;")</code></pre>
 </section>

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using Npgsql;
 using Plantry.Tests.E2E.Infrastructure;
@@ -56,8 +57,18 @@ public sealed class MealPlanProductConversionJourneyTests(AppHostFixture appHost
             await page.WaitForURLAsync("**/MealPlan**");
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
 
-            // Open the first empty cell in the same way the rendered grid does.
-            await page.Locator(".empty-add").First.ClickAsync();
+            // Open the first empty cell in the same way the rendered grid does. Capture the
+            // cell's date/slotId now — needed later (plantry-qybt) to merge a recipe dish into
+            // this same slot via a direct AssignJson call once it is no longer ".empty-add".
+            var emptyAdd = page.Locator(".empty-add").First;
+            var emptyAddOnclick = await emptyAdd.GetAttributeAsync("onclick");
+            Assert.NotNull(emptyAddOnclick);
+            var cellMatch = Regex.Match(emptyAddOnclick!, @"openEditor\('([^']+)',\s*'([^']+)',\s*null\)");
+            Assert.True(cellMatch.Success, $"Could not parse openEditor from onclick: {emptyAddOnclick}");
+            var cellDate = cellMatch.Groups[1].Value;
+            var cellSlotId = cellMatch.Groups[2].Value;
+
+            await emptyAdd.ClickAsync();
             var dialog = page.Locator("#meal-editor-dialog");
             await Assertions.Expect(dialog).ToBeVisibleAsync();
 
@@ -68,17 +79,19 @@ public sealed class MealPlanProductConversionJourneyTests(AppHostFixture appHost
             await Assertions.Expect(productHit).ToBeVisibleAsync();
             await productHit.ClickAsync();
 
-            var quantityInput = dialog.Locator(".product-quantity input.stepper__val");
+            var quantityInput = dialog.Locator(".mp-dish-qty input.stepper__val");
             var unitSelect = dialog.Locator("select.meal-unit-picker__select");
             await Assertions.Expect(quantityInput).ToBeVisibleAsync();
             await Assertions.Expect(unitSelect).ToBeVisibleAsync();
             Assert.Contains("stepper__val", await quantityInput.GetAttributeAsync("class") ?? string.Empty);
-            Assert.Contains("field__input", await unitSelect.GetAttributeAsync("class") ?? string.Empty);
+            Assert.Contains("meal-unit-picker__select", await unitSelect.GetAttributeAsync("class") ?? string.Empty);
 
-            // The quantity control is the canonical stepper contract; the unit
-            // picker is its neighbouring native select.  Keep a light layout
-            // guard without coupling the journey to incidental button widths.
-            var stepper = dialog.Locator(".product-quantity > .stepper");
+            // The quantity control is the canonical compact stepper contract shared
+            // with recipe rows (plantry-qybt); the unit picker is its neighbouring
+            // borderless native select within the same bordered composite.  Keep a
+            // light layout guard without coupling the journey to incidental button
+            // widths.
+            var stepper = dialog.Locator(".mp-dish-qty > .stepper");
             await Assertions.Expect(stepper).ToBeVisibleAsync();
             var stepperBox = await stepper.BoundingBoxAsync();
             var unitBox = await unitSelect.BoundingBoxAsync();
@@ -114,10 +127,92 @@ public sealed class MealPlanProductConversionJourneyTests(AppHostFixture appHost
             // so click a non-interactive area of the card (.mc-photo) rather than a nested button/link.
             await savedCard.Locator(".mc-photo").ClickAsync();
             await Assertions.Expect(dialog).ToBeVisibleAsync();
-            await Assertions.Expect(dialog.Locator(".product-quantity input.stepper__val"))
+            await Assertions.Expect(dialog.Locator(".mp-dish-qty input.stepper__val"))
                 .ToHaveValueAsync("2");
             await Assertions.Expect(dialog.Locator("select.meal-unit-picker__select"))
                 .ToHaveValueAsync(product!.Value.ServingUnitId.ToString());
+            await dialog.Locator("button.btn--secondary", new() { HasText = "Cancel" }).ClickAsync();
+            await Assertions.Expect(dialog).ToBeHiddenAsync();
+
+            // ── plantry-qybt: recipe row / product row parity ───────────────────────────
+            // Merge a recipe dish into the same slot via a direct AssignJson call — recipe
+            // dishes are not existence-validated on assign, only rendered via the server's
+            // name-resolution fallback ("Unknown recipe"), the same pattern proven in
+            // MealCardClickAnywhereJourneyTests. Pass the real mealId so this updates the
+            // slot's existing meal rather than creating a second one at the same date/slot.
+            var mealId = await GetMealIdForProductDishAsync(product!.Value.ProductId);
+            Assert.True(mealId.HasValue, "Could not resolve the planned meal id for the saved product dish.");
+
+            var token = await page.Locator("input[name=__RequestVerificationToken]").First.GetAttributeAsync("value") ?? "";
+            var assignUrl = $"{BaseUrl}/MealPlan?handler=AssignJson";
+            var mixedAssignStatus = await page.EvaluateAsync<int>(@"
+                async (args) => {
+                    const body = JSON.stringify({
+                        mode: 'dishes',
+                        dishes: [
+                            { kind: 'recipe', itemId: '00000000-0000-0000-0000-000000000099', servings: 2 },
+                            { kind: 'product', itemId: args.productId, quantity: 2, unitId: args.unitId }
+                        ],
+                        att: null,
+                        attendeesOverridden: false,
+                        mealId: args.mealId,
+                        date: args.date,
+                        slotId: args.slotId
+                    });
+                    const r = await fetch(args.url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': args.token,
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body
+                    });
+                    return r.status;
+                }",
+                new
+                {
+                    url = assignUrl,
+                    productId = product.Value.ProductId.ToString(),
+                    unitId = product.Value.ServingUnitId.ToString(),
+                    mealId = mealId!.Value.ToString(),
+                    date = cellDate,
+                    slotId = cellSlotId,
+                    token,
+                });
+            Assert.Equal(200, mixedAssignStatus);
+
+            await page.ReloadAsync();
+            var mixedCard = page.Locator(".meal-card", new() { HasText = productName });
+            await Assertions.Expect(mixedCard).ToBeVisibleAsync();
+            await mixedCard.Locator(".mc-photo").ClickAsync();
+            await Assertions.Expect(dialog).ToBeVisibleAsync();
+
+            var recipeRow = dialog.Locator(".ed-dish", new() { HasText = "Unknown recipe" });
+            var productRow = dialog.Locator(".ed-dish", new() { HasText = productName });
+            await Assertions.Expect(recipeRow).ToBeVisibleAsync();
+            await Assertions.Expect(productRow).ToBeVisibleAsync();
+
+            // Acceptance: "recipe unit always reads 'srv' and is not interactive" — a static
+            // label, no nested <select>, not focusable.
+            var recipeUnitLabel = recipeRow.Locator(".mp-dish-qty__unit--static .mp-dish-qty__unit-label");
+            await Assertions.Expect(recipeUnitLabel).ToHaveTextAsync("srv");
+            await Assertions.Expect(recipeRow.Locator(".mp-dish-qty select")).ToHaveCountAsync(0);
+            Assert.Equal("SPAN", await recipeUnitLabel.EvaluateAsync<string>("el => el.tagName"));
+            Assert.Null(await recipeUnitLabel.GetAttributeAsync("tabindex"));
+
+            // Acceptance: "recipe and product rows render visually identical controls (same
+            // height, width class, border geometry) ... Rows align flush right." Bounding-box
+            // parity is the automated stand-in for the ticket's "screenshot the real modal and
+            // compare against the prototype" step.
+            var recipeQtyBox = await recipeRow.Locator(".mp-dish-qty").BoundingBoxAsync();
+            var productQtyBox = await productRow.Locator(".mp-dish-qty").BoundingBoxAsync();
+            Assert.NotNull(recipeQtyBox);
+            Assert.NotNull(productQtyBox);
+            Assert.InRange(Math.Abs(recipeQtyBox!.Height - productQtyBox!.Height), 0, 1);
+            Assert.InRange(
+                Math.Abs((recipeQtyBox.X + recipeQtyBox.Width) - (productQtyBox.X + productQtyBox.Width)), 0, 1);
+
             await dialog.Locator("button.btn--secondary", new() { HasText = "Cancel" }).ClickAsync();
             await Assertions.Expect(dialog).ToBeHiddenAsync();
         }
@@ -197,5 +292,24 @@ public sealed class MealPlanProductConversionJourneyTests(AppHostFixture appHost
         if (!await reader.ReadAsync()) return null;
 
         return (reader.GetDecimal(0), reader.GetGuid(1));
+    }
+
+    private async Task<Guid?> GetMealIdForProductDishAsync(Guid productId)
+    {
+        await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            """
+            SELECT planned_meal_id
+              FROM meal_planning.planned_dish
+             WHERE product_id = @productId
+             ORDER BY planned_dish_id DESC
+             LIMIT 1
+            """, conn);
+        cmd.Parameters.AddWithValue("productId", productId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+
+        return reader.GetGuid(0);
     }
 }
