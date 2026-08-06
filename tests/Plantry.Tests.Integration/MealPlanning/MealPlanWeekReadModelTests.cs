@@ -509,6 +509,159 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
             "Product referenced by recipe ingredient should be loaded without explicit caller seeding.");
     }
 
+    // ── inclusion closure (plantry-yqse) ────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "plantry-yqse: LoadAsync widens the loaded set to a sub-recipe when the requested recipe includes it")]
+    public async Task LoadAsync_Widens_ToSubRecipe_WhenRequestedRecipe_Includes_It()
+    {
+        var yogurtId = await SeedProductAsync("Yogurt", _gramsId);
+        var subId = await SeedRecipeAsync("Tzatziki", 4, (yogurtId, 400m, _gramsId, 1));
+
+        var pitaId = await SeedProductAsync("Pita", _gramsId);
+        var parentId = await SeedRecipeAsync("Gyro Wrap", 2, (pitaId, 200m, _gramsId, 1));
+        await SeedInclusionAsync(parentId, subId, servings: 2m, groupHeading: null, ordinal: 1);
+
+        var rm = NewReadModel(_household);
+        // Only the PARENT id is requested — the sub is discovered purely via the inclusion closure.
+        var bag = await rm.LoadAsync([parentId], []);
+
+        Assert.True(bag.Recipes.ContainsKey(subId), "The sub-recipe must be loaded via the inclusion closure.");
+        Assert.Equal("Tzatziki", bag.Recipes[subId].Name);
+        var subIngredients = bag.GetIngredients(subId);
+        var line = Assert.Single(subIngredients);
+        Assert.Equal(yogurtId, line.ProductId);
+        // The sub's own ingredient product must be loaded too (catalog schema), without explicit seeding.
+        Assert.True(bag.Products.ContainsKey(yogurtId));
+    }
+
+    [Fact(DisplayName = "plantry-yqse: LoadAsync follows a transitive (3-level) inclusion chain")]
+    public async Task LoadAsync_Follows_TransitiveInclusionChain()
+    {
+        var garlicId = await SeedProductAsync("Garlic", _gramsId);
+        var leafId = await SeedRecipeAsync("Garlic Paste", 1, (garlicId, 10m, _gramsId, 1));
+
+        var yogurtId = await SeedProductAsync("Yogurt2", _gramsId);
+        var midId = await SeedRecipeAsync("Tzatziki2", 4, (yogurtId, 400m, _gramsId, 1));
+        await SeedInclusionAsync(midId, leafId, servings: 1m, groupHeading: null, ordinal: 2);
+
+        var pitaId = await SeedProductAsync("Pita2", _gramsId);
+        var rootId = await SeedRecipeAsync("Gyro Wrap2", 2, (pitaId, 200m, _gramsId, 1));
+        await SeedInclusionAsync(rootId, midId, servings: 2m, groupHeading: null, ordinal: 1);
+
+        var rm = NewReadModel(_household);
+        var bag = await rm.LoadAsync([rootId], []);
+
+        Assert.True(bag.Recipes.ContainsKey(midId), "The direct sub must load.");
+        Assert.True(bag.Recipes.ContainsKey(leafId), "The transitively-included leaf must load too.");
+        Assert.True(bag.Products.ContainsKey(garlicId), "The leaf's own ingredient product must load.");
+    }
+
+    /// <summary>
+    /// Pins the fix for a critic finding on this same ticket (plantry-yqse pass 1): the recursive CTE's
+    /// SEED term matches every recipe id in <c>@ids</c> directly, and its RECURSIVE term matches whatever
+    /// the seed/prior step discovered — so when BOTH a root and one of its own subs are requested in the
+    /// SAME <c>LoadAsync</c> call (exactly what happens on a real week page, where the mid-level recipe
+    /// may also be planned standalone in another cell), the mid recipe's inclusion edge is discovered
+    /// TWICE: once directly (mid is itself a seed id) and once via the root's recursive walk into mid.
+    /// Without the outer <c>SELECT DISTINCT</c> (and the belt-and-braces <c>seenInclusionIds</c> guard),
+    /// the edge would be duplicated in <c>inclusionsByRecipe</c>, and <c>RecipeExpansionService</c> would
+    /// then walk the leaf twice — silently doubling its cost/fulfillment contribution.
+    /// </summary>
+    [Fact(DisplayName = "plantry-yqse: LoadAsync does not duplicate an inclusion edge when both a root and its own sub are requested together")]
+    public async Task LoadAsync_DoesNotDuplicate_InclusionEdge_WhenRootAndSub_BothRequested()
+    {
+        var garlicId = await SeedProductAsync("Garlic2", _gramsId);
+        var leafId = await SeedRecipeAsync("Garlic Paste2", 1, (garlicId, 10m, _gramsId, 1));
+
+        var yogurtId = await SeedProductAsync("Yogurt4", _gramsId);
+        var midId = await SeedRecipeAsync("Tzatziki3", 4, (yogurtId, 400m, _gramsId, 1));
+        await SeedInclusionAsync(midId, leafId, servings: 1m, groupHeading: null, ordinal: 2);
+
+        var pitaId = await SeedProductAsync("Pita4", _gramsId);
+        var rootId = await SeedRecipeAsync("Gyro Wrap3", 2, (pitaId, 200m, _gramsId, 1));
+        await SeedInclusionAsync(rootId, midId, servings: 2m, groupHeading: null, ordinal: 1);
+
+        var rm = NewReadModel(_household);
+        // Both the root AND the mid-level sub requested in one call — mirrors a week planning BOTH
+        // Gyro Wrap and a standalone Tzatziki in different cells.
+        var bag = await rm.LoadAsync([rootId, midId], []);
+
+        var midInclusions = bag.GetInclusions(midId);
+        Assert.Single(midInclusions);
+        Assert.Equal(leafId, midInclusions[0].SubRecipeId);
+    }
+
+    [Fact(DisplayName = "plantry-yqse: WeekBag.GetInclusions returns the owning recipe's inclusion edges, ordinal-ordered")]
+    public async Task WeekBag_GetInclusions_Returns_OrdinalOrdered_Edges()
+    {
+        var yogurtId = await SeedProductAsync("Yogurt3", _gramsId);
+        var subAId = await SeedRecipeAsync("Sub A", 2, (yogurtId, 100m, _gramsId, 1));
+        var subBId = await SeedRecipeAsync("Sub B", 2, (yogurtId, 100m, _gramsId, 1));
+
+        var pitaId = await SeedProductAsync("Pita3", _gramsId);
+        var parentId = await SeedRecipeAsync("Combo Wrap", 2, (pitaId, 200m, _gramsId, 1));
+        // Seeded out of ordinal order to prove the read model sorts, not just preserves insert order.
+        await SeedInclusionAsync(parentId, subBId, servings: 1m, groupHeading: "Second", ordinal: 2);
+        await SeedInclusionAsync(parentId, subAId, servings: 1m, groupHeading: "First", ordinal: 1);
+
+        var rm = NewReadModel(_household);
+        var bag = await rm.LoadAsync([parentId], []);
+
+        var inclusions = bag.GetInclusions(parentId);
+        Assert.Equal(2, inclusions.Count);
+        Assert.Equal(subAId, inclusions[0].SubRecipeId);
+        Assert.Equal("First", inclusions[0].GroupHeading);
+        Assert.Equal(1, inclusions[0].Ordinal);
+        Assert.Equal(subBId, inclusions[1].SubRecipeId);
+        Assert.Equal("Second", inclusions[1].GroupHeading);
+        Assert.Equal(2, inclusions[1].Ordinal);
+    }
+
+    [Fact(DisplayName = "plantry-yqse: LoadAsync terminates instead of hanging on a defensively-cyclic inclusion chain")]
+    public async Task LoadAsync_Terminates_OnDefensivelyCyclicInclusionChain()
+    {
+        // N4 (application layer) blocks a cyclic inclusion at save time — this seeds one directly via
+        // raw SQL to prove the read model's recursive CTE visited-array guard is a genuine defensive
+        // backstop, not merely inherited safety from the write-side invariant.
+        var productId = await SeedProductAsync("Cyclic Product", _gramsId);
+        var aId = await SeedRecipeAsync("Cycle A", 1, (productId, 1m, _gramsId, 1));
+        var bId = await SeedRecipeAsync("Cycle B", 1, (productId, 1m, _gramsId, 1));
+        await SeedInclusionAsync(aId, bId, servings: 1m, groupHeading: null, ordinal: 2);
+        await SeedInclusionAsync(bId, aId, servings: 1m, groupHeading: null, ordinal: 2);
+
+        var rm = NewReadModel(_household);
+
+        // Must complete (the visited-array guard drops the revisiting edge) rather than hang or throw.
+        var bag = await rm.LoadAsync([aId], []).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(bag.Recipes.ContainsKey(aId));
+        Assert.True(bag.Recipes.ContainsKey(bId));
+    }
+
+    /// <summary>Seeds a row into recipes.recipe_inclusion directly (raw SQL) — mirrors this file's
+    /// SeedRecipeAsync convention for the recipe/recipe_ingredient tables.</summary>
+    private async Task SeedInclusionAsync(
+        Guid recipeId, Guid subRecipeId, decimal servings, string? groupHeading, int ordinal)
+    {
+        await using var conn = new NpgsqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO recipes.recipe_inclusion
+                (inclusion_id, household_id, recipe_id, sub_recipe_id, servings, group_heading, ordinal)
+            VALUES
+                (@id, @hid, @rid, @sid, @servings, @heading, @ord)
+            """;
+        cmd.Parameters.AddWithValue("id", Guid.NewGuid());
+        cmd.Parameters.AddWithValue("hid", _household.Value);
+        cmd.Parameters.AddWithValue("rid", recipeId);
+        cmd.Parameters.AddWithValue("sid", subRecipeId);
+        cmd.Parameters.AddWithValue("servings", servings);
+        cmd.Parameters.AddWithValue("heading", (object?)groupHeading ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("ord", ordinal);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     // ── O(1) lookup helpers ──────────────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "WeekBag.GetRecipe returns null for unknown recipe id")]

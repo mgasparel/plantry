@@ -365,7 +365,7 @@ public sealed class AuthorRecipe(
             var match = matches.FirstOrDefault(m =>
                 m.TrackStock && string.Equals(m.Name, recipe.Name, StringComparison.OrdinalIgnoreCase));
             yieldProductId = match?.Id
-                ?? await catalogWriter.CreateTrackedProductAsync(recipe.Name, yieldUnit, categoryId: null, ct);
+                ?? await catalogWriter.CreateTrackedProductAsync(recipe.Name, yieldUnit, categoryId: null, isProduced: true, ct: ct);
         }
 
         var set = recipe.SetYield(yieldProductId, yieldQty, yieldUnit, clock);

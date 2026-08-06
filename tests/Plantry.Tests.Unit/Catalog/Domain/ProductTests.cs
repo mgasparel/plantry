@@ -34,6 +34,7 @@ public sealed class ProductTests
         Assert.False(product.HasVariants);
         Assert.False(product.IsArchived);
         Assert.True(product.TrackStock); // ordinary goods track stock by default
+        Assert.False(product.IsProduced); // ordinary goods are bought, not produced, by default
         Assert.Empty(product.Skus);
         Assert.Empty(product.Conversions);
         Assert.Null(product.NeverExpiresAfterFreezing);
@@ -56,6 +57,29 @@ public sealed class ProductTests
         staple.SetTrackStock(true, Clock);
 
         Assert.True(staple.TrackStock);
+    }
+
+    [Fact]
+    public void Create_Can_Mint_A_Produced_Product()
+    {
+        // plantry-sn6v: the auto-created yield/leftover path passes isProduced: true.
+        var yield = Product.Create(HouseholdId, "Nacho Cheese", UnitId, Clock, isProduced: true);
+
+        Assert.True(yield.IsProduced);
+    }
+
+    [Fact]
+    public void SetProduced_Toggles_The_Flag()
+    {
+        // plantry-sn6v: user override from the product editor — either direction.
+        var product = NewProduct();
+        Assert.False(product.IsProduced);
+
+        product.SetProduced(true, Clock);
+        Assert.True(product.IsProduced);
+
+        product.SetProduced(false, Clock);
+        Assert.False(product.IsProduced);
     }
 
     [Theory]

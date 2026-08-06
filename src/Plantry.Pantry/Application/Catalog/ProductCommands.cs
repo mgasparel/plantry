@@ -18,7 +18,8 @@ public sealed class CreateProductCommand(
     IClock clock,
     ITenantContext tenant,
     bool trackStock = true,
-    ILogger<CreateProductCommand>? logger = null)
+    ILogger<CreateProductCommand>? logger = null,
+    bool isProduced = false)
 {
     public async Task<Result<ProductId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -38,7 +39,7 @@ public sealed class CreateProductCommand(
             return Error.Custom("Catalog.DuplicateProductName", $"A product named '{name}' already exists.");
         }
 
-        var product = Product.Create(HouseholdId.From(householdId), name, UnitId.From(defaultUnitId), clock, trackStock);
+        var product = Product.Create(HouseholdId.From(householdId), name, UnitId.From(defaultUnitId), clock, trackStock, isProduced);
         if (categoryId is { } catId) product.SetCategory(CategoryId.From(catId), clock);
         if (defaultLocationId is { } locId) product.SetDefaultLocation(LocationId.From(locId), clock);
 
@@ -78,6 +79,7 @@ public sealed class UpdateProductCommand(
     int? defaultDueDaysAfterFreezing,
     int? defaultDueDaysAfterThawing,
     bool trackStock,
+    bool isProduced,
     IProductRepository products,
     IUnitRepository units,
     ICategoryRepository categories,
@@ -123,8 +125,15 @@ public sealed class UpdateProductCommand(
         // left untouched regardless of what the caller posted. This is the single source of
         // truth for "parents don't flip": the UI hides the toggle for parents, but guarding here
         // too means any other caller gets the same protection for free.
+        // IsProduced gets the same treatment (plantry-sn6v): parents never enter the shopping
+        // suggestion candidacy loop (they hold no stock records), so the flag is inert there;
+        // variants carry their own flag, and InheritFrom deliberately does not cascade it
+        // (fill-nulls-only — "manual fix-up only, by design", see Product.InheritFrom).
         if (!product.IsParent)
+        {
             product.SetTrackStock(trackStock, clock);
+            product.SetProduced(isProduced, clock);
+        }
 
         if (product.IsParent)
         {

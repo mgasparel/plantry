@@ -115,6 +115,11 @@ services:
     environment:
       ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Database__AppUserPassword: ${APP_USER_PASSWORD}
+      # Local timezone for migration log timestamps (a human reads migrator logs).
+      # The mcr.microsoft.com/dotnet/aspnet runtime image ships tzdata, so TZ resolves
+      # TimeZoneInfo.Local correctly. See src/Plantry.SharedKernel/Domain/IClock.cs.
+      # Set TZ in .env to your own IANA zone (e.g. America/Toronto); defaults to UTC.
+      TZ: ${TZ:-UTC}
 
   # ── Plantry Web ───────────────────────────────────────────────────────────
   # Connects as the least-privilege app_user only.
@@ -162,6 +167,12 @@ services:
       # the dp-cert-init one-shot service and mounted from the dp_certs volume.
       # Must match DP_CERT_PASSWORD in .env.
       DP_CERT_PASSWORD: ${DP_CERT_PASSWORD}
+      # Local timezone. TimeZoneInfo.Local (src/Plantry.SharedKernel/Domain/IClock.cs)
+      # resolves from the container's TZ; without it the container defaults to UTC and
+      # every local-time display (Today, MealPlan, etc.) shows UTC instead of your
+      # timezone. Set TZ in .env to your own IANA zone (e.g. America/Toronto); defaults
+      # to UTC. The mcr.microsoft.com/dotnet/aspnet runtime image ships tzdata.
+      TZ: ${TZ:-UTC}
     volumes:
       # Persist the ASP.NET Core DataProtection key ring so auth cookies and
       # antiforgery tokens survive 'docker compose pull && up -d' (container

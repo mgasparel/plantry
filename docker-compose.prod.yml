@@ -112,6 +112,10 @@ services:
     environment:
       ConnectionStrings__plantrydb: "Host=postgres;Port=5432;Database=plantrydb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Database__AppUserPassword: ${APP_USER_PASSWORD}
+      # Local timezone for migration log timestamps (a human reads migrator logs).
+      # The mcr.microsoft.com/dotnet/aspnet runtime image ships tzdata, so TZ resolves
+      # TimeZoneInfo.Local correctly. See src/Plantry.SharedKernel/Domain/IClock.cs.
+      TZ: ${TZ:-America/Toronto}
 
   # ── Plantry Web ───────────────────────────────────────────────────────────
   # Connects as the least-privilege app_user only — never the owner.
@@ -141,6 +145,11 @@ services:
       # the dp-cert-init one-shot service and mounted from the dp_certs volume.
       # Must match DP_CERT_PASSWORD in .env.
       DP_CERT_PASSWORD: ${DP_CERT_PASSWORD}
+      # Local timezone. TimeZoneInfo.Local (src/Plantry.SharedKernel/Domain/IClock.cs)
+      # resolves from the container's TZ; without it the container defaults to UTC and
+      # every local-time display (Today, MealPlan, etc.) shows UTC instead of local time.
+      # The mcr.microsoft.com/dotnet/aspnet runtime image ships tzdata.
+      TZ: ${TZ:-America/Toronto}
       # Observability — OTLP export to the bundled lgtm sidecar.
       # ServiceDefaults auto-enables the OTLP exporter when this is set.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318

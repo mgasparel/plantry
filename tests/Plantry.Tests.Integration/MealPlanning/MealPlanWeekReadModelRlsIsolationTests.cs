@@ -192,6 +192,62 @@ public sealed class MealPlanWeekReadModelRlsIsolationTests(PostgresFixture db) :
         Assert.DoesNotContain(_gramsB, bag.Units.Keys);
     }
 
+    // ── RLS isolation: inclusion closure (plantry-yqse) ─────────────────────────────────────────────
+
+    [Fact(DisplayName = "RLS: household A's inclusion closure query cannot discover household B's inclusion structure")]
+    public async Task RlsPolicy_InclusionClosure_CannotDiscover_HouseholdB_InclusionStructure()
+    {
+        // A same-household inclusion edge is the only kind that can exist at all — recipe_inclusion's
+        // composite FK (household_id, sub_recipe_id) → recipe(household_id, recipe_id) makes a
+        // cross-household inclusion row physically unrepresentable at the schema level (N4's stronger-
+        // than-app-layer backstop). So the leakage surface to test is different: household B has its OWN
+        // valid parent→sub inclusion, entirely within household B. The closure query's recursive CTE
+        // walks recipes.recipe_inclusion on an RLS-armed connection — household A's connection must never
+        // see household B's recipe_inclusion ROW at all, so the closure must not widen past the requested
+        // id even when that id happens to be household B's parent recipe.
+        Guid subIdB;
+        await using (var conn = new NpgsqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+
+            await using (var subCmd = conn.CreateCommand())
+            {
+                subCmd.CommandText = """
+                    INSERT INTO recipes.recipe (recipe_id, household_id, name, default_servings, created_at, updated_at)
+                    VALUES (@id, @hid, 'Sub B', 4, NOW(), NOW())
+                    """;
+                subIdB = Guid.NewGuid();
+                subCmd.Parameters.AddWithValue("id", subIdB);
+                subCmd.Parameters.AddWithValue("hid", _householdB.Value);
+                await subCmd.ExecuteNonQueryAsync();
+            }
+
+            await using var incCmd = conn.CreateCommand();
+            incCmd.CommandText = """
+                INSERT INTO recipes.recipe_inclusion
+                    (inclusion_id, household_id, recipe_id, sub_recipe_id, servings, group_heading, ordinal)
+                VALUES
+                    (@id, @hid, @rid, @sid, 1, NULL, 2)
+                """;
+            incCmd.Parameters.AddWithValue("id", Guid.NewGuid());
+            incCmd.Parameters.AddWithValue("hid", _householdB.Value);
+            incCmd.Parameters.AddWithValue("rid", _recipeIdB);
+            incCmd.Parameters.AddWithValue("sid", subIdB);
+            await incCmd.ExecuteNonQueryAsync();
+        }
+
+        // Run under household A's tenant context, requesting household B's parent recipe id.
+        var rm = NewReadModel(_householdA);
+        var bag = await rm.LoadAsync([_recipeIdB], []);
+
+        // Household A's connection cannot see household B's recipe_inclusion row (RLS), so the closure
+        // never widens to subIdB — and, as the existing suite already proves for recipes/products/stock/
+        // price, household B's own recipe row is invisible too.
+        Assert.DoesNotContain(_recipeIdB, bag.InclusionsByRecipe.Keys);
+        Assert.DoesNotContain(subIdB, bag.Recipes.Keys);
+        Assert.Empty(bag.Recipes);
+    }
+
     // ── RLS: no tenant context returns empty bag ─────────────────────────────────────────────────
 
     [Fact(DisplayName = "RLS: empty tenant context (no household set) returns empty bag — strict policy")]

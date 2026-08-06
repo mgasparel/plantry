@@ -43,23 +43,10 @@
         </div>
     </div>
 }
-else if (Model.Deals.Count == 0 && !Model.ShowHandoff)
+else if (Model.Deals.Count == 0 && !Model.ShowHandoff && Model.Rail.Chapters.Count == 0)
 {
-    <div class="card">
-        <div class="card__body">
-            <div class="empty-state">
-                <div class="empty-state__icon">
-                    <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-                </div>
-                <div class="empty-state__title">All caught up</div>
-                <div class="empty-state__body">
-                    No deals waiting on you. New flyer deals that Plantry can&rsquo;t auto-match will show up
-                    here after the next pull.
-                </div>
-                <a class="btn btn--secondary" href="/Deals">Back to deals</a>
-            </div>
-        </div>
-    </div>
+    @* No flyers at all — the plain empty state, no rail (nothing to show a link for). *@
+    <partial name="_AllCaughtUp" />
 }
 else
 {
@@ -78,10 +65,18 @@ else
             <span class="page-progress__count">@Model.ReviewedCount of @Model.TotalCount reviewed</span>
         </div>
 
-        @* Flyer rail — big chips (≤3 flyers) or compact expiry-sorted pills (>3) + summary + context line. *@
+        @* Flyer rail — big chips (≤3 flyers) or compact expiry-sorted pills (>3) + summary + context line.
+           Rendered even once every flyer is done (plantry-c4qk): the rail's done chips/pills are the only
+           surviving route to a flyer's "View flyer" link once nothing is left pending. *@
         <partial name="_FlyerRail" model="Model.Rail" />
 
-        @if (Model.ShowHandoff && Model.ActiveFlyer is { } next)
+        @if (Model.Deals.Count == 0 && !Model.ShowHandoff)
+        {
+            @* Every flyer reviewed (plantry-c4qk) — the same "All caught up" body as the zero-flyers case,
+               now living below the rail so the done chips/pills (and their flyer links) stay visible. *@
+            <partial name="_AllCaughtUp" />
+        }
+        else if (Model.ShowHandoff && Model.ActiveFlyer is { } next)
         {
             @* Per-flyer done handoff (q9zr.3, scope 4): the requested flyer is fully reviewed; point at the
                next soonest-expiring pending flyer. Reuses the shared .empty-state done primitive. *@

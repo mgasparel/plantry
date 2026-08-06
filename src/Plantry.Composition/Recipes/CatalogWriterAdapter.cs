@@ -40,11 +40,11 @@ public sealed class CatalogWriterAdapter(
         return result.Value.Value;
     }
 
-    public async Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
+    public async Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, bool isProduced = false, CancellationToken ct = default)
     {
         var command = new CreateProductCommand(
             name, defaultUnitId, categoryId, defaultLocationId: null,
-            products, units, categories, locations, clock, tenant, trackStock: true);
+            products, units, categories, locations, clock, tenant, trackStock: true, isProduced: isProduced);
 
         var result = await command.ExecuteAsync(ct);
         if (result.IsFailure)

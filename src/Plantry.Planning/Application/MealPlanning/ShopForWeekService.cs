@@ -43,6 +43,7 @@ public sealed class ShopForWeekService(
     IClock clock,
     ITenantContext tenant,
     ILogger<ShopForWeekService> logger,
+    IMealPlanCookStatusReader cookStatusReader,
     IMealPlanUnitConverter? unitConverter = null)
 {
     /// <summary>
@@ -57,6 +58,17 @@ public sealed class ShopForWeekService(
         var plan = await mealPlanRepo.FindByWeekAsync(householdId, weekStart, ct);
         if (plan is null || plan.PlannedMeals.Count == 0)
             return new ShopForWeekResult(0);
+
+        // Cooked/eaten dishes are excluded (plantry-366k): one batched cook-status query over every
+        // planned dish in the week, up front — never per-dish (IMealPlanCookStatusReader's own
+        // doc-comment makes this a hard requirement). Presence in the result means done.
+        var allPlannedDishIds = plan.PlannedMeals
+            .SelectMany(m => m.PlannedDishes)
+            .Select(d => d.Id.Value)
+            .ToList();
+        var cookStatusByDish = allPlannedDishIds.Count > 0
+            ? await cookStatusReader.GetStatusesAsync(allPlannedDishIds, ct)
+            : new Dictionary<Guid, DishCookStatus>();
 
         // Week-level canonical unit per product: the first unit seen for a product anywhere in the
         // week. Every subsequent requirement is converted to that denomination before it is added.
@@ -79,6 +91,11 @@ public sealed class ShopForWeekService(
 
             foreach (var dish in meal.PlannedDishes)
             {
+                // Already cooked/eaten (plantry-366k) — its needs are already satisfied, so it
+                // contributes nothing to this slot. Half-cooked meals still shop for the rest.
+                if (cookStatusByDish.ContainsKey(dish.Id.Value))
+                    continue;
+
                 if (dish.RecipeId.HasValue)
                 {
                     // Recipe dish: collect missing/low ingredients from Recipes' read model.

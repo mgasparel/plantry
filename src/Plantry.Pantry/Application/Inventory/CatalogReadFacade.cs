@@ -96,5 +96,6 @@ public sealed class CatalogReadFacade(
             DefaultDueDaysAfterOpening: ExpiryDefaultResolver.ResolveDefaultDueDaysAfterOpening(p),
             AfterFreezingPolicy: ExpiryDefaultResolver.ResolveAfterFreezing(p, parent, householdDefaults.AfterFreezing),
             AfterThawingPolicy: ExpiryDefaultResolver.ResolveAfterThawing(p, parent, householdDefaults.AfterThawing),
-            IsArchived: p.IsArchived);
+            IsArchived: p.IsArchived,
+            IsProduced: p.IsProduced);
 }

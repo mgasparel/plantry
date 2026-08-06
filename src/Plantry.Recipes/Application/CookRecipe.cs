@@ -209,7 +209,7 @@ public sealed class CookRecipe(
                     var match = matches.FirstOrDefault(m =>
                         m.TrackStock && string.Equals(m.Name, leftoverName, StringComparison.OrdinalIgnoreCase));
                     var newProductId = match?.Id
-                        ?? await catalogWriter.CreateTrackedProductAsync(leftoverName, countUnit.Id, categoryId: null, ct);
+                        ?? await catalogWriter.CreateTrackedProductAsync(leftoverName, countUnit.Id, categoryId: null, isProduced: true, ct: ct);
 
                     var setResult = recipe.SetYield(newProductId, declaredQty, countUnit.Id, clock);
                     if (setResult.IsSuccess)

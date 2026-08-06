@@ -1433,7 +1433,10 @@
         in a <code>.flyers--compact</code> rail, expiry-sorted, with a <code>.rail-summary</code>
         roll-up above and the active flyer's detail demoted to an <code>.active-flyer-line</code>.
         Mark the open flyer <code>.is-active</code>, finished ones <code>.is-done</code>; add
-        <code>.urgent</code> to the expiry pill when it is closing soon.
+        <code>.urgent</code> to the expiry pill when it is closing soon. A finished flyer's "View flyer" link
+        survives at both densities — the big chip's <code>.meta</code> line keeps its <code>.flyer-link</code>
+        <code>&lt;a&gt;</code>, and the compact done pill folds the link into its <code>.store</code> text
+        (<code>&lt;a class="store flyer-link"&gt;</code>) since a pill has no room for a second element.
     </p>
     <p><strong>Big chips</strong> (≤3 flyers):</p>
     <p style="font-size:0.8125rem;color:var(--color-text-muted)">
@@ -1456,7 +1459,7 @@
         </div>
         <div class="flyer-chip is-done" aria-label="No Frills, all deals reviewed">
             <span class="store">No Frills</span><span class="left done">✓ done</span>
-            <span class="meta">Valid Jul 1 – Jul 7</span>
+            <span class="meta">Valid Jul 1 – Jul 7 · <a class="flyer-link" href="#" onclick="return false;">View flyer ↗</a></span>
         </div>
     </div>
     <p><strong>Compact rail</strong> (&gt;3 flyers):</p>
@@ -1465,7 +1468,10 @@
         <button class="flyer-pill is-active"><span class="store">Metro</span><span class="n">6</span><span class="d urgent">1d</span></button>
         <button class="flyer-pill"><span class="store">Sobeys</span><span class="n">14</span><span class="d">3d</span></button>
         <button class="flyer-pill"><span class="store">Loblaws</span><span class="n">9</span><span class="d">5d</span></button>
-        <button class="flyer-pill is-done"><span class="store">No Frills</span><span class="d">✓</span></button>
+        <span class="flyer-pill is-done" aria-label="No Frills, all deals reviewed">
+            <a class="store flyer-link" href="#" onclick="return false;" aria-label="No Frills, view flyer">No Frills</a>
+            <span class="d">✓</span>
+        </span>
     </div>
     <div class="active-flyer-line">
         <span class="store">Metro</span>

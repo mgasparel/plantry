@@ -458,6 +458,94 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.DoesNotContain("Flyer cleared", fragment);
     }
 
+    [Fact(DisplayName = "Confirm-finishing the household's only flyer still renders the rail with a done chip and its View-flyer link, below the caught-up empty state (plantry-c4qk)")]
+    public async Task Confirm_Finishing_Only_Flyer_Keeps_Rail_And_Link_Above_Caught_Up()
+    {
+        factory.Reset();
+        var only = factory.SeedPending("Milk 2L", MatchConfidence.High, factory.MilkProduct);
+        factory.SeedFlyerLink(only, "flipp-freshco-2026-07");
+        var key = FlyerBlock.MakeKey(only.StoreId, only.ValidityWindow.ValidFrom, only.ValidityWindow.ValidTo);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // Confirm the only deal in the only flyer — nothing pending left anywhere, no handoff target.
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={only.Id.Value}&flyer={key}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        var fragment = System.Net.WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+
+        // Before plantry-c4qk the rail (and every "View flyer" link) vanished the moment the last deal cleared;
+        // it must now persist as a done chip carrying its link, with the empty state rendered below it.
+        Assert.Contains("flyer-chip is-done", fragment);
+        Assert.Contains("✓ done", fragment);
+        Assert.Contains("class=\"flyer-link\"", fragment);
+        Assert.Contains("href=\"https://flipp.com/en-ca/search/FreshCo\"", fragment);
+        Assert.Contains("All caught up", fragment);
+        Assert.DoesNotContain("Flyer cleared", fragment);   // nothing to hand off to
+    }
+
+    [Fact(DisplayName = "A compact-density (>3 flyers) done pill still exposes its View-flyer link (plantry-c4qk)")]
+    public async Task Compact_Done_Pill_Keeps_Its_Flyer_Link()
+    {
+        factory.Reset();
+        var soonest = factory.SeedPendingExpiring("Milk 2L", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 1);
+        factory.SeedPendingExpiring("Eggs Dozen", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 3);
+        factory.SeedPendingExpiring("Cheese Block", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 5);
+        factory.SeedPendingExpiring("Yogurt Tub", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 7);
+        factory.SeedFlyerLink(soonest, "flipp-freshco-milk-2026-07");
+        var soonestKey = FlyerBlock.MakeKey(soonest.StoreId, soonest.ValidityWindow.ValidFrom, soonest.ValidityWindow.ValidTo);
+
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        // Finish the soonest-expiring flyer (its only deal) — three others stay pending, so the rail is still
+        // >3 chapters and stays at compact-pill density.
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={soonest.Id.Value}&flyer={soonestKey}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        var fragment = System.Net.WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+
+        Assert.Contains("flyers--compact", fragment);        // still 4 chapters → compact density
+        Assert.Contains("flyer-pill is-done", fragment);      // the finished flyer is a done pill, not a chip
+        Assert.Contains("class=\"store flyer-link\"", fragment);
+        Assert.Contains("href=\"https://flipp.com/en-ca/search/FreshCo\"", fragment);
+    }
+
+    [Fact(DisplayName = "Confirm-finishing every flyer at compact density drops the waiting roll-up (plantry-c4qk)")]
+    public async Task Compact_All_Done_Omits_Waiting_Rollup()
+    {
+        factory.Reset();
+        // Four flyers → compact density. Confirm every one of them to completion, so WaitingCount/WaitingDeals
+        // hit 0 and SoonestExpiryDays falls through to its 0 default — the roll-up line must not render.
+        var deals = new[]
+        {
+            factory.SeedPendingExpiring("Milk 2L", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 1),
+            factory.SeedPendingExpiring("Eggs Dozen", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 3),
+            factory.SeedPendingExpiring("Cheese Block", MatchConfidence.High, factory.MilkProduct, daysUntilExpiry: 5),
+            factory.SeedPendingExpiring("Yogurt Tub", MatchConfidence.High, factory.BreadProduct, daysUntilExpiry: 7),
+        };
+
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        string fragment = "";
+        foreach (var deal in deals)
+        {
+            var key = FlyerBlock.MakeKey(deal.StoreId, deal.ValidityWindow.ValidFrom, deal.ValidityWindow.ValidTo);
+            var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={deal.Id.Value}&flyer={key}",
+                Kv("__RequestVerificationToken", token));
+            response.EnsureSuccessStatusCode();
+            fragment = System.Net.WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+        }
+
+        Assert.Contains("flyers--compact", fragment);         // still 4 chapters → compact density
+        Assert.Contains("All caught up", fragment);
+        Assert.DoesNotContain("flyers</b> waiting", fragment); // the roll-up must not render with nothing pending
+        Assert.DoesNotContain("rail-summary", fragment);
+    }
+
     // ── L5 verb wiring ────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "Confirm accepts the suggestion → deal becomes Confirmed, writes an observation, leaves the queue")]

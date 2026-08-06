@@ -106,6 +106,50 @@ public sealed class Recipe : AggregateRoot<RecipeId>
         return recipe;
     }
 
+    /// <summary>
+    /// Reconstitutes a recipe from already-persisted, already-validated facts, preserving its REAL
+    /// <see cref="RecipeId"/> — unlike <see cref="Create"/>, which always mints a fresh id for a brand
+    /// new recipe. Same R2 validation as <see cref="Create"/> (defensive; the facts should already be
+    /// valid, having been persisted).
+    ///
+    /// <para>Exists for non-EF adapters that rebuild a Recipe aggregate purely from flat, pre-loaded read
+    /// data (ADR-021) and need id-CORRECTNESS for cross-referencing — e.g. <c>WeekBagEnricher</c>
+    /// building the resolver map <see cref="RecipeExpansionService"/>'s batched
+    /// <c>ExpandAsync(RecipeId,IReadOnlyDictionary{RecipeId,Recipe},CancellationToken)</c> overload
+    /// walks: the dictionary is keyed by the real id regardless, but the expansion service's internal
+    /// cycle-ancestor guard seeds itself from <c>root.Id</c> — a recipe built with a random id there
+    /// would silently defeat that guard for a cycle that loops back through the root specifically.
+    /// EF hydration reaches the same preserved-id outcome by a different mechanism (materializing over
+    /// the private constructor via reflection); this is the non-EF equivalent for that one legitimate
+    /// use case, not a general-purpose bypass of <see cref="Create"/>'s validation.</para>
+    /// </summary>
+    public static Result<Recipe> Rehydrate(
+        RecipeId id,
+        HouseholdId householdId,
+        string name,
+        int defaultServings,
+        IClock clock)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return Error.Custom("Recipes.InvalidName", "Recipe name must not be blank.");
+
+        if (defaultServings < 1)
+            return Error.Custom("Recipes.InvalidServings", "Default servings must be at least 1.");
+
+        var now = clock.UtcNow;
+        var recipe = new Recipe
+        {
+            Id = id,
+            HouseholdId = householdId,
+            Name = name.Trim(),
+            DefaultServings = defaultServings,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+
+        return recipe;
+    }
+
     // ── Scalar mutators ────────────────────────────────────────────────────────
 
     /// <summary>Renames the recipe. Name uniqueness (R1) is enforced by the application layer.</summary>

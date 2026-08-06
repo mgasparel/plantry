@@ -80,4 +80,10 @@ public sealed record CatalogProductInfo(
     /// </summary>
     ExpiryTransitionPolicy? AfterFreezingPolicy = null,
     /// <summary>The normal resolved policy for a future thaw; see <see cref="AfterFreezingPolicy"/>.</summary>
-    ExpiryTransitionPolicy? AfterThawingPolicy = null);
+    ExpiryTransitionPolicy? AfterThawingPolicy = null,
+    /// <summary>
+    /// True when the product was produced at home (a recipe yield or cook leftover, "made, not
+    /// bought", plantry-sn6v) rather than bought — mirrors <c>Product.IsProduced</c>. Drives the
+    /// restock-candidate exclusion in <c>ShoppingPantryReaderAdapter.GetLowStockProductsAsync</c>.
+    /// </summary>
+    bool IsProduced = false);

@@ -116,7 +116,7 @@ public sealed class IngredientLineResolver(ICatalogProductReader products, ICata
         else
         {
             // Path C: standalone tracked product (no group).
-            newTrackedId = await catalogWriter.CreateTrackedProductAsync(trackedName, trackedUnit, line.NewStapleCategoryId, ct);
+            newTrackedId = await catalogWriter.CreateTrackedProductAsync(trackedName, trackedUnit, line.NewStapleCategoryId, ct: ct);
         }
 
         // A freshly created tracked product has trackStock: true; its default unit is the supplied unit.

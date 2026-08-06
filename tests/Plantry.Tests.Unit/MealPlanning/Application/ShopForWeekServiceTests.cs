@@ -330,6 +330,192 @@ public sealed class ShopForWeekServiceTests
         Assert.Equal(1.25m, contribution.Quantity); // 1 + 0.25 summed within the slot
     }
 
+    // ── Cooked dish exclusion (plantry-366k) ────────────────────────────────────
+
+    [Fact]
+    public async Task ExecuteAsync_DoesNotAddMissingIngredients_ForCookedRecipeDish()
+    {
+        var recipeId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+
+        var reader = new FakeMissingIngredientsReader(
+            recipeId, [new RecipeMissingIngredient(productId, 2m, unitId)]);
+
+        var repo = new FakeMealPlanRepository();
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, recipeId, 2)], null, "manual", UserId, Clock);
+        repo.Stored = plan;
+
+        var dishId = plan.PlannedMeals.Single().PlannedDishes.Single().Id.Value;
+        var cookStatusReader = new FakeCookStatusReader(
+            new Dictionary<Guid, DishCookStatus> { [dishId] = new(Clock.UtcNow) });
+
+        var (svc, shopRepo) = BuildService(repo: repo, recipeReader: reader, cookStatusReader: cookStatusReader);
+
+        var result = await svc.ExecuteAsync(HouseholdId, Monday);
+
+        Assert.Equal(0, result.ItemsAdded);
+        var list = await GetListAsync(shopRepo);
+        Assert.Empty(list.Items);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DoesNotAddProduct_ForConsumedProductDish()
+    {
+        var productId = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+        var fakeStock = new FakeStockReaderForShop(
+            new MealPlanProductStock(productId, 1m, unitId, null));
+
+        var repo = new FakeMealPlanRepository();
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA, [DishSpec.ForProduct(productId, 3m, unitId)], null, "manual", UserId, Clock);
+        repo.Stored = plan;
+
+        var dishId = plan.PlannedMeals.Single().PlannedDishes.Single().Id.Value;
+        var cookStatusReader = new FakeCookStatusReader(
+            new Dictionary<Guid, DishCookStatus> { [dishId] = new(Clock.UtcNow) });
+
+        var (svc, shopRepo) = BuildService(repo: repo, stockReader: fakeStock, cookStatusReader: cookStatusReader);
+
+        var result = await svc.ExecuteAsync(HouseholdId, Monday);
+
+        Assert.Equal(0, result.ItemsAdded);
+        var list = await GetListAsync(shopRepo);
+        Assert.Empty(list.Items);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AddsOnlyUncookedDish_WhenMealHasOneCookedAndOneUncookedDish()
+    {
+        var recipeId1 = Guid.NewGuid(); // cooked
+        var recipeId2 = Guid.NewGuid(); // not cooked
+        var productA = Guid.NewGuid();
+        var productB = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+
+        var reader = new FakeMultiMissingReader([
+            (recipeId1, [new RecipeMissingIngredient(productA, 1m, unitId)]),
+            (recipeId2, [new RecipeMissingIngredient(productB, 1m, unitId)]),
+        ]);
+
+        var repo = new FakeMealPlanRepository();
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA,
+            [new DishSpec(DishKind.Recipe, recipeId1, 2), new DishSpec(DishKind.Recipe, recipeId2, 2)],
+            null, "manual", UserId, Clock);
+        repo.Stored = plan;
+
+        var dishes = plan.PlannedMeals.Single().PlannedDishes.ToList();
+        var cookedDishId = dishes[0].RecipeId == recipeId1 ? dishes[0].Id.Value : dishes[1].Id.Value;
+        var cookStatusReader = new FakeCookStatusReader(
+            new Dictionary<Guid, DishCookStatus> { [cookedDishId] = new(Clock.UtcNow) });
+
+        var (svc, shopRepo) = BuildService(repo: repo, recipeReader: reader, cookStatusReader: cookStatusReader);
+
+        var result = await svc.ExecuteAsync(HouseholdId, Monday);
+
+        Assert.Equal(1, result.ItemsAdded);
+        var list = await GetListAsync(shopRepo);
+        var item = Assert.Single(list.Items);
+        Assert.Equal(productB, item.ProductId);
+        var contribution = Assert.Single(item.Contributions);
+        Assert.Equal(plan.PlannedMeals.Single().Id.Value, contribution.SourceRef);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AddsNothing_WhenEveryDishInWeekIsCooked()
+    {
+        var recipeId1 = Guid.NewGuid();
+        var recipeId2 = Guid.NewGuid();
+        var productId1 = Guid.NewGuid();
+        var productId2 = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+
+        var reader = new FakeMultiMissingReader([
+            (recipeId1, [new RecipeMissingIngredient(productId1, 1m, unitId)]),
+            (recipeId2, [new RecipeMissingIngredient(productId2, 1m, unitId)]),
+        ]);
+
+        var repo = new FakeMealPlanRepository();
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA,
+            [new DishSpec(DishKind.Recipe, recipeId1, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday.AddDays(3), SlotB,
+            [new DishSpec(DishKind.Recipe, recipeId2, 2)], null, "manual", UserId, Clock);
+        repo.Stored = plan;
+
+        var allDishIds = plan.PlannedMeals.SelectMany(m => m.PlannedDishes).Select(d => d.Id.Value);
+        var cookStatusReader = new FakeCookStatusReader(
+            allDishIds.ToDictionary(id => id, _ => new DishCookStatus(Clock.UtcNow)));
+
+        var (svc, shopRepo) = BuildService(repo: repo, recipeReader: reader, cookStatusReader: cookStatusReader);
+
+        var result = await svc.ExecuteAsync(HouseholdId, Monday);
+
+        Assert.Equal(0, result.ItemsAdded);
+        var list = await GetListAsync(shopRepo);
+        Assert.Empty(list.Items);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_BehavesIdenticallyToBaseline_WhenNothingIsCooked()
+    {
+        var recipeId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+
+        var reader = new FakeMissingIngredientsReader(
+            recipeId, [new RecipeMissingIngredient(productId, 2m, unitId)]);
+
+        var repo = new FakeMealPlanRepository();
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, recipeId, 2)], null, "manual", UserId, Clock);
+        repo.Stored = plan;
+
+        var cookStatusReader = new FakeCookStatusReader(new Dictionary<Guid, DishCookStatus>());
+        var (svc, shopRepo) = BuildService(repo: repo, recipeReader: reader, cookStatusReader: cookStatusReader);
+
+        var result = await svc.ExecuteAsync(HouseholdId, Monday);
+
+        Assert.Equal(1, result.ItemsAdded);
+        var list = await GetListAsync(shopRepo);
+        var item = Assert.Single(list.Items);
+        Assert.Equal(productId, item.ProductId);
+        Assert.Equal(2m, item.Quantity);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CallsCookStatusReaderExactlyOnce_ForMultiSlotWeek()
+    {
+        var recipeId1 = Guid.NewGuid();
+        var recipeId2 = Guid.NewGuid();
+        var productId1 = Guid.NewGuid();
+        var productId2 = Guid.NewGuid();
+        var unitId = Guid.NewGuid();
+
+        var reader = new FakeMultiMissingReader([
+            (recipeId1, [new RecipeMissingIngredient(productId1, 1m, unitId)]),
+            (recipeId2, [new RecipeMissingIngredient(productId2, 1m, unitId)]),
+        ]);
+
+        var repo = new FakeMealPlanRepository();
+        var plan = MealPlan.Start(HouseholdId, Monday, Clock);
+        plan.AssignMeal(Monday, SlotA,
+            [new DishSpec(DishKind.Recipe, recipeId1, 2)], null, "manual", UserId, Clock);
+        plan.AssignMeal(Monday.AddDays(3), SlotB,
+            [new DishSpec(DishKind.Recipe, recipeId2, 2)], null, "manual", UserId, Clock);
+        repo.Stored = plan;
+
+        var cookStatusReader = new FakeCookStatusReader(new Dictionary<Guid, DishCookStatus>());
+        var (svc, _) = BuildService(repo: repo, recipeReader: reader, cookStatusReader: cookStatusReader);
+
+        await svc.ExecuteAsync(HouseholdId, Monday);
+
+        Assert.Equal(1, cookStatusReader.CallCount);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private static async Task<ShoppingList> GetListAsync(FakeShoppingListRepository shopRepo) =>
@@ -339,7 +525,8 @@ public sealed class ShopForWeekServiceTests
         FakeMealPlanRepository? repo = null,
         IRecipeReadModel? recipeReader = null,
         IMealPlanStockReader? stockReader = null,
-        IMealPlanUnitConverter? unitConverter = null)
+        IMealPlanUnitConverter? unitConverter = null,
+        FakeCookStatusReader? cookStatusReader = null)
     {
         var shopRepo = new FakeShoppingListRepository();
         shopRepo.Seed(ShoppingList.Create(HouseholdId, Clock));
@@ -353,6 +540,7 @@ public sealed class ShopForWeekServiceTests
             Clock,
             new FakeTenantContext(HouseholdId.Value),
             NullLogger<ShopForWeekService>.Instance,
+            cookStatusReader ?? new FakeCookStatusReader(new Dictionary<Guid, DishCookStatus>()),
             unitConverter);
 
         return (svc, shopRepo);
@@ -407,4 +595,24 @@ internal sealed class FakeStockReaderForShop(MealPlanProductStock? stock) : IMea
 {
     public Task<MealPlanProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default)
         => Task.FromResult(stock);
+}
+
+/// <summary>
+/// Fixed <see cref="IMealPlanCookStatusReader"/> — returns exactly the pre-seeded statuses,
+/// filtered to what was asked for, and counts calls so tests can assert the batching discipline
+/// (one call per <see cref="ShopForWeekService.ExecuteAsync"/>, never per-dish).
+/// </summary>
+internal sealed class FakeCookStatusReader(IReadOnlyDictionary<Guid, DishCookStatus> statuses) : IMealPlanCookStatusReader
+{
+    public int CallCount { get; private set; }
+
+    public Task<IReadOnlyDictionary<Guid, DishCookStatus>> GetStatusesAsync(
+        IReadOnlyCollection<Guid> plannedDishIds, CancellationToken ct = default)
+    {
+        CallCount++;
+        IReadOnlyDictionary<Guid, DishCookStatus> result = plannedDishIds
+            .Where(statuses.ContainsKey)
+            .ToDictionary(id => id, id => statuses[id]);
+        return Task.FromResult(result);
+    }
 }

@@ -84,6 +84,16 @@
                            hint="Off: treated as an always-available staple (salt, water) — never counted, never consumed by cooking, never added to shopping lists.">
                         <input asp-for="Input.TrackStock" type="checkbox" />
                     </field>
+
+                    @* plantry-sn6v: read-mostly explanation for a recipe-yield/leftover product
+                       auto-created by Author/Cook — why it never appears as a "Running low" restock
+                       suggestion. A user can clear it if they start buying the thing too, or set it
+                       manually. Hidden for parents for the same reason as TrackStock above: a parent
+                       can never hold stock, so the flag can never actually be used (plantry-9ndg). *@
+                    <field asp-for="Input.IsProduced" stacked full
+                           hint="Off: an ordinary purchased product. On: made at home (a recipe yield or cook leftover) — never suggested as a restock even when running low.">
+                        <input asp-for="Input.IsProduced" type="checkbox" />
+                    </field>
                 }
             </div>
             <div>

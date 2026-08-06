@@ -310,6 +310,15 @@ button { font-family: inherit; cursor: pointer; }
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
+  /* plantry-ibuq root cause: grid items get an implicit min-width:auto (their content's
+     min-content size) unless overridden — so any descendant anywhere on the site whose
+     min-content width exceeds the viewport (e.g. Shopping's inline quantity editor at
+     phone widths) holds the ENTIRE .app-body grid track open at that width, which widens
+     .topbar/.page-content/.app-content together and pushes document.documentElement.
+     scrollWidth past clientWidth even where the descendant's OWN flex/wrap rules would
+     otherwise have let it shrink. min-width: 0 removes that floor so the grid column (and
+     everything sized relative to it) can actually shrink down to the viewport. */
+  min-width: 0;
 }
 
 .topbar {
@@ -4431,6 +4440,53 @@ button.sadd svg { width: 13px; height: 13px; }
   .sl-add-grid { grid-template-columns: 1fr; }
   .sl-or { flex-direction: row; padding: 2px 0; }
   .sl-or::before, .sl-or::after { width: auto; height: 1px; }
+
+  /* ---- plantry-ibuq: mobile horizontal-scroll fixes ----------------------
+     Several .sl-* clusters below are flex:none/white-space:nowrap with no
+     mobile allowance to shrink, so at phone widths (320-430px) the row's
+     intrinsic content width exceeds the viewport and the whole page scrolls
+     horizontally. Each rule lets the offending cluster wrap or shrink
+     instead of forcing a fixed width; none of them add overflow-x: hidden,
+     which would hide the symptom rather than fix the layout. */
+
+  /* .sl-wrap padding alone isn't an overflow cause under border-box, but it
+     eats 40px of a 390px viewport and makes every other suspect below more
+     likely to tip over — trim it on mobile. */
+  .sl-wrap { padding: 20px 14px 60px; }
+
+  /* Summary stat box (rendered into the shared .page-header__actions, which
+     is flex:none — scope the override to this page via .sl-wrap so the
+     shared primitive itself, and every other page composing it, is
+     untouched): let it wrap to its own row and let its three stat boxes
+     shrink instead of holding their nowrap intrinsic width. */
+  .sl-wrap .page-header__actions { width: 100%; }
+  .sl-summary { flex-wrap: wrap; white-space: normal; width: 100%; }
+  .sl-summary .ss { flex: 1 1 auto; min-width: 0; }
+
+  /* Inline quantity editor (stepper + unit select + save button, ~260px of
+     non-shrinking content) and the action buttons: let the row wrap so the
+     editor drops to its own line below the item name instead of forcing
+     the row wider than the viewport. */
+  .sl-item { flex-wrap: wrap; row-gap: 8px; }
+  .sl-qtyedit { flex: 1 1 100%; order: 3; }
+  /* The unit select is the only shrinkable member of the qtyedit trio (stepper and the save
+     button are fixed-width controls) — without min-width:0 a <select> won't shrink below its
+     own intrinsic content width, and at 320px the trio's combined intrinsic width (~264px)
+     still overflows the wrapped row (~260px available after .sl-wrap/.sl-item padding). */
+  .sl-qtyedit .sl-qsel { flex: 1 1 auto; min-width: 0; }
+  .sl-actions { margin-left: auto; }
+
+  /* Add-item footer (qty + unit + submit): allow the fixed-width fields to
+     wrap instead of overflowing past the input row above them. */
+  .sl-add-foot { flex-wrap: wrap; row-gap: 10px; }
+  .sl-add-foot .sl-field { flex: 1 1 auto; min-width: 90px; }
+
+  /* "Checked off" label + "Clear N checked items" button: both nowrap with a
+     flex spacer between them — at 320px their combined intrinsic width can
+     exceed the trimmed .sl-wrap content width even though neither is wide
+     on its own. Let the pair wrap instead of pushing the spacer negative. */
+  .sl-checked-head { flex-wrap: wrap; row-gap: 6px; }
+  .sl-checked-head .spacer { flex-basis: 100%; height: 0; }
 }
 
 /* ===========================================================================
@@ -7560,6 +7616,10 @@ kbd, .kbd {
 .flyer-pill.is-active { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
 .flyer-pill.is-done { opacity: 0.6; cursor: default; } /* non-interactive done pill (plantry-8f7v) */
 .flyer-pill .store { font-weight: 650; white-space: nowrap; }
+/* Done pill's store name doubles as the "View flyer" link (plantry-c4qk) — keep the pill's own weight/color
+   rather than the generic .flyer-link accent, underline only on hover so it still reads as a label at rest. */
+.flyer-pill.is-done .store.flyer-link { color: inherit; text-decoration: none; cursor: pointer; }
+.flyer-pill.is-done .store.flyer-link:hover { text-decoration: underline; }
 .flyer-pill .n { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); }
 .flyer-pill .d { font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 600; border-radius: var(--radius-full); padding: 0 0.45rem; background: var(--color-surface-2); color: var(--color-text-muted); }
 .flyer-pill .d.urgent { background: var(--color-warning-bg); color: var(--color-warning); }

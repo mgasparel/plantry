@@ -295,7 +295,10 @@ public sealed class AddProductConversionUnorderedPairUniqueIndexMigrationTests :
         var migrator = ctx.GetInfrastructure().GetRequiredService<IMigrator>();
         await migrator.MigrateAsync(targetMigration);
         if (targetMigration == BaselineMigration)
+        {
             await CatalogMigrationTestCompatibility.AddProductNeverExpiryColumnsAsync(ctx);
+            await CatalogMigrationTestCompatibility.AddProductIsProducedColumnAsync(ctx);
+        }
     }
 
     private CatalogDbContext NewContext(HouseholdId household)

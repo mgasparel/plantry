@@ -240,7 +240,7 @@ internal sealed class GhostCellRecipeReader : IRecipeReadModel
 // ── Mixed-cost ghost-cell partial flag tests ──────────────────────────────────
 
 /// <summary>
-/// Regression guard for BuildGhostEnrichmentFromBag's "mixed priced/unpriced → CostIsPartial"
+/// Regression guard for BuildGhostEnrichmentFromBagAsync's "mixed priced/unpriced → CostIsPartial"
 /// rule. A ghost proposal with one priced recipe and one unpriced recipe must render "~$"
 /// (the partial-cost prefix) rather than "$" (the complete-cost prefix).
 /// </summary>
@@ -270,7 +270,7 @@ public sealed class MixedCostGhostCollection : ICollectionFixture<MixedCostGhost
 /// WAF factory that seeds a two-dish ghost proposal:
 ///   - Recipe A: has one ingredient that is stocked and priced → TotalCost non-null
 ///   - Recipe B: has one ingredient that is stocked but NOT priced → TotalCost null
-/// With the fix, BuildGhostEnrichmentFromBag should set anyPriced=true, anyUnpriced=true
+/// With the fix, BuildGhostEnrichmentFromBagAsync should set anyPriced=true, anyUnpriced=true
 /// → costIsPartial = true → _GhostCell.cshtml renders "~$".
 /// </summary>
 public sealed class MixedCostGhostFactory : MealPlanFragmentFactory
@@ -298,7 +298,7 @@ public sealed class MixedCostGhostFactory : MealPlanFragmentFactory
     ///   - Recipe A: 1 ingredient (ProdA, qty=1), ProdA is stocked (qty=2) and priced ($5.00).
     ///   - Recipe B: 1 ingredient (ProdB, qty=1), ProdB is stocked (qty=2) but NOT priced.
     /// After enrichment: A.TotalCost = $5.00, B.TotalCost = null.
-    /// BuildGhostEnrichmentFromBag → anyPriced=true, anyUnpriced=true → CostIsPartial=true → "~$".
+    /// BuildGhostEnrichmentFromBagAsync → anyPriced=true, anyUnpriced=true → CostIsPartial=true → "~$".
     /// </summary>
     private IMealPlanWeekReadModel BuildMixedCostReadModel()
     {

@@ -65,7 +65,12 @@ public sealed class ShoppingPantryReaderAdapter(
         if (allStock.Count == 0)
             return [];
 
-        var levels = await AggregateStockLevelsAsync(allStock, ct);
+        // excludeProduced: a produced product (recipe yield / cook leftover, plantry-sn6v) is never
+        // a restock candidate by definition — "made at home, not bought" — regardless of how low or
+        // out it reads. Filtered inside the shared aggregation helper (which already loads catalog
+        // info per product) rather than with a second catalog.ListProductsAsync call here.
+        var levels = await AggregateStockLevelsAsync(allStock, ct, excludeProduced: true);
+
         // Restock candidates = running-low ∪ out. IsLow now means running-low only (false when out),
         // so out products (OnHand ≤ 0) must be re-included explicitly — a fully-depleted staple is
         // just as much a restock candidate as one that is merely low.
@@ -79,9 +84,17 @@ public sealed class ShoppingPantryReaderAdapter(
     /// <see cref="ShoppingPantryStockLevel"/> instances. Loads catalog product info and
     /// unit converters in batch calls; skips products whose catalog entry is missing.
     /// </summary>
+    /// <param name="excludeProduced">
+    /// When true, skips products flagged <c>Product.IsProduced</c> (recipe yield / cook leftover,
+    /// plantry-sn6v) — used only by <see cref="GetLowStockProductsAsync"/>. <see cref="GetStockLevelsAsync"/>
+    /// passes false: a produced product's on-hand level must still resolve correctly for surfaces
+    /// (e.g. a product detail page) that ask about it by id directly rather than treating it as a
+    /// restock candidate.
+    /// </param>
     private async Task<List<ShoppingPantryStockLevel>> AggregateStockLevelsAsync(
         List<ProductStock> stockRecords,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool excludeProduced = false)
     {
         // Load catalog info for default unit id and unit code for relevant products.
         var allCatalogProducts = await catalog.ListProductsAsync(ct);
@@ -98,6 +111,9 @@ public sealed class ShoppingPantryReaderAdapter(
         {
             if (!catalogByProduct.TryGetValue(productStock.ProductId, out var catalogInfo))
                 continue; // product no longer in catalog — skip
+
+            if (excludeProduced && catalogInfo.IsProduced)
+                continue; // made at home, not bought — never a restock candidate (plantry-sn6v)
 
             var activeLots = productStock.ActiveLotsFefo().ToList();
 

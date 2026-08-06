@@ -336,7 +336,7 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
 internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUnitConverter converter) : ICatalogWriter
 {
     public List<(string Name, Guid DefaultUnitId)> StaplesCreated { get; } = [];
-    public List<(string Name, Guid DefaultUnitId, Guid? CategoryId)> TrackedProductsCreated { get; } = [];
+    public List<(string Name, Guid DefaultUnitId, Guid? CategoryId, bool IsProduced)> TrackedProductsCreated { get; } = [];
     public List<(Guid ParentGroupId, string VariantName)> VariantsCreated { get; } = [];
     public List<(string GroupName, string VariantName, Guid DefaultUnitId)> GroupedProductsCreated { get; } = [];
     public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId, decimal Factor)> ConversionsAdded { get; } = [];
@@ -355,12 +355,12 @@ internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUni
         return Task.FromResult(staple.Id);
     }
 
-    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
+    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, bool isProduced = false, CancellationToken ct = default)
     {
         if (FailCreateTrackedProduct)
             throw new InvalidOperationException($"Create tracked product failed (simulated) for '{name}'.");
 
-        TrackedProductsCreated.Add((name, defaultUnitId, categoryId));
+        TrackedProductsCreated.Add((name, defaultUnitId, categoryId, isProduced));
         var product = new CatalogProduct(Guid.CreateVersion7(), name, TrackStock: true, defaultUnitId, null, false, []);
         reader.Register(product);
         return Task.FromResult(product.Id);
