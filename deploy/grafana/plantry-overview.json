@@ -33,6 +33,17 @@
         "current": {}
       },
       {
+        "name": "model",
+        "type": "query",
+        "label": "Model",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(ai_usage_tokens_total, ai_model)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {}
+      },
+      {
         "name": "service",
         "type": "query",
         "label": "Service",
@@ -42,6 +53,24 @@
         "multi": true,
         "refresh": 2,
         "current": {}
+      },
+      {
+        "name": "price_input_usd_per_mtok",
+        "type": "constant",
+        "label": "Input $ / 1M tokens (google/gemini-2.5-flash)",
+        "description": "Per-model, per-token-kind pricing lives here (in the dashboard), never in AiOptions or app config, so the volatile pricing table stays out of the codebase (plantry-jp80). Edit via Dashboard settings → Variables when pricing changes; update the matching PromQL model-label filter too if a new model is introduced.",
+        "query": "0.30",
+        "current": { "value": "0.30", "text": "0.30" },
+        "hide": 0
+      },
+      {
+        "name": "price_output_usd_per_mtok",
+        "type": "constant",
+        "label": "Output $ / 1M tokens (google/gemini-2.5-flash)",
+        "description": "See price_input_usd_per_mtok — same rationale, output-token rate.",
+        "query": "2.50",
+        "current": { "value": "2.50", "text": "2.50" },
+        "hide": 0
       }
     ]
   },
@@ -188,8 +217,8 @@
     },
     {
       "type": "timeseries",
-      "title": "AI tokens by function (lands with plantry-df6p)",
-      "description": "No data until the ai.usage.tokens counter ships (plantry-df6p). Then extend with a price-weighted variant for cost (plantry-00lg).",
+      "title": "AI tokens by function",
+      "description": "sum by (ai_function, ai_token_kind) of increase(ai_usage_tokens_total[...]) — plantry-df6p's shared AiUsageTelemetry.RecordTokenUsage counter. Extended below with price-weighted cost panels (plantry-00lg).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 26 },
       "fieldConfig": {
@@ -205,16 +234,78 @@
       ]
     },
     {
+      "type": "timeseries",
+      "title": "Estimated AI cost by function",
+      "description": "Token counts × the price_input_usd_per_mtok / price_output_usd_per_mtok dashboard variables above (per-model pricing lives here, deliberately not in AiOptions — plantry-jp80). The model filter follows the $model variable; update the two price variables when the model or pricing changes.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": { "fillOpacity": 10, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (ai_function) (increase(ai_usage_tokens_total{ai_model=\"$model\", ai_token_kind=\"input\"}[$__rate_interval])) * $price_input_usd_per_mtok / 1000000",
+          "legendFormat": "{{ai_function}} (input)"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (ai_function) (increase(ai_usage_tokens_total{ai_model=\"$model\", ai_token_kind=\"output\"}[$__rate_interval])) * $price_output_usd_per_mtok / 1000000",
+          "legendFormat": "{{ai_function}} (output)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Estimated AI cost (selected range)",
+      "description": "Total estimated spend across all functions and token kinds for the dashboard's selected time range, at the prices set in the price_input_usd_per_mtok / price_output_usd_per_mtok variables above. The model filter follows the $model variable; update the two price variables when the model or pricing changes.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 4, "x": 12, "y": 34 },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD" },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ai_usage_tokens_total{ai_model=\"$model\", ai_token_kind=\"input\"}[$__range])) * $price_input_usd_per_mtok / 1000000 + sum(increase(ai_usage_tokens_total{ai_model=\"$model\", ai_token_kind=\"output\"}[$__range])) * $price_output_usd_per_mtok / 1000000"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "AI calls per function (rate, sanity check)",
+      "description": "Call rate of AI spans by function name (span names = the AiFunction taxonomy: receipt_parse, deal_match, meal_plan_propose, recipe_conversion_seed, recipe_tag_suggest, recipe_diet_nudge), sourced from Tempo's span-metrics generator remote-writing traces_spanmetrics_calls_total into the bundled Prometheus. Cross-check against the token/cost panels — a function with cost but no call-rate (or vice versa) means one of the two pipelines is broken.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
+      "fieldConfig": {
+        "defaults": { "unit": "cps", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{span_name=~\"receipt_parse|deal_match|meal_plan_propose|recipe_conversion_seed|recipe_tag_suggest|recipe_diet_nudge\"}[$__rate_interval]))",
+          "legendFormat": "{{span_name}}"
+        }
+      ]
+    },
+    {
       "type": "row",
       "title": "Household activity",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
       "collapsed": false
     },
     {
       "type": "stat",
       "title": "Intake sessions committed",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 35 },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 43 },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
         {
@@ -227,7 +318,7 @@
       "type": "stat",
       "title": "Stock consume operations",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 35 },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 43 },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
         {
@@ -240,7 +331,7 @@
       "type": "stat",
       "title": "Recipes cooked",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 35 },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 43 },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
         {
@@ -253,7 +344,7 @@
       "type": "stat",
       "title": "Low-stock events",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 35 },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 43 },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
         {
