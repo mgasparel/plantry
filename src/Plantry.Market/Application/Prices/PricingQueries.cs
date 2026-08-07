@@ -57,4 +57,39 @@ public sealed class PricingQueries(IPriceObservationRepository repository)
     /// which have any live price observation at all, in one round trip.</summary>
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyPriceAsync(IEnumerable<Guid> productIds, CancellationToken ct = default) =>
         repository.ProductIdsWithAnyObservationAsync(productIds, ct);
+
+    /// <summary>Batch counterpart to <see cref="EffectiveCostablePriceAsync"/> (plantry-hbol): resolves the
+    /// effective, costable (deal-aware) price for every given product in two round trips total (one for
+    /// active deals, one for latest purchases) instead of two-per-product. Same precedence and the same
+    /// unitless-deal exclusion as the single-product method — a deal missing a usable unit/unit-price falls
+    /// through to that product's latest purchase. Products with neither a costable deal nor a purchase are
+    /// simply absent from the result.</summary>
+    public async Task<IReadOnlyDictionary<Guid, PriceObservation>> EffectiveCostablePricesAsync(
+        IEnumerable<Guid> productIds, DateOnly today, CancellationToken ct = default)
+    {
+        var idList = productIds.Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<Guid, PriceObservation>();
+
+        var deals = await repository.CheapestActiveDealsForProductsAsync(idList, today, ct);
+        var costableDealProductIds = deals
+            .Where(kv => IsCostable(kv.Value))
+            .Select(kv => kv.Key)
+            .ToHashSet();
+
+        var needPurchase = idList.Where(id => !costableDealProductIds.Contains(id)).ToList();
+        var purchases = needPurchase.Count == 0
+            ? new Dictionary<Guid, PriceObservation>()
+            : await repository.LatestForProductsAsync(needPurchase, ct);
+
+        var result = new Dictionary<Guid, PriceObservation>();
+        foreach (var productId in idList)
+        {
+            if (costableDealProductIds.Contains(productId))
+                result[productId] = deals[productId];
+            else if (purchases.TryGetValue(productId, out var purchase))
+                result[productId] = purchase;
+        }
+        return result;
+    }
 }

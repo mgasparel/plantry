@@ -64,8 +64,8 @@ public sealed class GeminiReceiptParserCompletionTests
         }
         """;
 
-    private static GeminiReceiptParser Parser(ChatClient chat, IClock? clock = null) =>
-        new(chat, Options.Create(new AiOptions { Model = "test-model" }), clock ?? FixedClock, NullLogger<GeminiReceiptParser>.Instance);
+    private static GeminiReceiptParser Parser(ChatClient chat, IClock? clock = null, string model = "test-model") =>
+        new(chat, Options.Create(new AiOptions { Model = model }), clock ?? FixedClock, NullLogger<GeminiReceiptParser>.Instance);
 
     private static Task<ReceiptParseResult> Parse(GeminiReceiptParser parser, CancellationToken ct = default) =>
         parser.ParseAsync(Image, "image/png", Hints, ct);
@@ -154,7 +154,7 @@ public sealed class GeminiReceiptParserCompletionTests
     [Fact]
     public async Task Dropping_An_Implausible_Date_Records_A_Span_Event_So_Misreads_Stay_Visible()
     {
-        var spans = CaptureReceiptParseSpans(out var listener);
+        var spans = AiSpanCapture.Capture("receipt_parse", out var listener);
         using (listener)
         {
             var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ResponseWithDate("2019-07-26")));
@@ -169,7 +169,7 @@ public sealed class GeminiReceiptParserCompletionTests
     [Fact]
     public async Task A_Plausible_Date_Records_No_Implausible_Date_Span_Event()
     {
-        var spans = CaptureReceiptParseSpans(out var listener);
+        var spans = AiSpanCapture.Capture("receipt_parse", out var listener);
         using (listener)
         {
             var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ResponseWithDate("2026-07-19")));
@@ -231,7 +231,7 @@ public sealed class GeminiReceiptParserCompletionTests
     [Fact]
     public async Task A_Soft_Failed_Parse_Sets_The_Telemetry_Span_Status_To_Error()
     {
-        var spans = CaptureReceiptParseSpans(out var listener);
+        var spans = AiSpanCapture.Capture("receipt_parse", out var listener);
         using (listener)
         {
             var chat = new ScriptedChatClient((_, _) => throw new InvalidOperationException("gateway 500"));
@@ -245,7 +245,7 @@ public sealed class GeminiReceiptParserCompletionTests
     [Fact]
     public async Task A_Successful_Parse_Tags_The_Span_With_The_Model_And_Leaves_The_Status_Unset()
     {
-        var spans = CaptureReceiptParseSpans(out var listener);
+        var spans = AiSpanCapture.Capture("receipt_parse", out var listener);
         using (listener)
         {
             var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse));
@@ -257,26 +257,25 @@ public sealed class GeminiReceiptParserCompletionTests
         Assert.Equal("test-model", span.GetTagItem("ai.model"));
     }
 
-    /// <summary>
-    /// Subscribes an <see cref="ActivityListener"/> to the shared "Plantry.AI" source and captures only the
-    /// <c>receipt_parse</c> spans this adapter emits. Filtering by operation name isolates these assertions
-    /// from <c>deal_match</c>/<c>recipe_tag_suggest</c> spans other adapter tests may emit on the same source
-    /// in parallel; only this (serially-run) class emits <c>receipt_parse</c> from a unit test.
-    /// </summary>
-    private static List<Activity> CaptureReceiptParseSpans(out ActivityListener listener)
+    // plantry-df6p: RecordTokenUsage is now shared across all six adapters — this proves GeminiReceiptParser
+    // wires its OWN AiFunction (receipt_parse) and model id into the ai.usage.tokens metric, catching a
+    // copy-paste slip (e.g. the wrong AiFunction constant) that would otherwise compile and pass silently.
+    // A unique per-test model id is the discriminator: the meter is process-global and xUnit runs test
+    // classes in parallel, so filtering only by instrument name would pick up other adapter tests' emissions.
+    [Fact]
+    public async Task A_Successful_Parse_Emits_The_Tokens_Metric_Tagged_With_Its_Own_Function_And_Model()
     {
-        var captured = new List<Activity>();
-        listener = new ActivityListener
+        const string model = "gemini-receipt-parse-usage-sentinel";
+        var measurements = TokenUsageMeasurementCapture.Capture(model, out var listener);
+        using (listener)
         {
-            ShouldListenTo = source => source.Name == AiTelemetry.SourceName,
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
-            ActivityStopped = a =>
-            {
-                if (a.OperationName == "receipt_parse")
-                    captured.Add(a);
-            },
-        };
-        ActivitySource.AddActivityListener(listener);
-        return captured;
+            var usage = ScriptedChatClient.Usage(inputTokens: 321, outputTokens: 64);
+            var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse, usage));
+
+            await Parse(Parser(chat, model: model));
+        }
+
+        Assert.Contains(measurements, m => m is (321, AiFunction.ReceiptParse, "input"));
+        Assert.Contains(measurements, m => m is (64, AiFunction.ReceiptParse, "output"));
     }
 }

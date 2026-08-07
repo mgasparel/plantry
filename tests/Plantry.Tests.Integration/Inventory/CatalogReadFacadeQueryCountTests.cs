@@ -70,6 +70,68 @@ public sealed class CatalogReadFacadeQueryCountTests(PostgresFixture db) : IAsyn
         Assert.Equal(2, productQueries.Count);
     }
 
+    [Fact(DisplayName = "FindManyAsync resolves three variants with one batched ids query and one batched parent query")]
+    public async Task FindManyAsync_MultipleVariants_UsesOneBatchedParentQuery()
+    {
+        await using var seedDb = NewCatalogDb();
+        var variantIds = await seedDb.Products
+            .Where(p => p.HouseholdId == _household && p.ParentProductId != null)
+            .Select(p => p.Id)
+            .ToListAsync();
+
+        var counter = new QueryCountingInterceptor();
+        await using var catalogDb = NewCatalogDb(counter);
+        var facade = new CatalogReadFacade(
+            new ProductRepository(catalogDb),
+            new UnitCodesAccessor(new UnitRepository(catalogDb)),
+            new CategoryRepository(catalogDb),
+            new LocationRepository(catalogDb),
+            new FakeHouseholdExpiryDefaultsReader());
+
+        var found = await facade.FindManyAsync(variantIds.Select(id => id.Value));
+
+        Assert.Equal(3, found.Count);
+        Assert.All(found.Values, info => Assert.True(info.IsVariant));
+
+        // One ListByIdsAsync for the requested ids, one more for the shared-parent batch — must not
+        // grow with the number of requested ids (a per-variant parent fetch would produce four).
+        var productQueries = counter.Commands
+            .Where(c => c.Contains("products", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        Assert.Equal(2, productQueries.Count);
+    }
+
+    [Fact(DisplayName = "FindManyAsync agrees with FindProductAsync for a variant whose parent is archived")]
+    public async Task FindManyAsync_Single_Variant_With_Archived_Parent_Matches_FindProductAsync()
+    {
+        Guid variantId;
+        await using (var ctx = NewCatalogDb())
+        {
+            var grams = await ctx.Units.SingleAsync(u => u.Code == "g");
+            var parent = await ctx.Products.SingleAsync(p => p.Name == "Shared parent");
+            parent.Archive(SystemClock.Instance);
+            var variant = Product.Create(_household, "Archived-parent variant", grams.Id, SystemClock.Instance);
+            variant.MakeVariantOf(parent.Id, SystemClock.Instance);
+            await ctx.Products.AddAsync(variant);
+            await ctx.SaveChangesAsync();
+            variantId = variant.Id.Value;
+        }
+
+        await using var ctx2 = NewCatalogDb();
+        var facade = new CatalogReadFacade(
+            new ProductRepository(ctx2),
+            new UnitCodesAccessor(new UnitRepository(ctx2)),
+            new CategoryRepository(ctx2),
+            new LocationRepository(ctx2),
+            new FakeHouseholdExpiryDefaultsReader());
+
+        var many = await facade.FindManyAsync([variantId]);
+        var single = await facade.FindProductAsync(variantId);
+
+        Assert.NotNull(single);
+        Assert.Equal(single, many[variantId]);
+    }
+
     private CatalogDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
     {
         var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString);

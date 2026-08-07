@@ -11,6 +11,8 @@ namespace Plantry.Pantry.Application;
 /// new lot via <see cref="ProductStock.AddStock"/> with <see cref="StockSourceType.Manual"/>. The
 /// expiry is materialized at the page boundary (DM-11) and passed in already-resolved; the command
 /// stores whatever date it is given. Intake from the AI pipeline (Slice 6) reuses the same aggregate.
+/// <paramref name="reason"/> defaults to <see cref="StockReason.Purchase"/> (normal intake); the
+/// yield-on-cook adapter (plantry-a45c) passes <see cref="StockReason.Cook"/> instead.
 /// </summary>
 public sealed class AddStockCommand(
     Guid productId,
@@ -28,7 +30,8 @@ public sealed class AddStockCommand(
     StockSourceType sourceType = StockSourceType.Manual,
     ILogger<AddStockCommand>? logger = null,
     Guid? sourceRef = null,
-    Guid? sourceLineRef = null)
+    Guid? sourceLineRef = null,
+    StockReason reason = StockReason.Purchase)
 {
     public async Task<Result<StockEntryId>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -69,7 +72,7 @@ public sealed class AddStockCommand(
         var entry = stock.AddStock(
             quantity, unitId, locationId, userId, clock,
             skuId: skuId, expiryDate: expiryDate, purchasedAt: purchasedAt,
-            sourceType: sourceType, sourceRef: sourceRef, sourceLineRef: sourceLineRef);
+            sourceType: sourceType, sourceRef: sourceRef, sourceLineRef: sourceLineRef, reason: reason);
 
         if (isNew)
         {
@@ -83,7 +86,7 @@ public sealed class AddStockCommand(
                 entry = stock.AddStock(
                     quantity, unitId, locationId, userId, clock,
                     skuId: skuId, expiryDate: expiryDate, purchasedAt: purchasedAt,
-                    sourceType: sourceType, sourceRef: sourceRef, sourceLineRef: sourceLineRef);
+                    sourceType: sourceType, sourceRef: sourceRef, sourceLineRef: sourceLineRef, reason: reason);
                 await stocks.SaveChangesAsync(ct);
             }
         }

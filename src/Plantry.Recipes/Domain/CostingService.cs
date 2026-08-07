@@ -100,8 +100,10 @@ public sealed class CostingService(
 
     /// <summary>
     /// Batch-resolves the effective (deal-aware) price for every price ref (leaf product id, or each
-    /// live variant of a parent product, DM-19) the given lines will need — one <see cref="IPriceReader"/>
-    /// call per distinct ref, so a variant shared by several lines is fetched once per compute call.
+    /// live variant of a parent product, DM-19) the given lines will need — a single
+    /// <see cref="IPriceReader.FindLatestManyAsync"/> call for every distinct ref, so a variant shared by
+    /// several lines is fetched once per compute call and the whole recipe prices in one batched round
+    /// trip instead of one per ref (plantry-hbol).
     /// </summary>
     private async Task<IReadOnlyDictionary<Guid, PricePoint>> ResolvePricesAsync(
         IEnumerable<Guid> lineProductIds,
@@ -113,15 +115,7 @@ public sealed class CostingService(
             foreach (var refId in PriceRefsFor(catalogById, productId))
                 refs.Add(refId);
 
-        var result = new Dictionary<Guid, PricePoint>();
-        foreach (var refId in refs)
-        {
-            var price = await priceReader.FindLatestAsync(refId, ct);
-            if (price is not null)
-                result[refId] = price;
-        }
-
-        return result;
+        return await priceReader.FindLatestManyAsync(refs, ct);
     }
 
     /// <summary>

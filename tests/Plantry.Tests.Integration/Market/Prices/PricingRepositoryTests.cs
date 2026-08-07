@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Market.Infrastructure;
 using Plantry.SharedKernel;
@@ -527,6 +528,251 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
         await using var ctxB = NewPricingDbFor(householdB);
         var count = await ctxB.PriceObservations.CountAsync();
         Assert.Equal(0, count);
+    }
+
+    // ── plantry-hbol: LatestForProductsAsync / CheapestActiveDealsForProductsAsync batch parity ──────
+
+    [Fact(DisplayName = "LatestForProductsAsync returns the same row per product as LatestForProductAsync, for many products in one call")]
+    public async Task LatestForProductsAsync_Matches_Single_Product_Method_For_Each_Product()
+    {
+        var productA = _productId;
+        var productB = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            // productA: older + newer purchase — newer must win.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-2), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 5m, 1m, _unitId, 5m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            // productB: single purchase, plus a newer deal row that must never win a "latest" read.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 2m, 1m, _unitId, 2m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-3), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 1m, 1m, _unitId, 1m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+
+        var batch = await repo.LatestForProductsAsync([productA, productB]);
+        var singleA = await repo.LatestForProductAsync(productA);
+        var singleB = await repo.LatestForProductAsync(productB);
+
+        Assert.Equal(2, batch.Count);
+        Assert.Equal(singleA!.Id, batch[productA].Id);
+        Assert.Equal(5m, batch[productA].Price);
+        Assert.Equal(singleB!.Id, batch[productB].Id);
+        Assert.Equal(PriceSource.Purchase, batch[productB].Source);
+    }
+
+    [Fact(DisplayName = "LatestForProductsAsync excludes superseded rows, matching LatestForProductAsync (ADR-023 A7)")]
+    public async Task LatestForProductsAsync_Excludes_Superseded_Rows()
+    {
+        var original = PriceObservation.Record(
+            _household, _productId, null, 3.98m, 1m, _unitId, 3.98m,
+            PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId);
+        await SeedAmendmentPairAsync(original, correctedQuantity: 3m, unitPrice: 1.33m);
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var batch = await repo.LatestForProductsAsync([_productId]);
+
+        Assert.Equal(3m, batch[_productId].Quantity);
+        Assert.Null(batch[_productId].SupersededById);
+    }
+
+    [Fact(DisplayName = "LatestForProductsAsync: empty input short-circuits to an empty result with no query")]
+    public async Task LatestForProductsAsync_Empty_Input_Returns_Empty()
+    {
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var batch = await repo.LatestForProductsAsync([]);
+        Assert.Empty(batch);
+    }
+
+    [Fact(DisplayName = "LatestForProductsAsync omits products with no purchase/manual observation, and dedups repeated ids")]
+    public async Task LatestForProductsAsync_Omits_Unknown_Products_And_Dedups_Ids()
+    {
+        var known = _productId;
+        var unknown = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, known, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow, _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var batch = await repo.LatestForProductsAsync([known, known, unknown]);
+
+        var row = Assert.Single(batch);
+        Assert.Equal(known, row.Key);
+    }
+
+    [Fact(DisplayName = "CheapestActiveDealsForProductsAsync returns the same row per product as CheapestActiveDealForProductAsync, for many products in one call")]
+    public async Task CheapestActiveDealsForProductsAsync_Matches_Single_Product_Method_For_Each_Product()
+    {
+        var productA = _productId;
+        var productB = Guid.CreateVersion7();
+        var today = new DateOnly(2026, 7, 4);
+
+        await using (var ctx = NewPricingDb())
+        {
+            // productA: two active deals, cheaper must win.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 2m, 1m, _unitId, 2m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 2), validTo: new(2026, 7, 6)));
+            // productB: one active deal, one expired (cheaper) deal that must be excluded.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 5m, 1m, _unitId, 5m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 1m, 1m, _unitId, 1m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 6, 1), validTo: new(2026, 6, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+
+        var batch = await repo.CheapestActiveDealsForProductsAsync([productA, productB], today);
+        var singleA = await repo.CheapestActiveDealForProductAsync(productA, today);
+        var singleB = await repo.CheapestActiveDealForProductAsync(productB, today);
+
+        Assert.Equal(2, batch.Count);
+        Assert.Equal(singleA!.Id, batch[productA].Id);
+        Assert.Equal(2m, batch[productA].UnitPrice);
+        Assert.Equal(singleB!.Id, batch[productB].Id);
+        Assert.Equal(5m, batch[productB].UnitPrice);
+    }
+
+    [Fact(DisplayName = "CheapestActiveDealsForProductsAsync excludes superseded rows, matching CheapestActiveDealForProductAsync (ADR-023 A7)")]
+    public async Task CheapestActiveDealsForProductsAsync_Excludes_Superseded_Rows()
+    {
+        var today = new DateOnly(2026, 7, 4);
+
+        var cheapButSuperseded = PriceObservation.Record(
+            _household, _productId, null, 1m, 1m, _unitId, 1m,
+            PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+            validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7));
+        await SeedAmendmentPairAsync(cheapButSuperseded, correctedQuantity: 1m, unitPrice: 5m);
+
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 2), validTo: new(2026, 7, 6)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var batch = await repo.CheapestActiveDealsForProductsAsync([_productId], today);
+
+        Assert.Equal(3m, batch[_productId].UnitPrice);
+        Assert.Null(batch[_productId].SupersededById);
+    }
+
+    [Fact(DisplayName = "CheapestActiveDealsForProductsAsync: empty input short-circuits to an empty result with no query")]
+    public async Task CheapestActiveDealsForProductsAsync_Empty_Input_Returns_Empty()
+    {
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var batch = await repo.CheapestActiveDealsForProductsAsync([], new DateOnly(2026, 7, 4));
+        Assert.Empty(batch);
+    }
+
+    [Fact(DisplayName = "CheapestActiveDealsForProductsAsync: a pack-size-less deal never shadows a cheaper costable deal (nulls-last, matching Postgres ASC on the single-product path)")]
+    public async Task CheapestActiveDealsForProductsAsync_Nulls_Last_Matches_Single_Product_Ordering()
+    {
+        var today = new DateOnly(2026, 7, 4);
+
+        await using (var ctx = NewPricingDb())
+        {
+            // Pack-size-less deal (DM-17 soft-fail): unitId = Guid.Empty, UnitPrice = null.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 1m, 1m, Guid.Empty, unitPrice: null,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            // Real, costable deal active the same day.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, _productId, null, 2m, 1m, _unitId, 2m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+
+        var single = await repo.CheapestActiveDealForProductAsync(_productId, today);
+        var batch = await repo.CheapestActiveDealsForProductsAsync([_productId], today);
+
+        Assert.NotNull(single);
+        Assert.Equal(2m, single.UnitPrice);
+        Assert.Equal(single.Id, batch[_productId].Id);
+        Assert.Equal(2m, batch[_productId].UnitPrice);
+    }
+
+    // ── plantry-hbol: EffectiveCostablePricesAsync (PricingQueries) batch parity ────────────────────
+
+    [Fact(DisplayName = "EffectiveCostablePricesAsync: a unitless active deal falls through to the latest purchase, for many products in one call")]
+    public async Task EffectiveCostablePricesAsync_Unitless_Deal_Falls_Through_To_Purchase()
+    {
+        var productA = _productId;
+        var productB = Guid.CreateVersion7();
+        var today = new DateOnly(2026, 7, 4);
+
+        await using (var ctx = NewPricingDb())
+        {
+            // productA: unitless active deal + an older purchase — must resolve to the purchase.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 2m, 1m, Guid.Empty, unitPrice: null,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            // productB: a fully-specified active deal — must win over its purchase.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 5m, 1m, _unitId, 5m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 1.5m, 1m, _unitId, 1.5m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var queries = new PricingQueries(repo);
+
+        var batch = await queries.EffectiveCostablePricesAsync([productA, productB], today);
+
+        Assert.Equal(2, batch.Count);
+        Assert.Equal(PriceSource.Purchase, batch[productA].Source);
+        Assert.Equal(3m, batch[productA].UnitPrice);
+        Assert.Equal(PriceSource.Deal, batch[productB].Source);
+        Assert.Equal(1.5m, batch[productB].UnitPrice);
     }
 
     private DbContextOptions<MarketDbContext> PricingOptions() =>

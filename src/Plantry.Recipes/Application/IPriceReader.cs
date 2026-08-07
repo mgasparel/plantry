@@ -21,6 +21,27 @@ public interface IPriceReader
     /// <see cref="IUnitConverter"/> before summing.
     /// </summary>
     Task<PricePoint?> FindLatestAsync(Guid productId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batch counterpart to <see cref="FindLatestAsync"/> (plantry-hbol): resolves the effective price for
+    /// every given product in a small constant number of round trips instead of one per product —
+    /// <see cref="Plantry.Recipes.Domain.CostingService"/> uses this to price all of a recipe's price refs
+    /// at once. Products with no recorded price are simply absent from the result. Defaults to a per-id
+    /// <see cref="FindLatestAsync"/> loop so existing test doubles need not implement it; the real Web
+    /// adapter overrides it with a batched query.
+    /// </summary>
+    async Task<IReadOnlyDictionary<Guid, PricePoint>> FindLatestManyAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, PricePoint>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var price = await FindLatestAsync(productId, ct);
+            if (price is not null)
+                result[productId] = price;
+        }
+        return result;
+    }
 }
 
 /// <summary>

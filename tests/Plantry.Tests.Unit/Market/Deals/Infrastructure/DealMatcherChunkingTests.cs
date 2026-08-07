@@ -48,10 +48,10 @@ public sealed class DealMatcherChunkingTests
     private static IReadOnlyList<RawDeal> Deals(int count) =>
         Enumerable.Range(0, count).Select(i => Deal($"Deal {i}")).ToArray();
 
-    private static DealMatcher Matcher(ChatClient chat, int chunkSize) =>
+    private static DealMatcher Matcher(ChatClient chat, int chunkSize, string model = "test-model") =>
         new(
             chat,
-            Options.Create(new AiOptions { Model = "test-model" }),
+            Options.Create(new AiOptions { Model = model }),
             Options.Create(new DealMatcherOptions { ChunkSize = chunkSize }),
             NullLogger<DealMatcher>.Instance);
 
@@ -207,6 +207,30 @@ public sealed class DealMatcherChunkingTests
 
         await Assert.ThrowsAsync<OperationCanceledException>(
             () => matcher.MatchBatchAsync(Deals(2), Candidates));
+    }
+
+    // plantry-df6p: RecordTokenUsage is now shared across all six adapters — this proves DealMatcher wires
+    // its OWN AiFunction (deal_match) and model id into the ai.usage.tokens metric, catching a copy-paste
+    // slip (e.g. the wrong AiFunction constant) that would otherwise compile and pass silently. A unique
+    // per-test model id is the discriminator: the meter is process-global and xUnit runs test classes in
+    // parallel, so filtering only by instrument name would pick up other adapter tests' emissions.
+    [Fact]
+    public async Task A_Successful_Match_Emits_The_Tokens_Metric_Tagged_With_Its_Own_Function_And_Model()
+    {
+        const string model = "deal-match-usage-sentinel";
+        var measurements = TokenUsageMeasurementCapture.Capture(model, out var listener);
+        using (listener)
+        {
+            var usage = ScriptedChatClient.Usage(inputTokens: 500, outputTokens: 80);
+            var chat = new ScriptedChatClient((_, messages) =>
+                ScriptedChatClient.UnmatchedFor(messages, usage));
+            var matcher = Matcher(chat, chunkSize: 40, model: model);
+
+            await matcher.MatchBatchAsync(Deals(3), Candidates);
+        }
+
+        Assert.Contains(measurements, m => m is (500, AiFunction.DealMatch, "input"));
+        Assert.Contains(measurements, m => m is (80, AiFunction.DealMatch, "output"));
     }
 
     // A responder that matches every item in a chunk to MilkId with high confidence (a clean, healthy chunk).

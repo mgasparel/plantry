@@ -146,7 +146,7 @@ public sealed class GeminiReceiptParser : IReceiptParser
     {
         // Gate 9: span wraps the full AI call (latency-sensitive, most likely failure point).
         // Attributes: model id and token usage only — no receipt content or API key.
-        using var activity = AiTelemetry.ActivitySource.StartActivity("receipt_parse");
+        using var activity = AiTelemetry.ActivitySource.StartActivity(AiFunction.ReceiptParse);
         activity?.SetTag("ai.model", _modelId);
 
         var sw = Stopwatch.StartNew();
@@ -169,7 +169,7 @@ public sealed class GeminiReceiptParser : IReceiptParser
                 cancellationToken: ct);
 
             var completion = response.Value;
-            RecordTokenUsage(activity, completion.Usage);
+            AiUsageTelemetry.RecordTokenUsage(activity, completion.Usage, AiFunction.ReceiptParse, _modelId);
 
             var rawText = completion.Content.Count > 0 ? completion.Content[0].Text : null;
 
@@ -429,11 +429,4 @@ public sealed class GeminiReceiptParser : IReceiptParser
         "low"  => 0.5,
         _      => 0.0,
     };
-
-    private static void RecordTokenUsage(Activity? activity, ChatTokenUsage? usage)
-    {
-        if (usage is null || activity is null) return;
-        activity.SetTag("ai.usage.input_tokens", usage.InputTokenCount);
-        activity.SetTag("ai.usage.output_tokens", usage.OutputTokenCount);
-    }
 }

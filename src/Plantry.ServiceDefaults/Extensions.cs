@@ -62,8 +62,10 @@ public static class Extensions
                     // plantry.recipes.cooked. Emitted via DomainTelemetry counters.
                     .AddMeter("Plantry.Domain")
                     // AI pipeline metrics: ai.parse.confidence (IntakeAiTelemetry, receipt parse
-                    // confidence per line) and ai.deal_match.confidence (DealMatchTelemetry). Both are
-                    // created against the shared AiTelemetry.Meter so this single AddMeter sees them.
+                    // confidence per line), ai.deal_match.confidence (DealMatchTelemetry), and
+                    // ai.usage.tokens (AiUsageTelemetry — tokens consumed, dimensioned by ai.function/
+                    // ai.model/ai.token_kind, shared by all six AI adapters). All are created against the
+                    // shared AiTelemetry.Meter so this single AddMeter sees them.
                     .AddMeter(AiTelemetry.SourceName);
             })
             .WithTracing(tracing =>

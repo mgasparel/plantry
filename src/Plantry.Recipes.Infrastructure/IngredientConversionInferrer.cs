@@ -100,7 +100,7 @@ public sealed class IngredientConversionInferrer : IIngredientConversionInferrer
 
         // Gate 9: span wraps the full AI call. Attributes: model id + token usage only — never product
         // name or unit content.
-        using var activity = AiTelemetry.ActivitySource.StartActivity("recipe_conversion_seed");
+        using var activity = AiTelemetry.ActivitySource.StartActivity(AiFunction.RecipeConversionSeed);
         activity?.SetTag("ai.model", _modelId);
 
         var sw = Stopwatch.StartNew();
@@ -118,7 +118,7 @@ public sealed class IngredientConversionInferrer : IIngredientConversionInferrer
                 cancellationToken: ct);
 
             var completion = response.Value;
-            RecordTokenUsage(activity, completion.Usage);
+            AiUsageTelemetry.RecordTokenUsage(activity, completion.Usage, AiFunction.RecipeConversionSeed, _modelId);
 
             var rawText = completion.Content.Count > 0 ? completion.Content[0].Text : null;
 
@@ -211,12 +211,5 @@ public sealed class IngredientConversionInferrer : IIngredientConversionInferrer
     {
         var match = FencePattern.Match(raw);
         return match.Success ? match.Groups[1].Value : raw.Trim();
-    }
-
-    private static void RecordTokenUsage(Activity? activity, ChatTokenUsage? usage)
-    {
-        if (usage is null || activity is null) return;
-        activity.SetTag("ai.usage.input_tokens", usage.InputTokenCount);
-        activity.SetTag("ai.usage.output_tokens", usage.OutputTokenCount);
     }
 }

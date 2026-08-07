@@ -107,11 +107,11 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
         Assert.Equal(expiry, lot.ExpiryDate);
         Assert.True(lot.IsActive);
 
-        // Exactly one journal row: a positive Purchase addition stamped source_type = Cook, with the
+        // Exactly one journal row: a positive Cook addition (plantry-a45c) stamped source_type = Cook, with the
         // cook event as source_ref and the produce line as the idempotency source_line_ref.
         var journalRow = Assert.Single(loaded.Journal);
         Assert.Equal(400m, journalRow.Delta);
-        Assert.Equal(StockReason.Purchase, journalRow.Reason);
+        Assert.Equal(StockReason.Cook, journalRow.Reason);
         Assert.Equal(StockSourceType.Cook, journalRow.SourceType);
         Assert.Equal(cookEventId, journalRow.SourceRef);
         Assert.Equal(sourceLineRef, journalRow.SourceLineRef);

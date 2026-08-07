@@ -6,6 +6,12 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- OpenAI.Chat.ChatTokenUsage is the parameter type for AiUsageTelemetry.RecordTokenUsage —
+         every adapter already depends on this package for its ChatClient. -->
+    <PackageReference Include="OpenAI" Version="2.*" />
+  </ItemGroup>
+
   <!--
     Shared, generic AI infrastructure library (plantry-ew5). Holds only provider-agnostic AI
     plumbing — OpenAI-compatible client config (AiOptions) and the single OTEL source/meter

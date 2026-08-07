@@ -106,7 +106,7 @@ public sealed class MealPlannerAiService : IMealPlanner
 
         // Gate 9: span wraps the full AI call (latency-sensitive, most likely failure point).
         // Attributes: model id and token usage only — no slot content, user ids, or API key.
-        using var activity = AiTelemetry.ActivitySource.StartActivity("meal_plan_propose");
+        using var activity = AiTelemetry.ActivitySource.StartActivity(AiFunction.MealPlanPropose);
         activity?.SetTag("ai.model", _modelId);
         activity?.SetTag("ai.meal_plan.slot_count", slotsContext.Count);
 
@@ -123,7 +123,7 @@ public sealed class MealPlannerAiService : IMealPlanner
                 cancellationToken: ct);
 
             var completion = response.Value;
-            RecordTokenUsage(activity, completion.Usage);
+            AiUsageTelemetry.RecordTokenUsage(activity, completion.Usage, AiFunction.MealPlanPropose, _modelId);
 
             var rawText = completion.Content.Count > 0 ? completion.Content[0].Text : null;
 
@@ -304,11 +304,4 @@ public sealed class MealPlannerAiService : IMealPlanner
 
     private static int? GetInt(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var v) ? v : null;
-
-    private static void RecordTokenUsage(Activity? activity, ChatTokenUsage? usage)
-    {
-        if (usage is null || activity is null) return;
-        activity.SetTag("ai.usage.input_tokens", usage.InputTokenCount);
-        activity.SetTag("ai.usage.output_tokens", usage.OutputTokenCount);
-    }
 }

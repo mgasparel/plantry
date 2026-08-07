@@ -61,17 +61,10 @@ public sealed class InventoryStockReaderAdapter(
         var stockProductIds = relevantStock.Select(s => s.ProductId).ToList();
         var convertersByProduct = await conversions.ForProductsAsync(stockProductIds, ct);
 
-        // Load catalog info (for default unit id) for all relevant products.
-        // GetUnitCodesAsync returns all units — used below to map unit ids to codes if needed.
-        // FindProductAsync is called per-product here; a batch FindManyAsync would be cleaner but
-        // is not yet in the repository interface — tracked as a follow-up.
-        var catalogByProduct = new Dictionary<Guid, Plantry.Pantry.Application.CatalogProductInfo>();
-        foreach (var productId in stockProductIds)
-        {
-            var info = await catalog.FindProductAsync(productId, ct);
-            if (info is not null)
-                catalogByProduct[productId] = info;
-        }
+        // Load catalog info (for default unit id) for all relevant products in a single batch call
+        // (plantry-hbol) — FindManyAsync fetches products/units/categories/parents once each instead of
+        // fanning out a product+units+category+expiry-defaults round trip per product.
+        var catalogByProduct = await catalog.FindManyAsync(stockProductIds, ct);
 
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var result = new Dictionary<Guid, RecipesProductStock>(distinctIds.Count);

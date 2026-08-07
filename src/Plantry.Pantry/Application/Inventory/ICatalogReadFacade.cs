@@ -14,6 +14,27 @@ public interface ICatalogReadFacade
     /// <summary>Resolves a single product for the intake guard; null when it does not exist in this household.</summary>
     Task<CatalogProductInfo?> FindProductAsync(Guid productId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Batch counterpart to <see cref="FindProductAsync"/> (plantry-hbol): resolves every given product id
+    /// in a small constant number of round trips instead of one per product — for callers (e.g.
+    /// <c>InventoryStockReaderAdapter.FindStockBatchAsync</c>) that need catalog facts for a whole set of
+    /// stocked products at once. Ids not found in this household are simply absent from the result.
+    /// Defaults to a per-id <see cref="FindProductAsync"/> loop so existing test doubles need not
+    /// implement it; the real Web adapter overrides it with a batched query.
+    /// </summary>
+    async Task<IReadOnlyDictionary<Guid, CatalogProductInfo>> FindManyAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, CatalogProductInfo>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var info = await FindProductAsync(productId, ct);
+            if (info is not null)
+                result[productId] = info;
+        }
+        return result;
+    }
+
     /// <summary>All active products, for joining names onto the pantry list.</summary>
     Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default);
 

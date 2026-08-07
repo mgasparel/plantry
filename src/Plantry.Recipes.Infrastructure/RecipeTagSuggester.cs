@@ -108,7 +108,7 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
 
         // Gate 9: span wraps the full AI call. Attributes: model id + token usage only — never ingredient
         // or tag content.
-        using var activity = AiTelemetry.ActivitySource.StartActivity("recipe_tag_suggest");
+        using var activity = AiTelemetry.ActivitySource.StartActivity(AiFunction.RecipeTagSuggest);
         activity?.SetTag("ai.model", _modelId);
 
         var sw = Stopwatch.StartNew();
@@ -125,7 +125,7 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
                 cancellationToken: ct);
 
             var completion = response.Value;
-            RecordTokenUsage(activity, completion.Usage);
+            AiUsageTelemetry.RecordTokenUsage(activity, completion.Usage, AiFunction.RecipeTagSuggest, _modelId);
 
             var rawText = completion.Content.Count > 0 ? completion.Content[0].Text : null;
 
@@ -288,11 +288,4 @@ public sealed class RecipeTagSuggester : IRecipeTagSuggester
 
     private static string? GetString(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
-
-    private static void RecordTokenUsage(Activity? activity, ChatTokenUsage? usage)
-    {
-        if (usage is null || activity is null) return;
-        activity.SetTag("ai.usage.input_tokens", usage.InputTokenCount);
-        activity.SetTag("ai.usage.output_tokens", usage.OutputTokenCount);
-    }
 }

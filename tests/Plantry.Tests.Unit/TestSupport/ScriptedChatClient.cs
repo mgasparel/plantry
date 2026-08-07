@@ -75,23 +75,37 @@ internal sealed class ScriptedChatClient : ChatClient
     /// <c>outputAudio:</c> named argument disambiguates to the newer factory overload (both overloads share
     /// <c>role</c>/<c>content</c>, so a call without a distinguishing argument is ambiguous).
     /// </summary>
-    public static ChatCompletion Completion(string jsonContent) =>
+    public static ChatCompletion Completion(string jsonContent, ChatTokenUsage? usage = null) =>
         // OPENAI001: OpenAIChatModelFactory is the SDK's own experimental-but-supported mocking helper for
         // exactly this purpose (building canned completions in tests). Suppressed narrowly at the call site.
 #pragma warning disable OPENAI001
         OpenAIChatModelFactory.ChatCompletion(
             role: ChatMessageRole.Assistant,
             content: new ChatMessageContent(jsonContent),
-            outputAudio: null);
+            outputAudio: null,
+            usage: usage);
+#pragma warning restore OPENAI001
+
+    /// <summary>
+    /// Builds a canned <see cref="ChatTokenUsage"/> for a scripted completion — the token counts an adapter's
+    /// <c>RecordTokenUsage</c> call reads off <c>completion.Usage</c>.
+    /// </summary>
+    public static ChatTokenUsage Usage(int inputTokens, int outputTokens) =>
+#pragma warning disable OPENAI001
+        OpenAIChatModelFactory.ChatTokenUsage(
+            outputTokenCount: outputTokens,
+            inputTokenCount: inputTokens,
+            totalTokenCount: inputTokens + outputTokens);
 #pragma warning restore OPENAI001
 
     /// <summary>
     /// A convenient default responder: it counts the <c>Item N:</c> entries in the user prompt and emits a
     /// valid JSON array with one all-<c>none</c> object per item. Adapters that batch a numbered item list
     /// (DealMatcher) get a correctly-shaped, positionally-complete "nothing matched" response for any chunk
-    /// size, so completion-count tests need not hand-write per-call JSON.
+    /// size, so completion-count tests need not hand-write per-call JSON. Pass <paramref name="usage"/> when a
+    /// test also needs the scripted completion to carry token counts for <c>RecordTokenUsage</c>.
     /// </summary>
-    public static ChatCompletion UnmatchedFor(IReadOnlyList<ChatMessage> messages)
+    public static ChatCompletion UnmatchedFor(IReadOnlyList<ChatMessage> messages, ChatTokenUsage? usage = null)
     {
         var count = ItemCount(messages);
         var sb = new StringBuilder("[");
@@ -102,7 +116,7 @@ internal sealed class ScriptedChatClient : ChatClient
               .Append(", \"suggested_product_id\": null, \"confidence\": \"none\", \"reasoning\": \"no match\"}");
         }
         sb.Append(']');
-        return Completion(sb.ToString());
+        return Completion(sb.ToString(), usage);
     }
 
     /// <summary>The number of <c>Item N:</c> lines in the concatenated user prompt of <paramref name="messages"/>.</summary>

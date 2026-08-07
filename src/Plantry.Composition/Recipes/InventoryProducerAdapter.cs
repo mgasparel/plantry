@@ -41,12 +41,13 @@ public sealed class InventoryProducerAdapter(
         Guid sourceLineRef,
         CancellationToken ct = default)
     {
-        // Map the narrow produce reason to Inventory's addition reason. StockReason.Purchase is the only
-        // non-Correction addition reason; the StockSourceType.Cook stamp distinguishes a yield-on-cook add
-        // from an actual purchase for waste/provenance analysis.
-        _ = reason switch
+        // Map the narrow produce reason to Inventory's addition reason (plantry-a45c). StockReason.Cook
+        // distinguishes a yield-on-cook add from an actual purchase in stock history; the
+        // StockSourceType.Cook stamp (below) separately carries the machine-readable provenance
+        // (cook event id) for waste/provenance analysis.
+        var stockReason = reason switch
         {
-            ProduceReason.Recipe => StockReason.Purchase,
+            ProduceReason.Recipe => StockReason.Cook,
             _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "Unknown ProduceReason."),
         };
 
@@ -72,7 +73,8 @@ public sealed class InventoryProducerAdapter(
             sourceType: StockSourceType.Cook,
             logger: addLogger,
             sourceRef: cookEventId,
-            sourceLineRef: sourceLineRef);
+            sourceLineRef: sourceLineRef,
+            reason: stockReason);
 
         var result = await command.ExecuteAsync(ct);
         if (result.IsFailure)

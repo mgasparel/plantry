@@ -67,4 +67,59 @@ public sealed class PriceObservationRepository(MarketDbContext db) : IPriceObser
             .ToListAsync(ct);
         return found.ToHashSet();
     }
+
+    /// <summary>Batch counterpart to <see cref="LatestForProductAsync"/> (plantry-hbol): fetches every
+    /// candidate purchase/manual row for the wanted products in one query, then picks the latest per
+    /// product client-side — mirrors <c>CookEventRepository.GetLatestCookedAtByPlannedDishIdsAsync</c>'s
+    /// materialize-then-group-by pattern.</summary>
+    public async Task<IReadOnlyDictionary<Guid, PriceObservation>> LatestForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idList = productIds.Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<Guid, PriceObservation>();
+
+        var rows = await db.PriceObservations
+            .Where(p => idList.Contains(p.ProductId)
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById == null)
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(p => p.ProductId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(p => p.ObservedAt).First());
+    }
+
+    /// <summary>Batch counterpart to <see cref="CheapestActiveDealForProductAsync"/> (plantry-hbol):
+    /// fetches every candidate active-deal row for the wanted products in one query, then picks the
+    /// cheapest per product client-side.</summary>
+    public async Task<IReadOnlyDictionary<Guid, PriceObservation>> CheapestActiveDealsForProductsAsync(
+        IEnumerable<Guid> productIds, DateOnly today, CancellationToken ct = default)
+    {
+        var idList = productIds.Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<Guid, PriceObservation>();
+
+        var rows = await db.PriceObservations
+            .Where(p => idList.Contains(p.ProductId)
+                && p.Source == PriceSource.Deal
+                && p.ValidFrom <= today
+                && p.ValidTo >= today
+                && p.SupersededById == null)
+            .ToListAsync(ct);
+
+        // Nulls-last tiebreak is deliberate: Postgres `ORDER BY unit_price ASC` (used by the
+        // single-product CheapestActiveDealForProductAsync) sorts NULLs last, but LINQ-to-Objects
+        // OrderBy on a nullable sorts nulls first. Without the explicit HasValue key, a
+        // pack-size-less deal (UnitPrice == null) would win here even when a cheaper costable
+        // deal exists, diverging from the single-product path and defeating IsCostable's
+        // unitless-deal exclusion.
+        return rows
+            .GroupBy(p => p.ProductId)
+            .ToDictionary(g => g.Key, g => g
+                .OrderBy(p => p.UnitPrice.HasValue ? 0 : 1)
+                .ThenBy(p => p.UnitPrice)
+                .ThenBy(p => p.Price)
+                .First());
+    }
 }

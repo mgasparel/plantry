@@ -41,14 +41,27 @@ public sealed class DietTagContradictionChecker : IDietTagContradictionChecker
     public DietTagContradictionChecker(
         IOptions<AiOptions> options,
         ILogger<DietTagContradictionChecker> logger)
+        : this(CreateClient(options.Value), options, logger)
+    {
+    }
+
+    // Test seam (plantry-df6p): lets unit tests script the completion boundary — including the
+    // ai.usage.tokens metric this class's RecordTokenUsage call now emits — so it can be asserted directly.
+    // Production always routes through the public ctor above, which builds the real client and delegates
+    // here — no behaviour, public-API, or DI change (mirrors GeminiReceiptParser/DealMatcher/RecipeTagSuggester).
+    internal DietTagContradictionChecker(
+        ChatClient chat,
+        IOptions<AiOptions> options,
+        ILogger<DietTagContradictionChecker> logger)
     {
         _logger = logger;
-        var ai = options.Value;
-        _modelId = ai.Model;
-        var clientOptions = new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) };
-        _chat = new OpenAIClient(new ApiKeyCredential(ai.ApiKey), clientOptions)
-            .GetChatClient(ai.Model);
+        _chat = chat;
+        _modelId = options.Value.Model;
     }
+
+    private static ChatClient CreateClient(AiOptions ai) =>
+        new OpenAIClient(new ApiKeyCredential(ai.ApiKey), new OpenAIClientOptions { Endpoint = new Uri(ai.BaseUrl) })
+            .GetChatClient(ai.Model);
 
     private const string SystemPrompt = """
         A home cook has tagged ONE recipe with dietary/style tags and just edited its ingredients. You are
@@ -85,7 +98,7 @@ public sealed class DietTagContradictionChecker : IDietTagContradictionChecker
 
         // Gate 9: span wraps the full AI call. Attributes: model id + token usage only — never ingredient
         // or tag content.
-        using var activity = AiTelemetry.ActivitySource.StartActivity("recipe_diet_nudge");
+        using var activity = AiTelemetry.ActivitySource.StartActivity(AiFunction.RecipeDietNudge);
         activity?.SetTag("ai.model", _modelId);
 
         var sw = Stopwatch.StartNew();
@@ -102,7 +115,7 @@ public sealed class DietTagContradictionChecker : IDietTagContradictionChecker
                 cancellationToken: ct);
 
             var completion = response.Value;
-            RecordTokenUsage(activity, completion.Usage);
+            AiUsageTelemetry.RecordTokenUsage(activity, completion.Usage, AiFunction.RecipeDietNudge, _modelId);
 
             var rawText = completion.Content.Count > 0 ? completion.Content[0].Text : null;
 
@@ -197,7 +210,7 @@ public sealed class DietTagContradictionChecker : IDietTagContradictionChecker
                 if (!ingredientByName.TryGetValue(ingredient, out var canonicalIngredient)) continue;
                 if (!tagByName.TryGetValue(tag, out var canonicalTag)) continue;
 
-                if (!seen.Add($"{canonicalIngredient} {canonicalTag}")) continue;
+                if (!seen.Add($"{canonicalIngredient}\0{canonicalTag}")) continue;
 
                 result.Add(new DietTagContradiction(canonicalIngredient, canonicalTag));
                 if (result.Count >= MaxContradictions) break;
@@ -225,11 +238,4 @@ public sealed class DietTagContradictionChecker : IDietTagContradictionChecker
 
     private static string? GetString(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
-
-    private static void RecordTokenUsage(Activity? activity, ChatTokenUsage? usage)
-    {
-        if (usage is null || activity is null) return;
-        activity.SetTag("ai.usage.input_tokens", usage.InputTokenCount);
-        activity.SetTag("ai.usage.output_tokens", usage.OutputTokenCount);
-    }
 }
