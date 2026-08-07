@@ -43,7 +43,7 @@ The ground truth for stock. `ProductStock` is the aggregate root, keyed by `(hou
 | `entry_id` | `uuid` | FK → `stock_entry` (which lot) |
 | `delta` | `numeric(12,3)` | **signed** — `+` intake, `−` consume/waste — in `unit_id` |
 | `unit_id` | `uuid` | soft ref → unit |
-| `reason` | `text` | `Purchase` / `Consumed` / `Discarded` / `Correction` (CHECK) — ADR-011 taxonomy |
+| `reason` | `text` | `Purchase` / `Consumed` / `Discarded` / `Correction` / `Amendment` / `Cook` (CHECK) — ADR-011 taxonomy (`Amendment` ADR-023; `Cook` plantry-a45c) |
 | `source_type` | `text` null | `Intake` / `Manual` / `Cook` (Phase 2) … |
 | `source_ref` | `uuid` null | e.g. `import_session_id`, `cook_event_id` |
 | `occurred_at` | `timestamptz` | |

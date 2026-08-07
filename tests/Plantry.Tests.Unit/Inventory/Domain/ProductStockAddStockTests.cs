@@ -112,13 +112,14 @@ public sealed class ProductStockAddStockTests
         Assert.Equal(User, journal.UserId);
     }
 
-    [Theory(DisplayName = "IsAddition returns true only for Purchase and Correction")]
+    [Theory(DisplayName = "IsAddition returns true only for Purchase, Correction, and Cook")]
     [InlineData(StockReason.Purchase, true)]
     [InlineData(StockReason.Correction, true)]
+    [InlineData(StockReason.Cook, true)]
     [InlineData(StockReason.Consumed, false)]
     [InlineData(StockReason.Discarded, false)]
     [InlineData(StockReason.Amendment, false)]
-    public void IsAddition_Returns_True_For_Purchase_And_Correction_Only(StockReason reason, bool expected)
+    public void IsAddition_Returns_True_For_Purchase_Correction_And_Cook_Only(StockReason reason, bool expected)
     {
         Assert.Equal(expected, reason.IsAddition());
     }
@@ -129,6 +130,7 @@ public sealed class ProductStockAddStockTests
     [InlineData(StockReason.Correction, true)]
     [InlineData(StockReason.Purchase, false)]
     [InlineData(StockReason.Amendment, false)]
+    [InlineData(StockReason.Cook, false)]
     public void IsRemoval_Returns_True_For_Consumed_Discarded_Correction_Only(StockReason reason, bool expected)
     {
         Assert.Equal(expected, reason.IsRemoval());

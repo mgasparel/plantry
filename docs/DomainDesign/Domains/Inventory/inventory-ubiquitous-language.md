@@ -34,7 +34,7 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 | **FEFO** | First-Expired-First-Out. The ordering rule for consumption: consume the lot with the earliest `expiry_date` first. Null expiry is consumed last (means "no expiry," not "unknown"). |
 | **Consume** | Deduct a quantity of a product from stock, FEFO-ordered. The single ADR-011 primitive. Never blocks when stock is insufficient — consumes whatever is available. |
 | **Delta** | The signed quantity change on a `StockJournalEntry`: positive for intake/purchase, negative for consume/waste. In the lot's `unit_id`. |
-| **Reason** | The categorization of a journal entry's delta: `Purchase` / `Consumed` / `Discarded` / `Correction`. |
+| **Reason** | The categorization of a journal entry's delta: `Purchase` / `Consumed` / `Discarded` / `Correction` / `Amendment` (ADR-023) / `Cook` (plantry-a45c, cook-produced yield). |
 | **Source type** | What triggered the journal entry: `Intake` / `Manual` / `Cook` (Phase 2). |
 | **Source ref** | The UUID of the originating record (e.g., `import_session_id`, `cook_event_id`) — provenance. |
 | **Depleted lot** | A `StockEntry` whose `quantity` has reached 0. `depleted_at` is set; the row is retained (journal FK requires it); it is filtered from pantry views. |

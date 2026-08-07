@@ -88,7 +88,8 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     /// Records intake of a new lot (DM-11/13): creates a <see cref="StockEntry"/> and appends a
     /// positive journal row. The <paramref name="reason"/> defaults to <c>Purchase</c> (normal
     /// intake) but may be <c>Correction</c> when Take Stock discovers more stock than recorded
-    /// (Phase 4 / P4-1, TS-2/C8). Only reasons that pass <see cref="StockReasonExtensions.IsAddition"/>
+    /// (Phase 4 / P4-1, TS-2/C8), or <c>Cook</c> (plantry-a45c) when the yield-on-cook adapter
+    /// records a recipe-produced leftover. Only reasons that pass <see cref="StockReasonExtensions.IsAddition"/>
     /// are permitted; passing a removal reason throws <see cref="ArgumentException"/>.
     /// <paramref name="expiryDate"/> is already materialized by the caller (the expiry-default
     /// chain runs at the page/application boundary).
@@ -102,7 +103,7 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
         if (quantity <= 0m)
             throw new ArgumentOutOfRangeException(nameof(quantity), "Intake quantity must be positive.");
         if (!reason.IsAddition())
-            throw new ArgumentException($"AddStock cannot record a {reason} reason; only Purchase or Correction are addition reasons.", nameof(reason));
+            throw new ArgumentException($"AddStock cannot record a {reason} reason; only Purchase, Correction, or Cook are addition reasons.", nameof(reason));
 
         // Idempotency short-circuit (yield-on-cook, plantry-854a) — the ADD counterpart to the Consume
         // guard (plantry-292a / plantry-fks). When a sourceLineRef token is supplied and any journal row

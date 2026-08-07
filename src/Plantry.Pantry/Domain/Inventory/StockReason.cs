@@ -15,7 +15,10 @@ namespace Plantry.Pantry.Domain;
 /// <see cref="ProductStock.AmendPurchase"/>, never by <see cref="ProductStock.AddStock"/> or
 /// <see cref="ProductStock.Consume"/> — deliberately excluded from <see cref="StockReasonExtensions.IsAddition"/>
 /// and <see cref="StockReasonExtensions.IsRemoval"/> so those two general-purpose gates can never
-/// admit it.
+/// admit it. <c>Cook</c> (plantry-a45c) is the addition reason for cook-produced leftovers — before
+/// it existed, the composition-root yield-on-cook adapter stamped these additions as <c>Purchase</c>,
+/// which misrepresented the source in stock history; provenance is carried separately via
+/// <see cref="StockSourceType.Cook"/> + <c>sourceRef</c>, but the reason itself now says "Cook" too.
 /// </summary>
 public enum StockReason
 {
@@ -24,6 +27,7 @@ public enum StockReason
     Discarded,
     Correction,
     Amendment,
+    Cook,
 }
 
 public static class StockReasonExtensions
@@ -35,6 +39,7 @@ public static class StockReasonExtensions
         "Discarded" => StockReason.Discarded,
         "Correction" => StockReason.Correction,
         "Amendment" => StockReason.Amendment,
+        "Cook" => StockReason.Cook,
         _ => throw new ArgumentException($"Unknown stock reason '{value}'.", nameof(value)),
     };
 
@@ -45,17 +50,20 @@ public static class StockReasonExtensions
         StockReason.Discarded => "Discarded",
         StockReason.Correction => "Correction",
         StockReason.Amendment => "Amendment",
+        StockReason.Cook => "Cook",
         _ => throw new ArgumentOutOfRangeException(nameof(reason)),
     };
 
     /// <summary>
     /// True for the reasons that <see cref="ProductStock.AddStock"/> may write (positive delta).
     /// <c>Purchase</c> is the normal intake reason; <c>Correction</c> is used by Take Stock when
-    /// a walk discovers more stock than recorded (Phase 4 / P4-1). <c>Amendment</c> is deliberately
-    /// excluded — it is bidirectional and written only by <see cref="ProductStock.AmendPurchase"/>.
+    /// a walk discovers more stock than recorded (Phase 4 / P4-1); <c>Cook</c> (plantry-a45c) is
+    /// used by the yield-on-cook adapter for recipe-produced leftovers. <c>Amendment</c> is
+    /// deliberately excluded — it is bidirectional and written only by
+    /// <see cref="ProductStock.AmendPurchase"/>.
     /// </summary>
     public static bool IsAddition(this StockReason reason) =>
-        reason is StockReason.Purchase or StockReason.Correction;
+        reason is StockReason.Purchase or StockReason.Correction or StockReason.Cook;
 
     /// <summary>
     /// True for the removal reasons that <see cref="ProductStock.Consume"/> may write. <c>Amendment</c>
