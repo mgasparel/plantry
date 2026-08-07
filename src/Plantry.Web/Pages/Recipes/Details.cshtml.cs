@@ -388,10 +388,16 @@ public sealed class DetailsModel(
             .Select(l => l.ProductId)
             .Distinct()
             .ToList();
+        // "Purchasable" = stock-tracked AND NOT home-produced (Product.IsProduced) — a recipe yield, cook
+        // leftover, or garden produce must never be suggested for purchase (plantry-4osq). Shared by both
+        // target sets so the two buttons agree and neither claims a count it does not sync (plantry-gsj).
         var effectiveSummaries = await catalog.ResolveSummariesAsync(effectiveTrackedIds, ct);
-        var trackedProductIds = effectiveSummaries.Where(kv => kv.Value.TrackStock).Select(kv => kv.Key).ToHashSet();
-        var missingTargets = RecipeShoppingTargets.Missing(effectiveLines, fulfillment, recipe.DefaultServings, servings);
-        var allTargets = RecipeShoppingTargets.All(effectiveLines, trackedProductIds, recipe.DefaultServings, servings);
+        var purchasableProductIds = effectiveSummaries
+            .Where(kv => kv.Value.TrackStock && !kv.Value.IsProduced)
+            .Select(kv => kv.Key)
+            .ToHashSet();
+        var missingTargets = RecipeShoppingTargets.Missing(effectiveLines, fulfillment, purchasableProductIds, recipe.DefaultServings, servings);
+        var allTargets = RecipeShoppingTargets.All(effectiveLines, purchasableProductIds, recipe.DefaultServings, servings);
 
         var contribution = await shoppingList.GetRecipeContributionStateAsync(recipe.Id.Value, ct);
         var missingLabel = AddToShoppingLabelCalculator.Compute(

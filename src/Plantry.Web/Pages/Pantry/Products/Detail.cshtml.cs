@@ -27,6 +27,7 @@ public sealed class DetailModel(
     ILocationRepository locations,
     IStockProvenanceReader provenance,
     IAmendableLineReader amendableLineReader,
+    IExpiringSoonHorizon expiringSoonHorizon,
     IPriceObservationRepository priceRepository,
     IUnitPriceCalculator priceCalculator,
     PricingQueries pricingQueries,
@@ -50,13 +51,46 @@ public sealed class DetailModel(
     public Guid ProductId { get; private set; }
     public ProductStockDetail? Detail { get; private set; }
 
-    /// <summary>Journal rows' <c>OccurredAt</c> resolved to a clock-local display string, keyed by
-    /// <see cref="StockJournalRow.JournalId"/> (missing-seam:iclock-web). <c>_StockDetail.cshtml</c> is a
-    /// DI-less partial — it has no clock to convert with — so the owning page resolves the zone conversion
-    /// here and hands the partial a precomputed string; the view must not perform zone conversion itself.</summary>
-    public IReadOnlyDictionary<Guid, string> HistoryWhenLocal =>
-        Detail?.History.ToDictionary(r => r.JournalId, r => clock.ToLocal(r.OccurredAt).ToString("d MMM yyyy HH:mm"))
-        ?? new Dictionary<Guid, string>();
+    /// <summary>Journal rows' <c>OccurredAt</c> resolved to a clock-local, day-relative display string
+    /// ("Today 12:40" / "Yesterday 19:05" / "4 Aug 18:31" — plantry-sbpk, the redesigned History column),
+    /// keyed by <see cref="StockJournalRow.JournalId"/> (missing-seam:iclock-web). <c>_StockDetail.cshtml</c>
+    /// is a DI-less partial — it has no clock to convert with — so the owning page resolves the zone
+    /// conversion here and hands the partial a precomputed string; the view must not perform zone
+    /// conversion itself.</summary>
+    public IReadOnlyDictionary<Guid, string> HistoryWhenLocal
+    {
+        get
+        {
+            if (Detail is null) return new Dictionary<Guid, string>();
+            var nowLocal = clock.ToLocal(clock.UtcNow);
+            return Detail.History.ToDictionary(r => r.JournalId, r => FormatRelativeWhen(clock.ToLocal(r.OccurredAt), nowLocal));
+        }
+    }
+
+    /// <summary>
+    /// "Today 12:40" / "Yesterday 19:05" / "4 Aug 18:31" — the relative-day wording the History table's
+    /// When column carries over from the rejected timeline prototype (plantry-sbpk, rev 2 decision c).
+    /// <c>internal</c> so the wording is unit-testable without a full page render (mirrors
+    /// <see cref="FormatMarkOpenedToast"/>).
+    /// </summary>
+    internal static string FormatRelativeWhen(DateTimeOffset local, DateTimeOffset nowLocal)
+    {
+        var date = DateOnly.FromDateTime(local.DateTime);
+        var today = DateOnly.FromDateTime(nowLocal.DateTime);
+        var day = date == today ? "Today"
+            : date == today.AddDays(-1) ? "Yesterday"
+            : local.ToString("d MMM");
+        return $"{day} {local:HH:mm}";
+    }
+
+    /// <summary>Today's date in the clock's local zone — the "now" the vitals strip's Next-expiry tile
+    /// and the lot rows' expiry hybrid (plantry-fdoq) both classify against.</summary>
+    public DateOnly TodayDate => DateOnly.FromDateTime(clock.ToLocal(clock.UtcNow).DateTime);
+
+    /// <summary>The household's "expiring soon" horizon in days (plantry-fdoq) — gates whether a lot's
+    /// expiry renders as the actionable <c>.badge-expiry</c> pill or a calm muted date. Loaded once per
+    /// request alongside <see cref="Detail"/> everywhere the vitals strip or lot rows render.</summary>
+    public int ExpiringSoonDays { get; private set; }
 
     /// <summary>Recipes that directly reference this product (plantry-o0r8) — either as a consumer
     /// ("Used in") or as the recipe's declared cook yield ("Made by"). Loaded once on the initial GET;
@@ -221,6 +255,7 @@ public sealed class DetailModel(
         await LoadChipsAsync(Detail);
         PriceDisplayText = await BuildPriceDisplayAsync(id);
         RecipeUsages = await recipeUsages.ExecuteAsync(id);
+        ExpiringSoonDays = await expiringSoonHorizon.GetDaysAsync();
         return Page();
     }
 
@@ -259,7 +294,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: notice, Chips, AmendableLines, HistoryWhenLocal));
+        return await BuildStockDetailPartialAsync(oob: true, notice);
     }
 
     /// <summary>
@@ -296,7 +331,7 @@ public sealed class DetailModel(
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
         var notice = result.IsFailure ? result.Error.Description : null;
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: false, Notice: notice, Chips, AmendableLines, HistoryWhenLocal));
+        return await BuildStockDetailPartialAsync(oob: true, notice);
     }
 
     /// <summary>
@@ -402,7 +437,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines, HistoryWhenLocal));
+        return await BuildStockDetailPartialAsync(oob: true, notice: null);
     }
 
     private async Task<IActionResult> ReloadMoveSheetAsync(Guid id, Guid entryId)
@@ -656,7 +691,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines, HistoryWhenLocal));
+        return await BuildStockDetailPartialAsync(oob: true, notice: null);
     }
 
     /// <summary>Opens the Add stock sheet (plantry-sjfn) — the zero-stock landing's primary CTA, also
@@ -698,7 +733,7 @@ public sealed class DetailModel(
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
         await LoadChipsAsync(Detail);
-        return Partial("_StockDetail", new StockDetailPartialModel(Detail, Oob: true, Notice: null, Chips, AmendableLines, HistoryWhenLocal));
+        return await BuildStockDetailPartialAsync(oob: true, notice: null);
     }
 
     public async Task<IActionResult> OnGetSetPriceSheetAsync(Guid id)
@@ -748,7 +783,7 @@ public sealed class DetailModel(
         }
 
         var priceText = await BuildPriceDisplayAsync(id);
-        return Partial("_PriceDisplay", new PriceDisplayPartialModel(priceText, Oob: true));
+        return Partial("_PriceDisplay", new PriceDisplayPartialModel(id, priceText, Oob: true));
     }
 
     /// <summary>Resolves the current effective price the same way <c>CostingService</c> would
@@ -842,6 +877,19 @@ public sealed class DetailModel(
         return Partial("_ConsumeSheet", this);
     }
 
+    /// <summary>
+    /// Builds the <c>_StockDetail</c> fragment (plantry-sbpk redesign) — every handler that mutates
+    /// stock and re-renders the lots/history/vitals block funnels through here so the vitals strip's
+    /// "expiring soon" horizon (<see cref="ExpiringSoonDays"/>) is loaded exactly once per call, the
+    /// same way <see cref="Detail"/>/<see cref="Chips"/> already are by each caller before this runs.
+    /// </summary>
+    private async Task<IActionResult> BuildStockDetailPartialAsync(bool oob, string? notice)
+    {
+        ExpiringSoonDays = await expiringSoonHorizon.GetDaysAsync();
+        return Partial("_StockDetail", new StockDetailPartialModel(
+            Detail!, oob, notice, Chips, AmendableLines, HistoryWhenLocal, TodayDate, ExpiringSoonDays));
+    }
+
     private async Task LoadUnitOptionsAsync()
     {
         UnitOptions = UnitSelectListBuilder.BuildFromUnits(
@@ -913,13 +961,32 @@ public sealed record StockDetailPartialModel(
     /// <summary>History rows' <c>OccurredAt</c> pre-resolved to clock-local display strings, keyed by
     /// <see cref="StockJournalRow.JournalId"/> — see <see cref="DetailModel.HistoryWhenLocal"/>
     /// (missing-seam:iclock-web); this DI-less partial cannot convert zones itself.</summary>
-    IReadOnlyDictionary<Guid, string> HistoryWhenLocal);
+    IReadOnlyDictionary<Guid, string> HistoryWhenLocal,
+    /// <summary>Today's date in the clock's local zone (plantry-sbpk) — see
+    /// <see cref="DetailModel.TodayDate"/>; this DI-less partial has no clock of its own.</summary>
+    DateOnly Today,
+    /// <summary>The household's "expiring soon" horizon in days (plantry-fdoq) — see
+    /// <see cref="DetailModel.ExpiringSoonDays"/>; gates the lot rows' expiry hybrid and the vitals
+    /// strip's Next-expiry/On-hand tiles, which this fragment OOB-re-emits alongside the lots/history
+    /// block (plantry-sbpk).</summary>
+    int ExpiringSoonDays);
 
 /// <summary>View model for the price-line fragment (plantry-3fqm). <see cref="Oob"/> drives the htmx
 /// out-of-band swap after a "Set price" submission — mirrors <see cref="StockDetailPartialModel.Oob"/>'s
 /// role for the lot/journal fragment, but scoped to just the price display since setting a price never
 /// changes stock.</summary>
-public sealed record PriceDisplayPartialModel(string DisplayText, bool Oob);
+public sealed record PriceDisplayPartialModel(Guid ProductId, string DisplayText, bool Oob);
+
+/// <summary>
+/// View model for the vitals strip's On-hand / Next-expiry / Low-stock-alert tiles (plantry-sbpk) — the
+/// Price tile is deliberately NOT included here: it is owned entirely by <c>_PriceDisplay.cshtml</c>/
+/// <see cref="PriceDisplayPartialModel"/> so a stock-only mutation (Consume/Discard/Move/Threshold/Add
+/// stock) never has to re-resolve <see cref="DetailModel.PriceDisplayText"/> (a DB round trip) just to
+/// re-render three tiles that have nothing to do with price. <see cref="Oob"/> mirrors
+/// <see cref="StockDetailPartialModel.Oob"/>'s role — rendered plain on the initial GET, OOB-re-emitted
+/// by <c>_StockDetail</c> after every stock mutation.
+/// </summary>
+public sealed record VitalsTilesPartialModel(ProductStockDetail Detail, bool Oob, DateOnly Today, int ExpiringSoonDays);
 
 /// <summary>
 /// View model for the header's primary action toggle (plantry-sjfn): "Consume" when the product has

@@ -718,6 +718,79 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Vitals strip</h2>
+    </div>
+    <p>
+        A 4-up stat-tile grid (<code>.vitals</code>/<code>.vital</code>, plantry-sbpk — the intake-detail
+        <code>.stat-grid</code> precedent's product-detail sibling). Every tile follows one typographic
+        contract: label (11px caps) / value (19px·650, one shared baseline) / a one-line sub. Urgency and
+        running-low state travel in the <em>value's colour</em> (<code>.vital__val--warn</code>/
+        <code>--soon</code>/<code>--urgent</code>) — the strip itself never carries a badge. An empty tile
+        shows a faint <code>.vital__val--empty</code> "—" plus a "Set … ›" CTA in the sub slot, so a tile
+        with nothing to show still looks intentional rather than broken. Used on the Pantry product
+        Detail page's On hand / Next expiry / Price / Low-stock alert strip.
+    </p>
+    <div class="vitals" style="margin-bottom: var(--space-4)">
+        <div class="vital" style="order:1">
+            <p class="vital__lbl">On hand</p>
+            <div class="vital__val vital__val--warn">4<small>srv</small></div>
+            <div class="vital__sub vital__sub--warn">Running low</div>
+        </div>
+        <div class="vital" style="order:2">
+            <p class="vital__lbl">Next expiry</p>
+            <div class="vital__val vital__val--urgent">Today</div>
+            <div class="vital__sub">6 Aug · Fridge</div>
+        </div>
+        <div class="vital" style="order:3">
+            <p class="vital__lbl">Price</p>
+            <div class="vital__val vital__val--empty">—</div>
+            <div class="vital__sub"><a href="#">Set price ›</a></div>
+        </div>
+        <div class="vital vital--end" style="order:4">
+            <p class="vital__lbl">Low-stock alert</p>
+            <div class="vital__val">Below 5<small>srv</small></div>
+            <div class="vital__sub"><a href="#">Change ›</a></div>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"vital\" id=\"...\">\n  <p class=\"vital__lbl\">Label</p>\n  <div class=\"vital__val vital__val--warn\">4<small>srv</small></div>\n  <div class=\"vital__sub vital__sub--warn\">Running low</div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Row overflow menu</h2>
+    </div>
+    <p>
+        <code>.row-actions-menu</code> (plantry-sbpk) — a ⋯ trigger that reveals secondary row actions
+        without a wall of ghost buttons. Alpine-driven (<code>x-data="{ open: false }"</code>,
+        <code>@@click.outside</code> to dismiss); the trigger is a real <code>&lt;button&gt;</code> so it
+        stays keyboard/touch reachable. A trailing item can carry <code>.row-actions-menu__item--danger</code>
+        (with a <code>.row-actions-menu__sep</code> before it) for a destructive action like Discard. Used
+        beside the Pantry product Detail page's per-lot Use button (Move… / Mark opened / Discard…).
+    </p>
+    <p>
+        <strong>Containing-block trap.</strong> The panel is absolutely positioned against its
+        <code>.row-actions-menu</code> parent, so any ancestor between it and the viewport that clips
+        overflow (e.g. a plain <code>.catalog-list</code>, which sets <code>overflow: hidden</code> for
+        its own rounded corners) clips the panel too. A row-list that hosts this menu MUST also carry
+        the <code>.catalog-list--menus</code> modifier (swaps to <code>overflow: visible</code> and
+        re-applies the corner rounding directly to the first/last row) — see
+        <code>Pantry/Products/_StockDetail.cshtml</code>'s lots list.
+    </p>
+    <div class="row-actions-menu" x-data="{ open: false }" @@click.outside="open = false" style="display:inline-block">
+        <button type="button" class="row-actions-menu__trigger" aria-label="More actions" aria-haspopup="true"
+                :aria-expanded="open.toString()" @@click="open = !open">⋯</button>
+        <div class="row-actions-menu__panel" x-show="open" x-cloak>
+            <button type="button" class="row-actions-menu__item">Move…</button>
+            <button type="button" class="row-actions-menu__item">Mark opened</button>
+            <div class="row-actions-menu__sep"></div>
+            <button type="button" class="row-actions-menu__item row-actions-menu__item--danger">Discard…</button>
+        </div>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"row-actions-menu\" x-data=\"{ open: false }\" @click.outside=\"open = false\">\n  <button class=\"row-actions-menu__trigger\" aria-haspopup=\"true\" :aria-expanded=\"open.toString()\" @click=\"open = !open\">⋯</button>\n  <div class=\"row-actions-menu__panel\" x-show=\"open\" x-cloak>\n    <button class=\"row-actions-menu__item\">Move…</button>\n    <div class=\"row-actions-menu__sep\"></div>\n    <button class=\"row-actions-menu__item row-actions-menu__item--danger\">Discard…</button>\n  </div>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Data grid</h2>
     </div>
     <p>

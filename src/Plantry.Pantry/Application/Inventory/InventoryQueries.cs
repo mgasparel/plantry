@@ -519,7 +519,14 @@ public class InventoryQueryService(
     private static bool IsWithinExpiryWindow(DateOnly? soonest, DateOnly windowEnd) =>
         soonest is { } date && date <= windowEnd;
 
-    private static ExpiryTone ToneFor(DateOnly? soonest, DateOnly today, int expiringSoonDays)
+    /// <summary>
+    /// Public (plantry-sbpk) so the Pantry product Detail page can classify each individual lot's
+    /// expiry tone the same way a product row's soonest-expiry tone is classified here — the pantry
+    /// "expiring soon" hybrid (plantry-fdoq) gates pill-presence by <see cref="ExpiryTone"/>, and the
+    /// Detail page's lot rows need that same per-household-horizon gating, not just the pantry list's
+    /// product-level rollup. Pure and side-effect-free, so exposing it duplicates no logic.
+    /// </summary>
+    public static ExpiryTone ToneFor(DateOnly? soonest, DateOnly today, int expiringSoonDays)
     {
         if (soonest is not { } date) return ExpiryTone.None;
         if (date < today) return ExpiryTone.Expired;

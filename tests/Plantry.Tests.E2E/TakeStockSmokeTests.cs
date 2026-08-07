@@ -802,4 +802,99 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await context.Tracing.StopAsync(new() { Path = "trace-takestock-alias.zip" });
         }
     }
+
+    [Fact(DisplayName = "Take Stock: expiry set on a count increase round-trips into the lot panel (plantry-4onl)")]
+    public async Task TakeStock_ExpiryOnIncrease_RoundTripsIntoLotPanel()
+    {
+        var uniqueEmail = $"ts-expiry-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"TS Expiry {Guid.NewGuid():N}".Substring(0, 18);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household ─────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS Expiry E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS Expiry E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Create a stock-holding product and add 500g to Pantry ──────────────
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
+            await page.WaitForURLAsync("**/Catalog/Products/Create");
+            await page.FillAsync("[name='Input.Name']", productName);
+            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.ClickAsync("button:has-text('Create Product')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
+            await productSearch.FillAsync(productName);
+            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "500");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            var pantryRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(pantryRow).ToContainTextAsync("500 g");
+
+            // ── Navigate to Take Stock → open Pantry walk ─────────────────────────
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            var pantryLink = page.Locator(".ts-loc-grid a.ts-loc-card", new() { HasText = "Pantry" });
+            await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pantryLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+
+            // ── Increase the count above the recorded amount via the island test seam ──
+            // (plantry-2zvm.2's window.__takeStockIsland replaces the old Alpine.$data() pattern.)
+            await page.WaitForFunctionAsync(@"
+                () => typeof window.__takeStockIsland?.setCountByIndex === 'function'
+            ");
+            await page.EvaluateAsync(@"
+                () => { window.__takeStockIsland.setCountByIndex(0, 700); }
+            ");
+
+            // ── The increase-reveal expiry block should appear (plantry-4onl) ──────
+            var expiryInput = page.Locator(".ts-expiry input[type='date']");
+            await Assertions.Expect(expiryInput).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await expiryInput.FillAsync("2027-06-15");
+
+            // ── Tap Save ──────────────────────────────────────────────────────────
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await page.ClickAsync(".bar-sticky-bottom button:has-text('Save')");
+            await Assertions.Expect(page.Locator(".toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+
+            // ── Expand the lot panel and confirm the expiry round-tripped ──────────
+            var expandBtn = page.Locator("button.ts-expand").First;
+            await Assertions.Expect(expandBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await expandBtn.ClickAsync();
+            var lotPanel = page.Locator(".ts-hatch");
+            await Assertions.Expect(lotPanel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            // The lot panel now renders the expiry as an editable date input (plantry-fyvr), not
+            // read-only text — assert the round-tripped value, not display-formatted text.
+            var lotExpiryInput = lotPanel.Locator("input[type='date'].ts-date-input").First;
+            await Assertions.Expect(lotExpiryInput).ToHaveValueAsync("2027-06-15", new LocatorAssertionsToHaveValueOptions { Timeout = 30000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-expiry.zip" });
+        }
+    }
 }

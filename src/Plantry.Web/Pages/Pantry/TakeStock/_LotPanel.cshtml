@@ -39,20 +39,16 @@
                         <span class="lq-unit">@lot.UnitCode</span>
                     </div>
                     <div class="ts-lot-meta">
-                        @if (lot.ExpiryDate is { } exp)
-                        {
-                            <span class="ts-lot-exp">
-                                <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
-                                @lot.Quantity.ToString("0.###") @lot.UnitCode · Expires @exp.ToString("d MMM yyyy")
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="ts-lot-exp none">
-                                <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
-                                @lot.Quantity.ToString("0.###") @lot.UnitCode · No expiry
-                            </span>
-                        }
+                        <span class="ts-lot-exp">
+                            <svg class="icon" aria-hidden="true"><use href="#i-box" /></svg>
+                            @lot.Quantity.ToString("0.###") @lot.UnitCode
+                        </span>
+                        @* Editable expiry correction (plantry-fyvr) — the lot panel's only way to fix
+                           a wrong date without deleting/re-adding the lot. *@
+                        <label class="ts-date-lbl" for=@("lot-expiry-" + eid)>Expiry</label>
+                        <input type="date" id=@("lot-expiry-" + eid) class="ts-date-input"
+                               x-model="lots['@eid'].expiryDate"
+                               aria-label="Expiry date for this lot" />
                     </div>
                 </div>
                 @* Disposition reason — only relevant once the count drops below the recorded
@@ -101,9 +97,9 @@
                        aria-label="Quantity of found stock to add" />
                 <span class="lq-unit">@(Model.Lots.FirstOrDefault()?.UnitCode ?? "")</span>
             </div>
-            <input type="date" class="ts-date-input"
-                   x-model="found.expiryDate"
-                   aria-label="Expiry date for found stock" />
+            <label class="ts-date-lbl" for=@("found-expiry-" + Model.ProductId)>Expiry</label>
+            <input type="date" id=@("found-expiry-" + Model.ProductId) class="ts-date-input"
+                   x-model="found.expiryDate" />
             <input type="hidden" x-bind:value="found.unitId" />
         </div>
     </div>
@@ -130,7 +126,20 @@
         // compute the reduction delta (original − counted) posted to SaveLots, and to decide dirty.
         var lots = m.Lots.ToDictionary(
             l => l.EntryId.ToString(),
-            l => new { amount = l.Quantity, original = l.Quantity, unitId = l.UnitId.ToString(), reason = "Correction", failed = false, failMsg = (string?)null });
+            l => new
+            {
+                amount = l.Quantity,
+                original = l.Quantity,
+                unitId = l.UnitId.ToString(),
+                reason = "Correction",
+                // expiryDate seeds the editable date input (plantry-fyvr); originalExpiryDate is the
+                // dirty-tracking baseline, mirroring original/amount above. ISO "yyyy-MM-dd" (or "" for
+                // no expiry) — the format an HTML date input's value attribute requires.
+                expiryDate = l.ExpiryDate?.ToString("yyyy-MM-dd") ?? "",
+                originalExpiryDate = l.ExpiryDate?.ToString("yyyy-MM-dd") ?? "",
+                failed = false,
+                failMsg = (string?)null,
+            });
         // found.unitId defaults to the first lot's unit Guid (the display unit for this product/location).
         var foundUnitId = m.Lots.Count > 0 ? m.Lots[0].UnitId.ToString() : "";
         var json = System.Text.Json.JsonSerializer.Serialize(new

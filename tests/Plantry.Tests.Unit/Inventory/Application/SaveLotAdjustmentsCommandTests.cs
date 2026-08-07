@@ -312,6 +312,119 @@ public sealed class SaveLotAdjustmentsCommandTests
         Assert.Equal(1, stocks.SaveChangesCalls);
     }
 
+    // ── SetExpiry (plantry-fyvr) ──────────────────────────────────────────────
+
+    [Fact(DisplayName = "SetExpiry with Amount 0 is an expiry-only correction — no quantity change")]
+    public async Task SetExpiry_ZeroAmount_Is_ExpiryOnly_Correction()
+    {
+        var (stocks, entryId) = StocksWithLot(100m);
+        var corrected = new DateOnly(2027, 6, 15);
+
+        var adjustments = new List<LotAdjustItem>
+        {
+            new(entryId, 0m, _unitId, ExpiryDate: corrected, SetExpiry: true),
+        };
+
+        var result = await Command(stocks, adjustments).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.IsSuccess);
+        Assert.Single(result.Value.Results);
+        Assert.True(result.Value.Results[0].IsSuccess);
+
+        var lot = stocks.Items.Single().Entries.Single();
+        Assert.Equal(100m, lot.Quantity); // untouched
+        Assert.Equal(corrected, lot.ExpiryDate);
+
+        // No journal row for a pure expiry correction — only the original intake entry.
+        Assert.Single(stocks.Items.Single().Journal);
+    }
+
+    [Fact(DisplayName = "SetExpiry can clear a lot's expiry to null")]
+    public async Task SetExpiry_Can_Clear_Expiry_To_Null()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        var entry = stock.AddStock(100m, _unitId, _locationId, _userId, Clock, expiryDate: new DateOnly(2027, 1, 1));
+        stocks.Items.Add(stock);
+
+        var adjustments = new List<LotAdjustItem>
+        {
+            new(entry.Id.Value, 0m, _unitId, ExpiryDate: null, SetExpiry: true),
+        };
+
+        var result = await Command(stocks, adjustments).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.Results[0].IsSuccess);
+        Assert.Null(stocks.Items.Single().Entries.Single().ExpiryDate);
+    }
+
+    [Fact(DisplayName = "SetExpiry combined with a positive reduce applies both in the same item")]
+    public async Task SetExpiry_Combined_With_Reduce_Applies_Both()
+    {
+        var (stocks, entryId) = StocksWithLot(100m);
+        var corrected = new DateOnly(2027, 6, 15);
+
+        var adjustments = new List<LotAdjustItem>
+        {
+            new(entryId, 30m, _unitId, StockReason.Correction, ExpiryDate: corrected, SetExpiry: true),
+        };
+
+        var result = await Command(stocks, adjustments).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.Results[0].IsSuccess);
+
+        var lot = stocks.Items.Single().Entries.Single();
+        Assert.Equal(70m, lot.Quantity);
+        Assert.Equal(corrected, lot.ExpiryDate);
+    }
+
+    [Fact(DisplayName = "SetExpiry combined with a full-lot reduce succeeds — expiry applies before the lot depletes (regression)")]
+    public async Task SetExpiry_Combined_With_FullReduce_Succeeds()
+    {
+        // Regression guard: SetExpiry must run BEFORE Consume in the Reduce branch. Consuming
+        // the full 100 first would deplete the lot (IsActive requires Quantity > 0), and a
+        // depleted lot fails SetLotExpiry's active-lot guard — reporting the whole item as
+        // failed even though the quantity change had already committed.
+        var (stocks, entryId) = StocksWithLot(100m);
+        var corrected = new DateOnly(2027, 6, 15);
+
+        var adjustments = new List<LotAdjustItem>
+        {
+            new(entryId, 100m, _unitId, StockReason.Correction, ExpiryDate: corrected, SetExpiry: true),
+        };
+
+        var result = await Command(stocks, adjustments).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.Results[0].IsSuccess);
+
+        var lot = stocks.Items.Single().Entries.Single();
+        Assert.Equal(0m, lot.Quantity);
+        Assert.Equal(corrected, lot.ExpiryDate);
+    }
+
+    [Fact(DisplayName = "SetExpiry on an unknown lot returns LotNotFound in the result")]
+    public async Task SetExpiry_UnknownEntryId_Returns_LotNotFound_In_Result()
+    {
+        var (stocks, _) = StocksWithLot(100m);
+        var unknownEntryId = Guid.CreateVersion7();
+
+        var adjustments = new List<LotAdjustItem>
+        {
+            new(unknownEntryId, 0m, _unitId, ExpiryDate: new DateOnly(2027, 1, 1), SetExpiry: true),
+        };
+
+        var result = await Command(stocks, adjustments).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(result.Value.Results);
+        Assert.False(result.Value.Results[0].IsSuccess);
+        Assert.Equal("Inventory.LotNotFound", result.Value.Results[0].FailureReason?.Code);
+    }
+
     // ── Mixed batch: reduce + found stock ─────────────────────────────────────
 
     [Fact(DisplayName = "Mixed batch: reduce one lot and add found stock in same command")]

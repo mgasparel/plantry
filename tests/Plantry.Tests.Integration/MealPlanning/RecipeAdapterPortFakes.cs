@@ -34,6 +34,10 @@ internal sealed class FakeCatalog : ICatalogProductReader
 {
     private readonly Dictionary<Guid, CatalogProduct> _products = [];
 
+    /// <summary>Ids marked home-produced (<c>Product.IsProduced</c>) for <see cref="ResolveSummariesAsync"/>
+    /// (plantry-4osq). Empty by default so every existing scenario is unaffected — see <see cref="MarkProduced"/>.</summary>
+    private readonly HashSet<Guid> _produced = [];
+
     public static FakeCatalog WithTrackedLeaf(Guid productId, Guid unitId)
     {
         var c = new FakeCatalog();
@@ -50,14 +54,29 @@ internal sealed class FakeCatalog : ICatalogProductReader
         return this;
     }
 
+    /// <summary>Marks an already-registered product id as home-produced (<c>Product.IsProduced</c> = true,
+    /// plantry-4osq), fluent-chainable, so a subsequent <see cref="ResolveSummariesAsync"/> reports it.</summary>
+    public FakeCatalog MarkProduced(Guid productId)
+    {
+        _produced.Add(productId);
+        return this;
+    }
+
     public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(_products.GetValueOrDefault(productId));
 
     public Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(string nameQuery, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogProductCandidate>>([]);
     public Task<IReadOnlyDictionary<Guid, CatalogProductSummary>> ResolveSummariesAsync(
-        IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyDictionary<Guid, CatalogProductSummary>>(new Dictionary<Guid, CatalogProductSummary>());
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, CatalogProductSummary> result = productIds
+            .Where(_products.ContainsKey)
+            .Distinct()
+            .ToDictionary(id => id, id => new CatalogProductSummary(
+                id, _products[id].Name, _products[id].TrackStock, _produced.Contains(id)));
+        return Task.FromResult(result);
+    }
     public Task<IReadOnlyDictionary<Guid, string>> ResolveUnitCodesAsync(
         IReadOnlyList<Guid> unitIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());

@@ -1,0 +1,77 @@
+@model Plantry.Web.Pages.Pantry.Products.VitalsTilesPartialModel
+@using Plantry.Pantry.Application
+@using Plantry.Web.Pages.Shared
+@{
+    // On-hand / Next-expiry / Low-stock-alert vitals tiles (plantry-sbpk redesign). The Price tile
+    // (visually 3rd, via CSS `order`) lives entirely in _PriceDisplay.cshtml — see
+    // VitalsTilesPartialModel's doc comment for why the two are split.
+    var d = Model.Detail;
+    var hasStock = d.Lots.Count > 0;
+    var oobAttr = Model.Oob ? "hx-swap-oob=true" : "";
+
+    // Soonest dated lot across the active lots — mirrors InventoryQueryService's own soonest-expiry
+    // selection (SoonestDatedExpiry), computed here since ProductStockDetail carries per-lot dates but
+    // not a pre-rolled-up soonest.
+    var soonest = d.Lots.Where(l => l.ExpiryDate is not null).OrderBy(l => l.ExpiryDate).FirstOrDefault();
+}
+<div class="vital" id="product-total" style="order:1" @oobAttr>
+    <p class="vital__lbl">On hand</p>
+    @if (hasStock)
+    {
+        <div class="vital__val@(d.IsRunningLow ? " vital__val--warn" : "")">@d.TotalQuantity.ToString("0.###")<small>@d.DisplayUnitCode</small></div>
+        <div class="vital__sub@(d.IsRunningLow ? " vital__sub--warn" : "")">
+            @(d.IsRunningLow ? "Running low" : $"across {d.Lots.Count} lot{(d.Lots.Count == 1 ? "" : "s")}")
+        </div>
+    }
+    else
+    {
+        <div class="vital__val vital__val--empty">None</div>
+        <div class="vital__sub">not in stock</div>
+    }
+</div>
+<div class="vital" id="product-next-expiry" style="order:2" @oobAttr>
+    <p class="vital__lbl">Next expiry</p>
+    @if (soonest is { ExpiryDate: { } expiry })
+    {
+        // plantry-fdoq hybrid, expressed in the tile's value slot (rev 3 decision g): the
+        // household horizon (ExpiryTone) gates whether the value is coloured/relative at all;
+        // ExpiryDisplay supplies the wording + colour tier once it is.
+        var tone = InventoryQueryService.ToneFor(expiry, Model.Today, Model.ExpiringSoonDays);
+        if (tone is ExpiryTone.Soon or ExpiryTone.Expired)
+        {
+            var (label, tier) = ExpiryDisplay.Format(expiry, Model.Today);
+            var capLabel = char.ToUpperInvariant(label[0]) + label[1..];
+            <div class="vital__val vital__val--@tier">@capLabel</div>
+            <div class="vital__sub">@expiry.ToString("d MMM") · @(soonest.LocationName ?? "—")</div>
+        }
+        else
+        {
+            <div class="vital__val">@expiry.ToString("d MMM")</div>
+            <div class="vital__sub">@(soonest.LocationName ?? "—")</div>
+        }
+    }
+    else
+    {
+        <div class="vital__val vital__val--empty">—</div>
+        <div class="vital__sub">&nbsp;</div>
+    }
+</div>
+<div class="vital vital--end" id="product-low-stock-alert" style="order:4" @oobAttr>
+    <p class="vital__lbl">Low-stock alert</p>
+    @if (d.LowStockThreshold is { } threshold)
+    {
+        <div class="vital__val">Below @threshold.ToString("0.###")<small>@d.DisplayUnitCode</small></div>
+        <div class="vital__sub">
+            <a href="#" hx-get="@Url.Page("./Detail", "ThresholdSheet", new { id = d.ProductId })"
+               hx-target="#sheet-host" hx-swap="innerHTML">Change ›</a>
+        </div>
+    }
+    else
+    {
+        <div class="vital__val vital__val--empty">—</div>
+        <div class="vital__sub">
+            <a href="#" hx-get="@Url.Page("./Detail", "ThresholdSheet", new { id = d.ProductId })"
+               hx-target="#sheet-host" hx-swap="innerHTML">Set alert ›</a>
+        </div>
+    }
+</div>

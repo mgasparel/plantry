@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -56,7 +57,14 @@ public sealed record CountItem(
     Guid LocationId,
     decimal CountedValue,
     Guid CountedUnitId,
-    StockReason Reason = StockReason.Correction);
+    StockReason Reason = StockReason.Correction,
+    /// <summary>
+    /// Optional expiry for the opening-balance lot minted when this count is an increase
+    /// (plantry-4onl). Ignored when the resulting delta is zero or negative — nothing is added,
+    /// so nothing to stamp. Blank/null means blank: Take Stock does NOT fall back to the
+    /// product's DefaultDueDays (decision 1 — deliberately differs from the Add Stock sheet).
+    /// </summary>
+    DateOnly? ExpiryDate = null);
 
 // ─── Lot escape-hatch (P4-5) ──────────────────────────────────────────────────
 
@@ -90,8 +98,20 @@ public sealed record LotAdjustItem(
     /// <see cref="StockReason.Discarded"/> for the spoiled toggle.
     /// </summary>
     StockReason Reason = StockReason.Correction,
-    /// <summary>Optional expiry date for found-stock additions (ignored for Reduce).</summary>
-    DateOnly? ExpiryDate = null)
+    /// <summary>
+    /// Optional expiry date for found-stock additions, or the corrected expiry for a Reduce item
+    /// when <see cref="SetExpiry"/> is true (plantry-fyvr). Ignored for a plain Reduce
+    /// (<see cref="SetExpiry"/> false).
+    /// </summary>
+    DateOnly? ExpiryDate = null,
+    /// <summary>
+    /// True when this Reduce item (<see cref="EntryId"/> set) also carries a manual expiry
+    /// correction for the named lot (plantry-fyvr — the Take Stock lot panel's expiry editor).
+    /// Lets a save combine a quantity reduction and an expiry fix on the same lot in one round trip;
+    /// with <see cref="Amount"/> 0 it is an expiry-only correction (no quantity change). Ignored for
+    /// FoundStock, where <see cref="ExpiryDate"/> is always applied.
+    /// </summary>
+    bool SetExpiry = false)
 {
     /// <summary>True when this is a found-stock addition (no target lot); false for a lot reduce.</summary>
     public bool IsFoundStock => EntryId is null;
@@ -133,7 +153,10 @@ public sealed record SaveLotAdjustmentsOutcome(
 /// Each <see cref="LotAdjustItem"/> is either:
 /// <list type="bullet">
 /// <item>A <b>Reduce</b> — targeted <see cref="ProductStock.Consume"/> on the named lot
-/// (<see cref="LotAdjustItem.EntryId"/> set). Reason: Correction / Consumed / Discarded (C9).</item>
+/// (<see cref="LotAdjustItem.EntryId"/> set). Reason: Correction / Consumed / Discarded (C9).
+/// Optionally paired with a manual expiry correction via <see cref="ProductStock.SetLotExpiry"/>
+/// when <see cref="LotAdjustItem.SetExpiry"/> is set (plantry-fyvr); with <see cref="LotAdjustItem.Amount"/>
+/// 0 it is an expiry-only correction — no quantity change at all.</item>
 /// <item>A <b>FoundStock</b> addition — <see cref="ProductStock.AddStock"/> with
 /// <see cref="StockReason.Correction"/> and the user-supplied optional expiry (TS-4).</item>
 /// </list>
@@ -150,7 +173,8 @@ public sealed class SaveLotAdjustmentsCommand(
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<SaveLotAdjustmentsCommand>? logger = null)
 {
     public async Task<Result<SaveLotAdjustmentsOutcome>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -195,24 +219,55 @@ public sealed class SaveLotAdjustmentsCommand(
                 }
                 else
                 {
-                    // Reduce: targeted Consume on the named lot (C9).
-                    if (item.Amount <= 0m)
+                    // Reduce: targeted Consume on the named lot (C9), optionally paired with a
+                    // manual expiry correction on the same lot (plantry-fyvr). Amount 0 is only
+                    // valid when SetExpiry carries the whole item (an expiry-only correction) —
+                    // otherwise there is nothing for this item to do.
+                    if (item.Amount <= 0m && !item.SetExpiry)
                     {
                         results.Add(LotAdjustResult.Fail(item.EntryId,
                             Error.Custom("Inventory.InvalidLotAmount", "Reduce quantity must be positive.")));
                         continue;
                     }
 
-                    var consumeReason = item.Reason.IsRemoval() ? item.Reason : StockReason.Correction;
-                    var outcome = stock.Consume(
-                        item.Amount, item.UnitId, consumeReason, converter, userId, clock,
-                        sourceType: StockSourceType.Manual,
-                        targetEntry: StockEntryId.From(item.EntryId!.Value));
-
-                    if (outcome.IsFailure)
+                    // Expiry correction runs BEFORE the quantity Consume (plantry-fyvr FIX pass 1):
+                    // Consume can deplete the lot (IsActive requires Quantity > 0), and a depleted
+                    // lot fails SetLotExpiry's active-lot guard. Running SetExpiry first means an
+                    // expiry failure short-circuits before any quantity change, and a downstream
+                    // Consume failure leaves only the user's explicit (and idempotently
+                    // re-postable) date correction applied — never a silently-committed reduce
+                    // reported back to the client as a failure.
+                    if (item.SetExpiry)
                     {
-                        results.Add(LotAdjustResult.Fail(item.EntryId, outcome.Error));
-                        continue;
+                        var expiryResult = stock.SetLotExpiry(
+                            StockEntryId.From(item.EntryId!.Value), item.ExpiryDate, clock);
+
+                        if (expiryResult.IsFailure)
+                        {
+                            logger?.LogWarning(
+                                "SaveLotAdjustments expiry correction rejected for product {ProductId}, entry {EntryId}. Error: {ErrorCode}.",
+                                productId, item.EntryId, expiryResult.Error.Code);
+                            results.Add(LotAdjustResult.Fail(item.EntryId, expiryResult.Error));
+                            continue;
+                        }
+                    }
+
+                    if (item.Amount > 0m)
+                    {
+                        var consumeReason = item.Reason.IsRemoval() ? item.Reason : StockReason.Correction;
+                        var outcome = stock.Consume(
+                            item.Amount, item.UnitId, consumeReason, converter, userId, clock,
+                            sourceType: StockSourceType.Manual,
+                            targetEntry: StockEntryId.From(item.EntryId!.Value));
+
+                        if (outcome.IsFailure)
+                        {
+                            logger?.LogWarning(
+                                "SaveLotAdjustments reduce rejected for product {ProductId}, entry {EntryId}. Error: {ErrorCode}.",
+                                productId, item.EntryId, outcome.Error.Code);
+                            results.Add(LotAdjustResult.Fail(item.EntryId, outcome.Error));
+                            continue;
+                        }
                     }
 
                     results.Add(LotAdjustResult.Ok(item.EntryId));
@@ -220,6 +275,12 @@ public sealed class SaveLotAdjustmentsCommand(
             }
 
             await stocks.SaveChangesAsync(innerCt);
+
+            logger?.LogInformation(
+                "SaveLotAdjustments applied {SuccessCount} of {ItemCount} lot adjustments for product {ProductId} at location {LocationId} ({ExpiryCorrectionCount} expiry corrections).",
+                results.Count(r => r.IsSuccess), adjustments.Count, productId, locationId,
+                adjustments.Count(a => !a.IsFoundStock && a.SetExpiry));
+
             return Result<SaveLotAdjustmentsOutcome>.Success(SaveLotAdjustmentsOutcome.Ok(results));
         }, ct);
     }
@@ -253,7 +314,12 @@ public sealed class RecordCountCommand(
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    /// <summary>
+    /// Optional expiry stamped on the opening-balance lot minted when the resulting delta is an
+    /// increase (plantry-4onl). Unused on a Down or NoOp outcome — see <see cref="CountItem.ExpiryDate"/>.
+    /// </summary>
+    DateOnly? expiryDate = null)
 {
     public async Task<Result<RecordCountOutcome>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -288,6 +354,7 @@ public sealed class RecordCountCommand(
                 stock = ProductStock.Start(household, productId, clock);
                 stock.AddStock(
                     countedValue, countedUnitId, locationId, userId, clock,
+                    expiryDate: expiryDate,
                     sourceType: StockSourceType.Manual, reason: StockReason.Correction);
 
                 if (!await stocks.TryAddAndSaveAsync(stock, innerCt))
@@ -330,6 +397,7 @@ public sealed class RecordCountCommand(
             // Consumed/Discarded) because those are removal reasons only.
             stock.AddStock(
                 delta, countedUnitId, locationId, userId, clock,
+                expiryDate: expiryDate,
                 sourceType: StockSourceType.Manual, reason: StockReason.Correction);
             await stocks.SaveChangesAsync(ct);
             return new RecordCountOutcome(CountDirection.Up, delta, 0m);
@@ -383,7 +451,9 @@ public sealed class AddCountedItemCommand(
     IProductConversionProvider conversions,
     IClock clock,
     ITenantContext tenant,
-    Guid? categoryId = null)
+    Guid? categoryId = null,
+    /// <summary>Optional expiry for the opening-balance lot (plantry-4onl).</summary>
+    DateOnly? expiryDate = null)
 {
     /// <summary>
     /// Creates the tracked product and records the opening-balance count.
@@ -412,7 +482,8 @@ public sealed class AddCountedItemCommand(
         {
             var countCmd = new RecordCountCommand(
                 productId, locationId, countedValue, countedUnitId,
-                StockReason.Correction, userId, stocks, conversions, clock, tenant);
+                StockReason.Correction, userId, stocks, conversions, clock, tenant,
+                expiryDate: expiryDate);
 
             var countResult = await countCmd.ExecuteAsync(ct);
             if (countResult.IsFailure)
@@ -459,7 +530,8 @@ public sealed class SaveCountsCommand(
                 stocks,
                 conversions,
                 clock,
-                tenant);
+                tenant,
+                expiryDate: item.ExpiryDate);
 
             var result = await cmd.ExecuteAsync(ct);
 

@@ -43,7 +43,8 @@ public sealed class WalkModel(
     IClock clock,
     ITenantContext tenant,
     VoidDeferredUnitGapLines voidDeferredUnitGaps,
-    ILogger<WalkModel> logger) : PageModel
+    ILogger<WalkModel> logger,
+    ILogger<SaveLotAdjustmentsCommand> saveLotsLogger) : PageModel
 {
     // ── Read model ────────────────────────────────────────────────────────────
 
@@ -178,6 +179,7 @@ public sealed class WalkModel(
                 countedValue: payload.CountedValue,
                 countUnit:    countUnit,
                 userId:       userId,
+                expiryDate:   payload.ExpiryDate,
                 ct:           ct);
         }
         else if (!string.IsNullOrEmpty(newGroupName))
@@ -193,6 +195,7 @@ public sealed class WalkModel(
                 countedValue: payload.CountedValue,
                 countUnit:    countUnit,
                 userId:       userId,
+                expiryDate:   payload.ExpiryDate,
                 ct:           ct);
         }
         else
@@ -203,7 +206,8 @@ public sealed class WalkModel(
                 name, unitId, LocationId,
                 payload.CountedValue, countUnit,
                 userId, catalogWriter, stocks, conversions, clock, tenant,
-                categoryId: payload.CategoryId);
+                categoryId: payload.CategoryId,
+                expiryDate: payload.ExpiryDate);
             result = await cmd.ExecuteAsync(ct);
         }
 
@@ -332,7 +336,8 @@ public sealed class WalkModel(
                 LocationId,
                 i.CountedValue,
                 unitId,
-                ParseReason(i.Reason)));
+                ParseReason(i.Reason),
+                ExpiryDate: i.ExpiryDate));
         }
 
         // Build per-row results — invalid items get an inline error, valid items go through the command.
@@ -469,7 +474,9 @@ public sealed class WalkModel(
 
     /// <summary>
     /// Accepts a JSON body of per-lot adjustments (P4-5, J3):
-    /// <c>{ adjustments: [{ entryId?, amount, unitId, reason, expiryDate? }] }</c>.
+    /// <c>{ adjustments: [{ entryId?, amount, unitId, reason, expiryDate?, setExpiry? }] }</c>.
+    /// <c>setExpiry</c> (plantry-fyvr) marks a Reduce item as also carrying a manual expiry
+    /// correction for the named lot — with <c>amount</c> 0 it is an expiry-only correction.
     /// Runs <see cref="SaveLotAdjustmentsCommand"/> and returns a per-item result vector.
     /// </summary>
     public async Task<IActionResult> OnPostSaveLotsAsync(Guid productId, CancellationToken ct = default)
@@ -499,11 +506,12 @@ public sealed class WalkModel(
                 a.Amount,
                 a.UnitId,
                 ParseReason(a.Reason),
-                a.ExpiryDate))
+                a.ExpiryDate,
+                a.SetExpiry))
             .ToList();
 
         var cmd = new SaveLotAdjustmentsCommand(
-            productId, LocationId, adjustments, userId, stocks, conversions, clock, tenant);
+            productId, LocationId, adjustments, userId, stocks, conversions, clock, tenant, saveLotsLogger);
         var result = await cmd.ExecuteAsync(ct);
 
         if (result.IsFailure)
@@ -546,7 +554,8 @@ public sealed class WalkModel(
         decimal countedValue,
         Guid countUnit,
         Guid userId,
-        CancellationToken ct)
+        CancellationToken ct,
+        DateOnly? expiryDate = null)
     {
         Guid productId;
         try
@@ -562,7 +571,8 @@ public sealed class WalkModel(
         {
             var countCmd = new RecordCountCommand(
                 productId, LocationId, countedValue, countUnit,
-                StockReason.Correction, userId, stocks, conversions, clock, tenant);
+                StockReason.Correction, userId, stocks, conversions, clock, tenant,
+                expiryDate: expiryDate);
 
             var countResult = await countCmd.ExecuteAsync(ct);
             if (countResult.IsFailure)
@@ -663,6 +673,11 @@ public sealed class WalkModel(
         /// </summary>
         public string? CountedUnitId { get; set; }
         public string? Reason        { get; set; }
+        /// <summary>
+        /// Optional expiry for the lot minted by an increase (plantry-4onl). Ignored server-side
+        /// when the resulting delta is not an increase — see <see cref="RecordCountCommand"/>.
+        /// </summary>
+        public DateOnly? ExpiryDate  { get; set; }
     }
 
     private sealed class SaveLotsRequest
@@ -690,6 +705,13 @@ public sealed class WalkModel(
         public Guid     UnitId     { get; set; }
         public string?  Reason     { get; set; }
         public DateOnly? ExpiryDate { get; set; }
+        /// <summary>
+        /// True when the client is submitting a manual expiry correction for this lot (plantry-fyvr —
+        /// the Take Stock lot panel's expiry editor). Distinguishes "no expiry change" from "clear the
+        /// expiry" (both serialize <see cref="ExpiryDate"/> as null); ignored for a found-stock item
+        /// (<see cref="EntryId"/> null), where <see cref="ExpiryDate"/> is always applied.
+        /// </summary>
+        public bool     SetExpiry  { get; set; }
     }
 
     private sealed class AddItemRequest
@@ -716,6 +738,8 @@ public sealed class WalkModel(
         public string? NewGroupName  { get; set; }
         /// <summary>Optional category for the new product (from the Defaults collapsible).</summary>
         public Guid?  CategoryId     { get; set; }
+        /// <summary>Optional expiry for the opening-balance lot (plantry-4onl).</summary>
+        public DateOnly? ExpiryDate  { get; set; }
     }
 }
 

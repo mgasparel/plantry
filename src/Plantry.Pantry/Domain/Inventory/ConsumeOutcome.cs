@@ -18,6 +18,12 @@ public sealed record MarkOpenedOutcome(StockEntryId EntryId, DateOnly? ExpiryDat
 public sealed record UnmarkOpenedOutcome(StockEntryId EntryId, DateOnly? ExpiryDate);
 
 /// <summary>
+/// The result of <see cref="ProductStock.SetLotExpiry"/> (plantry-fyvr) — the lot's id and the expiry
+/// now recorded for it (<c>null</c> when the correction cleared it).
+/// </summary>
+public sealed record SetLotExpiryOutcome(StockEntryId EntryId, DateOnly? ExpiryDate);
+
+/// <summary>
 /// The result of a <see cref="ProductStock.Consume"/> call: which lots were deducted and by how
 /// much, plus any <see cref="ShortfallAmount"/> (expressed in the requested unit) that the pantry
 /// could not satisfy. A shortfall is reported, never an over-deduction (ADR-011).

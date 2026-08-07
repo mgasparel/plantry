@@ -135,6 +135,13 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
     protected virtual IReadOnlyDictionary<Guid, CatalogProduct> Products => RecipeDetailFixture.Products();
 
     /// <summary>
+    /// Product ids the catalog reader reports as home-produced (<c>Product.IsProduced</c>, plantry-4osq).
+    /// Default empty — no base scenario exercises the produced-exclusion path. A derived factory
+    /// (<see cref="RecipeDetailProducedExclusionFactory"/>) overrides this to mark a specific product.
+    /// </summary>
+    protected virtual IReadOnlySet<Guid> ProducedProductIds => new HashSet<Guid>();
+
+    /// <summary>
     /// Substitution edges (plantry-aqpa.1/.2/.5) the Detail page's fulfillment computation and
     /// substitute-name touchpoint read. Default is empty — no fixture scenario exercises substitution
     /// edges by default. A derived factory overrides this to exercise the "in stock via substitute"
@@ -179,10 +186,11 @@ public class RecipeDetailFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton<ITagRepository>(
                 new FakeTagRepository(RecipeDetailFixture.TagNames()));
 
-            // Catalog product reader: returns the fixture product set + unit codes.
+            // Catalog product reader: returns the fixture product set + unit codes (+ the produced-id
+            // set, plantry-4osq — empty by default, see ProducedProductIds).
             services.RemoveAll<ICatalogProductReader>();
             services.AddSingleton<ICatalogProductReader>(
-                new FakeCatalogProductReader(Products, RecipeDetailFixture.UnitCodes()));
+                new FakeCatalogProductReader(Products, RecipeDetailFixture.UnitCodes(), produced: ProducedProductIds));
 
             // Inventory stock reader: mixed statuses (Pasta=InStock, Tomatoes=Low, Garlic=Missing).
             services.RemoveAll<IInventoryStockReader>();

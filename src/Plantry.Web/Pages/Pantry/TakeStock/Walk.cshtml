@@ -98,7 +98,7 @@ function takeStockSheetBridge() {
             this.draft = { productId: '', productName: '', isUntracked: false,
                            newStapleName: null, newStapleUnit: '', newStapleCategoryId: '',
                            groupHeading: '', newGroupId: '', newGroupName: '',
-                           addCount: 1, addUnitId: '' };
+                           addCount: 1, addUnitId: '', expiryDate: '' };
             this.sheetOpen = true;
             this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: '' })));
         },
@@ -147,6 +147,7 @@ function takeStockSheetBridge() {
                         addCount:    this.draft.addCount,
                         addUnitId:   this.draft.addUnitId,
                         addUnitCode: addUnitCode,
+                        expiryDate:  this.draft.expiryDate || '',
                     }
                 }));
                 this.sheetView = 'search';
@@ -173,6 +174,7 @@ function takeStockSheetBridge() {
                     addCount:            this.draft.addCount,
                     addUnitId:           this.draft.addUnitId    || unitId,
                     addUnitCode:         addUnitCode,
+                    expiryDate:          this.draft.expiryDate   || '',
                 }
             }));
             this.sheetView = 'search';
@@ -186,19 +188,27 @@ function takeStockSheetBridge() {
 // dynamically injected _LotPanel partial markup. Scripts inside innerHTML fragments
 // are never executed by browsers (HTML spec §4.12.1 / fetch-and-run semantics).
 function takeStockLotPanel(data) {
-    // data: { lots: { [entryId]: { amount, original, unitId, reason } }, foundUnitId }
+    // data: { lots: { [entryId]: { amount, original, unitId, reason, expiryDate, originalExpiryDate } }, foundUnitId }
     // Take Stock semantics (plantry-hl6u): `amount` is the *counted* quantity, pre-filled with the
     // lot's current on-hand quantity; `original` is the recorded baseline. A lot is dirty when the
     // count differs from the original, and Save posts the reduction delta (original − counted).
+    // `expiryDate` is the lot's editable expiry correction (plantry-fyvr), independently dirty
+    // against `originalExpiryDate` — an edit posts even when the count is unchanged.
     const initialLots = {};
     for (const eid of Object.keys(data.lots ?? {})) {
         const seed = data.lots[eid] ?? {};
         const original = Number(seed.original ?? seed.amount ?? 0);
+        // expiryDate/originalExpiryDate: the lot's editable expiry correction (plantry-fyvr), seeded
+        // from and baselined against the recorded date. ISO "yyyy-MM-dd" or "" (no expiry) — same
+        // shape the html date input's value attribute and the found-stock field already use.
+        const expiryDate = seed.expiryDate ?? '';
         initialLots[eid] = {
             amount: Number(seed.amount ?? original),
             original,
             unitId: (seed.unitId ?? ''),
             reason: (seed.reason ?? 'Correction'),
+            expiryDate,
+            originalExpiryDate: (seed.originalExpiryDate ?? expiryDate),
             failed: false,
             failMsg: null,
         };
@@ -235,9 +245,12 @@ function takeStockLotPanel(data) {
 
         isDirty() {
             // A lot is dirty when its counted quantity differs from the recorded original
-            // (plantry-hl6u). The disposition reason alone is not dirty — it only changes the
-            // reason of a reduction, so count down (or to 0) to record a Used/Spoiled drop.
-            const anyLot = Object.values(this.lots).some(l => l.amount !== l.original);
+            // (plantry-hl6u), or its expiry input differs from the recorded date (plantry-fyvr —
+            // a manual correction, independent of any quantity change). The disposition reason
+            // alone is not dirty — it only changes the reason of a reduction, so count down (or to
+            // 0) to record a Used/Spoiled drop.
+            const anyLot = Object.values(this.lots).some(
+                l => l.amount !== l.original || l.expiryDate !== l.originalExpiryDate);
             const foundDirty = this.found.amount != null && this.found.amount > 0;
             return anyLot || foundDirty;
         },
@@ -250,15 +263,21 @@ function takeStockLotPanel(data) {
             const adjustments = [];
 
             for (const [entryId, lot] of Object.entries(this.lots)) {
-                // Post the reduction delta (recorded original − counted). Unchanged lots
-                // (delta 0) and the clamped-impossible negative case are skipped (plantry-hl6u).
+                // Post the reduction delta (recorded original − counted); the clamped-impossible
+                // negative case never happens (plantry-hl6u). Independently, an expiry edit
+                // (plantry-fyvr) is dirty on its own — a lot whose count did not change but whose
+                // date did still needs an adjustment row, just with amount 0 and setExpiry true.
                 const delta = lot.original - lot.amount;
-                if (delta <= 0) continue;
+                const expiryChanged = lot.expiryDate !== lot.originalExpiryDate;
+                if (delta <= 0 && !expiryChanged) continue;
                 adjustments.push({
                     entryId,
-                    amount: delta,
+                    amount: delta > 0 ? delta : 0,
                     unitId: lot.unitId,
                     reason: lot.reason ?? 'Correction',
+                    ...(expiryChanged
+                        ? { setExpiry: true, expiryDate: lot.expiryDate || null }
+                        : {}),
                 });
             }
 
@@ -299,10 +318,11 @@ function takeStockLotPanel(data) {
                             lot.failed = !r.isSuccess;
                             lot.failMsg = r.isSuccess ? null : r.error ?? 'Failed';
                             if (r.isSuccess) {
-                                // The lot now holds the counted quantity — rebaseline so it reads
-                                // as clean (not zero) and reset the disposition reason to the
-                                // neutral default (plantry-hl6u).
+                                // The lot now holds the counted quantity and expiry — rebaseline
+                                // both so the row reads as clean, and reset the disposition reason
+                                // to the neutral default (plantry-hl6u, plantry-fyvr).
                                 lot.original = lot.amount;
+                                lot.originalExpiryDate = lot.expiryDate;
                                 lot.reason = 'Correction';
                             }
                         }

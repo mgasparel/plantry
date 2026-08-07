@@ -35,6 +35,10 @@ public static class RecipeDetailFixture
     // isolated from the base fixture recipe above so it never perturbs the other snapshots.
     public static readonly Guid CupUnitId = Guid.Parse("99999999-0000-0000-0000-000000000001");
 
+    // Home-produced product (plantry-4osq), used only by BuildWithProducedIngredient()'s own recipe —
+    // isolated from the base fixture recipe above so it never perturbs the other snapshots.
+    public static readonly Guid GardenTomatoesId = Guid.Parse("aaaaaaaa-1111-1111-1111-111111111111");
+
     // Tag ids.
     public static readonly TagId VegetarianTagId = new(Guid.Parse("77777777-7777-7777-7777-777777777777"));
     public static readonly TagId SpicyTagId      = new(Guid.Parse("88888888-8888-8888-8888-888888888888"));
@@ -149,6 +153,39 @@ public static class RecipeDetailFixture
     /// <summary>Unit codes for <see cref="BuildWithFractionStyledUnit"/>'s recipe (adds "cup" to the base set).</summary>
     public static IReadOnlyDictionary<Guid, string> UnitCodesWithCup() =>
         new Dictionary<Guid, string>(UnitCodes()) { [CupUnitId] = "cup" };
+
+    /// <summary>
+    /// Recipe for the home-produced exclusion scenario (plantry-4osq): one ordinary tracked ingredient
+    /// (Pasta) and one tracked HOME-PRODUCED ingredient (Garden Tomatoes) — both quantity-bearing, both
+    /// zero-stock so BOTH would classify Missing at the fulfillment layer. Proves "Add missing" and
+    /// "Add all ingredients" count only the purchasable (non-produced) one — a future regression that
+    /// re-introduces the produced product into either button's target set would flip PendingLines from
+    /// 1 to 2 here. <see cref="RecipeDetailProducedExclusionFactory"/> marks GardenTomatoesId produced
+    /// via the FakeCatalogProductReader's <c>produced</c> set — the domain <see cref="CatalogProduct"/>
+    /// record deliberately carries no IsProduced field (see ICatalogProductReader.cs's root-cause note).
+    /// </summary>
+    public static Recipe BuildWithProducedIngredient()
+    {
+        var hid = HouseholdId.From(HouseholdAId);
+        var clock = SystemClock.Instance;
+
+        var recipe = Recipe.Create(hid, "Garden Pasta", defaultServings: 2, clock).Value;
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(PastaId, 200m, GramUnitId, GroupHeading: null, Ordinal: 1),
+            new IngredientLine(GardenTomatoesId, 3m, EachUnitId, GroupHeading: null, Ordinal: 2),
+        ], clock);
+
+        return recipe;
+    }
+
+    /// <summary>Product set for <see cref="BuildWithProducedIngredient"/> — adds Garden Tomatoes
+    /// (stock-tracked) to the base four-product set.</summary>
+    public static IReadOnlyDictionary<Guid, CatalogProduct> ProductsWithGardenTomatoes() =>
+        new Dictionary<Guid, CatalogProduct>(Products())
+        {
+            [GardenTomatoesId] = new(GardenTomatoesId, "Garden Tomatoes", TrackStock: true, EachUnitId, null, false, []),
+        };
 
     /// <summary>Per-unit fraction/decimal display style — only "cup" is Fraction-styled (plantry-95w5).</summary>
     public static IReadOnlyDictionary<Guid, bool> UnitDisplayStyles() =>
@@ -403,9 +440,18 @@ public sealed class FakeRecipeRepository(ITenantContext tenant, Recipe recipe) :
 public sealed class FakeCatalogProductReader(
     IReadOnlyDictionary<Guid, CatalogProduct> products,
     IReadOnlyDictionary<Guid, string> unitCodes,
-    IReadOnlyDictionary<Guid, bool>? unitStyles = null)
+    IReadOnlyDictionary<Guid, bool>? unitStyles = null,
+    IReadOnlySet<Guid>? produced = null)
     : ICatalogProductReader
 {
+    /// <summary>
+    /// Ids reported as home-produced (<c>Product.IsProduced</c>) by <see cref="ResolveSummariesAsync"/>
+    /// (plantry-4osq). Empty by default so every existing L4 scenario is unaffected; a scenario opts a
+    /// specific product in via the <paramref name="produced"/> constructor set — mirrors
+    /// <c>FakeCatalogProductReader.MarkProduced</c> in the Unit test-doubles file.
+    /// </summary>
+    private readonly IReadOnlySet<Guid> _produced = produced ?? new HashSet<Guid>();
+
     public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(products.GetValueOrDefault(productId));
 
@@ -419,7 +465,8 @@ public sealed class FakeCatalogProductReader(
         IReadOnlyDictionary<Guid, CatalogProductSummary> result = productIds
             .Where(products.ContainsKey)
             .Distinct()
-            .ToDictionary(id => id, id => new CatalogProductSummary(id, products[id].Name, products[id].TrackStock));
+            .ToDictionary(id => id, id => new CatalogProductSummary(
+                id, products[id].Name, products[id].TrackStock, _produced.Contains(id)));
         return Task.FromResult(result);
     }
 

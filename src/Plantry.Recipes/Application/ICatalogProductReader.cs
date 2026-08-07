@@ -122,8 +122,16 @@ public interface ICatalogProductReader
     Task<IReadOnlyList<CatalogCategoryOption>> ListCategoriesAsync(CancellationToken ct = default);
 }
 
-/// <summary>The display slice of a Catalog product for a recipe ingredient row (name + stock-tracking).</summary>
-public sealed record CatalogProductSummary(Guid Id, string Name, bool TrackStock);
+/// <summary>
+/// The display slice of a Catalog product for a recipe ingredient row (name + stock-tracking +
+/// home-produced flag). <see cref="IsProduced"/> defaults to <c>false</c> so existing test doubles and
+/// the other <see cref="ICatalogProductReader.ResolveSummariesAsync"/> call sites are unaffected
+/// (matches the backwards-compatible-default convention this file already uses, e.g.
+/// <see cref="CatalogUnitOption.Dimension"/>). A produced product (<c>Product.IsProduced</c> —
+/// recipe yield, cook leftover, garden produce) is made at home rather than bought, so it must never
+/// be suggested on a shopping list (plantry-4osq) even when it is stock-tracked.
+/// </summary>
+public sealed record CatalogProductSummary(Guid Id, string Name, bool TrackStock, bool IsProduced = false);
 
 /// <summary>
 /// The slice of a Catalog product the select-existing authoring path resolves per chosen ingredient row —

@@ -968,6 +968,171 @@ button.bottom-nav__item {
 .badge-expiry--soon    { background: var(--color-warning-bg); color: var(--color-expiry-soon); }
 .badge-expiry--urgent  { background: var(--color-danger-bg);  color: var(--color-expiry-urgent); }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Pantry product Detail redesign (plantry-sbpk) — vitals strip, lot row-list,
+   overflow menu, History delta colour. See .preview/pantry-product-detail-
+   masterclass.html for the approved prototype these primitives are lifted from.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Vitals strip: 4-up stat tile, reusable primitive (Dev/Index.cshtml) ──────
+   Contract: every tile is label (11px caps) / value (19px·650, one baseline) /
+   one-line sub. Urgency/running-low travel in the value's COLOUR — the strip
+   itself carries no badges. */
+.vitals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  margin-bottom: var(--space-4);
+  overflow: hidden;
+}
+.vital {
+  padding: 13px var(--space-4) 12px;
+  border-right: 1px solid var(--color-border-subtle);
+  min-width: 0;
+}
+.vital--end { border-right: none; }
+.vital__lbl {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-text-faint);
+  margin: 0 0 5px;
+}
+.vital__val {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 24px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+}
+.vital__val small { font-size: 13px; font-weight: 600; color: var(--color-text-muted); margin-left: 2px; }
+.vital__val--empty { color: var(--color-text-faint); font-weight: 500; }
+.vital__val--warn   { color: var(--color-warning); }
+.vital__val--urgent { color: var(--color-expiry-urgent); }
+.vital__val--soon   { color: var(--color-expiry-soon); }
+.vital__val--ok     { color: var(--color-expiry-ok); }
+.vital__sub {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 3px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vital__sub--warn { color: var(--color-warning); }
+.vital__sub a, a.vital__cta { font-size: 12px; font-weight: 600; color: var(--color-accent); text-decoration: none; }
+.vital__sub a:hover, a.vital__cta:hover { text-decoration: underline; }
+@media (max-width: 560px) {
+  .vitals { grid-template-columns: 1fr 1fr; }
+  .vital:nth-child(2) { border-right: none; }
+  .vital:nth-child(-n+2) { border-bottom: 1px solid var(--color-border-subtle); }
+}
+
+/* ── Lot row-list — extends .catalog-list's row rhythm with lot-specific bones. */
+.lot-row__qty {
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+}
+.lot-row__qty small { font-weight: 600; font-size: 13px; color: var(--color-text-muted); }
+.lot-row__meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.lot-row__where { font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--color-text); }
+.lot-row__where em { font-style: normal; font-weight: 600; color: var(--color-info); }
+.lot-row__when { font-size: 12px; color: var(--color-text-faint); white-space: nowrap; }
+.lot-row__expiry { font-size: 12.5px; white-space: nowrap; color: var(--color-text-muted); }
+.lot-row__actions { display: flex; gap: var(--space-1); align-items: center; flex: none; margin-left: auto; }
+
+/* ── Row overflow menu — reusable primitive (Dev/Index.cshtml): a ⋯ trigger that
+   reveals Move…/Mark opened/Discard… without a button wall. Alpine-driven; the
+   trigger is a real <button> so it stays keyboard/touch reachable.
+   IMPORTANT: a `.catalog-list` hosting a `.row-actions-menu` MUST also carry the
+   `.catalog-list--menus` modifier below — plain `.catalog-list` sets `overflow: hidden`
+   (for its own rounded corners), which clips the menu's absolutely-positioned panel since
+   the list is in the panel's containing-block chain. */
+.row-actions-menu { position: relative; }
+/* Non-clipping row-list modifier for any `.catalog-list` whose rows open a
+   `.row-actions-menu` panel — swaps `overflow: hidden` for `overflow: visible` so the
+   panel isn't clipped, and re-applies the corner rounding `overflow: hidden` was
+   otherwise providing directly to the first/last row.
+   These selectors MUST stay compound (`.catalog-list.catalog-list--menus`): the base
+   `.catalog-list { overflow: hidden; }` rule is declared LATER in this file at equal
+   specificity, so a bare `.catalog-list--menus` selector would lose the cascade and
+   the menu panel would silently stay clipped. */
+.catalog-list.catalog-list--menus { overflow: visible; }
+.catalog-list.catalog-list--menus > .catalog-list__item:first-child { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.catalog-list.catalog-list--menus > .catalog-list__item:last-child { border-radius: 0 0 var(--radius-md) var(--radius-md); }
+.row-actions-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-faint);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+.row-actions-menu__trigger:hover,
+.row-actions-menu__trigger[aria-expanded="true"] {
+  background: var(--color-bg-subtle);
+  color: var(--color-text);
+}
+.row-actions-menu__panel {
+  position: absolute;
+  right: 0;
+  top: 30px;
+  z-index: 20;
+  min-width: 160px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 4px;
+}
+.row-actions-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text);
+}
+.row-actions-menu__item:hover { background: var(--color-bg-subtle); }
+.row-actions-menu__sep { height: 1px; background: var(--color-border-subtle); margin: 4px 6px; }
+.row-actions-menu__item--danger { color: var(--color-danger); }
+.row-actions-menu__item--danger:hover { background: var(--color-danger-bg); }
+
+/* ── History "Change" column — colour lives on the delta only (GridCellKind.Delta). */
+.h-delta { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.h-delta--in      { color: var(--color-success); }
+.h-delta--out     { color: var(--color-text-muted); }
+.h-delta--neutral { color: var(--color-text-faint); }
+
+/* ── Recipes row-list name link (row-list variant of .data-grid__link). ────── */
+.recipe-row__name { font-size: var(--row-font-size); font-weight: var(--row-primary-weight); color: var(--color-accent); text-decoration: none; }
+.recipe-row__name:hover { text-decoration: underline; }
+
 /* ── Spinner (loading indicator) ──────────────────────────────────────────── */
 .spinner {
   display: inline-block;
@@ -1057,6 +1222,14 @@ button.bottom-nav__item {
   font-size: var(--font-size-lg);
   font-weight: 600;
   margin-bottom: var(--space-4);
+}
+/* Muted inline count beside a section heading, e.g. "On the shelf <small>3 lots</small>"
+   (ported from the approved prototype's .sect__heading small). */
+.catalog-section__heading small {
+  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--color-text-faint);
+  margin-left: 8px;
 }
 
 /* Row-list primitive. Shares the --row-* rhythm tokens with .data-grid (see :root)
@@ -6628,6 +6801,12 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-reason-opt.sel.discarded { background: var(--color-danger); }
 .ts-reason-opt.sel .rdot { background: rgba(255,255,255,.92); }
 
+/* increase-reveal expiry block (plantry-4onl) — symmetric with .ts-reason on the decrease side */
+.ts-expiry { display: flex; align-items: center; gap: 11px; padding: 12px var(--space-4) 14px; border-top: 1px solid var(--color-border); background: var(--color-surface-2); flex-wrap: wrap; }
+.ts-expiry-lbl { font-size: 0.78125rem; font-weight: 600; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 7px; }
+.ts-expiry-lbl .icon { width: 14px; height: 14px; }
+.ts-expiry-input { width: auto; max-width: 11rem; }
+
 /* inline save error */
 .ts-row-err { display: flex; align-items: center; gap: 10px; padding: 11px var(--space-4); border-top: 1px solid var(--color-border); background: var(--color-danger-bg); color: var(--color-danger); font-size: 0.8125rem; font-weight: 600; }
 .ts-row-err .icon { width: 15px; height: 15px; flex: none; }
@@ -6662,11 +6841,11 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-lot-qty .lq-unit { display: inline-flex; align-items: center; padding: 0 10px; font-size: 0.78125rem; font-weight: 600; color: var(--color-text-faint); background: var(--color-bg-subtle); border: 1px solid var(--color-border-strong); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; }
 .ts-lot-meta { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; }
 .ts-lot-exp { font-size: 0.78125rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 6px; }
-.ts-lot-exp.none { font-style: italic; color: var(--color-text-faint); }
 .ts-lot-exp .icon { width: 13px; height: 13px; }
 .ts-lot-spoiled { display: inline-flex; align-items: center; gap: 7px; font-size: 0.78125rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; white-space: nowrap; }
 .ts-lot-fail { font-size: 0.78125rem; color: var(--color-danger); font-weight: 600; }
 .ts-date-input { border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted); font: inherit; font-size: 0.78125rem; border-radius: var(--radius-md); padding: 6px 9px; }
+.ts-date-lbl { font-size: 0.71875rem; font-weight: 600; color: var(--color-text-faint); }
 .ts-lot.found { background: var(--color-success-bg); margin: 6px -8px 0; padding: 11px 8px; border-radius: var(--radius-md); border-top: none; }
 .ts-lot .found-tag { font-size: 0.625rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-success); }
 .ts-hatch-foot { display: flex; align-items: center; gap: 12px; margin-top: 13px; }

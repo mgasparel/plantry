@@ -82,7 +82,7 @@ public sealed class NeverExpiryTransferJourneyTests(AppHostFixture appHost) : IA
                 new SelectOptionValue { Label = "Fridge" });
             await addSheet.Locator("[name='AddStockInput.ExpiryDate']").FillAsync(soonExpiry);
             await addSheet.GetByRole(AriaRole.Button, new() { Name = "Add to pantry" }).ClickAsync();
-            await Assertions.Expect(page.Locator("#lots-grid")).ToContainTextAsync("500 g");
+            await Assertions.Expect(page.Locator("#stock-detail .catalog-list")).ToContainTextAsync("500 g");
 
             // Prove the lot is genuinely in the expiring-soon projection before the transition,
             // using the same fixed instant that the Testing AppHost injected into IClock.
@@ -94,18 +94,19 @@ public sealed class NeverExpiryTransferJourneyTests(AppHostFixture appHost) : IA
                 .ToBeVisibleAsync();
 
             await page.GotoAsync($"{appHost.BaseUrl}/Pantry/Products/Detail/{productId}");
-            await Assertions.Expect(page.Locator("#lots-grid")).ToContainTextAsync("500 g");
+            await Assertions.Expect(page.Locator("#stock-detail .catalog-list")).ToContainTextAsync("500 g");
 
             // Open the server-precomputed transition preview before submitting the move.
-            await page.Locator("#lots-grid tbody tr").First
-                .GetByRole(AriaRole.Button, new() { Name = "Move" }).ClickAsync();
+            var firstLotRow = page.Locator("#stock-detail .catalog-list__item").First;
+            await firstLotRow.GetByRole(AriaRole.Button, new() { Name = "More actions" }).ClickAsync();
+            await firstLotRow.GetByRole(AriaRole.Button, new() { NameRegex = new Regex("^Move") }).ClickAsync();
             var moveSheet = page.GetByRole(AriaRole.Dialog, new() { Name = "Move stock" });
             await Assertions.Expect(moveSheet).ToBeVisibleAsync();
             await Assertions.Expect(moveSheet.GetByText("No expiry", new() { Exact = true })).ToBeVisibleAsync();
             await moveSheet.GetByRole(AriaRole.Button, new() { NameRegex = new Regex("^Freeze") }).ClickAsync();
 
             // The OOB stock refresh shows the moved lot's null expiry as the neutral dash.
-            await Assertions.Expect(page.Locator("#lots-grid")).ToContainTextAsync("—");
+            await Assertions.Expect(page.Locator("#stock-detail .catalog-list")).ToContainTextAsync("—");
 
             // Null expiry is excluded from the Today expiring-soon projection, even though this
             // exact lot was two days from expiry before the freeze.
@@ -180,10 +181,11 @@ public sealed class NeverExpiryTransferJourneyTests(AppHostFixture appHost) : IA
         await addSheet.Locator("[name='AddStockInput.ExpiryDate']")
             .FillAsync(AppHostFixture.FixedUtcNow.UtcDateTime.Date.AddDays(2).ToString("yyyy-MM-dd"));
         await addSheet.GetByRole(AriaRole.Button, new() { Name = "Add to pantry" }).ClickAsync();
-        await Assertions.Expect(page.Locator("#lots-grid")).ToContainTextAsync("500 g");
+        await Assertions.Expect(page.Locator("#stock-detail .catalog-list")).ToContainTextAsync("500 g");
 
-        await page.Locator("#lots-grid tbody tr").First
-            .GetByRole(AriaRole.Button, new() { Name = "Move" }).ClickAsync();
+        var sameStorageLotRow = page.Locator("#stock-detail .catalog-list__item").First;
+        await sameStorageLotRow.GetByRole(AriaRole.Button, new() { Name = "More actions" }).ClickAsync();
+        await sameStorageLotRow.GetByRole(AriaRole.Button, new() { NameRegex = new Regex("^Move") }).ClickAsync();
         var moveSheet = page.GetByRole(AriaRole.Dialog, new() { Name = "Move stock" });
         await Assertions.Expect(moveSheet).ToBeVisibleAsync();
         await moveSheet.Locator("select[name='MoveInput.LocationId']").SelectOptionAsync(

@@ -120,6 +120,18 @@ public sealed class StockEntry : Entity<StockEntryId>
     }
 
     /// <summary>
+    /// Overwrites this lot's expiry with a user-supplied correction (plantry-fyvr — the Take Stock
+    /// lot panel's expiry editor). Unlike <see cref="MarkOpen"/>'s clamp or <see cref="MoveTo"/>'s
+    /// freeze/thaw recompute, this is a direct manual override with no derivation: whatever the caller
+    /// passes (including <c>null</c> to clear it) is recorded verbatim. Called only by the root.
+    /// </summary>
+    internal void SetExpiry(DateOnly? expiryDate, IClock clock)
+    {
+        ExpiryDate = expiryDate;
+        UpdatedAt = clock.UtcNow;
+    }
+
+    /// <summary>
     /// Moves this lot in place to <paramref name="locationId"/> (plantry-6owm rule 1 — full-lot
     /// transfer) and applies the already-decided <paramref name="expiryDate"/> (the caller has already
     /// run the freeze/thaw recompute or left it unchanged for a plain move). <see cref="FrozenAt"/> /
