@@ -66,8 +66,8 @@ public sealed class MealPlannerAiServiceCompletionTests
         ]
         """;
 
-    private static MealPlannerAiService Planner(ChatClient chat) =>
-        new(chat, Options.Create(new AiOptions { Model = "test-model" }), NullLogger<MealPlannerAiService>.Instance);
+    private static MealPlannerAiService Planner(ChatClient chat, string model = "test-model") =>
+        new(chat, Options.Create(new AiOptions { Model = model }), NullLogger<MealPlannerAiService>.Instance);
 
     private static Task<IReadOnlyList<ProposedMeal>> Propose(
         MealPlannerAiService planner,
@@ -197,7 +197,7 @@ public sealed class MealPlannerAiServiceCompletionTests
     [Fact]
     public async Task A_Soft_Failed_Proposal_Sets_The_Telemetry_Span_Status_To_Error()
     {
-        var spans = CaptureMealPlanSpans(out var listener);
+        var spans = AiSpanCapture.Capture("meal_plan_propose", out var listener);
         using (listener)
         {
             var chat = new ScriptedChatClient((_, _) => throw new InvalidOperationException("gateway 500"));
@@ -211,7 +211,7 @@ public sealed class MealPlannerAiServiceCompletionTests
     [Fact]
     public async Task An_Empty_Response_Sets_The_Telemetry_Span_Status_To_Error()
     {
-        var spans = CaptureMealPlanSpans(out var listener);
+        var spans = AiSpanCapture.Capture("meal_plan_propose", out var listener);
         using (listener)
         {
             var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion("   "));
@@ -225,7 +225,7 @@ public sealed class MealPlannerAiServiceCompletionTests
     [Fact]
     public async Task A_Successful_Proposal_Tags_The_Span_With_Model_And_Slot_Count_And_Leaves_Status_Unset()
     {
-        var spans = CaptureMealPlanSpans(out var listener);
+        var spans = AiSpanCapture.Capture("meal_plan_propose", out var listener);
         using (listener)
         {
             var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse));
@@ -238,26 +238,25 @@ public sealed class MealPlannerAiServiceCompletionTests
         Assert.Equal(1, span.GetTagItem("ai.meal_plan.slot_count"));
     }
 
-    /// <summary>
-    /// Subscribes an <see cref="ActivityListener"/> to the shared "Plantry.AI" source and captures only the
-    /// <c>meal_plan_propose</c> spans this adapter emits. Filtering by operation name isolates these assertions
-    /// from <c>receipt_parse</c>/<c>deal_match</c>/<c>recipe_tag_suggest</c> spans other adapter tests may emit
-    /// on the same source in parallel; only this (serially-run) class emits <c>meal_plan_propose</c> from a unit test.
-    /// </summary>
-    private static List<Activity> CaptureMealPlanSpans(out ActivityListener listener)
+    // plantry-df6p: RecordTokenUsage is now shared across all six adapters — this proves MealPlannerAiService
+    // wires its OWN AiFunction (meal_plan_propose) and model id into the ai.usage.tokens metric, catching a
+    // copy-paste slip (e.g. the wrong AiFunction constant) that would otherwise compile and pass silently. A
+    // unique per-test model id is the discriminator: the meter is process-global and xUnit runs test classes
+    // in parallel, so filtering only by instrument name would pick up other adapter tests' emissions.
+    [Fact]
+    public async Task A_Successful_Proposal_Emits_The_Tokens_Metric_Tagged_With_Its_Own_Function_And_Model()
     {
-        var captured = new List<Activity>();
-        listener = new ActivityListener
+        const string model = "meal-plan-propose-usage-sentinel";
+        var measurements = TokenUsageMeasurementCapture.Capture(model, out var listener);
+        using (listener)
         {
-            ShouldListenTo = source => source.Name == AiTelemetry.SourceName,
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
-            ActivityStopped = a =>
-            {
-                if (a.OperationName == "meal_plan_propose")
-                    captured.Add(a);
-            },
-        };
-        ActivitySource.AddActivityListener(listener);
-        return captured;
+            var usage = ScriptedChatClient.Usage(inputTokens: 640, outputTokens: 96);
+            var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse, usage));
+
+            await Propose(Planner(chat, model: model));
+        }
+
+        Assert.Contains(measurements, m => m is (640, AiFunction.MealPlanPropose, "input"));
+        Assert.Contains(measurements, m => m is (96, AiFunction.MealPlanPropose, "output"));
     }
 }

@@ -25,10 +25,10 @@ namespace Plantry.Tests.Unit.Recipes.Infrastructure;
 /// </summary>
 public sealed class IngredientConversionInferrerCompletionTests
 {
-    private static IngredientConversionInferrer Inferrer(ChatClient chat) =>
+    private static IngredientConversionInferrer Inferrer(ChatClient chat, string model = "test-model") =>
         new(
             chat,
-            Options.Create(new AiOptions { Model = "test-model" }),
+            Options.Create(new AiOptions { Model = model }),
             NullLogger<IngredientConversionInferrer>.Instance);
 
     [Fact]
@@ -88,5 +88,30 @@ public sealed class IngredientConversionInferrerCompletionTests
 
         Assert.Null(factor);
         Assert.Equal(0, chat.CallCount);
+    }
+
+    // plantry-df6p: RecordTokenUsage is now shared across all six adapters — this proves
+    // IngredientConversionInferrer wires its OWN AiFunction (recipe_conversion_seed) and model id into the
+    // ai.usage.tokens metric, catching a copy-paste slip (e.g. the wrong AiFunction constant) that would
+    // otherwise compile and pass silently. A unique per-test model id is the discriminator: the meter is
+    // process-global and xUnit runs test classes in parallel, so filtering only by instrument name would
+    // pick up other adapter tests' emissions.
+    [Fact]
+    public async Task A_Successful_Inference_Emits_The_Tokens_Metric_Tagged_With_Its_Own_Function_And_Model()
+    {
+        const string model = "recipe-conversion-seed-usage-sentinel";
+        var measurements = TokenUsageMeasurementCapture.Capture(model, out var listener);
+        using (listener)
+        {
+            var usage = ScriptedChatClient.Usage(inputTokens: 40, outputTokens: 10);
+            var chat = new ScriptedChatClient((_, _) =>
+                ScriptedChatClient.Completion("""{ "factor": 120 }""", usage));
+            var inferrer = Inferrer(chat, model: model);
+
+            await inferrer.InferFactorAsync("cashews", "cup", "g");
+        }
+
+        Assert.Contains(measurements, m => m is (40, AiFunction.RecipeConversionSeed, "input"));
+        Assert.Contains(measurements, m => m is (10, AiFunction.RecipeConversionSeed, "output"));
     }
 }

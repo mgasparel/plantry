@@ -136,7 +136,7 @@ public sealed class DealMatcher : IDealMatcher
         // Gate 9: span wraps the full AI call (latency-sensitive, most likely failure point).
         // Attributes: model id, batch item count, and token usage only — no advertised text, candidate
         // content, or API key.
-        using var activity = AiTelemetry.ActivitySource.StartActivity("deal_match");
+        using var activity = AiTelemetry.ActivitySource.StartActivity(AiFunction.DealMatch);
         activity?.SetTag("ai.model", _modelId);
         activity?.SetTag("ai.batch.item_count", chunk.Count);
 
@@ -154,7 +154,7 @@ public sealed class DealMatcher : IDealMatcher
                 cancellationToken: ct);
 
             var completion = response.Value;
-            RecordTokenUsage(activity, completion.Usage);
+            AiUsageTelemetry.RecordTokenUsage(activity, completion.Usage, AiFunction.DealMatch, _modelId);
 
             var rawText = completion.Content.Count > 0 ? completion.Content[0].Text : null;
 
@@ -356,11 +356,4 @@ public sealed class DealMatcher : IDealMatcher
     private static int? GetInt(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number
         && p.TryGetInt32(out var v) ? v : null;
-
-    private static void RecordTokenUsage(Activity? activity, ChatTokenUsage? usage)
-    {
-        if (usage is null || activity is null) return;
-        activity.SetTag("ai.usage.input_tokens", usage.InputTokenCount);
-        activity.SetTag("ai.usage.output_tokens", usage.OutputTokenCount);
-    }
 }

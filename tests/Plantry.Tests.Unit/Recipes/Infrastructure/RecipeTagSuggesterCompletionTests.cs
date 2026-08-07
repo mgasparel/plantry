@@ -37,10 +37,10 @@ public sealed class RecipeTagSuggesterCompletionTests
     private static readonly IReadOnlyList<string> Ingredients = ["chicken thighs", "cream"];
     private static readonly IReadOnlyList<string> NoAppliedTags = [];
 
-    private static RecipeTagSuggester Suggester(ChatClient chat) =>
+    private static RecipeTagSuggester Suggester(ChatClient chat, string model = "test-model") =>
         new(
             chat,
-            Options.Create(new AiOptions { Model = "test-model" }),
+            Options.Create(new AiOptions { Model = model }),
             NullLogger<RecipeTagSuggester>.Instance);
 
     [Fact]
@@ -116,5 +116,29 @@ public sealed class RecipeTagSuggesterCompletionTests
 
         Assert.Empty(result);
         Assert.Equal(0, chat.CallCount);
+    }
+
+    // plantry-df6p: RecordTokenUsage is now shared across all six adapters — this proves RecipeTagSuggester
+    // wires its OWN AiFunction (recipe_tag_suggest) and model id into the ai.usage.tokens metric, catching a
+    // copy-paste slip (e.g. the wrong AiFunction constant) that would otherwise compile and pass silently. A
+    // unique per-test model id is the discriminator: the meter is process-global and xUnit runs test classes
+    // in parallel, so filtering only by instrument name would pick up other adapter tests' emissions.
+    [Fact]
+    public async Task A_Successful_Suggestion_Emits_The_Tokens_Metric_Tagged_With_Its_Own_Function_And_Model()
+    {
+        const string model = "recipe-tag-suggest-usage-sentinel";
+        var measurements = TokenUsageMeasurementCapture.Capture(model, out var listener);
+        using (listener)
+        {
+            var usage = ScriptedChatClient.Usage(inputTokens: 88, outputTokens: 22);
+            var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(
+                """{ "tags": [ { "name": "Chicken", "category": "Protein" } ] }""", usage));
+            var suggester = Suggester(chat, model: model);
+
+            await suggester.SuggestAsync(Ingredients, Vocabulary, NoAppliedTags);
+        }
+
+        Assert.Contains(measurements, m => m is (88, AiFunction.RecipeTagSuggest, "input"));
+        Assert.Contains(measurements, m => m is (22, AiFunction.RecipeTagSuggest, "output"));
     }
 }

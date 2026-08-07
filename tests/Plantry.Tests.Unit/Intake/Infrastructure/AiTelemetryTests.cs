@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Plantry.Ai.Infrastructure;
 using Plantry.Intake.Infrastructure;
+using Plantry.Tests.Unit.TestSupport;
 
 namespace Plantry.Tests.Unit.Intake.Infrastructure;
 
@@ -73,14 +74,8 @@ public sealed class AiTelemetryTests
         // ActivitySource.StartActivity returns null when no listener is subscribed.
         // This test subscribes a listener to verify that the source name "Plantry.AI"
         // actually reaches the SDK — confirming the contract used by AddSource("Plantry.AI").
-        using var listener = new ActivityListener
-        {
-            ShouldListenTo = source => source.Name == "Plantry.AI",
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
-            ActivityStarted = _ => { },
-            ActivityStopped = _ => { },
-        };
-        ActivitySource.AddActivityListener(listener);
+        AiSpanCapture.Capture(null, out var listener);
+        using var _1 = listener;
 
         using var activity = AiTelemetry.ActivitySource.StartActivity("test_span");
 
