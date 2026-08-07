@@ -135,8 +135,12 @@ public sealed class ReviewDeals(
     /// <b>Progress semantics.</b> <see cref="ListBrowsableAsync"/> excludes Rejected deals, so a rejected
     /// deal leaves the reviewable set entirely — there is no stateless way to count it. Progress is
     /// therefore computed over in-window Pending+Confirmed: <c>ReviewedCount</c> = the still-open-window
-    /// Confirmed count, <c>TotalCount</c> = in-window Pending+Confirmed. The bar tracks confirmed progress
-    /// against still-known work; it never double-counts and never regresses on a re-drive.
+    /// Confirmed count, <c>TotalCount</c> = in-window Pending+Confirmed. <c>ReviewedCount</c> is counted
+    /// directly from the browsable set rather than derived by subtraction from <c>TotalCount</c>, because
+    /// the pending queue views are duplicate-collapsed by <see cref="CollapseDuplicateFlyerCrops"/> —
+    /// subtracting the collapsed count would silently count hidden duplicate crops as "reviewed". The bar
+    /// tracks confirmed progress against still-known work; it never double-counts and never regresses on a
+    /// re-drive.
     /// </para>
     /// </summary>
     public async Task<ReviewQueueProjection> ProjectPendingQueueAsync(CancellationToken ct = default)
@@ -149,7 +153,7 @@ public sealed class ReviewDeals(
         var doneFlyers = await ResolveFlyerLinksAsync(await BuildDoneFlyersAsync(all, today, ct), ct);
 
         var inWindow = all.Count(d => today <= d.ValidityWindow.ValidTo);
-        var reviewed = inWindow - views.Count; // in-window Confirmed (Pending excluded; Rejected not browsable)
+        var reviewed = all.Count(d => today <= d.ValidityWindow.ValidTo && d.Status == DealStatus.Confirmed); // in-window Confirmed — counted directly, NOT inWindow - views.Count, because views is duplicate-collapsed
 
         return new ReviewQueueProjection(flyers, doneFlyers, views, reviewed, inWindow);
     }
@@ -165,6 +169,8 @@ public sealed class ReviewDeals(
         if (pending.Count == 0)
             return [];
 
+        pending = CollapseDuplicateFlyerCrops(pending);
+
         var (storeNames, suggestionNames) = await ResolveNamesAsync(pending, ct);
 
         return pending
@@ -178,6 +184,37 @@ public sealed class ReviewDeals(
             .ThenBy(v => v.RawName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    /// <summary>
+    /// Collapses Flipp's duplicate flyer-item crops (plantry-g1u9). Flipp's flyer feed is page-image-based:
+    /// each <see cref="RawDeal"/> is a detected image "cutout" at a specific page position, not a
+    /// unique-product record, so the same advertised deal is sometimes detected/cropped several times —
+    /// <c>FlyerSource.MapItems</c> (Infrastructure) mirrors the feed 1:1 with no dedup, and downstream
+    /// staging materializes one <see cref="Deal"/> per raw row, so those repeats land in the pending queue as
+    /// fully independent rows that are byte-identical on every advertised field.
+    /// <para>
+    /// Deliberately a <b>read-side, review-projection</b> fix (safer than touching ingestion or the
+    /// aggregate): grouping by (store, validity window, normalized name, price, brand, size, sale story,
+    /// quantity) — the full advertised identity, matching every field <see cref="DealReviewView"/> renders —
+    /// collapses same-crop repeats to one representative <see cref="Deal"/> per group before it is projected
+    /// into a card, so the reviewer sees exactly one card per advertised deal.
+    /// Confirming/rejecting that one card resolves only the representative; any remaining duplicate(s) stay
+    /// Pending and collapse again on the next render — matching/pricing invariants already tolerate
+    /// duplicate <c>NormalizedName</c> deals (deals-journeys.md), so this never needs to touch
+    /// <see cref="ConfirmDeal"/>/<see cref="RejectDeal"/>.
+    /// </para>
+    /// <para>
+    /// Deterministic pick — oldest <see cref="Deal.CreatedAt"/>, ties broken by <see cref="Deal.Id"/> — keeps
+    /// the surviving representative stable across renders instead of flapping between duplicates.
+    /// </para>
+    /// </summary>
+    private static List<Deal> CollapseDuplicateFlyerCrops(IReadOnlyList<Deal> pending) =>
+        pending
+            .GroupBy(d => (
+                d.StoreId, d.ValidityWindow.ValidFrom, d.ValidityWindow.ValidTo,
+                d.NormalizedName, d.Price, d.Brand, d.Size, d.SaleStory, d.Quantity))
+            .Select(g => g.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id.Value).First())
+            .ToList();
 
     /// <summary>
     /// Pure flyer grouping (q9zr.3 scope 1): pending deals → flyer blocks keyed by (store, validity
