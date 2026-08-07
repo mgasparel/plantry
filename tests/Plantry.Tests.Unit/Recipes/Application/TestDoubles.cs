@@ -267,12 +267,25 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
     private readonly Dictionary<Guid, CatalogProduct> _products = [];
     private readonly List<CatalogUnitOption> _units = [];
 
+    /// <summary>
+    /// Ids marked home-produced (<c>Product.IsProduced</c>) for <see cref="ResolveSummariesAsync"/>
+    /// (plantry-4osq). Kept out-of-band because <see cref="CatalogProduct"/> — the tree-carrying record
+    /// <see cref="FindAsync"/>/<see cref="FindManyWithVariantsAsync"/> return — deliberately does NOT
+    /// carry IsProduced: it is not on the Recipes-side ACL at all, only <see cref="CatalogProductSummary"/>
+    /// (the issue's root cause). See <see cref="MarkProduced"/>.
+    /// </summary>
+    private readonly HashSet<Guid> _produced = [];
+
     public CatalogProduct AddTracked(Guid defaultUnitId, string name = "Flour")
     {
         var p = new CatalogProduct(Guid.CreateVersion7(), name, TrackStock: true, defaultUnitId, null, false, []);
         _products[p.Id] = p;
         return p;
     }
+
+    /// <summary>Marks an already-registered product id as home-produced (<c>Product.IsProduced</c> = true)
+    /// so a subsequent <see cref="ResolveSummariesAsync"/> reports it (plantry-4osq).</summary>
+    public void MarkProduced(Guid id) => _produced.Add(id);
 
     /// <summary>
     /// Registers a household unit so <see cref="ListUnitsAsync"/> can resolve it — used by the
@@ -309,7 +322,8 @@ internal sealed class FakeCatalogProductReader : ICatalogProductReader
         IReadOnlyDictionary<Guid, CatalogProductSummary> result = productIds
             .Where(_products.ContainsKey)
             .Distinct()
-            .ToDictionary(id => id, id => new CatalogProductSummary(id, _products[id].Name, _products[id].TrackStock));
+            .ToDictionary(id => id, id => new CatalogProductSummary(
+                id, _products[id].Name, _products[id].TrackStock, _produced.Contains(id)));
         return Task.FromResult(result);
     }
 

@@ -150,7 +150,53 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         Assert.Equal(unitId, line.UnitId);
     }
 
+    // ── Home-produced products excluded from the J6 shortfall (plantry-4osq) ──────
+
+    [Fact(DisplayName = "GetMissingIngredientsAsync excludes a Missing home-produced product, keeping the ordinary Missing product (plantry-4osq)")]
+    public async Task GetMissingIngredientsAsync_Excludes_Produced_Product()
+    {
+        var flourId = Guid.CreateVersion7();
+        var gardenTomatoesId = Guid.CreateVersion7();
+        var unitId = Guid.CreateVersion7();
+
+        var recipeId = await SeedFlatRecipeWithTwoIngredientsAsync(
+            flourId, qty1: 200m, gardenTomatoesId, qty2: 3m, unitId);
+
+        await using var ctx = NewContext();
+        var adapter = BuildAdapter(ctx,
+            // Both tracked, both zero stock → both would read Missing before the produced exclusion.
+            catalog: FakeCatalog.WithTrackedLeaf(flourId, unitId)
+                .AddTrackedLeaf(gardenTomatoesId, unitId, "Garden Tomatoes")
+                .MarkProduced(gardenTomatoesId),
+            stock: new FakeStock(),
+            prices: new FakePrices());
+
+        var missing = await adapter.GetMissingIngredientsAsync(recipeId.Value, servings: 2);
+
+        var line = Assert.Single(missing);
+        Assert.Equal(flourId, line.ProductId);
+        Assert.DoesNotContain(missing, m => m.ProductId == gardenTomatoesId);
+    }
+
     // ── Seeding ──────────────────────────────────────────────────────────────────
+
+    /// <summary>Seeds a flat (no inclusions) recipe with TWO ingredients — for the produced-exclusion
+    /// test above, which needs one ordinary and one home-produced product on the same recipe.</summary>
+    private async Task<RecipeId> SeedFlatRecipeWithTwoIngredientsAsync(
+        Guid productId1, decimal qty1, Guid productId2, decimal qty2, Guid unitId)
+    {
+        await using var ctx = NewContext();
+        var repo = new RecipeRepository(ctx);
+        var recipe = Recipe.Create(_household, "Garden Bread", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(productId1, qty1, unitId, null, 0),
+            new IngredientLine(productId2, qty2, unitId, null, 1),
+        ], Clock);
+        await repo.AddAsync(recipe);
+        await repo.SaveChangesAsync();
+        return recipe.Id;
+    }
 
     /// <summary>Seeds a flat (no inclusions) recipe with a single ingredient — GetMissingIngredientsAsync
     /// still routes through the expanded path (ExpandAsync is a no-op for a flat recipe), matching
@@ -212,7 +258,7 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         var fulfillment = new FulfillmentService(
             stock, catalog, new IdentityConverter(), new FixedHorizon(7), substitutions ?? new FakeSubstitutions());
         var costing = new CostingService(prices, new IdentityConverter(), catalog);
-        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx));
+        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx), catalog);
     }
 
     private RecipesDbContext NewContext()

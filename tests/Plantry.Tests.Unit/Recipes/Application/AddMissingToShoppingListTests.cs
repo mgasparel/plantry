@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -90,7 +91,9 @@ public sealed class AddMissingToShoppingListTests
         var writer = new FakeShoppingListWriter();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : (Guid?)null);
         var fulfillment = new FulfillmentService(stock, catalog, new IdentityUnitConverter(), new FakeExpiringSoonHorizonReader(), substitutions ?? new FakeSubstitutionReader());
-        var service = new AddMissingToShoppingList(recipes, fulfillment, new RecipeExpansionService(recipes), writer, Clock, tenant);
+        var service = new AddMissingToShoppingList(
+            recipes, fulfillment, new RecipeExpansionService(recipes), writer, catalog, Clock, tenant,
+            NullLogger<AddMissingToShoppingList>.Instance);
         return new Harness
         {
             Recipes = recipes,
@@ -386,6 +389,62 @@ public sealed class AddMissingToShoppingListTests
         Assert.NotEqual(chickpeasDried, item.ProductId);
         Assert.Equal(30m, item.Quantity); // 100 required - (30 direct + 40 substitute) = 30
         Assert.Equal(unitId, item.UnitId);
+    }
+
+    // ── Home-produced products excluded (plantry-4osq) ────────────────────────
+
+    [Fact(DisplayName = "A Missing home-produced product is excluded from 'Add missing' (plantry-4osq)")]
+    public async Task Produced_Missing_Product_Is_Excluded()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+
+        var missingProduct = h.Catalog.AddTracked(unitId, "Flour"); // tracked, no stock → Missing
+
+        var producedId = Guid.CreateVersion7();
+        h.Catalog.RegisterTracked(producedId, "Garden Tomatoes");
+        h.Catalog.MarkProduced(producedId); // home-produced — no stock → would be Missing too
+
+        var recipe = Recipe.Create(Household, "Bread With Garnish", 4, Clock).Value;
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(missingProduct.Id, 200m, unitId, null, 0),
+            new IngredientLine(producedId, 3m, unitId, null, 1),
+        ], Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, desiredServings: 4);
+
+        var added = Assert.IsType<AddMissingResult.Added>(result);
+        Assert.Equal(1, added.ItemCount);
+
+        var call = Assert.Single(h.Writer.Calls);
+        var item = Assert.Single(call.Items);
+        Assert.Equal(missingProduct.Id, item.ProductId);
+        Assert.DoesNotContain(call.Items, i => i.ProductId == producedId);
+    }
+
+    [Fact(DisplayName = "Returns NothingMissing when the only shortfall product is home-produced (plantry-4osq)")]
+    public async Task Returns_NothingMissing_When_Only_Shortfall_Is_Produced()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+
+        var producedId = Guid.CreateVersion7();
+        h.Catalog.RegisterTracked(producedId, "Garden Tomatoes");
+        h.Catalog.MarkProduced(producedId);
+        // No stock added → Missing before the exclusion filter.
+
+        var recipe = Recipe.Create(Household, "Garnish Only", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+            [new IngredientLine(producedId, 3m, unitId, null, 0)],
+            Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, desiredServings: 2);
+
+        Assert.IsType<AddMissingResult.NothingMissing>(result);
+        Assert.Empty(h.Writer.Calls);
     }
 
     // ── Inclusions: a parent's missing set includes its sub's products, scaled (recipe-composition.md §7) ──

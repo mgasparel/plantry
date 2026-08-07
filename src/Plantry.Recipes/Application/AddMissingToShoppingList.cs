@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -33,8 +34,10 @@ public sealed class AddMissingToShoppingList(
     FulfillmentService fulfillmentService,
     RecipeExpansionService expansion,
     IShoppingListWriter shoppingWriter,
+    ICatalogProductReader products,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<AddMissingToShoppingList> logger)
 {
     /// <summary>Provenance string stamped on every row written via this service (DM-18).</summary>
     public const string RecipeSource = "recipe";
@@ -45,22 +48,38 @@ public sealed class AddMissingToShoppingList(
         CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
+        {
+            logger.LogWarning("Add missing to shopping list rejected — no authenticated household.");
             return new AddMissingResult.Unauthorized();
+        }
 
         if (desiredServings < 1)
+        {
+            logger.LogWarning(
+                "Add missing to shopping list rejected — invalid servings {DesiredServings} for recipe {RecipeId}.",
+                desiredServings, recipeId.Value);
             return new AddMissingResult.Invalid(
                 Error.Custom("Recipes.InvalidServings", "Desired servings must be at least 1."));
+        }
 
         var recipe = await recipes.GetByIdAsync(recipeId, ct);
         if (recipe is null)
+        {
+            logger.LogWarning("Add missing to shopping list failed — recipe {RecipeId} not found.", recipeId.Value);
             return new AddMissingResult.NotFound();
+        }
 
         // Expand to the flat product-level view (D4 choke point) and aggregate by (ProductId, UnitId) so
         // included recipes' products are considered and duplicate subs (D14) merge. A flat recipe expands to
         // its own ingredients (aggregation is a no-op), so its shortfall is unchanged.
         var expandResult = await expansion.ExpandAsync(recipeId, ct);
         if (expandResult.IsFailure)
+        {
+            logger.LogWarning(
+                "Add missing to shopping list failed — expansion of recipe {RecipeId} failed: {Error}.",
+                recipeId.Value, expandResult.Error);
             return new AddMissingResult.Invalid(expandResult.Error);
+        }
         var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
 
         // Compute fulfillment FRESH at the desired serving count over the expanded set (recipes-domain-model.md
@@ -69,9 +88,25 @@ public sealed class AddMissingToShoppingList(
         var fulfillment = await fulfillmentService.ComputeExpandedAsync(
             effectiveLines, recipe.DefaultServings, desiredServings, today, ct);
 
+        // Batch-resolve TrackStock + IsProduced for every quantity-bearing candidate product in one
+        // catalog round-trip, and restrict the shortfall to products this household actually stock-tracks
+        // AND does NOT produce at home — a recipe yield, cook leftover, or garden produce must never be
+        // suggested for purchase (plantry-4osq), mirroring the same "purchasable" definition All() uses.
+        var candidateIds = effectiveLines
+            .Where(l => l.Quantity.HasValue && l.UnitId.HasValue)
+            .Select(l => l.ProductId)
+            .Distinct()
+            .ToList();
+        var summaries = await products.ResolveSummariesAsync(candidateIds, ct);
+        var purchasableProductIds = summaries
+            .Where(kv => kv.Value.TrackStock && !kv.Value.IsProduced)
+            .Select(kv => kv.Key)
+            .ToHashSet();
+
         // Compute the "Add missing" target set (Missing + Low shortfall lines) via the shared
         // target calculator so the button label and the synced set cannot diverge (plantry-gsj).
-        var itemsToAdd = RecipeShoppingTargets.Missing(effectiveLines, fulfillment, recipe.DefaultServings, desiredServings);
+        var itemsToAdd = RecipeShoppingTargets.Missing(
+            effectiveLines, fulfillment, purchasableProductIds, recipe.DefaultServings, desiredServings);
 
         // Nothing to buy: a no-op, NOT a reconcile-away. The button is hidden when there is no
         // shortfall, so an empty target here must not strip an existing recipe slice (plantry-gsj).
@@ -81,6 +116,11 @@ public sealed class AddMissingToShoppingList(
         // Idempotent SYNC: SET the recipe's own slice to exactly this shortfall (no drift on re-press),
         // reconciling away any in-stock products a prior "Add all" contributed (last-press-wins).
         var outcome = await shoppingWriter.SyncSourceContributionAsync(itemsToAdd, RecipeSource, recipeId.Value, ct);
+
+        logger.LogInformation(
+            "Recipe {RecipeId} synced {ItemCount} missing item(s) to the shopping list at {Servings} servings " +
+            "(added {Added}, already present {AlreadyPresent}, checked off {CheckedOff}).",
+            recipeId.Value, itemsToAdd.Count, desiredServings, outcome.Added, outcome.AlreadyPresent, outcome.CheckedOff);
 
         return new AddMissingResult.Added(itemsToAdd.Count, outcome);
     }

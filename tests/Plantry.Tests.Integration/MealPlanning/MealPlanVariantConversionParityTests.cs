@@ -374,7 +374,7 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
             new NullStockReader(), catalogReader, unitConverter, new NullExpiringSoonHorizonReader(), new NullSubstitutionReader());
         var adapter = new RecipeReadModelAdapter(
             recipesDb, expansionService, fulfillmentServiceForAdapter, costingServiceAsync, Clock,
-            new RecipeRatingRepository(recipesDb));
+            new RecipeRatingRepository(recipesDb), catalogReader);
 
         var adapterResult = await adapter.GetEnrichmentAsync(parentRecipeId, servings: 2, DateOnly.FromDateTime(DateTime.Today));
         Assert.NotNull(adapterResult);

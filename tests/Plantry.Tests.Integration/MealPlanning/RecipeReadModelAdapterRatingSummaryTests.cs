@@ -137,10 +137,11 @@ public sealed class RecipeReadModelAdapterRatingSummaryTests(PostgresFixture db)
         // GetRatingSummariesAsync never touches expansion/fulfillment/costing, but the adapter's
         // constructor requires them — construct with the shared (unused) port fakes over the same
         // context (RecipeAdapterPortFakes.cs), mirroring RecipeReadModelAdapterBatchTests's fixture-sharing.
+        var catalog = new FakeCatalog();
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
-        var fulfillment = new FulfillmentService(new FakeStock(), new FakeCatalog(), new IdentityConverter(), new FixedHorizon(7), new FakeSubstitutions());
-        var costing = new CostingService(new FakePrices(), new IdentityConverter(), new FakeCatalog());
-        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx));
+        var fulfillment = new FulfillmentService(new FakeStock(), catalog, new IdentityConverter(), new FixedHorizon(7), new FakeSubstitutions());
+        var costing = new CostingService(new FakePrices(), new IdentityConverter(), catalog);
+        return new RecipeReadModelAdapter(ctx, expansion, fulfillment, costing, Clock, new RecipeRatingRepository(ctx), catalog);
     }
 
     private RecipesDbContext NewContext()

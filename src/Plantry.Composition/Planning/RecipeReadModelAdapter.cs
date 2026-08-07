@@ -30,7 +30,8 @@ public sealed class RecipeReadModelAdapter(
     FulfillmentService fulfillmentService,
     CostingService costingService,
     IClock clock,
-    IRecipeRatingRepository ratings) : IRecipeReadModel
+    IRecipeRatingRepository ratings,
+    ICatalogProductReader catalog) : IRecipeReadModel
 {
     public async Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
     {
@@ -249,6 +250,23 @@ public sealed class RecipeReadModelAdapter(
             var fulfillment = await fulfillmentService.ComputeAsync(recipe, servings, today, ct);
             shortfallLines = RecipeShortfallCalculator.Compute(recipe, fulfillment, servings);
         }
+
+        // Exclude home-produced products (Product.IsProduced — a recipe yield, cook leftover, or garden
+        // produce) from the week's shopping list: the household makes these at home, so suggesting a
+        // purchase is wrong by definition (plantry-4osq). RecipeShortfallCalculator stays a pure
+        // fulfillment→shortfall transform with no catalog dependency (the ticket's stated lock); the
+        // purchasability filter lives here in the Composition adapter instead — mirroring 4ac08dee's
+        // ShoppingPantryReaderAdapter.AggregateStockLevelsAsync(excludeProduced: true) placement. A
+        // product id absent from the resolved summaries (unknown to this household's catalog) is kept —
+        // matches the "unresolvable → not excluded" default used elsewhere in this adapter.
+        if (shortfallLines.Count == 0)
+            return [];
+
+        var candidateIds = shortfallLines.Select(s => s.ProductId).Distinct().ToList();
+        var summaries = await catalog.ResolveSummariesAsync(candidateIds, ct);
+        shortfallLines = shortfallLines
+            .Where(s => !summaries.TryGetValue(s.ProductId, out var summary) || !summary.IsProduced)
+            .ToList();
 
         return shortfallLines
             .Select(s => new RecipeMissingIngredient(s.ProductId, s.ShortfallQuantity, s.UnitId))

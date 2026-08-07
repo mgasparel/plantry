@@ -74,7 +74,7 @@ public sealed class CatalogProductReaderAdapter(
         var found = await products.ListWithConversionsAsync(productIds.Distinct().Select(ProductId.From), ct);
         return found.ToDictionary(
             p => p.Id.Value,
-            p => new CatalogProductSummary(p.Id.Value, p.Name, p.TrackStock));
+            p => new CatalogProductSummary(p.Id.Value, p.Name, p.TrackStock, p.IsProduced));
     }
 
     public async Task<IReadOnlyDictionary<Guid, CatalogProduct>> FindManyWithVariantsAsync(

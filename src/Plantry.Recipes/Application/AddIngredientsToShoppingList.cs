@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
@@ -38,7 +39,8 @@ public sealed class AddIngredientsToShoppingList(
     RecipeExpansionService expansion,
     IShoppingListWriter shoppingWriter,
     ICatalogProductReader products,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    ILogger<AddIngredientsToShoppingList> logger)
 {
     /// <summary>Provenance string stamped on every row written via this service (DM-18).</summary>
     public const string RecipeSource = "recipe";
@@ -49,40 +51,58 @@ public sealed class AddIngredientsToShoppingList(
         CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
+        {
+            logger.LogWarning("Add all ingredients to shopping list rejected — no authenticated household.");
             return new AddIngredientsResult.Unauthorized();
+        }
 
         if (servings < 1)
+        {
+            logger.LogWarning(
+                "Add all ingredients to shopping list rejected — invalid servings {Servings} for recipe {RecipeId}.",
+                servings, recipeId.Value);
             return new AddIngredientsResult.Invalid(
                 Error.Custom("Recipes.InvalidServings", "Desired servings must be at least 1."));
+        }
 
         var recipe = await recipes.GetByIdAsync(recipeId, ct);
         if (recipe is null)
+        {
+            logger.LogWarning("Add all ingredients to shopping list failed — recipe {RecipeId} not found.", recipeId.Value);
             return new AddIngredientsResult.NotFound();
+        }
 
         // Expand to the flat product-level view (D4 choke point) and aggregate by (ProductId, UnitId) so
         // included recipes' products reach the list and duplicate subs (D14) merge into one row. A flat recipe
         // expands to its own ingredients (aggregation is a no-op), so its add-set is unchanged.
         var expandResult = await expansion.ExpandAsync(recipeId, ct);
         if (expandResult.IsFailure)
+        {
+            logger.LogWarning(
+                "Add all ingredients to shopping list failed — expansion of recipe {RecipeId} failed: {Error}.",
+                recipeId.Value, expandResult.Error);
             return new AddIngredientsResult.Invalid(expandResult.Error);
+        }
         var effectiveLines = expandResult.Value.AggregateByProductAndUnit();
 
-        // Batch-resolve track_stock for every quantity-bearing candidate product in one catalog
-        // round-trip, then keep only the products this household actually stock-tracks (C12, plantry-yukq).
+        // Batch-resolve track_stock + IsProduced for every quantity-bearing candidate product in one
+        // catalog round-trip, then keep only the products this household actually stock-tracks AND does
+        // NOT produce at home — a recipe yield, cook leftover, or garden produce must never be suggested
+        // for purchase (C12, plantry-yukq, plantry-4osq).
         var candidateIds = effectiveLines
             .Where(l => l.Quantity.HasValue && l.UnitId.HasValue)
             .Select(l => l.ProductId)
             .Distinct()
             .ToList();
         var summaries = await products.ResolveSummariesAsync(candidateIds, ct);
-        var trackedProductIds = summaries
-            .Where(kv => kv.Value.TrackStock)
+        var purchasableProductIds = summaries
+            .Where(kv => kv.Value.TrackStock && !kv.Value.IsProduced)
             .Select(kv => kv.Key)
             .ToHashSet();
 
-        // Full required target set (all tracked effective ingredients scaled to servings) via the shared
+        // Full required target set (all purchasable effective ingredients scaled to servings) via the shared
         // calculator so the button label and the synced set cannot diverge (plantry-gsj).
-        var itemsToAdd = RecipeShoppingTargets.All(effectiveLines, trackedProductIds, recipe.DefaultServings, servings);
+        var itemsToAdd = RecipeShoppingTargets.All(effectiveLines, purchasableProductIds, recipe.DefaultServings, servings);
 
         if (itemsToAdd.Count == 0)
             return new AddIngredientsResult.NothingToAdd();
@@ -90,6 +110,11 @@ public sealed class AddIngredientsToShoppingList(
         // Idempotent SYNC (SET, last-press-wins): pressing "Add all" then "Add missing" (or vice-versa)
         // leaves the recipe slice equal to the last button's target — no accumulation (plantry-gsj).
         var outcome = await shoppingWriter.SyncSourceContributionAsync(itemsToAdd, RecipeSource, recipeId.Value, ct);
+
+        logger.LogInformation(
+            "Recipe {RecipeId} synced {ItemCount} ingredient(s) to the shopping list at {Servings} servings " +
+            "(added {Added}, already present {AlreadyPresent}, checked off {CheckedOff}).",
+            recipeId.Value, itemsToAdd.Count, servings, outcome.Added, outcome.AlreadyPresent, outcome.CheckedOff);
 
         return new AddIngredientsResult.Added(itemsToAdd.Count, outcome);
     }

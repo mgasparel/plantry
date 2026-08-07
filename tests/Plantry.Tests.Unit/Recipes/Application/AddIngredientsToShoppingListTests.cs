@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -62,7 +63,9 @@ public sealed class AddIngredientsToShoppingListTests
         var writer = new FakeShoppingListWriter();
         var products = new FakeCatalogProductReader();
         var tenant = new FakeTenantContext(authenticated ? _householdGuid : (Guid?)null);
-        var service = new AddIngredientsToShoppingList(recipes, new RecipeExpansionService(recipes), writer, products, tenant);
+        var service = new AddIngredientsToShoppingList(
+            recipes, new RecipeExpansionService(recipes), writer, products, tenant,
+            NullLogger<AddIngredientsToShoppingList>.Instance);
         return new Harness
         {
             Recipes = recipes,
@@ -362,6 +365,61 @@ public sealed class AddIngredientsToShoppingListTests
         // Exactly one batch call (not one-per-ingredient).
         var call = Assert.Single(h.Writer.Calls);
         Assert.Equal(2, call.Items.Count);
+    }
+
+    // ── Home-produced products excluded (plantry-4osq) ────────────────────────
+
+    [Fact(DisplayName = "A stock-tracked but home-produced ingredient is excluded from 'Add all' (plantry-4osq)")]
+    public async Task Produced_Tracked_Product_Is_Excluded()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+        var purchasedId = Guid.CreateVersion7();
+        var producedId = Guid.CreateVersion7();
+
+        h.Products.RegisterTracked(purchasedId);
+        h.Products.RegisterTracked(producedId);
+        h.Products.MarkProduced(producedId); // e.g. garden tomatoes — made at home, not bought
+
+        var recipe = Recipe.Create(Household, "Garden Salad", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+        [
+            new IngredientLine(purchasedId, 100m, unitId, null, 0),
+            new IngredientLine(producedId, 50m, unitId, null, 1),
+        ], Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, servings: 2);
+
+        var added = Assert.IsType<AddIngredientsResult.Added>(result);
+        Assert.Equal(1, added.ItemCount);
+
+        var call = Assert.Single(h.Writer.Calls);
+        var item = Assert.Single(call.Items);
+        Assert.Equal(purchasedId, item.ProductId);
+        Assert.DoesNotContain(call.Items, i => i.ProductId == producedId);
+    }
+
+    [Fact(DisplayName = "Returns NothingToAdd when the only quantity-bearing ingredient is home-produced (plantry-4osq)")]
+    public async Task Returns_NothingToAdd_When_Only_Ingredient_Is_Produced()
+    {
+        var h = BuildHarness();
+        var unitId = Guid.CreateVersion7();
+        var producedId = Guid.CreateVersion7();
+
+        h.Products.RegisterTracked(producedId);
+        h.Products.MarkProduced(producedId);
+
+        var recipe = Recipe.Create(Household, "All Garden Produce", 2, Clock).Value;
+        recipe.ReplaceIngredients(
+            [new IngredientLine(producedId, 50m, unitId, null, 0)],
+            Clock);
+        h.Recipes.Items.Add(recipe);
+
+        var result = await h.Service.ExecuteAsync(recipe.Id, servings: 2);
+
+        Assert.IsType<AddIngredientsResult.NothingToAdd>(result);
+        Assert.Empty(h.Writer.Calls);
     }
 
     // ── Inclusions: 'Add all' includes sub products; a duplicate sub merges into one row (D14) ──

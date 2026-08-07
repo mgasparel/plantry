@@ -19,35 +19,46 @@ public static class RecipeShoppingTargets
 {
     /// <summary>
     /// "Add missing" target set: one line per Missing/Low effective ingredient with a positive shortfall
-    /// (scaledRequired − available), in the ingredient's unit. Delegates to the expanded
+    /// (scaledRequired − available), in the ingredient's unit, restricted to products in
+    /// <paramref name="purchasableProductIds"/>. Delegates to the expanded
     /// <see cref="RecipeShortfallCalculator.Compute(IReadOnlyList{EffectiveIngredient},ExpandedFulfillmentResult,int,int)"/>
-    /// so the shortfall rule is single-sourced.
+    /// so the shortfall rule is single-sourced, then filters the result — deliberately NOT pushed into
+    /// the calculator itself, which is a pure fulfillment→shortfall transform shared with the J6
+    /// ShopForWeek seam and should not grow a catalog dependency (plantry-4osq). Callers pass the same
+    /// "purchasable" definition <see cref="All"/> uses (stock-tracked AND NOT home-produced,
+    /// <c>Product.IsProduced</c>) so the two buttons agree and neither ever suggests buying a
+    /// recipe-yield/cook-leftover/garden-produce product (plantry-4osq) — mirroring the low-stock
+    /// restock path's <c>excludeProduced</c> fix (4ac08dee).
     /// </summary>
     public static IReadOnlyList<ShoppingItem> Missing(
         IReadOnlyList<EffectiveIngredient> lines,
         ExpandedFulfillmentResult fulfillment,
+        IReadOnlySet<Guid> purchasableProductIds,
         int defaultServings,
         int desiredServings) =>
         RecipeShortfallCalculator.Compute(lines, fulfillment, defaultServings, desiredServings)
+            .Where(s => purchasableProductIds.Contains(s.ProductId))
             .Select(s => new ShoppingItem(s.ProductId, s.ShortfallQuantity, s.UnitId))
             .ToList();
 
     /// <summary>
     /// "Add all" target set: every quantity-bearing (Quantity+UnitId) effective ingredient whose product is
-    /// stock-tracked, scaled to <paramref name="desiredServings"/>. Untracked staples and products not in
-    /// <paramref name="trackedProductIds"/> are excluded (C12, plantry-yukq) — mirroring the definition used
-    /// by the fulfilment "tracked" label and the Cook flow.
+    /// purchasable — stock-tracked AND NOT home-produced (<c>Product.IsProduced</c>) — scaled to
+    /// <paramref name="desiredServings"/>. Untracked staples, home-produced products (a recipe yield, cook
+    /// leftover, or garden produce — suggesting the household buy one is wrong by definition, plantry-4osq),
+    /// and products not in <paramref name="purchasableProductIds"/> are excluded (C12, plantry-yukq) —
+    /// mirroring the definition used by the fulfilment "tracked" label and the Cook flow.
     /// </summary>
     public static IReadOnlyList<ShoppingItem> All(
         IReadOnlyList<EffectiveIngredient> lines,
-        IReadOnlySet<Guid> trackedProductIds,
+        IReadOnlySet<Guid> purchasableProductIds,
         int defaultServings,
         int desiredServings)
     {
         var scale = (decimal)desiredServings / defaultServings;
 
         return lines
-            .Where(l => l.Quantity.HasValue && l.UnitId.HasValue && trackedProductIds.Contains(l.ProductId))
+            .Where(l => l.Quantity.HasValue && l.UnitId.HasValue && purchasableProductIds.Contains(l.ProductId))
             .Select(l => new ShoppingItem(
                 ProductId: l.ProductId,
                 Quantity: Math.Round(l.Quantity!.Value * scale, 3),
