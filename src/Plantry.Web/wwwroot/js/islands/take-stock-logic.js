@@ -44,6 +44,7 @@
  * @property {string} [lotsUrl]
  * @property {UnitOption[]} [supportedUnits]
  * @property {boolean} [isNewRow]
+ * @property {string} [expiryDate]   optional yyyy-MM-dd seed for a row injected already-dirty (plantry-4onl)
  */
 
 /**
@@ -82,6 +83,8 @@
  * @property {SignalLike<string>} convToUnitId       the product default unit id to convert into
  * @property {SignalLike<string>} convToCode         the product default unit's display code
  * @property {SignalLike<string>} convFactor         the user-entered conversion factor (raw input)
+ * @property {SignalLike<string>} expiryDate         optional yyyy-MM-dd for a found/increased lot (plantry-4onl);
+ *                                                    only sent to the server when the row is an increase (see buildSaveItems)
  */
 
 /**
@@ -179,6 +182,10 @@ export function makeRow(seed, signalFn, computedFn) {
     convToUnitId: signalFn(""),
     convToCode: signalFn(""),
     convFactor: signalFn(""),
+    // Optional expiry for a found/increased lot (plantry-4onl). Blank means blank — no default
+    // inheritance from the product's DefaultDueDays (decision 1; Take Stock deliberately differs
+    // from the Add Stock sheet here).
+    expiryDate: signalFn(seed.expiryDate ?? ""),
   };
 }
 
@@ -191,16 +198,29 @@ export function makeRow(seed, signalFn, computedFn) {
  * beyond reading `.value`. Called inside `save()` after the dirty filter;
  * extracted here so the shape of the POST payload has an explicit contract.
  *
+ * An increase (counted > recorded, i.e. `!row.down.value` on a dirty row) additionally carries
+ * `expiryDate` when the user entered one — the optional expiry for the lot that increase mints
+ * (plantry-4onl). Omitted entirely (not sent as null) on a decrease or no-op row: the server
+ * ignores a supplied expiry when the delta doesn't go up, but the key is left off the wire shape
+ * so that intent is explicit at the boundary, not just tolerated.
+ *
  * @param {Row[]} dirtyRows   — only rows where row.dirty.value === true
- * @returns {{ productId: string, countedValue: number, countedUnitId: string, reason: string }[]}
+ * @returns {{ productId: string, countedValue: number, countedUnitId: string, reason: string, expiryDate?: string }[]}
  */
 export function buildSaveItems(dirtyRows) {
-  return dirtyRows.map((r) => ({
-    productId: r.productId,
-    countedValue: r.counted.value,
-    countedUnitId: r.unitId.value,
-    reason: r.reason.value,
-  }));
+  return dirtyRows.map((r) => {
+    /** @type {{ productId: string, countedValue: number, countedUnitId: string, reason: string, expiryDate?: string }} */
+    const item = {
+      productId: r.productId,
+      countedValue: r.counted.value,
+      countedUnitId: r.unitId.value,
+      reason: r.reason.value,
+    };
+    if (!r.down.value && r.expiryDate.value) {
+      item.expiryDate = r.expiryDate.value;
+    }
+    return item;
+  });
 }
 
 // ── reconcileResults ─────────────────────────────────────────────────────────
@@ -286,6 +306,7 @@ export function saveStatusMessage({ ok, status, saved = 0, failed = 0 }) {
  * @property {string} [addUnitId]
  * @property {string} [addUnitCode]
  * @property {UnitOption[]} [supportedUnits]
+ * @property {string} [expiryDate]   optional yyyy-MM-dd for the opening-balance lot (plantry-4onl)
  */
 
 /**
@@ -312,6 +333,9 @@ export function mergeSheetUnitIntoRow(row, detail) {
   row.failed.value = false;
   row.failMsg.value = null;
   row.needsConversion.value = false;
+  // Carry the sheet-entered expiry onto the row (plantry-4onl). Blank is a valid, meaningful value
+  // (decision 1 — no default inheritance), so it is always written, not only when truthy.
+  row.expiryDate.value = detail.expiryDate ?? "";
   if (detail.addUnitId) {
     row.unitId.value = detail.addUnitId;
     // Ensure the selected unit is displayable even if it is not in the reachable set yet.

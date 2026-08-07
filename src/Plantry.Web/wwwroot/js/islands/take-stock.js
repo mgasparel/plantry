@@ -54,7 +54,7 @@
 
 import { render, html, signal, computed } from "./runtime.js?v=1";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage, mergeSheetUnitIntoRow } from "./take-stock-logic.js?v=3";
+import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage, mergeSheetUnitIntoRow } from "./take-stock-logic.js?v=4";
 import { createToast, createToastHost } from "./toast.js?v=1";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
@@ -98,6 +98,7 @@ import { createToast, createToastHost } from "./toast.js?v=1";
  * @property {import("@preact/signals").Signal<string>} convToUnitId
  * @property {import("@preact/signals").Signal<string>} convToCode
  * @property {import("@preact/signals").Signal<string>} convFactor
+ * @property {import("@preact/signals").Signal<string>} expiryDate   optional yyyy-MM-dd for a found/increased lot (plantry-4onl)
  */
 
 // ── Row factory ─────────────────────────────────────────────────────────────────
@@ -202,6 +203,16 @@ function CountRow({ row, expandedLots, onExpandLots, onCollapseLots, onAddConver
                   <span class="rdot"></span> ${label}
                 </button>`)}
           </div>
+        </div>`}
+
+      ${row.dirty.value && !row.down.value && html`
+        <div class="ts-expiry">
+          <label class="ts-expiry-lbl" for=${"ts-expiry-" + row.productId}>
+            <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg> When does it expire?
+          </label>
+          <input type="date" id=${"ts-expiry-" + row.productId} class="field__input ts-expiry-input"
+                 value=${row.expiryDate.value}
+                 onInput=${(/** @type {Event} */ e) => { row.expiryDate.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
         </div>`}
 
       ${row.needsConversion.value && html`
@@ -465,7 +476,8 @@ export function mountTakeStockWalk(root, config) {
    * @param {{
    *   productId?: string, productName?: string, addCount?: number, addUnitId?: string,
    *   addUnitCode?: string, supportedUnits?: UnitOption[], newStapleName?: string,
-   *   newStapleUnit?: string, newGroupId?: string, newGroupName?: string, newStapleCategoryId?: string
+   *   newStapleUnit?: string, newGroupId?: string, newGroupName?: string, newStapleCategoryId?: string,
+   *   expiryDate?: string
    * }} detail
    */
   async function handleSheetAdd(detail) {
@@ -498,6 +510,7 @@ export function mountTakeStockWalk(root, config) {
           lotsUrl: "",
           supportedUnits: seedUnits,
           isNewRow: true,
+          expiryDate: detail.expiryDate ?? "",
         });
         newRow.counted.value = counted;
         rowsSignal.value = [...rows, newRow];
@@ -520,6 +533,7 @@ export function mountTakeStockWalk(root, config) {
         newGroupId:       detail.newGroupId       || "",
         newGroupName:     detail.newGroupName      || "",
         categoryId:       detail.newStapleCategoryId || null,
+        expiryDate:       detail.expiryDate || null,
       };
 
       try {

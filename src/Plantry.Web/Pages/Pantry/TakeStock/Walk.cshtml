@@ -98,7 +98,7 @@ function takeStockSheetBridge() {
             this.draft = { productId: '', productName: '', isUntracked: false,
                            newStapleName: null, newStapleUnit: '', newStapleCategoryId: '',
                            groupHeading: '', newGroupId: '', newGroupName: '',
-                           addCount: 1, addUnitId: '' };
+                           addCount: 1, addUnitId: '', expiryDate: '' };
             this.sheetOpen = true;
             this.$nextTick(() => window.dispatchEvent(new CustomEvent('sheet-product-set', { detail: '' })));
         },
@@ -147,6 +147,7 @@ function takeStockSheetBridge() {
                         addCount:    this.draft.addCount,
                         addUnitId:   this.draft.addUnitId,
                         addUnitCode: addUnitCode,
+                        expiryDate:  this.draft.expiryDate || '',
                     }
                 }));
                 this.sheetView = 'search';
@@ -173,6 +174,7 @@ function takeStockSheetBridge() {
                     addCount:            this.draft.addCount,
                     addUnitId:           this.draft.addUnitId    || unitId,
                     addUnitCode:         addUnitCode,
+                    expiryDate:          this.draft.expiryDate   || '',
                 }
             }));
             this.sheetView = 'search';

@@ -3,9 +3,10 @@
     Rendered by _ProductSearchCreateSheet.cshtml inside the sheet panel, between the product-picker
     block and the action bar, via the ExtraFieldsPartial slot.
 
-    Injects two fields into the Alpine draft context established by the sheet bridge (takeStockSheetBridge):
-      draft.addCount   — the opening-balance quantity (decimal, default 1)
-      draft.addUnitId  — the unit for the opening balance (Guid string)
+    Injects three fields into the Alpine draft context established by the sheet bridge (takeStockSheetBridge):
+      draft.addCount     — the opening-balance quantity (decimal, default 1)
+      draft.addUnitId    — the unit for the opening balance (Guid string)
+      draft.expiryDate   — optional yyyy-MM-dd expiry for the opening-balance lot (plantry-4onl)
 
     The location is implicit — the walk URL carries the locationId and OnPostAddItemAsync reads it
     from the route. No location picker is needed here.
@@ -48,6 +49,15 @@
                     <option value="">— Unit —</option>
                     <partial name="Shared/_UnitOptionGroups" model="unitOptions" />
                 </select>
+            </div>
+        </div>
+
+        <div class="form-grid__field">
+            <label class="form-grid__field__label" for="add-expiry">Expiry (optional)</label>
+            <div class="form-grid__field__control">
+                <input type="date" id="add-expiry" class="field__input"
+                       x-model="draft.expiryDate"
+                       aria-label="Expiry date for the opening count" />
             </div>
         </div>
     </div>

@@ -1035,6 +1035,311 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
     }
 
+    // ── Expiry on found/increased items (plantry-4onl) ────────────────────────
+    // Each test spins up its own TakeStockGroupedProductFactory (a fresh FakeTsStockRepository
+    // seeding Flour at 500g recorded — 300g + 200g lots) so the assertions don't depend on test
+    // execution order against the shared class-fixture repository.
+
+    [Fact(DisplayName = "POST Save with expiry on an increase stamps the new lot (plantry-4onl)")]
+    public async Task Post_Save_WithExpiry_StampsLot()
+    {
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Flour is recorded at 500g (300g + 200g lots). Count up to 700g with an expiry — exercises
+        // the delta-up branch of RecordCountCommand.ApplyDeltaAsync (TakeStockCommands.cs:331).
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = TakeStockFixture.FlourId,
+                    countedValue  = 700m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason        = "Correction",
+                    expiryDate    = "2027-06-01",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
+
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        var newLot = stock.Entries.Single(e => e.IsActive && e.ExpiryDate is not null);
+        Assert.Equal(200m, newLot.Quantity);
+        Assert.Equal(new DateOnly(2027, 6, 1), newLot.ExpiryDate);
+    }
+
+    [Fact(DisplayName = "POST Save with expiry on a first-ever-stock increase stamps the new lot (plantry-4onl, TakeStockCommands.cs:291)")]
+    public async Task Post_Save_WithExpiry_FirstEverStock_StampsLot()
+    {
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // A product with NO existing stock — RecordCountCommand's first-ever-stock branch
+        // (TakeStockCommands.cs:288-291), distinct from the delta-up branch covered above.
+        var newProductId = Guid.CreateVersion7();
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = newProductId,
+                    countedValue  = 250m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason        = "Correction",
+                    expiryDate    = "2027-08-01",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
+
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == newProductId);
+        var lot = stock.Entries.Single(e => e.IsActive);
+        Assert.Equal(250m, lot.Quantity);
+        Assert.Equal(new DateOnly(2027, 8, 1), lot.ExpiryDate);
+    }
+
+    [Fact(DisplayName = "POST Save with expiry on a decrease is ignored without error (plantry-4onl)")]
+    public async Task Post_Save_ExpiryIgnoredOnDecrease()
+    {
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Flour recorded at 500g — count DOWN to 300g while still supplying an expiry. The server
+        // must ignore the expiry (no lot is added on a decrease) and must not error.
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = TakeStockFixture.FlourId,
+                    countedValue  = 300m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason        = "Correction",
+                    expiryDate    = "2027-06-01",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
+
+        // No lot was added — a decrease consumes existing (null-expiry) lots, it never mints one.
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        Assert.DoesNotContain(stock.Entries, e => e.ExpiryDate == new DateOnly(2027, 6, 1));
+    }
+
+    [Fact(DisplayName = "POST Save with blank expiry on an increase leaves the lot's expiry null, not the product default (plantry-4onl, decision 1)")]
+    public async Task Post_Save_BlankExpiry_LeavesNullNotProductDefault()
+    {
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // No expiryDate field at all — mirrors the client omitting the key when the field is blank.
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = TakeStockFixture.FlourId,
+                    countedValue  = 650m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason        = "Correction",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
+
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        var newLot = stock.Entries.Single(e => e.IsActive && e.Quantity == 150m);
+        Assert.Null(newLot.ExpiryDate);
+    }
+
+    [Fact(DisplayName = "POST Save with expiry on an increase in an alternate unit stamps the new lot (plantry-4onl)")]
+    public async Task Post_Save_WithExpiry_AlternateUnit_StampsLot()
+    {
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Count up in kg instead of the recorded unit (g) — the fake conversion provider is an
+        // identity converter, so the recorded sum (500) compares directly against 600 in kg.
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = TakeStockFixture.FlourId,
+                    countedValue  = 600m,
+                    countedUnitId = TakeStockFixture.KgUnitId,
+                    reason        = "Correction",
+                    expiryDate    = "2027-07-01",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
+
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        var newLot = stock.Entries.Single(e => e.IsActive && e.UnitId == TakeStockFixture.KgUnitId);
+        Assert.Equal(100m, newLot.Quantity);
+        Assert.Equal(new DateOnly(2027, 7, 1), newLot.ExpiryDate);
+    }
+
+    [Fact(DisplayName = "POST AddItem with expiry stamps the opening-balance lot (plantry-4onl)")]
+    public async Task Post_AddItem_WithExpiry_StampsLot()
+    {
+        using var factory = new TakeStockGroupedProductFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name          = "Expiry New Item",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue  = 100m,
+            countedUnitId = TakeStockFixture.GramUnitId,
+            expiryDate    = "2027-09-01",
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess, $"Expected success but got error: {data.Error}");
+
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == data.ProductId);
+        var lot = stock.Entries.Single(e => e.IsActive);
+        Assert.Equal(100m, lot.Quantity);
+        Assert.Equal(new DateOnly(2027, 9, 1), lot.ExpiryDate);
+    }
+
     [Fact(DisplayName = "POST AddConversion persists the factor via the catalog writer (plantry-3mwx)")]
     public async Task Post_AddConversion_PersistsFactorViaWriter()
     {

@@ -306,6 +306,16 @@ describe("makeRow", () => {
       assert.equal(row.convToCode.value, "");
       assert.equal(row.convFactor.value, "");
     });
+
+    it("expiryDate defaults to empty string when absent in seed (plantry-4onl)", () => {
+      const row = makeTestRow();
+      assert.equal(row.expiryDate.value, "");
+    });
+
+    it("expiryDate is seeded from seed.expiryDate when present (plantry-4onl)", () => {
+      const row = makeTestRow({ expiryDate: "2027-05-20" });
+      assert.equal(row.expiryDate.value, "2027-05-20");
+    });
   });
 
   describe("seed values propagated", () => {
@@ -405,6 +415,38 @@ describe("buildSaveItems", () => {
     const row = makeTestRow({ productId: "prod-c" });
     const items = buildSaveItems([row]);
     assert.equal(items[0].reason, "Correction");
+  });
+
+  // ── expiryDate (plantry-4onl) — uses makeRealRow so the reactive `down` computed
+  // actually reflects the counted/recorded relationship (the plain stub snapshots
+  // `down` once at construction, before the test's mutations).
+  it("includes expiryDate on an increase (counted > recorded) row", () => {
+    const row = makeRealRow({ productId: "prod-up", recorded: 3 });
+    row.counted.value = 5;
+    row.expiryDate.value = "2027-01-15";
+
+    const items = buildSaveItems([row]);
+
+    assert.equal(items[0].expiryDate, "2027-01-15");
+  });
+
+  it("omits expiryDate on a decrease (counted < recorded) row, even when set", () => {
+    const row = makeRealRow({ productId: "prod-down", recorded: 5 });
+    row.counted.value = 2;
+    row.expiryDate.value = "2027-01-15";
+
+    const items = buildSaveItems([row]);
+
+    assert.equal("expiryDate" in items[0], false);
+  });
+
+  it("omits expiryDate on an increase row when the field was left blank", () => {
+    const row = makeRealRow({ productId: "prod-up-blank", recorded: 3 });
+    row.counted.value = 5;
+
+    const items = buildSaveItems([row]);
+
+    assert.equal("expiryDate" in items[0], false);
   });
 });
 
@@ -643,5 +685,19 @@ describe("mergeSheetUnitIntoRow", () => {
     const row = makeTestRow();
     mergeSheetUnitIntoRow(row, { addUnitId: "unit-l", addUnitCode: "L" });
     assert.equal(row.counted.value, 0);
+  });
+
+  // ── expiryDate carry (plantry-4onl) ──────────────────────────────────────
+  it("carries the sheet-entered expiry onto the row", () => {
+    const row = makeTestRow();
+    mergeSheetUnitIntoRow(row, { addCount: 2, addUnitId: "unit-l", addUnitCode: "L", expiryDate: "2027-03-01" });
+    assert.equal(row.expiryDate.value, "2027-03-01");
+  });
+
+  it("clears expiryDate to blank when the sheet field was left empty", () => {
+    const row = makeTestRow();
+    row.expiryDate.value = "2027-03-01"; // stale value from a prior merge
+    mergeSheetUnitIntoRow(row, { addCount: 2, addUnitId: "unit-l", addUnitCode: "L" });
+    assert.equal(row.expiryDate.value, "");
   });
 });

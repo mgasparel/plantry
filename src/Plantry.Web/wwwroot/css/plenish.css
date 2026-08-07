@@ -6628,6 +6628,12 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-reason-opt.sel.discarded { background: var(--color-danger); }
 .ts-reason-opt.sel .rdot { background: rgba(255,255,255,.92); }
 
+/* increase-reveal expiry block (plantry-4onl) — symmetric with .ts-reason on the decrease side */
+.ts-expiry { display: flex; align-items: center; gap: 11px; padding: 12px var(--space-4) 14px; border-top: 1px solid var(--color-border); background: var(--color-surface-2); flex-wrap: wrap; }
+.ts-expiry-lbl { font-size: 0.78125rem; font-weight: 600; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 7px; }
+.ts-expiry-lbl .icon { width: 14px; height: 14px; }
+.ts-expiry-input { width: auto; max-width: 11rem; }
+
 /* inline save error */
 .ts-row-err { display: flex; align-items: center; gap: 10px; padding: 11px var(--space-4); border-top: 1px solid var(--color-border); background: var(--color-danger-bg); color: var(--color-danger); font-size: 0.8125rem; font-weight: 600; }
 .ts-row-err .icon { width: 15px; height: 15px; flex: none; }
@@ -6667,6 +6673,7 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-lot-spoiled { display: inline-flex; align-items: center; gap: 7px; font-size: 0.78125rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; white-space: nowrap; }
 .ts-lot-fail { font-size: 0.78125rem; color: var(--color-danger); font-weight: 600; }
 .ts-date-input { border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted); font: inherit; font-size: 0.78125rem; border-radius: var(--radius-md); padding: 6px 9px; }
+.ts-date-lbl { font-size: 0.71875rem; font-weight: 600; color: var(--color-text-faint); }
 .ts-lot.found { background: var(--color-success-bg); margin: 6px -8px 0; padding: 11px 8px; border-radius: var(--radius-md); border-top: none; }
 .ts-lot .found-tag { font-size: 0.625rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-success); }
 .ts-hatch-foot { display: flex; align-items: center; gap: 12px; margin-top: 13px; }

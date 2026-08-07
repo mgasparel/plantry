@@ -56,7 +56,14 @@ public sealed record CountItem(
     Guid LocationId,
     decimal CountedValue,
     Guid CountedUnitId,
-    StockReason Reason = StockReason.Correction);
+    StockReason Reason = StockReason.Correction,
+    /// <summary>
+    /// Optional expiry for the opening-balance lot minted when this count is an increase
+    /// (plantry-4onl). Ignored when the resulting delta is zero or negative — nothing is added,
+    /// so nothing to stamp. Blank/null means blank: Take Stock does NOT fall back to the
+    /// product's DefaultDueDays (decision 1 — deliberately differs from the Add Stock sheet).
+    /// </summary>
+    DateOnly? ExpiryDate = null);
 
 // ─── Lot escape-hatch (P4-5) ──────────────────────────────────────────────────
 
@@ -253,7 +260,12 @@ public sealed class RecordCountCommand(
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    /// <summary>
+    /// Optional expiry stamped on the opening-balance lot minted when the resulting delta is an
+    /// increase (plantry-4onl). Unused on a Down or NoOp outcome — see <see cref="CountItem.ExpiryDate"/>.
+    /// </summary>
+    DateOnly? expiryDate = null)
 {
     public async Task<Result<RecordCountOutcome>> ExecuteAsync(CancellationToken ct = default)
     {
@@ -288,6 +300,7 @@ public sealed class RecordCountCommand(
                 stock = ProductStock.Start(household, productId, clock);
                 stock.AddStock(
                     countedValue, countedUnitId, locationId, userId, clock,
+                    expiryDate: expiryDate,
                     sourceType: StockSourceType.Manual, reason: StockReason.Correction);
 
                 if (!await stocks.TryAddAndSaveAsync(stock, innerCt))
@@ -330,6 +343,7 @@ public sealed class RecordCountCommand(
             // Consumed/Discarded) because those are removal reasons only.
             stock.AddStock(
                 delta, countedUnitId, locationId, userId, clock,
+                expiryDate: expiryDate,
                 sourceType: StockSourceType.Manual, reason: StockReason.Correction);
             await stocks.SaveChangesAsync(ct);
             return new RecordCountOutcome(CountDirection.Up, delta, 0m);
@@ -383,7 +397,9 @@ public sealed class AddCountedItemCommand(
     IProductConversionProvider conversions,
     IClock clock,
     ITenantContext tenant,
-    Guid? categoryId = null)
+    Guid? categoryId = null,
+    /// <summary>Optional expiry for the opening-balance lot (plantry-4onl).</summary>
+    DateOnly? expiryDate = null)
 {
     /// <summary>
     /// Creates the tracked product and records the opening-balance count.
@@ -412,7 +428,8 @@ public sealed class AddCountedItemCommand(
         {
             var countCmd = new RecordCountCommand(
                 productId, locationId, countedValue, countedUnitId,
-                StockReason.Correction, userId, stocks, conversions, clock, tenant);
+                StockReason.Correction, userId, stocks, conversions, clock, tenant,
+                expiryDate: expiryDate);
 
             var countResult = await countCmd.ExecuteAsync(ct);
             if (countResult.IsFailure)
@@ -459,7 +476,8 @@ public sealed class SaveCountsCommand(
                 stocks,
                 conversions,
                 clock,
-                tenant);
+                tenant,
+                expiryDate: item.ExpiryDate);
 
             var result = await cmd.ExecuteAsync(ct);
 
