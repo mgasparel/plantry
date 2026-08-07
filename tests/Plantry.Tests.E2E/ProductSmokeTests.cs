@@ -154,7 +154,7 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.Locator("tr", new() { HasText = renamedProductName }).Locator("a.data-grid__link").ClickAsync();
             await page.WaitForURLAsync($"**/Pantry/Products/Detail/{productId}");
 
-            await Assertions.Expect(page.Locator(".page-header__subtitle", new() { HasText = "Not in stock" }))
+            await Assertions.Expect(page.Locator("#product-total", new() { HasText = "not in stock" }))
                 .ToBeVisibleAsync();
             await Assertions.Expect(page.GetByRole(AriaRole.Button, new() { Name = "Consume" })).Not.ToBeVisibleAsync();
             // "Add stock" appears twice on the zero-stock landing (header CTA + empty-state card
@@ -177,10 +177,10 @@ public sealed class ProductSmokeTests(AppHostFixture appHost) : IAsyncLifetime
                 .SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
             await addStockSheet.GetByRole(AriaRole.Button, new() { Name = "Add to pantry" }).ClickAsync();
 
-            await Assertions.Expect(page.Locator(".page-header__subtitle", new() { HasText = "500 g in stock" }))
+            await Assertions.Expect(page.Locator("#product-total", new() { HasText = "500g" }))
                 .ToBeVisibleAsync();
             await Assertions.Expect(page.GetByRole(AriaRole.Button, new() { Name = "Consume" })).ToBeVisibleAsync();
-            await Assertions.Expect(page.Locator("#lots-grid")).ToContainTextAsync("500 g");
+            await Assertions.Expect(page.Locator("#stock-detail .catalog-list")).ToContainTextAsync("500 g");
 
             // ── Step 7: Archive it (back on the catalog definition page) ──────────
             await page.GotoAsync($"{BaseUrl}/Catalog/Products/{productId}");

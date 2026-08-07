@@ -1,51 +1,15 @@
 @model Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
 @using Plantry.Pantry.Application
 @using Plantry.Pantry.Domain
 @using Plantry.Web.Pages.Shared
 @{
     var id = Model.Detail.ProductId;
     var hasStock = Model.Detail.Lots.Count > 0;
-    string DeltaText(StockJournalRow r) => $"{(r.Delta > 0 ? "+" : "")}{r.Delta.ToString("0.###")} {r.UnitCode}";
-
-    var lotsGrid = new DataGridViewModel(
-        Id: "lots-grid",
-        Columns:
-        [
-            new("Quantity"),
-            new("Expiry"),
-            new("Location"),
-            new("Purchased"),
-            new("", Align: GridAlign.End),
-        ],
-        Rows: [.. Model.Detail.Lots.Select(lot => new GridRow(
-        [
-            GridCell.Text($"{lot.Quantity.ToString("0.###")} {lot.UnitCode}"),
-            lot.ExpiryDate is { } exp ? GridCell.Text(exp.ToString("d MMM yyyy")) : GridCell.Muted("—"),
-            lot.LocationName is { } loc ? GridCell.Text(loc) : GridCell.Muted("—"),
-            lot.PurchasedAt is { } pur ? GridCell.Text(pur.ToString("d MMM yyyy")) : GridCell.Muted("—"),
-            GridCell.Actions(
-                GridAction.HxGet("Use",
-                    Url.Page("./Detail", "ConsumeSheet", new { id, entryId = lot.EntryId.Value })!,
-                    "#sheet-host"),
-                GridAction.HxGet("Move",
-                    Url.Page("./Detail", "MoveSheet", new { id, entryId = lot.EntryId.Value })!,
-                    "#sheet-host"),
-                lot.IsOpen
-                    // Tapping the badge un-marks the lot (plantry-1le6 UI spec §3 — corrections
-                    // happen); both handlers redirect via HX-Redirect, so the target/swap here never
-                    // actually gets used to swap a fragment.
-                    ? GridAction.PostBadge("Open",
-                        Url.Page("./Detail", "UnmarkOpen", new { id, entryId = lot.EntryId.Value })!)
-                    // Rendered only while the lot is sealed (plantry-1le6 UI spec §1) — a one-tap
-                    // action with no inputs, so it needs no sheet.
-                    : GridAction.Post("Mark opened",
-                        Url.Page("./Detail", "MarkOpen", new { id, entryId = lot.EntryId.Value })!),
-                GridAction.PostTo("Discard",
-                    Url.Page("./Detail", "Discard", new { id, entryId = lot.EntryId.Value })!,
-                    "#stock-detail", "outerHTML")
-            ),
-        ]))],
-        EmptyMessage: "No stock on hand.");
+    string DeltaText(StockJournalRow r) => r.Delta == 0
+        ? "—"
+        : $"{(r.Delta > 0 ? "+" : "")}{r.Delta.ToString("0.###")} {r.UnitCode}";
+    DeltaTone ToneFor(StockJournalRow r) => r.Delta > 0 ? DeltaTone.In : r.Delta < 0 ? DeltaTone.Out : DeltaTone.Neutral;
 
     var historyGrid = new DataGridViewModel(
         Id: "history-grid",
@@ -60,7 +24,7 @@
         Rows: [.. Model.Detail.History.Select(row => new GridRow(
         [
             GridCell.Text(Model.HistoryWhenLocal[row.JournalId]),
-            GridCell.Text(DeltaText(row)),
+            GridCell.Delta(DeltaText(row), ToneFor(row)),
             // Amendment renders as plain text like every other reason (ADR-023 A11) — no badge.
             GridCell.Text(row.Reason.ToString()),
             DetailModel.SourceCell(row, Model.Chips, chip => DetailModel.HrefFor(chip, Url)),
@@ -83,20 +47,97 @@
 
     @if (hasStock)
     {
+        @* The antiforgery hidden input the Use/Move/Mark-opened/Discard row actions' htmx POSTs need
+           (htmx-antiforgery.js reads it globally, mirroring _DataGrid's own "needsToken" idiom). Only
+           emitted when there is at least one lot to act on. *@
+        var tokens = Antiforgery.GetAndStoreTokens(ViewContext.HttpContext);
+        <input type="hidden" name="@tokens.FormFieldName" value="@tokens.RequestToken" />
+
+        @* "On the shelf" lot row-list (plantry-sbpk) — replaces the 5-column Lots DataGrid. Qty leads;
+           the meta line folds open-state into the location ("Fridge · open") over a muted provenance
+           sub-line; expiry follows the plantry-fdoq hybrid (pill within the household's expiring-soon
+           horizon, muted absolute date beyond it). Use is the one visible action button; Move/Mark
+           opened (or Unmark opened, when already open)/Discard live in the ⋯ overflow menu, Discard
+           separated and danger-styled so it stays reachable on touch. *@
         <section class="catalog-section">
-            <h2 class="catalog-section__heading">Lots</h2>
-            <partial name="Shared/_DataGrid" model="lotsGrid" />
+            <h2 class="catalog-section__heading">On the shelf<small>@Model.Detail.Lots.Count lot@(Model.Detail.Lots.Count == 1 ? "" : "s")</small></h2>
+            <div class="catalog-list catalog-list--menus">
+                @foreach (var lot in Model.Detail.Lots)
+                {
+                    var tone = InventoryQueryService.ToneFor(lot.ExpiryDate, Model.Today, Model.ExpiringSoonDays);
+                    <div class="catalog-list__item">
+                        <span class="lot-row__qty">@lot.Quantity.ToString("0.###") <small>@lot.UnitCode</small></span>
+                        <div class="lot-row__meta">
+                            <span class="lot-row__where">@(lot.LocationName ?? "—")@if (lot.IsOpen)
+                            {
+                                <text> · <em>open</em></text>
+                            }</span>
+                            <span class="lot-row__when">@(lot.PurchasedAt is { } purchased ? $"Purchased {purchased:d MMM}" : "—")</span>
+                        </div>
+                        @if (lot.ExpiryDate is { } exp)
+                        {
+                            if (tone is ExpiryTone.Soon or ExpiryTone.Expired)
+                            {
+                                var (label, tier) = ExpiryDisplay.Format(exp, Model.Today);
+                                <span class="badge-expiry badge-expiry--@tier">@label</span>
+                            }
+                            else
+                            {
+                                <span class="lot-row__expiry">@exp.ToString("d MMM yyyy")</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="lot-row__expiry">—</span>
+                        }
+                        <div class="lot-row__actions">
+                            <button type="button" class="btn btn--sm btn--secondary"
+                                    hx-get="@Url.Page("./Detail", "ConsumeSheet", new { id, entryId = lot.EntryId.Value })"
+                                    hx-target="#sheet-host" hx-swap="innerHTML">Use</button>
+                            <div class="row-actions-menu" x-data="{ open: false }" @@click.outside="open = false">
+                                <button type="button" class="row-actions-menu__trigger" aria-label="More actions"
+                                        aria-haspopup="true" :aria-expanded="open.toString()" @@click="open = !open">⋯</button>
+                                <div class="row-actions-menu__panel" x-show="open" x-cloak>
+                                    <button type="button" class="row-actions-menu__item"
+                                            hx-get="@Url.Page("./Detail", "MoveSheet", new { id, entryId = lot.EntryId.Value })"
+                                            hx-target="#sheet-host" hx-swap="innerHTML" @@click="open = false">Move…</button>
+                                    @if (lot.IsOpen)
+                                    {
+                                        @* Tapping the badge un-marks the lot in the old design (plantry-1le6 UI spec §3 —
+                                           corrections happen); the same action now lives here (plantry-sbpk). *@
+                                        <button type="button" class="row-actions-menu__item"
+                                                hx-post="@Url.Page("./Detail", "UnmarkOpen", new { id, entryId = lot.EntryId.Value })"
+                                                @@click="open = false">Unmark opened</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="row-actions-menu__item"
+                                                hx-post="@Url.Page("./Detail", "MarkOpen", new { id, entryId = lot.EntryId.Value })"
+                                                @@click="open = false">Mark opened</button>
+                                    }
+                                    <div class="row-actions-menu__sep"></div>
+                                    <button type="button" class="row-actions-menu__item row-actions-menu__item--danger"
+                                            hx-post="@Url.Page("./Detail", "Discard", new { id, entryId = lot.EntryId.Value })"
+                                            hx-target="#sheet-host" hx-swap="innerHTML"
+                                            hx-confirm="Discard this lot?" @@click="open = false">Discard…</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
         </section>
     }
     else
     {
         @* Zero-stock landing (plantry-sjfn): no active lots — either never stocked (the Pantry
            "Everything" scope links catalog-only products straight here) or consumed to zero.
-           Add stock is the primary CTA here too, mirroring the header's toggle. *@
+           Secondary here (plantry-sbpk) — the header's primary CTA already offers Add stock, so this
+           card's button stays secondary rather than competing with it. *@
         <div class="card">
             <div class="empty-state">
                 <p style="margin:0;">Nothing on hand — your household tracks this product but hasn't stocked it yet.</p>
-                <button type="button" class="btn btn--primary"
+                <button type="button" class="btn btn--secondary"
                         hx-get="@Url.Page("./Detail", "AddStockSheet", new { id })"
                         hx-target="#sheet-host" hx-swap="innerHTML">
                     Add stock
@@ -112,8 +153,6 @@
 </div>
 @if (Model.Oob)
 {
-    <p id="product-total" class="page-header__subtitle" hx-swap-oob="true">
-        @(hasStock ? $"{Model.Detail.TotalQuantity.ToString("0.###")} {Model.Detail.DisplayUnitCode} in stock" : "Not in stock")
-    </p>
+    <partial name="_VitalsTiles" model="new Plantry.Web.Pages.Pantry.Products.VitalsTilesPartialModel(Model.Detail, true, Model.Today, Model.ExpiringSoonDays)" />
     <partial name="_PrimaryStockAction" model="new Plantry.Web.Pages.Pantry.Products.PrimaryStockActionPartialModel(id, hasStock, true)" />
 }

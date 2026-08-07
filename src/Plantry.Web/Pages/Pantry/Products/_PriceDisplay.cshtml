@@ -1,2 +1,45 @@
 @model Plantry.Web.Pages.Pantry.Products.PriceDisplayPartialModel
-<p id="product-price" class="page-header__subtitle" @(Model.Oob ? "hx-swap-oob=true" : "")>@Model.DisplayText</p>
+@{
+    // Vitals-strip Price tile (plantry-sbpk) — replaces the old orphan subtitle line. DisplayText
+    // arrives pre-formatted ("£3.99 for 500 g" / "No price recorded yet"); split on " for " so the
+    // unit-price value and its "/ 500 g" qualifier share the tile's value/sub slots (mirrors the
+    // approved prototype). No " for " substring simply means the whole string is the value.
+    var hasPrice = Model.DisplayText != "No price recorded yet";
+    string? priceValue = null;
+    string? priceQualifier = null;
+    if (hasPrice)
+    {
+        var sepIndex = Model.DisplayText.IndexOf(" for ", StringComparison.Ordinal);
+        if (sepIndex >= 0)
+        {
+            priceValue = Model.DisplayText[..sepIndex];
+            priceQualifier = Model.DisplayText[(sepIndex + 5)..];
+        }
+        else
+        {
+            priceValue = Model.DisplayText;
+        }
+    }
+}
+<div class="vital" id="product-price" style="order:3" @(Model.Oob ? "hx-swap-oob=true" : "")>
+    <p class="vital__lbl">Price</p>
+    @if (hasPrice)
+    {
+        <div class="vital__val">@priceValue@if (priceQualifier is not null)
+        {
+            <small>/ @priceQualifier</small>
+        }</div>
+        <div class="vital__sub">
+            <a href="#" hx-get="@Url.Page("./Detail", "SetPriceSheet", new { id = Model.ProductId })"
+               hx-target="#sheet-host" hx-swap="innerHTML">Update ›</a>
+        </div>
+    }
+    else
+    {
+        <div class="vital__val vital__val--empty">—</div>
+        <div class="vital__sub">
+            <a href="#" hx-get="@Url.Page("./Detail", "SetPriceSheet", new { id = Model.ProductId })"
+               hx-target="#sheet-host" hx-swap="innerHTML">Set price ›</a>
+        </div>
+    }
+</div>

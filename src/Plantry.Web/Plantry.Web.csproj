@@ -12,6 +12,11 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Plantry.Tests.Web</_Parameter1>
     </AssemblyAttribute>
+    <!-- plantry-sbpk: DetailModel.FormatRelativeWhen is a pure page-model static (mirrors
+         FormatMarkOpenedToast) pinned by an L1 test in Plantry.Tests.Unit rather than Tests.Web. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Plantry.Tests.Unit</_Parameter1>
+    </AssemblyAttribute>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Plantry.Tests.Integration</_Parameter1>
     </AssemblyAttribute>

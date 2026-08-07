@@ -19,15 +19,16 @@ using CatalogUnit = Plantry.Pantry.Domain.Unit;
 namespace Plantry.Tests.Web.Pantry;
 
 /// <summary>
-/// L4 Web integration tests for the "Mark opened" row action and its "Open" badge undo
-/// (plantry-1le6, UI spec §1/§3) on the Pantry product Detail page. Unlike this page's other
-/// mutations, these two handlers genuinely follow POST-Redirect-GET: an <c>HX-Redirect</c> response
-/// header plus <c>TempData["ToastMessage"]</c> (the shared save-toast, plantry-u7n9/8b8802a) rather
-/// than an OOB htmx fragment swap — this file proves that wiring end-to-end over HTTP, which the
-/// pure-function tests in <c>MarkOpenedToastTests</c> cannot reach. Reuses the fake seams
-/// <see cref="ProductDetailSetPriceTests"/> established for this page (unit/stock/pricing — those
-/// internal fakes are file-scoped but assembly-visible) and adds its own lot-seeding + a Catalog facade
-/// that can be configured with an after-opening default.
+/// L4 Web integration tests for the "Mark opened" row action and its "Unmark opened" overflow-menu
+/// undo (plantry-1le6, UI spec §1/§3 — the undo moved from a tappable "Open" badge into the ⋯ overflow
+/// menu in the plantry-sbpk redesign, alongside Move/Discard) on the Pantry product Detail page. Unlike
+/// this page's other mutations, these two handlers genuinely follow POST-Redirect-GET: an
+/// <c>HX-Redirect</c> response header plus <c>TempData["ToastMessage"]</c> (the shared save-toast,
+/// plantry-u7n9/8b8802a) rather than an OOB htmx fragment swap — this file proves that wiring
+/// end-to-end over HTTP, which the pure-function tests in <c>MarkOpenedToastTests</c> cannot reach.
+/// Reuses the fake seams <see cref="ProductDetailSetPriceTests"/> established for this page
+/// (unit/stock/pricing — those internal fakes are file-scoped but assembly-visible) and adds its own
+/// lot-seeding + a Catalog facade that can be configured with an after-opening default.
 /// </summary>
 public sealed class ProductDetailMarkOpenedTests : IDisposable
 {
@@ -54,7 +55,7 @@ public sealed class ProductDetailMarkOpenedTests : IDisposable
         return match.Groups[1].Value;
     }
 
-    [Fact(DisplayName = "Detail GET — a sealed lot shows the 'Mark opened' action, not the Open badge")]
+    [Fact(DisplayName = "Detail GET — a sealed lot shows the 'Mark opened' action, not 'Unmark opened'")]
     public async Task Get_SealedLot_ShowsMarkOpenedAction()
     {
         var client = AuthClient();
@@ -64,7 +65,7 @@ public sealed class ProductDetailMarkOpenedTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var html = await response.Content.ReadAsStringAsync();
         Assert.Contains("Mark opened", html, StringComparison.Ordinal);
-        Assert.DoesNotContain(">Open<", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unmark opened", html, StringComparison.Ordinal);
     }
 
     [Fact(DisplayName = "MarkOpen — responds with HX-Redirect back to Detail and sets the toast")]
@@ -88,7 +89,7 @@ public sealed class ProductDetailMarkOpenedTests : IDisposable
         var follow = await client.GetAsync($"/Pantry/Products/Detail/{productId}");
         var html = await follow.Content.ReadAsStringAsync();
         Assert.Contains("Opened", html, StringComparison.Ordinal);
-        Assert.Contains(">Open<", html, StringComparison.Ordinal); // the badge now shows instead of the action
+        Assert.Contains("Unmark opened", html, StringComparison.Ordinal); // the overflow menu now offers the undo
     }
 
     [Fact(DisplayName = "UnmarkOpen — un-marks the lot and does not restore its pre-opening expiry")]

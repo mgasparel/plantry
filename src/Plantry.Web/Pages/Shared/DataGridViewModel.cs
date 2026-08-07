@@ -4,7 +4,16 @@ namespace Plantry.Web.Pages.Shared;
 public enum GridAlign { Start, Center, End }
 
 /// <summary>The closed vocabulary of cell presentations the `_DataGrid` partial knows how to render.</summary>
-public enum GridCellKind { Text, Muted, Link, Badge, Actions, ExpiryBadge, SourceChip }
+public enum GridCellKind { Text, Muted, Link, Badge, Actions, ExpiryBadge, SourceChip, Delta }
+
+/// <summary>
+/// Which way a <see cref="GridCellKind.Delta"/> cell's colour leans (plantry-sbpk — the Pantry product
+/// Detail page's History "Change" column): <c>In</c> (a positive delta, success-toned) and <c>Out</c>
+/// (a negative delta, muted rather than a warm "danger" — consuming/discarding stock is routine, not an
+/// error) carry semantic colour; <c>Neutral</c> (a net-zero move) renders as a plain "—", matching the
+/// rest of the row's quiet typography. Colour lives only on the delta itself — no badge, no row tinting.
+/// </summary>
+public enum DeltaTone { In, Out, Neutral }
 
 /// <summary>The icon a <see cref="GridCellKind.SourceChip"/> cell renders (receipt-intake-history.md H11)
 /// — which cross-context surface the chip links to.</summary>
@@ -103,6 +112,9 @@ public sealed record GridCell
     /// <summary>The icon for a <see cref="GridCellKind.SourceChip"/> cell.</summary>
     public SourceChipIcon? ChipIcon { get; init; }
 
+    /// <summary>The colour lean for a <see cref="GridCellKind.Delta"/> cell.</summary>
+    public DeltaTone DeltaTone { get; init; }
+
     /// <summary>
     /// Optional badge rendered immediately after a Link cell's anchor (plantry-lxm2) — e.g. the neutral
     /// "Archived" badge on a Pantry row whose name still links through to the product detail page, so
@@ -138,6 +150,14 @@ public sealed record GridCell
     /// </summary>
     public static GridCell ExpiryBadge(string label, string tierModifier) =>
         new() { Kind = GridCellKind.ExpiryBadge, Value = label, ExpiryTier = tierModifier };
+
+    /// <summary>
+    /// A colour-only delta (plantry-sbpk) — plain text, no badge/pill, coloured per <paramref name="tone"/>.
+    /// Distinct from <see cref="Badge"/> (which always renders a pill): the History "Change" column wants
+    /// semantic colour on the number itself, with every other cell in the row staying plain.
+    /// </summary>
+    public static GridCell Delta(string value, DeltaTone tone) =>
+        new() { Kind = GridCellKind.Delta, Value = value, DeltaTone = tone };
 }
 
 /// <summary>

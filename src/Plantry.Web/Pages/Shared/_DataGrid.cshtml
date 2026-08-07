@@ -16,6 +16,13 @@
         BadgeTone.Danger => "badge--danger",
         _ => "badge--neutral",
     };
+
+    static string DeltaClass(DeltaTone tone) => tone switch
+    {
+        DeltaTone.In => "h-delta--in",
+        DeltaTone.Out => "h-delta--out",
+        _ => "h-delta--neutral",
+    };
 }
 @{
     // True when any visible action mutates state — only then is a page antiforgery token required
@@ -92,6 +99,9 @@ else
                                     break;
                                 case GridCellKind.ExpiryBadge:
                                     <span class="badge-expiry badge-expiry--@cell.ExpiryTier">@cell.Value</span>
+                                    break;
+                                case GridCellKind.Delta:
+                                    <span class="h-delta @DeltaClass(cell.DeltaTone)">@cell.Value</span>
                                     break;
                                 case GridCellKind.SourceChip:
                                     var iconId = cell.ChipIcon == SourceChipIcon.Cook ? "i-chef-hat" : "i-receipt";

@@ -161,7 +161,10 @@ public sealed class ProductDetailSetPriceTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var html = await response.Content.ReadAsStringAsync();
-        Assert.Contains("No price recorded yet", html, StringComparison.Ordinal);
+        // The vitals-strip Price tile (plantry-sbpk) — an empty tile shows a faint "—" value and a
+        // "Set price ›" CTA rather than the old orphan "No price recorded yet" subtitle line.
+        Assert.Contains("vital__val--empty", html, StringComparison.Ordinal);
+        Assert.Contains("Set price ›", html, StringComparison.Ordinal);
     }
 
     [Fact(DisplayName = "Detail GET — shows the current effective price (same read model CostingService uses) once one is recorded")]
