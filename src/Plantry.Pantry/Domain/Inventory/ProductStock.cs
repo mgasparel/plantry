@@ -329,6 +329,27 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     }
 
     /// <summary>
+    /// Manually overrides an existing lot's expiry (plantry-fyvr) — the Take Stock lot panel's
+    /// escape hatch for correcting a wrong date without touching quantity (e.g. a mis-entered
+    /// intake expiry). Unlike <see cref="MarkOpened"/>/<see cref="Transfer"/>, this is a direct
+    /// user correction with no derivation: <paramref name="expiryDate"/> is recorded verbatim,
+    /// including <c>null</c> to clear it. Requires the lot to still be active — a depleted lot has
+    /// nothing left to expire, so there is nothing meaningful to correct.
+    /// </summary>
+    public Result<SetLotExpiryOutcome> SetLotExpiry(StockEntryId entryId, DateOnly? expiryDate, IClock clock)
+    {
+        var lot = _entries.FirstOrDefault(e => e.Id == entryId);
+        if (lot is null)
+            return Error.Custom("Inventory.LotNotFound", $"No lot '{entryId}' to correct.");
+        if (!lot.IsActive)
+            return Error.Custom("Inventory.LotNotActive", "A depleted lot's expiry cannot be corrected.");
+
+        lot.SetExpiry(expiryDate, clock);
+        UpdatedAt = clock.UtcNow;
+        return new SetLotExpiryOutcome(lot.Id, lot.ExpiryDate);
+    }
+
+    /// <summary>
     /// The DM-11 opening clamp (plantry-1le6 rule 2) shared by <see cref="MarkOpened"/> and
     /// <see cref="Consume"/>'s auto-open step: opening never <b>extends</b> a printed date — the new
     /// expiry is <c>min(existingExpiry, today + dueDaysAfterOpening)</c>, deliberately the opposite of

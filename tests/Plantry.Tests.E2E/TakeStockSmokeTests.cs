@@ -887,7 +887,10 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await expandBtn.ClickAsync();
             var lotPanel = page.Locator(".ts-hatch");
             await Assertions.Expect(lotPanel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(lotPanel).ToContainTextAsync("15 Jun 2027", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+            // The lot panel now renders the expiry as an editable date input (plantry-fyvr), not
+            // read-only text — assert the round-tripped value, not display-formatted text.
+            var lotExpiryInput = lotPanel.Locator("input[type='date'].ts-date-input").First;
+            await Assertions.Expect(lotExpiryInput).ToHaveValueAsync("2027-06-15", new LocatorAssertionsToHaveValueOptions { Timeout = 30000 });
         }
         finally
         {

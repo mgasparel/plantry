@@ -6668,7 +6668,6 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-lot-qty .lq-unit { display: inline-flex; align-items: center; padding: 0 10px; font-size: 0.78125rem; font-weight: 600; color: var(--color-text-faint); background: var(--color-bg-subtle); border: 1px solid var(--color-border-strong); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; }
 .ts-lot-meta { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; }
 .ts-lot-exp { font-size: 0.78125rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 6px; }
-.ts-lot-exp.none { font-style: italic; color: var(--color-text-faint); }
 .ts-lot-exp .icon { width: 13px; height: 13px; }
 .ts-lot-spoiled { display: inline-flex; align-items: center; gap: 7px; font-size: 0.78125rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; white-space: nowrap; }
 .ts-lot-fail { font-size: 0.78125rem; color: var(--color-danger); font-weight: 600; }

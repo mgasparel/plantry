@@ -43,7 +43,8 @@ public sealed class WalkModel(
     IClock clock,
     ITenantContext tenant,
     VoidDeferredUnitGapLines voidDeferredUnitGaps,
-    ILogger<WalkModel> logger) : PageModel
+    ILogger<WalkModel> logger,
+    ILogger<SaveLotAdjustmentsCommand> saveLotsLogger) : PageModel
 {
     // ── Read model ────────────────────────────────────────────────────────────
 
@@ -473,7 +474,9 @@ public sealed class WalkModel(
 
     /// <summary>
     /// Accepts a JSON body of per-lot adjustments (P4-5, J3):
-    /// <c>{ adjustments: [{ entryId?, amount, unitId, reason, expiryDate? }] }</c>.
+    /// <c>{ adjustments: [{ entryId?, amount, unitId, reason, expiryDate?, setExpiry? }] }</c>.
+    /// <c>setExpiry</c> (plantry-fyvr) marks a Reduce item as also carrying a manual expiry
+    /// correction for the named lot — with <c>amount</c> 0 it is an expiry-only correction.
     /// Runs <see cref="SaveLotAdjustmentsCommand"/> and returns a per-item result vector.
     /// </summary>
     public async Task<IActionResult> OnPostSaveLotsAsync(Guid productId, CancellationToken ct = default)
@@ -503,11 +506,12 @@ public sealed class WalkModel(
                 a.Amount,
                 a.UnitId,
                 ParseReason(a.Reason),
-                a.ExpiryDate))
+                a.ExpiryDate,
+                a.SetExpiry))
             .ToList();
 
         var cmd = new SaveLotAdjustmentsCommand(
-            productId, LocationId, adjustments, userId, stocks, conversions, clock, tenant);
+            productId, LocationId, adjustments, userId, stocks, conversions, clock, tenant, saveLotsLogger);
         var result = await cmd.ExecuteAsync(ct);
 
         if (result.IsFailure)
@@ -701,6 +705,13 @@ public sealed class WalkModel(
         public Guid     UnitId     { get; set; }
         public string?  Reason     { get; set; }
         public DateOnly? ExpiryDate { get; set; }
+        /// <summary>
+        /// True when the client is submitting a manual expiry correction for this lot (plantry-fyvr —
+        /// the Take Stock lot panel's expiry editor). Distinguishes "no expiry change" from "clear the
+        /// expiry" (both serialize <see cref="ExpiryDate"/> as null); ignored for a found-stock item
+        /// (<see cref="EntryId"/> null), where <see cref="ExpiryDate"/> is always applied.
+        /// </summary>
+        public bool     SetExpiry  { get; set; }
     }
 
     private sealed class AddItemRequest

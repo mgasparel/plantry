@@ -257,6 +257,25 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.DoesNotContain("Amount to reduce for this lot", html);
     }
 
+    [Fact(DisplayName = "GET /Lots renders an editable expiry date input for each existing lot (plantry-fyvr)")]
+    public async Task Get_Lots_RendersEditableExpiryInput()
+    {
+        var client = AuthClient();
+        var url = $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Lots&productId={TakeStockFixture.FlourId}";
+        var resp = await client.GetAsync(url);
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        // Both seeded lots get their own editable date input (id=lot-expiry-{entryId}), bound via
+        // x-model to the per-lot Alpine state, not the read-only text the panel used to render.
+        // These are the fixed IDs FakeTakeStockReader.ListLotsAsync (the GET /Lots data source)
+        // seeds — distinct from FakeTsStockRepository.FlourLotIds, which only backs SaveLots.
+        Assert.Contains($"id=lot-expiry-{TakeStockFixture.LotAId}", html);
+        Assert.Contains($"id=lot-expiry-{TakeStockFixture.LotBId}", html);
+        Assert.Contains("ts-date-input", html);
+        Assert.Contains("Expiry date for this lot", html);
+    }
+
     [Fact(DisplayName = "GET /Lots for a location with no lots renders empty state")]
     public async Task Get_Lots_EmptyLocationRendersEmptyState()
     {
@@ -367,6 +386,62 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var stock = _factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
         var lot = stock.Entries.Single(e => e.Id.Value == lotAId);
         Assert.False(lot.IsOpen);
+    }
+
+    [Fact(DisplayName = "POST SaveLots with setExpiry corrects an existing lot's expiry without changing quantity (plantry-fyvr)")]
+    public async Task Post_SaveLots_SetExpiry_CorrectsExpiry_NoQuantityChange()
+    {
+        var client = AuthClient();
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var lotAId = _factory.StockRepository.FlourLotIds[0];
+        // The shared FakeTsStockRepository fixture accumulates mutations from other tests in this
+        // class (they run against the same in-memory stock), so assert against the quantity right
+        // before this call rather than the fixture's original seed value.
+        var stockBefore = _factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        var quantityBefore = stockBefore.Entries.Single(e => e.Id.Value == lotAId).Quantity;
+
+        var payload = new
+        {
+            adjustments = new[]
+            {
+                new
+                {
+                    entryId = lotAId,
+                    amount = 0m,
+                    unitId = TakeStockFixture.GramUnitId,
+                    setExpiry = true,
+                    expiryDate = "2027-04-10",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=SaveLots&productId={TakeStockFixture.FlourId}")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveLotsResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got: {result.Error}");
+
+        var stock = _factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        var lot = stock.Entries.Single(e => e.Id.Value == lotAId);
+        Assert.Equal(new DateOnly(2027, 4, 10), lot.ExpiryDate);
+        Assert.Equal(quantityBefore, lot.Quantity); // untouched — expiry-only correction
     }
 
     [Fact(DisplayName = "POST SaveLots with spoiled reason writes Discarded (J3)")]
