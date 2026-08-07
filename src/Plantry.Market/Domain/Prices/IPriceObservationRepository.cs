@@ -48,4 +48,37 @@ public interface IPriceObservationRepository
     /// same batching convention D1/D2 established (plantry-4t0g). Superseded-filtered like every other read
     /// here (ADR-023 A7): a fully-amended-away observation doesn't count as "has price data."</summary>
     Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(IEnumerable<Guid> productIds, CancellationToken ct = default);
+
+    /// <summary>Batch counterpart to <see cref="LatestForProductAsync"/> (plantry-hbol): the latest
+    /// <c>purchase</c>/<c>manual</c> observation for each of the given product ids, in one round trip
+    /// instead of one query per product. Products with no matching observation are simply absent from
+    /// the result. Same source/supersession filtering as the single-product read.</summary>
+    async Task<IReadOnlyDictionary<Guid, PriceObservation>> LatestForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, PriceObservation>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var observation = await LatestForProductAsync(productId, ct);
+            if (observation is not null)
+                result[productId] = observation;
+        }
+        return result;
+    }
+
+    /// <summary>Batch counterpart to <see cref="CheapestActiveDealForProductAsync"/> (plantry-hbol): the
+    /// cheapest active deal for each of the given product ids, in one round trip instead of one query per
+    /// product. Products with no active deal are simply absent from the result.</summary>
+    async Task<IReadOnlyDictionary<Guid, PriceObservation>> CheapestActiveDealsForProductsAsync(
+        IEnumerable<Guid> productIds, DateOnly today, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, PriceObservation>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var observation = await CheapestActiveDealForProductAsync(productId, today, ct);
+            if (observation is not null)
+                result[productId] = observation;
+        }
+        return result;
+    }
 }

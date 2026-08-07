@@ -1,4 +1,5 @@
 using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.Recipes.Application;
 using Plantry.SharedKernel.Domain;
 
@@ -29,14 +30,22 @@ public sealed class PriceReaderAdapter(PricingQueries pricingQueries, IClock clo
     {
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var observation = await pricingQueries.EffectiveCostablePriceAsync(productId, today, ct);
-        if (observation is null)
-            return null;
+        return observation is null ? null : ToPricePoint(observation);
+    }
 
-        return new PricePoint(
+    public async Task<IReadOnlyDictionary<Guid, PricePoint>> FindLatestManyAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var observations = await pricingQueries.EffectiveCostablePricesAsync(productIds, today, ct);
+        return observations.ToDictionary(kv => kv.Key, kv => ToPricePoint(kv.Value));
+    }
+
+    private static PricePoint ToPricePoint(PriceObservation observation) =>
+        new(
             observation.ProductId,
             observation.Price,
             observation.Quantity,
             observation.UnitId,
             observation.UnitPrice);
-    }
 }

@@ -35,6 +35,24 @@ public sealed class CatalogReadFacade(
         return ToInfo(product, parent, unitCodesById, categoryInfo.name, categoryInfo.hue, defaults);
     }
 
+    /// <summary>
+    /// Batch-resolves the given products in a small constant number of round trips (one product-by-ids
+    /// query, one units fetch, one categories fetch, one defaults fetch, one parent-batch query) instead of
+    /// the four-query-per-product fan-out <see cref="FindProductAsync"/> would produce in a loop
+    /// (plantry-hbol) — shares the exact batched projection <see cref="ListProductsAsync"/> uses.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, CatalogProductInfo>> FindManyAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idList = productIds.Distinct().Select(ProductId.From).ToList();
+        if (idList.Count == 0)
+            return new Dictionary<Guid, CatalogProductInfo>();
+
+        var found = await products.ListByIdsAsync(idList, ct);
+        var infos = await ProjectAsync(found, ct);
+        return infos.ToDictionary(i => i.Id);
+    }
+
     public async Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default) =>
         await ProjectAsync(await products.ListActiveAsync(ct), ct);
 
