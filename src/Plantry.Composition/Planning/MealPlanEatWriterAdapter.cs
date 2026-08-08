@@ -67,7 +67,7 @@ public sealed class MealPlanEatWriterAdapter(
     ILogger<ConsumeStockCommand> consumeLogger,
     ILogger<AddStockCommand> addLogger) : IMealPlanEatWriter
 {
-    public Task EatAsync(
+    public Task<bool> EatAsync(
         Guid plannedDishId, Guid productId, decimal quantity, Guid userId, CancellationToken ct = default)
     {
         consumeLogger.LogWarning(
@@ -78,7 +78,7 @@ public sealed class MealPlanEatWriterAdapter(
             "Product-dish Eat requires the saved planned unit; default-unit inference is not supported.");
     }
 
-    public async Task EatAsync(
+    public async Task<bool> EatAsync(
         Guid plannedDishId, Guid productId, decimal quantity, Guid unitId, Guid userId, CancellationToken ct = default)
     {
         if (unitId == Guid.Empty)
@@ -110,12 +110,32 @@ public sealed class MealPlanEatWriterAdapter(
                 // (there is nothing to net negative), so the dish's derived state legitimately stays
                 // pending — consistent with ProductStock.Consume's own behaviour when a stock record
                 // exists but every lot is already depleted (zero candidates, zero journal rows, still
-                // a graceful success).
-                return;
+                // a graceful success). Returning false (rather than silently succeeding) is what lets
+                // the caller surface a "nothing to eat" message instead of leaving the tap looking like
+                // it did nothing at all (plantry-ljng).
+                consumeLogger.LogInformation(
+                    "Meal plan Eat consumed nothing — no stock record for product {ProductId} (plan dish {PlannedDishId}); requested {Quantity} in unit {UnitId}.",
+                    productId, plannedDishId, quantity, unitId);
+                return false;
             }
 
             throw new InvalidOperationException($"Eat consume failed ({result.Error.Code}): {result.Error.Description}");
         }
+
+        // Nothing was deducted AND the full request went unsatisfied → nothing was actually on hand
+        // (the everyday "stocked it, ate it, now it's zero" case — ProductStock.Consume finds zero
+        // active lots and reports a full shortfall as a SUCCESS, not the Inventory.NoStock failure
+        // above, which only fires for a product with no ProductStock row at all). An idempotent replay
+        // of a real eat instead recomputes a shortfall STRICTLY LESS than the requested quantity (the
+        // portion already satisfied by the original call), so it still correctly reports true here —
+        // only a replay of a call that consumed nothing the first time around reports false.
+        var outcome = result.Value;
+        var consumedSomething = outcome.Deductions.Count > 0 || outcome.ShortfallAmount < quantity;
+        if (!consumedSomething)
+            consumeLogger.LogInformation(
+                "Meal plan Eat consumed nothing — every lot for product {ProductId} is already depleted (plan dish {PlannedDishId}); requested {Quantity} in unit {UnitId}, full shortfall {Shortfall}.",
+                productId, plannedDishId, quantity, unitId, outcome.ShortfallAmount);
+        return consumedSomething;
     }
 
     public async Task UndoEatAsync(

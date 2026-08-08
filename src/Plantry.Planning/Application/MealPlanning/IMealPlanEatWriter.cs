@@ -37,8 +37,16 @@ public interface IMealPlanEatWriter
     /// the exact same eat — is a no-op that writes no further journal rows. A call following a prior
     /// <see cref="UndoEatAsync"/> is a genuinely new eat (re-eat) and writes a fresh journal row.
     /// </para>
+    ///
+    /// <para>
+    /// Returns <see langword="false"/> when nothing at all was consumed because the product has no
+    /// stock on hand (either no <c>ProductStock</c> record, or every lot already depleted) — callers
+    /// use this to surface a "nothing to eat" signal to the user (plantry-ljng), since the call itself
+    /// never throws for this case. Returns <see langword="true"/> whenever at least one journal row was
+    /// written, including a partial shortfall consume.
+    /// </para>
     /// </summary>
-    Task EatAsync(
+    Task<bool> EatAsync(
         Guid plannedDishId,
         Guid productId,
         decimal quantity,
@@ -46,7 +54,7 @@ public interface IMealPlanEatWriter
         CancellationToken ct = default);
 
     /// <summary>Unit-aware overload used by explicit product-dish snapshots.</summary>
-    Task EatAsync(
+    Task<bool> EatAsync(
         Guid plannedDishId,
         Guid productId,
         decimal quantity,

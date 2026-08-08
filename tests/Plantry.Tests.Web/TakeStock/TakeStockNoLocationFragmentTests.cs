@@ -342,6 +342,9 @@ public sealed class FakeTsNoLocationCatalogWriter : ITakeStockCatalogWriter
     public Task AddConversionAsync(
         Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default) =>
         Task.CompletedTask;
+
+    public Task MarkLocationCountedAsync(Guid locationId, CancellationToken ct = default) =>
+        Task.CompletedTask;
 }
 
 // ── WAF factories ─────────────────────────────────────────────────────────────

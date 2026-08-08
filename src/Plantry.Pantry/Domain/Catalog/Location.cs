@@ -19,6 +19,13 @@ public sealed class Location : AggregateRoot<LocationId>
     public DateTimeOffset? ArchivedAt { get; private set; }
     public bool IsArchived => ArchivedAt is not null;
 
+    /// <summary>
+    /// When a Take Stock walk of this location last completed (plantry-hp67). Location-level only
+    /// for v1 — no per-product verified timestamp is recorded. Null means the location has never
+    /// had a completed walk.
+    /// </summary>
+    public DateTimeOffset? LastCountedAt { get; private set; }
+
     private Location() { } // EF
 
     private Location(LocationId id, HouseholdId householdId, string name, LocationType type)
@@ -52,5 +59,15 @@ public sealed class Location : AggregateRoot<LocationId>
     public void Unarchive()
     {
         ArchivedAt = null;
+    }
+
+    /// <summary>
+    /// Stamps this location as counted (a Take Stock walk completed here). Always overwrites with
+    /// the current time — unlike <see cref="Archive"/> there is no "already done" guard, since each
+    /// completed walk is a fresh observation that should supersede the last one.
+    /// </summary>
+    public void MarkCounted(IClock clock)
+    {
+        LastCountedAt = clock.UtcNow;
     }
 }

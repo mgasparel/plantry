@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Pantry.Application;
+using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Web.Pages.Pantry.TakeStock;
 
@@ -9,15 +10,20 @@ namespace Plantry.Web.Pages.Pantry.TakeStock;
 /// via <see cref="ITakeStockReader"/> and determines whether the "No location" group should appear.
 /// </summary>
 [Authorize]
-public sealed class IndexModel(ITakeStockReader reader) : PageModel
+public sealed class IndexModel(ITakeStockReader reader, IClock clock) : PageModel
 {
     public IReadOnlyList<TakeStockLocationRow> Locations { get; private set; } = [];
 
     /// <summary>True when any tracked product has active stock but no default location (J7).</summary>
     public bool HasNoLocationProducts { get; private set; }
 
+    /// <summary>Captured once per request so every card's freshness line (plantry-hp67) is computed
+    /// against the same "now" rather than drifting across the loop.</summary>
+    public DateTimeOffset NowUtc { get; private set; }
+
     public async Task OnGetAsync(CancellationToken ct = default)
     {
+        NowUtc = clock.UtcNow;
         Locations = await reader.ListLocationsAsync(ct);
         var noLoc = await reader.ListNoLocationRowsAsync(ct);
         HasNoLocationProducts = noLoc.Count > 0;

@@ -108,6 +108,7 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
                 .HasMaxLength(20)
                 .IsRequired();
             b.Property(l => l.ArchivedAt).HasColumnName("archived_at");
+            b.Property(l => l.LastCountedAt).HasColumnName("last_counted_at");
 
             b.HasIndex(l => new { l.HouseholdId, l.Name }).IsUnique();
 

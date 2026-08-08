@@ -1,6 +1,7 @@
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
 using Plantry.Pantry.Application;
+using Plantry.Pantry.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -67,4 +68,47 @@ public sealed class StubInventoryQueryService(int inStock, int expiringSoon)
 {
     public override Task<int> CountInStockAsync(CancellationToken ct = default) => Task.FromResult(inStock);
     public override Task<int> CountExpiringSoonAsync(CancellationToken ct = default) => Task.FromResult(expiringSoon);
+}
+
+/// <summary>
+/// Shared in-memory <see cref="ILocationRepository"/> fake for WAF harnesses (plantry-iypo code
+/// review — previously duplicated per-test-file as <c>FakeMoveLocationRepository</c>/
+/// <c>FakePantryLocationRepository</c>). Starts empty; seed via <see cref="Seed(Location)"/> for a
+/// caller that already has a constructed <see cref="Location"/> (e.g. a fixture-shared instance whose
+/// id other fakes/dictionaries also key off), or <see cref="Seed(HouseholdId, string, LocationType)"/>
+/// for a caller that just needs a named active location and its id back.
+/// </summary>
+public sealed class FakeLocationRepository : ILocationRepository
+{
+    private readonly List<Location> _locations = [];
+
+    /// <summary>Adds an already-constructed location (e.g. one a test fixture shares with other fakes/dictionaries).</summary>
+    public void Seed(Location location) => _locations.Add(location);
+
+    /// <summary>Creates and adds a new active location, returning its id for the caller to reference.</summary>
+    public Guid Seed(HouseholdId household, string name, LocationType type = LocationType.Ambient)
+    {
+        var location = Location.Create(household, name, type);
+        _locations.Add(location);
+        return location.Id.Value;
+    }
+
+    public Task<Location?> FindAsync(LocationId id, CancellationToken ct = default) =>
+        Task.FromResult(_locations.SingleOrDefault(l => l.Id == id));
+
+    public Task<Location?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult(_locations.SingleOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<List<Location>> ListAsync(CancellationToken ct = default) => Task.FromResult(_locations.ToList());
+
+    public Task<List<Location>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(_locations.Where(l => !l.IsArchived).ToList());
+
+    public Task AddAsync(Location location, CancellationToken ct = default)
+    {
+        _locations.Add(location);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

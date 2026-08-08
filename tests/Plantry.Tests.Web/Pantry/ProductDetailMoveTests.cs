@@ -293,7 +293,10 @@ internal sealed class ProductDetailMoveFactory : WebApplicationFactory<Program>
             services.AddSingleton<ICatalogReadFacade>(Catalog);
 
             services.RemoveAll<ILocationRepository>();
-            services.AddSingleton<ILocationRepository>(new FakeMoveLocationRepository());
+            var moveLocations = new FakeLocationRepository();
+            moveLocations.Seed(ProductDetailMoveFixture.Fridge);
+            moveLocations.Seed(ProductDetailMoveFixture.Freezer);
+            services.AddSingleton<ILocationRepository>(moveLocations);
 
             Stock = ProductStock.Start(
                 ProductDetailMoveFixture.Household, ProductDetailMoveFixture.ProductId,
@@ -370,32 +373,3 @@ internal sealed class FakeMoveCatalogFacade(Guid productId) : ICatalogReadFacade
         });
 }
 
-/// <summary>Fridge (ambient) + Chest freezer (frozen) — the two locations the Move sheet's destination
-/// picker needs to render both the ❄ suffix and the disabled "(current)" option.</summary>
-internal sealed class FakeMoveLocationRepository : ILocationRepository
-{
-    private readonly List<Location> _locations =
-    [
-        ProductDetailMoveFixture.Fridge,
-        ProductDetailMoveFixture.Freezer,
-    ];
-
-    public Task<Location?> FindAsync(LocationId id, CancellationToken ct = default) =>
-        Task.FromResult(_locations.SingleOrDefault(l => l.Id == id));
-
-    public Task<Location?> FindByNameAsync(string name, CancellationToken ct = default) =>
-        Task.FromResult(_locations.SingleOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase)));
-
-    public Task<List<Location>> ListAsync(CancellationToken ct = default) => Task.FromResult(_locations.ToList());
-
-    public Task<List<Location>> ListActiveAsync(CancellationToken ct = default) =>
-        Task.FromResult(_locations.Where(l => !l.IsArchived).ToList());
-
-    public Task AddAsync(Location location, CancellationToken ct = default)
-    {
-        _locations.Add(location);
-        return Task.CompletedTask;
-    }
-
-    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
-}

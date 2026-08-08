@@ -97,4 +97,44 @@ public sealed class LocationTests
         Assert.False(location.IsArchived);
         Assert.Null(location.ArchivedAt);
     }
+
+    [Fact]
+    public void New_Location_Has_Never_Been_Counted()
+    {
+        var location = Location.Create(HouseholdId, "Pantry", LocationType.Ambient);
+
+        Assert.Null(location.LastCountedAt);
+    }
+
+    [Fact]
+    public void MarkCounted_Sets_LastCountedAt()
+    {
+        var location = Location.Create(HouseholdId, "Pantry", LocationType.Ambient);
+
+        location.MarkCounted(Clock);
+
+        Assert.NotNull(location.LastCountedAt);
+    }
+
+    [Fact]
+    public void MarkCounted_Always_Advances_LastCountedAt_Unlike_Archive()
+    {
+        // Unlike Archive (idempotent — an "already done" guard), a second completed walk is a
+        // fresh observation that must supersede the last one, so MarkCounted always overwrites.
+        var fixedClock = new FixedClock(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
+        var location = Location.Create(HouseholdId, "Pantry", LocationType.Ambient);
+        location.MarkCounted(fixedClock);
+        var firstCountedAt = location.LastCountedAt;
+
+        var laterClock = new FixedClock(DateTimeOffset.Parse("2026-01-02T00:00:00Z"));
+        location.MarkCounted(laterClock);
+
+        Assert.NotEqual(firstCountedAt, location.LastCountedAt);
+        Assert.Equal(laterClock.UtcNow, location.LastCountedAt);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow => now;
+    }
 }

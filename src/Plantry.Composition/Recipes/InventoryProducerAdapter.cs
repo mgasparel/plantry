@@ -17,18 +17,28 @@ namespace Plantry.Web.Recipes;
 /// yield lot, and every produced lot is traceable to its originating <c>CookEvent</c> (ADR-011). Lives in
 /// the composition root, which references both contexts; the Recipes projects stay <c>→ SharedKernel only</c>.
 ///
-/// <para>Recipes has no location concept, so the produced lot is stored in the household's first active
-/// Location (there is no per-household default-location query). Auto-created yield products carry no
-/// default location, so this deterministic fallback is the storage target; when the household has no active
-/// location the produce cannot be recorded and throws (the cook flow records the line Failed).</para>
+/// <para>Recipes has no location concept of its own, so the produced lot's storage location is resolved
+/// through a three-rung fallback chain (plantry-iypo): (1) the yielded product's own configured default
+/// location (<c>Product.DefaultLocationId</c>) — the same "where this normally lives" field Take Stock
+/// and product intake already use; (2) the household's configured default storage location
+/// (<c>HouseholdInventorySettings.DefaultLocationId</c>, via <see cref="IHouseholdDefaultLocationReader"/>)
+/// when the product has none; (3) the household's first active Location (alphabetical,
+/// <see cref="ILocationRepository.ListActiveAsync"/>) when neither default is set. Either default is
+/// skipped, with a warning logged, if it points at a location that has since been archived — a default
+/// is only ever resolved among the currently active locations. Auto-created yield products carry no
+/// product-level default, so rungs (2)/(3) are the deterministic storage target for them; when the
+/// household has no active location at all the produce cannot be recorded and throws (the cook flow
+/// records the line Failed).</para>
 /// </summary>
 public sealed class InventoryProducerAdapter(
     IProductStockRepository stocks,
     ICatalogReadFacade catalog,
     ILocationRepository locations,
+    IHouseholdDefaultLocationReader householdDefaultLocation,
     IClock clock,
     ITenantContext tenant,
-    ILogger<AddStockCommand> addLogger) : IInventoryProducer
+    ILogger<AddStockCommand> addLogger,
+    ILogger<InventoryProducerAdapter> logger) : IInventoryProducer
 {
     public async Task ProduceAsync(
         Guid productId,
@@ -55,7 +65,41 @@ public sealed class InventoryProducerAdapter(
         if (activeLocations.Count == 0)
             throw new InvalidOperationException(
                 "Cannot store cooked yield — the household has no active storage location.");
-        var locationId = activeLocations[0].Id.Value;
+
+        // Three-rung fallback chain (plantry-iypo): product default → household default → alphabetically-
+        // first active location. Each default is honored only when it still resolves to an active
+        // location; a default pointing at a since-archived location is skipped (with a warning) rather
+        // than silently used, since AddStockCommand would otherwise store stock somewhere no longer meant
+        // to receive it.
+        var productInfo = await catalog.FindProductAsync(productId, ct);
+        var productDefaultLocationId = productInfo?.DefaultLocationId;
+        Guid locationId;
+        if (productDefaultLocationId is { } productDefault && activeLocations.Any(l => l.Id.Value == productDefault))
+        {
+            locationId = productDefault;
+        }
+        else
+        {
+            if (productDefaultLocationId is { } staleProductDefault)
+                logger.LogWarning(
+                    "Produce {ProductId}: configured product default location {LocationId} is not active; " +
+                    "checking the household default next.", productId, staleProductDefault);
+
+            var householdDefaultLocationId = await householdDefaultLocation.GetDefaultLocationIdAsync(ct);
+            if (householdDefaultLocationId is { } householdDefault && activeLocations.Any(l => l.Id.Value == householdDefault))
+            {
+                locationId = householdDefault;
+            }
+            else
+            {
+                if (householdDefaultLocationId is { } staleHouseholdDefault)
+                    logger.LogWarning(
+                        "Produce {ProductId}: configured household default location {LocationId} is not " +
+                        "active; falling back to the first active location {FallbackLocationId}.",
+                        productId, staleHouseholdDefault, activeLocations[0].Id.Value);
+                locationId = activeLocations[0].Id.Value;
+            }
+        }
 
         var command = new AddStockCommand(
             productId,

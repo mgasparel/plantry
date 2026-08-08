@@ -53,6 +53,10 @@ public sealed class WalkModel(
 
     public string? LocationName { get; private set; }
 
+    /// <summary>"Counted N days ago" / "Never counted" freshness text for the walk header sub-line
+    /// (plantry-hp67), computed via <see cref="TakeStockDisplay.CountedAgo"/>.</summary>
+    public string CountedAgoText { get; private set; } = "Never counted";
+
     public IReadOnlyList<TakeStockLocationProductRow> Rows { get; private set; } = [];
 
     /// <summary>
@@ -355,6 +359,12 @@ public sealed class WalkModel(
 
         perRowResults.AddRange(needsConversionResults);
 
+        // Gates the completion stamp below on something actually having been recorded — not merely
+        // submitted (plantry-hp67). A batch that is entirely invalid units, entirely needsConversion
+        // holds, or whose command runs but every row fails must not advance freshness; the location
+        // was not, in fact, counted.
+        var anyCountRecorded = false;
+
         if (validItems.Count > 0)
         {
             var cmd = new SaveCountsCommand(validItems, userId, stocks, conversions, clock, tenant);
@@ -393,6 +403,8 @@ public sealed class WalkModel(
                 }
             }
 
+            anyCountRecorded = result.Value.Any(r => r.IsSuccess);
+
             perRowResults.AddRange(result.Value.Select(r => (object)new
             {
                 r.ProductId,
@@ -401,7 +413,69 @@ public sealed class WalkModel(
             }));
         }
 
-        return new JsonResult(new { results = perRowResults });
+        // A regular Save is a completed pass over this location once at least one row actually
+        // recorded (plantry-hp67) — the unrecorded rows are either unchanged (implicitly confirmed)
+        // or the failures already surfaced in perRowResults above. Best-effort like the deferred
+        // unit-gap void above — a failure here must not fail the save response the client is
+        // waiting on.
+        //
+        // countedAgo is the freshness half of the response contract: a pre-formatted string
+        // (TakeStockDisplay.CountedAgo — "Counted today" immediately after a stamp) ONLY when the
+        // stamp actually persisted, null when it failed or didn't run. The island updates its
+        // header/button strictly from this value (never optimistically from saved-row counts), so
+        // a silently swallowed stamp failure can't leave the UI claiming a freshness the database
+        // doesn't have — and the wording stays server-owned in RelativeTimeDisplay.
+        string? countedAgo = null;
+        if (anyCountRecorded)
+        {
+            try
+            {
+                await catalogWriter.MarkLocationCountedAsync(LocationId, ct);
+                countedAgo = TakeStockDisplay.CountedAgo(clock.UtcNow, clock.UtcNow);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Marking location {LocationId} counted after Save failed.", LocationId);
+            }
+        }
+
+        return new JsonResult(new { results = perRowResults, countedAgo });
+    }
+
+    // ── POST (Complete — zero-change walk completion, plantry-hp67) ────────────
+
+    /// <summary>
+    /// Records that a walk of this location finished with nothing to change — every row was already
+    /// confirmed at its recorded value, so the client-side Save flow never fires (the Save bar only
+    /// renders when at least one row is dirty). The island posts here instead when the user leaves a
+    /// fully-confirmed walk (dirtyCount === 0) so the location's freshness still advances. Complements
+    /// the regular-Save completion stamp above, which covers every walk that changed at least one row.
+    /// </summary>
+    public async Task<IActionResult> OnPostCompleteAsync(CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is null)
+            return Unauthorized();
+
+        try
+        {
+            await catalogWriter.MarkLocationCountedAsync(LocationId, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Marking location {LocationId} counted (zero-change completion) failed.", LocationId);
+            return StatusCode(500, new { error = "Failed to record walk completion." });
+        }
+
+        // Same freshness contract as OnPostSaveAsync's countedAgo: this line is reached only when
+        // the stamp persisted, so the response always carries the server-formatted text the island
+        // swaps into its header — the failure path above returns 500 with no countedAgo, and the
+        // island leaves its header/button untouched.
+        return new JsonResult(new
+        {
+            isSuccess = true,
+            countedAgo = TakeStockDisplay.CountedAgo(clock.UtcNow, clock.UtcNow),
+        });
     }
 
     // ── POST (Add conversion — NeedsConversion backstop, plantry-3mwx) ─────────
@@ -585,7 +659,12 @@ public sealed class WalkModel(
     private async Task LoadAsync(CancellationToken ct)
     {
         var locations = await reader.ListLocationsAsync(ct);
-        LocationName = locations.FirstOrDefault(l => l.LocationId == LocationId)?.LocationName;
+        var match = locations.FirstOrDefault(l => l.LocationId == LocationId);
+        LocationName = match?.LocationName;
+        // Freshness for the walk header sub-line (plantry-hp67) — cheap since ListLocationsAsync is
+        // already loaded above for the name lookup; shares the same TakeStockDisplay formatting as
+        // the location picker cards (_LocationList.cshtml).
+        CountedAgoText = TakeStockDisplay.CountedAgo(match?.LastCountedAt, clock.UtcNow);
         Rows = await reader.ListLocationRowsAsync(LocationId, ct);
         IslandRowsJson = BuildIslandRowsJson(Rows);
 
@@ -626,12 +705,15 @@ public sealed class WalkModel(
             r.DisplayUnitCode,
             r.DisplayUnitId,
             r.HasActiveStock,
-            // lotsUrl is resolved server-side so the island never constructs URLs.
+            // lotsUrl/saveLotsUrl are resolved server-side so the island never constructs URLs.
             // The handler remains the sole owner of its own routing.
             Url.Page("./Walk", "Lots", new { locationId = LocationId, productId = r.ProductId }) ?? "",
             r.SupportedUnits?
                 .Select(u => new UnitOptionVm(u.UnitId, u.Code))
-                .ToList() ?? []));
+                .ToList() ?? [],
+            Url.Page("./Walk", "SaveLots", new { locationId = LocationId, productId = r.ProductId }) ?? "",
+            r.CategoryName,
+            r.CategorySortOrder));
 
         return JsonSerializer.Serialize(list, TakeStockHydrationJson.Options);
     }

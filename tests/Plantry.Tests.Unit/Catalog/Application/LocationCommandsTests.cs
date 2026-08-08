@@ -140,4 +140,30 @@ public sealed class LocationCommandsTests
         Assert.False(location.IsArchived);
         Assert.Single(await repo.ListActiveAsync());
     }
+
+    [Fact]
+    public async Task MarkLocationCountedCommand_Stamps_LastCountedAt()
+    {
+        var householdId = Plantry.SharedKernel.HouseholdId.New();
+        var repo = new FakeLocationRepository();
+        var location = Location.Create(householdId, "Pantry", LocationType.Ambient);
+        repo.Items.Add(location);
+
+        var result = await new MarkLocationCountedCommand(location.Id, repo, Clock).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(location.LastCountedAt);
+        Assert.Equal(1, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task MarkLocationCountedCommand_Fails_When_Location_Not_Found()
+    {
+        var repo = new FakeLocationRepository();
+
+        var result = await new MarkLocationCountedCommand(LocationId.New(), repo, Clock).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("NotFound", result.Error.Code);
+    }
 }

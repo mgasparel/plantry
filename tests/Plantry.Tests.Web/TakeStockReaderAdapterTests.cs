@@ -3,6 +3,7 @@ using Plantry.Pantry.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Tests.Web.TakeStock;
 using Plantry.Web.Inventory;
 using CatalogUnit = Plantry.Pantry.Domain.Unit;
 
@@ -32,10 +33,11 @@ public sealed class TakeStockReaderAdapterTests
         IProductRepository prods,
         IUnitRepository unitRepo,
         ILocationRepository locs,
-        Guid? householdOverride = null)
+        Guid? householdOverride = null,
+        IReadOnlyList<Category>? categories = null)
     {
         var tenant = new TsTenantContext(householdOverride ?? HouseholdGuid);
-        return new TakeStockReaderAdapter(stocks, prods, unitRepo, locs, new TsPassThroughConversions(), tenant);
+        return new TakeStockReaderAdapter(stocks, prods, unitRepo, locs, new TsPassThroughConversions(), new FakeTsCategoryRepository(categories), tenant);
     }
 
     /// <summary>Creates a unit and registers it in the repo; returns both the unit and its Id.</summary>
@@ -197,12 +199,93 @@ public sealed class TakeStockReaderAdapterTests
         Assert.Equal(500m, row.RecordedQuantity);
     }
 
+    // ── Category resolution (plantry-vvqt walk redesign — design item 6) ──────
+
+    [Fact(DisplayName = "ListLocationRows — a product with a category yields its name and store-layout sort order")]
+    public async Task ListLocationRows_ProductWithCategory_ResolvesNameAndSortOrder()
+    {
+        var units = new TsUnitRepository();
+        var (_, gramId) = MakeUnit(units, "g");
+
+        var dairy = Category.Create(Household, "Dairy", sortOrder: 3);
+
+        var prods = new TsProductRepository();
+        var milk = Product.Create(Household, "Milk", UnitId.From(gramId), Clock);
+        milk.SetCategory(dairy.Id, Clock);
+        prods.Add(milk);
+
+        var stocks = new TsStockRepository();
+        var stock = ProductStock.Start(Household, milk.Id.Value, Clock);
+        stock.AddStock(500m, gramId, PantryLocId, userId: Guid.NewGuid(), Clock);
+        stocks.Add(stock);
+
+        var adapter = BuildAdapter(stocks, prods, units, new TsLocationRepository(), categories: [dairy]);
+        var result = await adapter.ListLocationRowsAsync(PantryLocId);
+
+        var row = Assert.Single(result);
+        Assert.Equal("Dairy", row.CategoryName);
+        Assert.Equal(3, row.CategorySortOrder);
+    }
+
+    [Fact(DisplayName = "ListLocationRows — a product with no category yields null name and int.MaxValue sort order")]
+    public async Task ListLocationRows_ProductWithNoCategory_ResolvesNullAndMaxSortOrder()
+    {
+        var units = new TsUnitRepository();
+        var (_, gramId) = MakeUnit(units, "g");
+
+        var prods = new TsProductRepository();
+        var flour = Product.Create(Household, "Flour", UnitId.From(gramId), Clock); // no SetCategory call
+        prods.Add(flour);
+
+        var stocks = new TsStockRepository();
+        var stock = ProductStock.Start(Household, flour.Id.Value, Clock);
+        stock.AddStock(500m, gramId, PantryLocId, userId: Guid.NewGuid(), Clock);
+        stocks.Add(stock);
+
+        var adapter = BuildAdapter(stocks, prods, units, new TsLocationRepository());
+        var result = await adapter.ListLocationRowsAsync(PantryLocId);
+
+        var row = Assert.Single(result);
+        Assert.Null(row.CategoryName);
+        Assert.Equal(int.MaxValue, row.CategorySortOrder);
+    }
+
+    [Fact(DisplayName = "ListLocationRows — a product whose category id doesn't resolve falls back to null / int.MaxValue")]
+    public async Task ListLocationRows_ProductWithUnresolvableCategory_FallsBackToNullAndMaxSortOrder()
+    {
+        var units = new TsUnitRepository();
+        var (_, gramId) = MakeUnit(units, "g");
+
+        // A category id that is never registered in the fake repository's seed list — mirrors a
+        // product whose category was hard-deleted or never resolves (categories are soft-deleted,
+        // products.category_id is a bare cross-row id with no FK — see TakeStockReaderAdapter.ResolveCategory).
+        var danglingCategoryId = CategoryId.New();
+
+        var prods = new TsProductRepository();
+        var eggs = Product.Create(Household, "Eggs", UnitId.From(gramId), Clock);
+        eggs.SetCategory(danglingCategoryId, Clock);
+        prods.Add(eggs);
+
+        var stocks = new TsStockRepository();
+        var stock = ProductStock.Start(Household, eggs.Id.Value, Clock);
+        stock.AddStock(500m, gramId, PantryLocId, userId: Guid.NewGuid(), Clock);
+        stocks.Add(stock);
+
+        // categories: [] (default) — the dangling id has nothing to resolve against.
+        var adapter = BuildAdapter(stocks, prods, units, new TsLocationRepository());
+        var result = await adapter.ListLocationRowsAsync(PantryLocId);
+
+        var row = Assert.Single(result);
+        Assert.Null(row.CategoryName);
+        Assert.Equal(int.MaxValue, row.CategorySortOrder);
+    }
+
     [Fact(DisplayName = "ListLocationRows — no tenant context returns empty")]
     public async Task ListLocationRows_NoTenant_ReturnsEmpty()
     {
         var adapter = new TakeStockReaderAdapter(
             new TsStockRepository(), new TsProductRepository(), new TsUnitRepository(),
-            new TsLocationRepository(), new TsPassThroughConversions(),
+            new TsLocationRepository(), new TsPassThroughConversions(), new FakeTsCategoryRepository(),
             new TsTenantContext(null));
 
         var result = await adapter.ListLocationRowsAsync(PantryLocId);
@@ -367,7 +450,7 @@ public sealed class TakeStockReaderAdapterTests
     {
         var adapter = new TakeStockReaderAdapter(
             new TsStockRepository(), new TsProductRepository(), new TsUnitRepository(),
-            new TsLocationRepository(), new TsPassThroughConversions(),
+            new TsLocationRepository(), new TsPassThroughConversions(), new FakeTsCategoryRepository(),
             new TsTenantContext(null));
 
         var result = await adapter.ListNoLocationRowsAsync();
@@ -438,7 +521,7 @@ public sealed class TakeStockReaderAdapterTests
     {
         var adapter = new TakeStockReaderAdapter(
             new TsStockRepository(), new TsProductRepository(), new TsUnitRepository(),
-            new TsLocationRepository(), new TsPassThroughConversions(),
+            new TsLocationRepository(), new TsPassThroughConversions(), new FakeTsCategoryRepository(),
             new TsTenantContext(null));
 
         var result = await adapter.ListLotsAsync(Guid.CreateVersion7(), PantryLocId);

@@ -258,6 +258,12 @@ builder.Services.AddScoped<InventoryQueryService>();
 builder.Services.AddScoped<IHouseholdInventorySettingsRepository, HouseholdInventorySettingsRepository>();
 builder.Services.AddScoped<ExpiringSoonSettingsService>();
 builder.Services.AddScoped<IExpiringSoonHorizon>(sp => sp.GetRequiredService<ExpiringSoonSettingsService>());
+// Household default storage location (plantry-iypo): one service backs both the read port
+// (IHouseholdDefaultLocationReader, consumed by InventoryProducerAdapter's yield-placement fallback
+// chain) and the /Settings/Pantry write path — same per-household settings row as the "expiring soon"
+// horizon above.
+builder.Services.AddScoped<HouseholdDefaultLocationService>();
+builder.Services.AddScoped<IHouseholdDefaultLocationReader>(sp => sp.GetRequiredService<HouseholdDefaultLocationService>());
 // Purchase-frequency read over the stock journal — feeds the Deals stock-up alerts (P5-10 / DL-O4).
 builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 // Batched journal-by-SourceRef read (plantry-0eut) — feeds the MealPlanning cook-status composition

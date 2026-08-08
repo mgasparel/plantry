@@ -127,6 +127,81 @@ public sealed class PantrySettingsPageTests
         Assert.Empty(factory.Repo.Items);
     }
 
+    // ── 6. GET, seeded location + default set → dropdown selects it ──────────
+
+    [Fact(DisplayName = "L4: GET /Settings/Pantry with a configured default location selects it in the dropdown")]
+    public async Task Get_SeededDefaultLocation_SelectsIt()
+    {
+        await using var factory = new PantrySettingsFactory();
+        var household = HouseholdId.From(PantrySettingsFixture.HouseholdId);
+        var fridge = factory.Locations.Seed(household, "Fridge");
+        factory.Locations.Seed(household, "Freezer");
+        factory.Repo.SeedDefaultLocation(PantrySettingsFixture.HouseholdId, fridge);
+        var client = MakeClient(factory);
+
+        var response = await client.GetAsync("/Settings/Pantry");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("Fridge", html);
+        Assert.Contains("Freezer", html);
+        Assert.Contains($"<option selected=\"selected\" value=\"{fridge}\">Fridge</option>", html);
+    }
+
+    // ── 7. Valid POST with a location → persists, shows Saved badge ──────────
+
+    [Fact(DisplayName = "L4: valid POST /Settings/Pantry with a location persists the default location")]
+    public async Task Post_ValidLocation_PersistsAndConfirms()
+    {
+        await using var factory = new PantrySettingsFactory();
+        var pantry = factory.Locations.Seed(HouseholdId.From(PantrySettingsFixture.HouseholdId), "Pantry");
+        var client = MakeClient(factory);
+
+        var getResp = await client.GetAsync("/Settings/Pantry");
+        getResp.EnsureSuccessStatusCode();
+        var token = ExtractAntiforgeryToken(await getResp.Content.ReadAsStringAsync());
+
+        var form = new FormUrlEncodedContent([
+            new("__RequestVerificationToken", token),
+            new("Input.ExpiringSoonDays", HouseholdInventorySettings.DefaultExpiringSoonDays.ToString()),
+            new("Input.DefaultLocationId", pantry.ToString()),
+        ]);
+
+        var response = await client.PostAsync("/Settings/Pantry", form);
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(pantry, Assert.Single(factory.Repo.Items).DefaultLocationId!.Value.Value);
+        Assert.Contains("Setting saved", html);
+    }
+
+    // ── 8. POST with an unknown location id → field error, no write ──────────
+
+    [Fact(DisplayName = "L4: POST /Settings/Pantry with an unknown location id re-renders the field error and writes nothing")]
+    public async Task Post_UnknownLocation_ShowsErrorAndDoesNotWrite()
+    {
+        await using var factory = new PantrySettingsFactory();
+        var client = MakeClient(factory);
+
+        var getResp = await client.GetAsync("/Settings/Pantry");
+        getResp.EnsureSuccessStatusCode();
+        var token = ExtractAntiforgeryToken(await getResp.Content.ReadAsStringAsync());
+
+        var form = new FormUrlEncodedContent([
+            new("__RequestVerificationToken", token),
+            new("Input.ExpiringSoonDays", HouseholdInventorySettings.DefaultExpiringSoonDays.ToString()),
+            new("Input.DefaultLocationId", Guid.NewGuid().ToString()),
+        ]);
+
+        var response = await client.PostAsync("/Settings/Pantry", form);
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("Choose an active storage location.", html);
+        Assert.DoesNotContain("Setting saved", html);
+        Assert.Empty(factory.Repo.Items);
+    }
+
     // ── 5. Unauthenticated GET → 401 ─────────────────────────────────────────
 
     [Fact(DisplayName = "L4: unauthenticated GET /Settings/Pantry returns 401")]
@@ -177,6 +252,7 @@ public static class PantrySettingsFixture
 public sealed class PantrySettingsFactory : WebApplicationFactory<Program>
 {
     public FakeInventorySettingsRepository Repo { get; } = new();
+    public FakeLocationRepository Locations { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -193,9 +269,12 @@ public sealed class PantrySettingsFactory : WebApplicationFactory<Program>
                 })
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
 
-            // Replace ONLY the database port; the real ExpiringSoonSettingsService still runs.
+            // Replace ONLY the database ports; the real ExpiringSoonSettingsService/
+            // HouseholdDefaultLocationService still run.
             services.RemoveAll<IHouseholdInventorySettingsRepository>();
             services.AddSingleton<IHouseholdInventorySettingsRepository>(Repo);
+            services.RemoveAll<ILocationRepository>();
+            services.AddSingleton<ILocationRepository>(Locations);
         });
     }
 }
@@ -218,6 +297,18 @@ public sealed class FakeInventorySettingsRepository : IHouseholdInventorySetting
         var settings = HouseholdInventorySettings.Create(HouseholdId.From(householdId));
         settings.SetExpiringSoonDays(days);
         Items.Add(settings);
+    }
+
+    /// <summary>Seeds a persisted default storage location for a household ahead of a request (plantry-iypo).</summary>
+    public void SeedDefaultLocation(Guid householdId, Guid locationId)
+    {
+        var settings = Items.SingleOrDefault(s => s.HouseholdId == HouseholdId.From(householdId));
+        if (settings is null)
+        {
+            settings = HouseholdInventorySettings.Create(HouseholdId.From(householdId));
+            Items.Add(settings);
+        }
+        settings.SetDefaultLocationId(LocationId.From(locationId));
     }
 
     public Task<HouseholdInventorySettings?> FindByHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>

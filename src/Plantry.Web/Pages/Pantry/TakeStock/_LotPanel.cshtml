@@ -1,11 +1,20 @@
 @model Plantry.Web.Pages.Pantry.TakeStock.LotPanelModel
 @using Plantry.Pantry.Application
 @*
-    Lot escape-hatch panel (P4-5, J3).
-    Rendered by WalkModel.OnGetLotsAsync into the lot-panel-{productId} placeholder beneath a count row.
+    Lot escape-hatch panel (P4-5, J3). Lives inside the walk redesign's adjuster sheet
+    (plantry-vvqt) — rendered by WalkModel.OnGetLotsAsync into the lot-panel-{productId}
+    placeholder under the sheet's "Adjust individual lots" toggle.
+
     Alpine component: takeStockLotPanel — tracks per-lot reduce inputs, a per-lot disposition
-    reason (Correction / Used it / Spoiled), and the "add found stock" form; POSTs to /SaveLots
-    on submit.
+    reason (Correction / Used it / Spoiled), and the "add found stock" form. It no longer owns a
+    visible Save button or triggers its own POST from a click (plantry-vvqt removed that separate
+    save model) — its draft state (lots/found, isDirty) is unchanged and rides the page-level Save
+    instead: the sticky Save bar's Save is the sole trigger, calling this component's save(url)
+    method programmatically for every panel still tracked dirty. Closing the sheet with Done
+    leaves the draft pending; only Cancel discards it. The panel's host div is mounted
+    persistently (take-stock.js AdjusterSheet) regardless of which row's sheet is open or closed,
+    so the draft survives a Done close intact. The SaveLots server endpoint this posts to is
+    unchanged.
 *@
 <div class="ts-hatch"
      x-data="takeStockLotPanel(@BuildLotJson(Model))"
@@ -14,10 +23,6 @@
     <div class="ts-hatch-head">
         <svg class="icon" aria-hidden="true"><use href="#i-box" /></svg>
         Individual lots — adjust each instead of one total
-        <span class="spacer"></span>
-        <button type="button" class="ts-retry"
-                x-on:click="$dispatch('collapse-lots', { productId: '@Model.ProductId' })"
-                aria-label="Collapse lot list">Collapse</button>
     </div>
 
     @if (Model.Lots.Count == 0)
@@ -104,17 +109,13 @@
         </div>
     </div>
 
-    @* Save / status row *@
-    <div class="ts-hatch-foot">
-        <button type="button"
-                class="btn btn--primary btn--sm"
-                :disabled="saving || !isDirty()"
-                x-on:click="save('@Url.Page("./Walk", "SaveLots", new { locationId = Model.LocationId, productId = Model.ProductId })')">
-            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
-            <span x-text="saving ? 'Saving…' : 'Save lot changes'"></span>
-        </button>
-        <span class="ts-hatch-status" x-text="status ?? ''" role="status" aria-live="polite"></span>
-    </div>
+    @* No footer Save button (plantry-vvqt) — this panel's draft rides the page-level Save: the
+       sticky Save bar's Save button is the sole trigger, calling this component's save() method
+       programmatically. Per-lot failures still surface inline above (.ts-lot-fail /
+       .ts-lot.failed) whenever the sheet happens to be open; a batch-level failure message is
+       always shown as a toast by the island caller (take-stock.js save()), since the panel is
+       usually closed (visibility:hidden) by the time the page-level Save runs. *@
+    <div class="ts-hatch-status" x-show="saving" x-cloak role="status" aria-live="polite">Saving…</div>
 </div>
 
 @functions {

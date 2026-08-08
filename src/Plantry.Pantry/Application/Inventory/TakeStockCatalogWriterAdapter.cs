@@ -121,4 +121,16 @@ public sealed class TakeStockCatalogWriterAdapter(
             throw new InvalidOperationException(
                 $"Add product conversion failed ({result.Error.Code}): {result.Error.Description}");
     }
+
+    public async Task MarkLocationCountedAsync(
+        Guid locationId,
+        CancellationToken ct = default)
+    {
+        var command = new MarkLocationCountedCommand(LocationId.From(locationId), locations, clock);
+
+        var result = await command.ExecuteAsync(ct);
+        if (result.IsFailure)
+            throw new InvalidOperationException(
+                $"Mark location counted failed ({result.Error.Code}): {result.Error.Description}");
+    }
 }

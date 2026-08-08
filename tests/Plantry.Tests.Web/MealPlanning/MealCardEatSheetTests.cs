@@ -228,6 +228,31 @@ public sealed class MealCardEatSheetTests
         Assert.Contains("id=\"sheet-host\" hx-swap-oob=\"true\"", html);
     }
 
+    [Fact(DisplayName = "POST /MealPlan?handler=EatConfirm: nothing on hand consumes nothing and the cell swap shows a no-stock warning (plantry-ljng)")]
+    public async Task EatConfirm_With_No_Stock_Shows_Warning()
+    {
+        var factory = new EatActionFactory(onHand: 2.1m, stubUnitCodes: true);
+        factory.Writer.NextEatConsumes = false;
+        await using var _ = factory;
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EatActionFixture.HouseholdId.ToString());
+
+        var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+
+        var response = await client.PostAsync(
+            $"/MealPlan?handler=EatConfirm&plannedDishId={factory.Repo.ProductDishId:D}" +
+            $"&date={factory.Repo.TodayIso}&slotId={EatActionFixture.LunchSlotId.Value:D}&quantity=2.1",
+            AntiforgeryForm(("__RequestVerificationToken", token)));
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Single(factory.Writer.EatCalls);
+        Assert.Contains("nothing to eat", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("mc-cook-done", html);
+    }
+
     [Fact(DisplayName = "POST /MealPlan?handler=EatConfirm: a zero quantity is rejected (BadRequest), never calls the write port")]
     public async Task EatConfirm_With_Zero_Quantity_Is_Rejected()
     {

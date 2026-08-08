@@ -42,6 +42,19 @@ public sealed class HouseholdInventorySettings
     /// </summary>
     public int ExpiringSoonDays { get; private set; } = DefaultExpiringSoonDays;
 
+    /// <summary>
+    /// The household's default storage location for cases with no more specific default (plantry-iypo)
+    /// — currently consulted only by <c>InventoryProducerAdapter.ProduceAsync</c> as the middle rung
+    /// between a yielded product's own <c>Product.DefaultLocationId</c> and the alphabetically-first
+    /// active location: product default (if set and active) wins, then this household default (if set
+    /// and active), then the alphabetical fallback. Lives alongside <see cref="ExpiringSoonDays"/> on
+    /// this same per-household settings row (rather than a cross-context Identity field) because both
+    /// halves of the check — "does this household have a default?" and "is that location still
+    /// active?" — resolve inside this one context (<c>Location</c> lives in the same
+    /// <c>Plantry.Pantry</c> assembly, ADR-024) with no ACL indirection needed. Null means unset.
+    /// </summary>
+    public LocationId? DefaultLocationId { get; private set; }
+
     /// <summary>Creates a new settings record for the household with the default horizon (lazy seeding).</summary>
     public static HouseholdInventorySettings Create(HouseholdId householdId) =>
         new(householdId);
@@ -59,4 +72,12 @@ public sealed class HouseholdInventorySettings
                 $"Expiring-soon horizon must be between {MinExpiringSoonDays} and {MaxExpiringSoonDays} days.");
         ExpiringSoonDays = days;
     }
+
+    /// <summary>
+    /// Sets (or clears, passing null) the household's default storage location (plantry-iypo). No
+    /// existence/active-location validation here — the write path
+    /// (<c>HouseholdDefaultLocationService.SetDefaultLocationAsync</c>) owns that, since it has
+    /// <see cref="ILocationRepository"/> in hand and this aggregate does not.
+    /// </summary>
+    public void SetDefaultLocationId(LocationId? locationId) => DefaultLocationId = locationId;
 }

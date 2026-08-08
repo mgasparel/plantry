@@ -91,4 +91,15 @@ public interface ITakeStockCatalogWriter
         Guid toUnitId,
         decimal factor,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Stamps a location as counted (plantry-hp67) — a Take Stock walk of it just completed, whether
+    /// via a regular Save (items changed) or an explicit completion signal for a walk with zero
+    /// changes. Location-level only for v1 (no per-product verified timestamp).
+    ///
+    /// <para>Throws when Catalog rejects the command (unknown location).</para>
+    /// </summary>
+    Task MarkLocationCountedAsync(
+        Guid locationId,
+        CancellationToken ct = default);
 }

@@ -466,9 +466,13 @@ public sealed class IndexModel(
             return BadRequest();
 
         var userId = await GetCurrentUserIdAsync(ct);
-        await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Quantity.Value, plannedUnit, userId, ct);
+        var consumed = await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, hit.Dish.Quantity.Value, plannedUnit, userId, ct);
 
-        return await CellFragmentAsync(householdId, parsedDate, sid, ct);
+        // plantry-ljng: a product with nothing on hand at all writes no journal row and the cell
+        // re-renders looking identical to before the tap — surface why nothing happened instead of
+        // leaving the user with no feedback.
+        var eatWarning = consumed ? null : $"No {hit.Dish.Name} in stock — nothing to eat.";
+        return await CellFragmentAsync(householdId, parsedDate, sid, hardStanceWarning: null, eatWarning, closeSheet: false, ct);
     }
 
     // ── Eat confirm sheet GET (plantry-yuy3) ─────────────────────────────────
@@ -546,9 +550,14 @@ public sealed class IndexModel(
             return BadRequest();
 
         var userId = await GetCurrentUserIdAsync(ct);
-        await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, quantity, plannedUnit, userId, ct);
+        var consumed = await eatWriter.EatAsync(hit.Dish.DishId, hit.Dish.ItemId, quantity, plannedUnit, userId, ct);
 
-        return await CellFragmentAsync(householdId, parsedDate, sid, hardStanceWarning: null, closeSheet: true, ct);
+        // plantry-ljng: same "nothing to eat" signal as the one-tap path above, for the confirm-sheet
+        // path — reachable whenever the product genuinely has nothing on hand at confirm time, whether
+        // that was already true when the sheet opened (onHand == 0) or stock ran out from under it
+        // between the sheet opening and the confirm POST.
+        var eatWarning = consumed ? null : $"No {hit.Dish.Name} in stock — nothing to eat.";
+        return await CellFragmentAsync(householdId, parsedDate, sid, hardStanceWarning: null, eatWarning, closeSheet: true, ct);
     }
 
     // ── Undo eat POST (plantry-zcbx) ──────────────────────────────────────────
@@ -1966,6 +1975,10 @@ public sealed class IndexModel(
 
     private async Task<IActionResult> CellFragmentAsync(
         HouseholdId householdId, DateOnly date, MealSlotId slotId, string? hardStanceWarning, bool closeSheet, CancellationToken ct)
+        => await CellFragmentAsync(householdId, date, slotId, hardStanceWarning, eatWarning: null, closeSheet, ct);
+
+    private async Task<IActionResult> CellFragmentAsync(
+        HouseholdId householdId, DateOnly date, MealSlotId slotId, string? hardStanceWarning, string? eatWarning, bool closeSheet, CancellationToken ct)
     {
         await LoadWeekAsync(DomainMealPlan.NormalizeToMonday(date).ToString("yyyy-MM-dd"), ct);
         var key = CellKey(date, slotId);
@@ -1992,7 +2005,8 @@ public sealed class IndexModel(
         var cellVm = new CellFragmentVm(date, slotId, slot?.Label ?? "", meals, WeekStart, Members, hardStanceWarning, pending, ghostDishNames, ghostEnrichment,
             IsHardConflict: ConflictCells.ContainsKey(key),
             UnfulfillableCellInfo: UnfulfillableCells.GetValueOrDefault(key),
-            DisplayCurrency: CurrentDisplayCurrency);
+            DisplayCurrency: CurrentDisplayCurrency,
+            EatWarning: eatWarning);
         var railVm = new PlanRailVm(Insights, PendingCount, Oob: true,
             ConfirmedWeekCost: WeekTotalCost, ConfirmedCostIsPartial: WeekCostIsPartial,
             ProjectedWeekCost: ProjectedWeekCost, ProjectedCostIsPartial: ProjectedWeekCostIsPartial,
@@ -2221,7 +2235,15 @@ public sealed class IndexModel(
         /// </summary>
         UnfulfillableCell? UnfulfillableCellInfo = null,
         /// <summary>Household display currency for the cell's per-meal / ghost cost figures (plantry-2x6e.2).</summary>
-        string DisplayCurrency = "USD");
+        string DisplayCurrency = "USD",
+        /// <summary>
+        /// Non-null immediately after a product-dish Eat/Eat-confirm POST that consumed nothing because
+        /// the product has no stock on hand at all (plantry-ljng). Renders as a dismissible inline
+        /// banner, same treatment as <see cref="HardStanceWarning"/> — distinct field because the two
+        /// are semantically unrelated (dietary conflict vs. inventory shortfall) and could in principle
+        /// both be present on the same cell.
+        /// </summary>
+        string? EatWarning = null);
 
     /// <summary>
     /// View model for the advisory insights rail (P3-5). Rendered inline inside <c>_WeekGrid</c>
