@@ -59,7 +59,13 @@ public sealed class RecordAmendedObservationCommand(
         // it would at commit time).
         var unitPrice = await calculator.TryNormalizeAsync(original.Price, correctedQuantity, original.UnitId, ct);
 
-        var amendment = PriceObservation.RecordAmendment(original, correctedQuantity, unitPrice, userId);
+        // plantry-j9q4: re-evaluate the deal-hit match against the re-derived unit price — never carry the
+        // original's MatchedDealId forward blindly. A quantity correction that raises the per-unit price
+        // above the deal's must clear a stale match; one that keeps it at/below the deal's re-confirms it.
+        var matchedDealId = await DealHitMatcher.FindAsync(
+            repository, original.Source, original.ProductId, original.StoreId, unitPrice, original.ObservedAt, ct);
+
+        var amendment = PriceObservation.RecordAmendment(original, correctedQuantity, unitPrice, userId, matchedDealId);
 
         // Throws if `original` is already superseded — repeats must chain off the live row (A7).
         original.Supersede(amendment.Id);

@@ -416,6 +416,21 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
             .ThenBy(p => p.Price)
             .FirstOrDefault());
 
+    public Task<PriceObservation?> ActiveDealForPurchaseAsync(Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default) =>
+        Task.FromResult(Items
+            .Where(p => p.ProductId == productId && p.Source == PriceSource.Deal
+                && p.StoreId == storeId
+                && p.ValidFrom <= observedDate && p.ValidTo >= observedDate
+                && p.SupersededById is null
+                // Qualification predicate mirrors the production Postgres query: cheapest QUALIFYING deal.
+                && p.UnitPrice.HasValue && p.UnitPrice * (1m + tolerance) >= purchaseUnitPrice)
+            // Nulls-last tiebreak, matching Postgres `ORDER BY unit_price ASC` (LINQ-to-Objects would
+            // otherwise sort a pack-size-less deal's null unit price first).
+            .OrderBy(p => p.UnitPrice.HasValue ? 0 : 1)
+            .ThenBy(p => p.UnitPrice)
+            .ThenBy(p => p.Price)
+            .FirstOrDefault());
+
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(IEnumerable<Guid> productIds, CancellationToken ct = default)
     {
         var idSet = productIds.ToHashSet();

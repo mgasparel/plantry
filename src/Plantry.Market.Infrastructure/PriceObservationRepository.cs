@@ -53,6 +53,24 @@ public sealed class PriceObservationRepository(MarketDbContext db) : IPriceObser
             .ThenBy(p => p.Price)
             .FirstOrDefaultAsync(ct);
 
+    public Task<PriceObservation?> ActiveDealForPurchaseAsync(Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default) =>
+        db.PriceObservations
+            .Where(p => p.ProductId == productId
+                && p.Source == PriceSource.Deal
+                && p.StoreId == storeId
+                && p.ValidFrom <= observedDate
+                && p.ValidTo >= observedDate
+                && p.SupersededById == null
+                // Qualification lives in the query so the cheapest QUALIFYING deal is selected, not the
+                // cheapest overall (two pack sizes resolved to one product = two active deals; a purchase
+                // at the dearer deal's price must still match). Multiplication, not division — dividing
+                // purchaseUnitPrice by (1 + tolerance) would introduce rounding this comparison doesn't have.
+                && p.UnitPrice != null
+                && p.UnitPrice * (1m + tolerance) >= purchaseUnitPrice)
+            .OrderBy(p => p.UnitPrice)
+            .ThenBy(p => p.Price)
+            .FirstOrDefaultAsync(ct);
+
     public async Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(
         IEnumerable<Guid> productIds, CancellationToken ct = default)
     {

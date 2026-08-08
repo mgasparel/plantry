@@ -84,6 +84,8 @@ public sealed class MarketDbContext(DbContextOptions<MarketDbContext> options) :
             b.Property(p => p.SupersededById)
                 .HasConversion(id => id!.Value.Value, v => PriceObservationId.From(v))
                 .HasColumnName("superseded_by_id");
+            // Soft-ref to deals.deal — no FK, same convention as StoreId/SourceRef above (plantry-j9q4).
+            b.Property(p => p.MatchedDealId).HasColumnName("matched_deal_id");
             b.HasOne<PriceObservation>()
                 .WithMany()
                 .HasForeignKey(p => p.AmendsId)

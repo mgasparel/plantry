@@ -42,6 +42,22 @@ public interface IPriceObservationRepository
     /// observation never competes for cheapest-active.</summary>
     Task<PriceObservation?> CheapestActiveDealForProductAsync(Guid productId, DateOnly today, CancellationToken ct = default);
 
+    /// <summary>Deal-hit match candidate for a purchase (plantry-j9q4): the cheapest <c>source='deal'</c>
+    /// observation for <paramref name="productId"/> at <paramref name="storeId"/> whose validity window
+    /// covers <paramref name="observedDate"/>. Store-scoped — unlike <see cref="CheapestActiveDealForProductAsync"/>,
+    /// which is deliberately store-agnostic for the "is anything on sale" read model, a purchase can only
+    /// have hit a deal actually offered at the store it was bought from. Only a <b>Confirmed</b> deal ever
+    /// projects a <c>source='deal'</c> row (<c>ConfirmDeal.RecordDealObservationAsync</c>) — a Pending or
+    /// Rejected deal has no row here and can never match, by construction. Also filters
+    /// <c>superseded_by_id IS NULL</c> (ADR-023 A7). Returns the cheapest deal whose unit price
+    /// <b>qualifies</b> the purchase (<c>unit_price * (1 + tolerance) &gt;= purchaseUnitPrice</c>) — the
+    /// qualification lives in the query, not the caller, so that when several confirmed deals are active
+    /// at the same store/window (routine: one flyer line per pack size resolved to the same catalog
+    /// product) a purchase made at a dearer-but-qualifying deal's price still matches instead of being
+    /// compared against the cheapest deal it never claimed. Null when no qualifying deal is active at
+    /// that store for that product/date.</summary>
+    Task<PriceObservation?> ActiveDealForPurchaseAsync(Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default);
+
     /// <summary>Batch existence check (Tidy Up D5, tidy-up.md §3): of the given product ids, which have at
     /// least one live (<c>superseded_by_id IS NULL</c>) price observation of any <see cref="PriceSource"/>.
     /// Lets D5 find products with zero price data in one round trip instead of a per-product query — the

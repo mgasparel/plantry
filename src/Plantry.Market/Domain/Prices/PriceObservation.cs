@@ -56,6 +56,15 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
     /// still-live row. Every pricing read path filters <c>SupersededById IS NULL</c>.</summary>
     public PriceObservationId? SupersededById { get; private set; }
 
+    /// <summary>Soft-ref (deals.deal.deal_id) to the Confirmed deal this <see cref="PriceSource.Purchase"/>
+    /// observation was matched against at commit time (plantry-j9q4): the purchase's unit price was
+    /// at-or-below the deal's unit price while the deal's validity window covered <see cref="ObservedAt"/>
+    /// at the same store. Set only at <see cref="Record"/> construction time — never mutated afterward,
+    /// so it respects the immutable-after-create rule (ADR-023) without needing its own late-bind method.
+    /// Always null for <see cref="PriceSource.Deal"/> and <see cref="PriceSource.Manual"/> rows (a deal
+    /// can't be "matched" against itself, and a manual estimate has no receipt event to match).</summary>
+    public Guid? MatchedDealId { get; private set; }
+
     private PriceObservation() { } // EF
 
     public static PriceObservation Record(
@@ -73,7 +82,8 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
         Guid userId,
         DateOnly? validFrom = null,
         DateOnly? validTo = null,
-        Guid? storeId = null) =>
+        Guid? storeId = null,
+        Guid? matchedDealId = null) =>
         new()
         {
             Id = PriceObservationId.New(),
@@ -92,6 +102,7 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
             SourceRef = sourceRef,
             ObservedAt = observedAt,
             UserId = userId,
+            MatchedDealId = matchedDealId,
         };
 
     /// <summary>
@@ -120,12 +131,19 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
     /// naive scale of the old unit price). <see cref="AmendsId"/> points back to <paramref name="original"/>'s
     /// id, completing one half of the audit pair; the caller must still call <see cref="Supersede"/> on
     /// <paramref name="original"/> to bind the other half.
+    /// <paramref name="matchedDealId"/> is the caller's freshly <b>re-evaluated</b> deal-hit match against
+    /// the re-derived <paramref name="unitPrice"/> (plantry-j9q4) — never a blind copy of
+    /// <paramref name="original"/>'s <see cref="MatchedDealId"/>: a quantity correction that raises the
+    /// per-unit price above the deal's must clear a stale match, since this row is immutable after create
+    /// (ADR-023) and there is no later chance to fix a wrong stamp. Null when the caller found no match
+    /// (no deal active, or the re-derived price no longer qualifies).
     /// </summary>
     public static PriceObservation RecordAmendment(
         PriceObservation original,
         decimal correctedQuantity,
         decimal? unitPrice,
-        Guid userId) =>
+        Guid userId,
+        Guid? matchedDealId = null) =>
         new()
         {
             Id = PriceObservationId.New(),
@@ -145,6 +163,7 @@ public sealed class PriceObservation : AggregateRoot<PriceObservationId>
             ObservedAt = original.ObservedAt,
             UserId = userId,
             AmendsId = original.Id,
+            MatchedDealId = matchedDealId,
         };
 
     /// <summary>

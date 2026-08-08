@@ -1400,6 +1400,10 @@ public sealed class FakeReviewObservationWriter : IPriceObservationRepository
         Guid productId, DateOnly today, CancellationToken ct = default) =>
         Task.FromResult<PriceObservation?>(null);
 
+    public Task<PriceObservation?> ActiveDealForPurchaseAsync(
+        Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default) =>
+        Task.FromResult<PriceObservation?>(null);
+
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(
         IEnumerable<Guid> productIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());

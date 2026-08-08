@@ -164,6 +164,70 @@ public sealed class PriceObservationTests
         Assert.Equal(original, obs.StoreId); // unchanged — the second call never overwrites
     }
 
+    // ── MatchedDealId (plantry-j9q4: intake-time deal-hit detection) ────────────
+
+    [Fact]
+    public void Record_Stamps_MatchedDealId_When_Provided()
+    {
+        var dealId = Guid.CreateVersion7();
+
+        var obs = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 2.50m, quantity: 1m, unitId: UnitId,
+            unitPrice: 2.50m, source: PriceSource.Purchase,
+            merchantText: "Superstore", sourceRef: SourceRef, observedAt: Now, userId: UserId,
+            storeId: Guid.CreateVersion7(), matchedDealId: dealId);
+
+        Assert.Equal(dealId, obs.MatchedDealId);
+    }
+
+    [Fact]
+    public void Record_Leaves_MatchedDealId_Null_When_Not_Provided()
+    {
+        var obs = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 3.99m, quantity: 500m, unitId: UnitId,
+            unitPrice: 0.00798m, source: PriceSource.Purchase,
+            merchantText: "Superstore", sourceRef: SourceRef, observedAt: Now, userId: UserId);
+
+        Assert.Null(obs.MatchedDealId);
+    }
+
+    [Fact]
+    public void RecordAmendment_Sets_MatchedDealId_From_The_Explicit_Caller_Supplied_Value()
+    {
+        // The caller (RecordAmendedObservationCommand) re-evaluates the deal match against the re-derived
+        // unit price and passes the fresh result in — RecordAmendment never copies the original's
+        // MatchedDealId itself (a quantity correction can raise the unit price above the deal's, which
+        // must clear a stale match rather than blindly carry it forward, ADR-023: no later fix-up).
+        var dealId = Guid.CreateVersion7();
+        var original = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 3.98m, quantity: 1m, unitId: UnitId,
+            unitPrice: 3.98m, source: PriceSource.Purchase,
+            merchantText: "Superstore", sourceRef: SourceRef, observedAt: Now, userId: UserId,
+            storeId: Guid.CreateVersion7(), matchedDealId: Guid.CreateVersion7());
+
+        var amendment = PriceObservation.RecordAmendment(original, correctedQuantity: 3m, unitPrice: 1.3267m, UserId, matchedDealId: dealId);
+
+        Assert.Equal(dealId, amendment.MatchedDealId);
+    }
+
+    [Fact]
+    public void RecordAmendment_Leaves_MatchedDealId_Null_When_Not_Supplied_Even_If_The_Original_Had_One()
+    {
+        var original = PriceObservation.Record(
+            Household, ProductId, null,
+            price: 3.98m, quantity: 1m, unitId: UnitId,
+            unitPrice: 3.98m, source: PriceSource.Purchase,
+            merchantText: "Superstore", sourceRef: SourceRef, observedAt: Now, userId: UserId,
+            storeId: Guid.CreateVersion7(), matchedDealId: Guid.CreateVersion7());
+
+        var amendment = PriceObservation.RecordAmendment(original, correctedQuantity: 3m, unitPrice: 1.3267m, UserId);
+
+        Assert.Null(amendment.MatchedDealId);
+    }
+
     [Fact]
     public void Record_Manual_Source_Allows_Null_SourceRef()
     {
