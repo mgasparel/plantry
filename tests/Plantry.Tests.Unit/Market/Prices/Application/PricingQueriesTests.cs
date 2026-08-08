@@ -207,10 +207,10 @@ public sealed class PricingQueriesTests
         Assert.Equal(3.00m, result.UnitPrice);
     }
 
-    // ── EffectivePricesAsync (plantry-e016 batch display-price read) ────────────────────────────────
+    // ── EffectiveCostablePricesAsync (plantry-e016 batch costing read: shopping basket estimate) ──────
 
     [Fact]
-    public async Task EffectivePrices_Batch_Prefers_Active_Deal_Over_Latest_Purchase_Per_Product()
+    public async Task EffectiveCostablePrices_Batch_Prefers_Active_Deal_Over_Latest_Purchase_Per_Product()
     {
         var productB = Guid.CreateVersion7();
         var repo = new FakePriceObservationRepository();
@@ -221,7 +221,7 @@ public sealed class PricingQueriesTests
             PriceSource.Purchase, "Superstore", SourceRef, DateTimeOffset.UtcNow, UserId)); // no active deal
         var queries = new PricingQueries(repo);
 
-        var result = await queries.EffectivePricesAsync([ProductId, productB], Today);
+        var result = await queries.EffectiveCostablePricesAsync([ProductId, productB], Today);
 
         Assert.Equal(2, result.Count);
         Assert.Equal(PriceSource.Deal, result[ProductId].Source);
@@ -231,42 +231,43 @@ public sealed class PricingQueriesTests
     }
 
     [Fact]
-    public async Task EffectivePrices_Batch_Surfaces_A_Unitless_Deal_Unlike_The_Costable_Batch()
+    public async Task EffectiveCostablePrices_Batch_Falls_Through_To_Purchase_When_The_Active_Deal_Is_Unitless()
     {
-        // Display surfaces (plantry-e016) keep the unitless deal — only EffectiveCostablePricesAsync
-        // excludes it (plantry-pxjp), per EffectiveCostablePriceAsync's doc.
+        // Costing surfaces (plantry-e016 shopping basket estimate) exclude a unitless deal — it has no
+        // usable unit for ShoppingBasketCostingService's conversion — and fall through to the latest
+        // purchase instead, per EffectiveCostablePriceAsync's doc (plantry-pxjp).
         var repo = new FakePriceObservationRepository();
         repo.Items.Add(Purchase(3.00m, DateTimeOffset.UtcNow.AddDays(-1)));
         repo.Items.Add(UnitlessDeal(2.49m, new(2026, 7, 1), new(2026, 7, 7)));
         var queries = new PricingQueries(repo);
 
-        var result = await queries.EffectivePricesAsync([ProductId], Today);
+        var result = await queries.EffectiveCostablePricesAsync([ProductId], Today);
 
-        Assert.Equal(PriceSource.Deal, result[ProductId].Source);
-        Assert.Equal(2.49m, result[ProductId].Price);
+        Assert.Equal(PriceSource.Purchase, result[ProductId].Source);
+        Assert.Equal(3.00m, result[ProductId].UnitPrice);
     }
 
     [Fact]
-    public async Task EffectivePrices_Batch_Omits_Products_With_Neither_A_Deal_Nor_A_Purchase()
+    public async Task EffectiveCostablePrices_Batch_Omits_Products_With_Neither_A_Deal_Nor_A_Purchase()
     {
         var unpriced = Guid.CreateVersion7();
         var repo = new FakePriceObservationRepository();
         repo.Items.Add(Purchase(3.00m, DateTimeOffset.UtcNow));
         var queries = new PricingQueries(repo);
 
-        var result = await queries.EffectivePricesAsync([ProductId, unpriced], Today);
+        var result = await queries.EffectiveCostablePricesAsync([ProductId, unpriced], Today);
 
         Assert.True(result.ContainsKey(ProductId));
         Assert.False(result.ContainsKey(unpriced));
     }
 
     [Fact]
-    public async Task EffectivePrices_Batch_Returns_Empty_For_Empty_Input()
+    public async Task EffectiveCostablePrices_Batch_Returns_Empty_For_Empty_Input()
     {
         var repo = new FakePriceObservationRepository();
         var queries = new PricingQueries(repo);
 
-        var result = await queries.EffectivePricesAsync([], Today);
+        var result = await queries.EffectiveCostablePricesAsync([], Today);
 
         Assert.Empty(result);
     }

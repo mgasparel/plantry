@@ -73,44 +73,27 @@ public sealed class PricingQueries(IPriceObservationRepository repository)
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyPriceAsync(IEnumerable<Guid> productIds, CancellationToken ct = default) =>
         repository.ProductIdsWithAnyObservationAsync(productIds, ct);
 
-    /// <summary>Batch counterpart to <see cref="EffectivePriceAsync"/> for display/sales-callout surfaces
-    /// (plantry-e016, mirrors <see cref="EffectiveCostablePricesAsync"/> below but deliberately WITHOUT the
-    /// costable-unit filter — per <see cref="EffectiveCostablePriceAsync"/>'s doc, a unitless deal is still a
-    /// real, worth-surfacing deal on a display surface; only costing needs a usable unit to convert against).
-    /// Cheapest active deal wins over latest purchase, same precedence as the single-product overload.</summary>
-    public Task<IReadOnlyDictionary<Guid, PriceObservation>> EffectivePricesAsync(
-        IEnumerable<Guid> productIds, DateOnly today, CancellationToken ct = default) =>
-        EffectivePricesCoreAsync(productIds, today, dealAccepted: _ => true, ct);
-
-    /// <summary>Batch counterpart to <see cref="EffectiveCostablePriceAsync"/> (plantry-hbol): resolves the
-    /// effective, costable (deal-aware) price for every given product in two round trips total (one for
-    /// active deals, one for latest purchases) instead of two-per-product. Same precedence and the same
-    /// unitless-deal exclusion as the single-product method — a deal missing a usable unit/unit-price falls
-    /// through to that product's latest purchase. Products with neither a costable deal nor a purchase are
-    /// simply absent from the result.</summary>
-    public Task<IReadOnlyDictionary<Guid, PriceObservation>> EffectiveCostablePricesAsync(
-        IEnumerable<Guid> productIds, DateOnly today, CancellationToken ct = default) =>
-        EffectivePricesCoreAsync(productIds, today, dealAccepted: IsCostable, ct);
-
-    /// <summary>Shared two-round-trip shape behind <see cref="EffectivePricesAsync"/> and
-    /// <see cref="EffectiveCostablePricesAsync"/> (plantry-e016) — cheapest active deal wins over latest
-    /// purchase for every product; <paramref name="dealAccepted"/> is the only difference between the two
-    /// public callers (no filter vs. <see cref="IsCostable"/>). A deal rejected by the predicate falls
-    /// through to that product's latest purchase, same as a product with no deal at all.</summary>
-    private async Task<IReadOnlyDictionary<Guid, PriceObservation>> EffectivePricesCoreAsync(
-        IEnumerable<Guid> productIds, DateOnly today, Func<PriceObservation, bool> dealAccepted, CancellationToken ct)
+    /// <summary>Batch counterpart to <see cref="EffectiveCostablePriceAsync"/> (plantry-hbol; also the
+    /// shopping basket estimate's read model, plantry-e016): resolves the effective, costable (deal-aware)
+    /// price for every given product in two round trips total (one for active deals, one for latest
+    /// purchases) instead of two-per-product. Same precedence and the same unitless-deal exclusion as the
+    /// single-product method — a deal missing a usable unit/unit-price falls through to that product's
+    /// latest purchase. Products with neither a costable deal nor a purchase are simply absent from the
+    /// result.</summary>
+    public async Task<IReadOnlyDictionary<Guid, PriceObservation>> EffectiveCostablePricesAsync(
+        IEnumerable<Guid> productIds, DateOnly today, CancellationToken ct = default)
     {
         var idList = productIds.Distinct().ToList();
         if (idList.Count == 0)
             return new Dictionary<Guid, PriceObservation>();
 
         var deals = await repository.CheapestActiveDealsForProductsAsync(idList, today, ct);
-        var acceptedDealProductIds = deals
-            .Where(kv => dealAccepted(kv.Value))
+        var costableDealProductIds = deals
+            .Where(kv => IsCostable(kv.Value))
             .Select(kv => kv.Key)
             .ToHashSet();
 
-        var needPurchase = idList.Where(id => !acceptedDealProductIds.Contains(id)).ToList();
+        var needPurchase = idList.Where(id => !costableDealProductIds.Contains(id)).ToList();
         var purchases = needPurchase.Count == 0
             ? new Dictionary<Guid, PriceObservation>()
             : await repository.LatestForProductsAsync(needPurchase, ct);
@@ -118,7 +101,7 @@ public sealed class PricingQueries(IPriceObservationRepository repository)
         var result = new Dictionary<Guid, PriceObservation>();
         foreach (var productId in idList)
         {
-            if (acceptedDealProductIds.Contains(productId))
+            if (costableDealProductIds.Contains(productId))
                 result[productId] = deals[productId];
             else if (purchases.TryGetValue(productId, out var purchase))
                 result[productId] = purchase;
