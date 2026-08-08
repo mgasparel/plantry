@@ -45,6 +45,9 @@
  * @property {UnitOption[]} [supportedUnits]
  * @property {boolean} [isNewRow]
  * @property {string} [expiryDate]   optional yyyy-MM-dd seed for a row injected already-dirty (plantry-4onl)
+ * @property {string} [saveLotsUrl]  POST ?handler=SaveLots URL for this product (plantry-vvqt walk redesign)
+ * @property {string|null} [categoryName]      category grouping label (plantry-vvqt); null groups under "Other"
+ * @property {number} [categorySortOrder]      store-layout sort order for the category group (plantry-vvqt)
  */
 
 /**
@@ -85,6 +88,14 @@
  * @property {SignalLike<string>} convFactor         the user-entered conversion factor (raw input)
  * @property {SignalLike<string>} expiryDate         optional yyyy-MM-dd for a found/increased lot (plantry-4onl);
  *                                                    only sent to the server when the row is an increase (see buildSaveItems)
+ * @property {SignalLike<boolean>} confirmed         true once the user has explicitly reviewed this row via the
+ *                                                    check-off tap or the adjuster sheet's Confirm/Done button
+ *                                                    (plantry-vvqt walk redesign) — walk-progress state only, never
+ *                                                    posted to the server (see rowStatus)
+ * @property {string} saveLotsUrl                    POST ?handler=SaveLots URL for this row's product (plantry-vvqt);
+ *                                                    empty string for rows with no lot escape-hatch (new rows)
+ * @property {string|null} categoryName              category grouping label (plantry-vvqt); null → "Other" group
+ * @property {number} categorySortOrder              store-layout sort order for the category group (plantry-vvqt)
  */
 
 /**
@@ -186,7 +197,123 @@ export function makeRow(seed, signalFn, computedFn) {
     // inheritance from the product's DefaultDueDays (decision 1; Take Stock deliberately differs
     // from the Add Stock sheet here).
     expiryDate: signalFn(seed.expiryDate ?? ""),
+    // Walk-progress state only (plantry-vvqt walk redesign) — never posted to the server. Set by
+    // toggleRowCheck / confirmRow and read by rowStatus. Starts false: an untouched row is "todo".
+    confirmed: signalFn(false),
+    // Plain (non-signal) fields — set once at hydration, never mutated after.
+    saveLotsUrl: seed.saveLotsUrl ?? "",
+    categoryName: seed.categoryName ?? null,
+    categorySortOrder: seed.categorySortOrder ?? Number.MAX_SAFE_INTEGER,
   };
+}
+
+// ── rowStatus / toggleRowCheck / confirmRow (plantry-vvqt walk redesign) ───────
+
+/**
+ * Derives a row's check-off status for the walk redesign's progress strip and row styling.
+ *
+ * - "chg"  — dirty (counted differs from recorded); always wins over confirmed, since a
+ *            pending edit always needs review regardless of prior confirm state.
+ * - "ok"   — confirmed and not dirty (the common case: shelf matched the record).
+ * - "todo" — untouched — neither confirmed nor dirty.
+ *
+ * @param {Row} row
+ * @returns {"todo" | "ok" | "chg"}
+ */
+export function rowStatus(row) {
+  if (row.dirty.value) return "chg";
+  if (row.confirmed.value) return "ok";
+  return "todo";
+}
+
+/**
+ * Handle a tap on the row's check-off button. Mirrors the approved prototype
+ * (.preview/take-stock-walk-redesign.html):
+ * - "todo" → confirmed (counted already equals recorded, so no count change needed).
+ * - "ok"   → un-confirm, back to "todo" (a mis-tap escape hatch).
+ * - "chg"  → re-confirm AT the recorded value, discarding the pending edit — the check-off is a
+ *            "matches record" affirmation, not a way to save a change (that's the adjuster sheet).
+ *
+ * @param {Row} row
+ * @returns {void}
+ */
+export function toggleRowCheck(row) {
+  const status = rowStatus(row);
+  // A "chg" reset-to-recorded only makes sense for a row seeded from the server's recorded
+  // baseline. A row injected by inline-add is seeded recorded: 0 with counted set to the quantity
+  // the user just entered (take-stock.js handleSheetAdd) — resetting counted to 0 here would
+  // silently zero out the addition and drop it from Save with no warning. For a new row the
+  // check-off simply confirms it in place; rowStatus already keeps it "chg" while dirty, so this
+  // is a review acknowledgement, not a reset.
+  if (status === "chg" && !row.isNewRow) {
+    row.counted.value = row.recorded.value;
+    row.failed.value = false;
+    row.failMsg.value = null;
+  }
+  row.confirmed.value = status !== "ok";
+}
+
+/**
+ * Mark a row reviewed without touching its counted value — called when the adjuster sheet's
+ * Confirm/Done button closes the sheet. A dirty row stays dirty (status "chg"); confirming only
+ * matters for the "todo"/"ok" distinction once the row is clean again.
+ *
+ * @param {Row} row
+ * @returns {void}
+ */
+export function confirmRow(row) {
+  row.confirmed.value = true;
+}
+
+// ── groupRowsByCategory ─────────────────────────────────────────────────────
+
+/**
+ * Groups rows by `categoryName` for the walk's category-grouped list (plantry-vvqt design item 6).
+ * Rows with no category (`categoryName` null/empty) fall into an "Other" bucket. Groups are ordered
+ * by `categorySortOrder` (the household's store-layout order), then alphabetically by name as a
+ * tiebreaker; "Other" naturally sorts last because makeRow defaults an absent categorySortOrder to
+ * Number.MAX_SAFE_INTEGER. Rows within a group keep their incoming relative order (stable sort).
+ *
+ * Pure transform: reads only plain fields (no signal `.value` reads), so it does not itself need to
+ * be reactive — callers re-derive the grouping from `rows.value` inside the render, same as any
+ * other derived-from-signals view.
+ *
+ * @param {Row[]} rows
+ * @returns {{ name: string, sortOrder: number, items: Row[] }[]}
+ */
+export function groupRowsByCategory(rows) {
+  /** @type {Map<string, { name: string, sortOrder: number, items: Row[] }>} */
+  const groups = new Map();
+  for (const row of rows) {
+    const name = row.categoryName || "Other";
+    const sortOrder = row.categoryName ? row.categorySortOrder : Number.MAX_SAFE_INTEGER;
+    let group = groups.get(name);
+    if (!group) {
+      group = { name, sortOrder, items: [] };
+      groups.set(name, group);
+    }
+    group.items.push(row);
+  }
+  return [...groups.values()].sort((a, b) =>
+    a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+}
+
+// ── readyToSaveCount ─────────────────────────────────────────────────────────
+
+/**
+ * The sticky Save bar's "N changes ready" count and the walk's overall completeness signal
+ * (plantry-vvqt design point 4/7) — dirty rows PLUS products whose lot panel holds a pending
+ * adjustment. A lot-only edit (no row-level count changed) still counts as a pending change: the
+ * adjuster sheet's Done button no longer flushes the lot panel itself (that would just relocate
+ * the separate save trigger the redesign removes), so dirtyLotIds is the only place that edit is
+ * tracked once the sheet closes, and it must still surface here.
+ *
+ * @param {number} dirtyRowCount           rows.filter(r => r.dirty.value).length
+ * @param {Record<string, boolean>} dirtyLotIds   productId -> true while that product's lot panel is dirty
+ * @returns {number}
+ */
+export function readyToSaveCount(dirtyRowCount, dirtyLotIds) {
+  return dirtyRowCount + Object.keys(dirtyLotIds).length;
 }
 
 // ── buildSaveItems ────────────────────────────────────────────────────────────
@@ -257,6 +384,10 @@ export function reconcileResults(rows, results) {
       row.failed.value = false;
       row.failMsg.value = null;
       row.needsConversion.value = false;
+      // A saved row has definitely been reviewed (plantry-vvqt walk redesign) — without this, a row
+      // edited via the adjuster sheet and saved directly (never tapping the row check-off) would
+      // read back as "todo" once clean, understating the walk's progress count.
+      row.confirmed.value = true;
       saved++;
     } else if (result.needsConversion) {
       // Hold the row for a conversion factor instead of showing a raw error (C10 parity).

@@ -22,6 +22,7 @@ public sealed class TakeStockReaderAdapter(
     IUnitRepository units,
     ILocationRepository locations,
     IProductConversionProvider conversions,
+    ICategoryRepository categories,
     ITenantContext tenant) : ITakeStockReader
 {
     public async Task<IReadOnlyList<TakeStockLocationRow>> ListLocationsAsync(CancellationToken ct = default)
@@ -48,6 +49,12 @@ public sealed class TakeStockReaderAdapter(
         var allProducts = await products.ListActiveAsync(ct);
         var allUnits = await units.ListAsync(ct);
         var unitCodesById = allUnits.ToDictionary(u => u.Id.Value, u => u.Code);
+        // Category lookup for the walk's category grouping (plantry-vvqt design item 6). ListAsync
+        // (not ListActiveAsync) so an archived category referenced by an existing product still
+        // resolves a name rather than the row falling into "Other" (categories are soft-deleted —
+        // see Category.ArchivedAt — and products.category_id is a bare cross-row id with no FK).
+        var allCategories = await categories.ListAsync(ct);
+        var categoriesById = allCategories.ToDictionary(c => c.Id.Value);
         var allStock = await allStockTask;
 
         // Indexed for fast lookup.
@@ -97,6 +104,7 @@ public sealed class TakeStockReaderAdapter(
             var total = SumInDisplayUnit(lotsHere, displayUnitId, converter);
             var productConversions = productConversionsById.GetValueOrDefault(stock.ProductId, []);
             var supportedUnits = BuildSupportedUnits(displayUnitId, allUnits, productConversions, unitCodesById);
+            var (categoryName, categorySortOrder) = ResolveCategory(product.CategoryId, categoriesById);
 
             rows[stock.ProductId] = new TakeStockLocationProductRow(
                 stock.ProductId,
@@ -105,7 +113,9 @@ public sealed class TakeStockReaderAdapter(
                 total,
                 HasActiveStock: true,
                 DisplayUnitId: displayUnitId,
-                SupportedUnits: supportedUnits);
+                SupportedUnits: supportedUnits,
+                CategoryName: categoryName,
+                CategorySortOrder: categorySortOrder);
         }
 
         // Branch B: tracked products whose default_location_id matches but have no active stock here
@@ -121,6 +131,7 @@ public sealed class TakeStockReaderAdapter(
             var displayUnitCode = unitCodesById.GetValueOrDefault(displayUnitId, "?");
             var productConversions = productConversionsById.GetValueOrDefault(product.Id.Value, []);
             var supportedUnits = BuildSupportedUnits(displayUnitId, allUnits, productConversions, unitCodesById);
+            var (categoryName, categorySortOrder) = ResolveCategory(product.CategoryId, categoriesById);
 
             rows[product.Id.Value] = new TakeStockLocationProductRow(
                 product.Id.Value,
@@ -129,7 +140,9 @@ public sealed class TakeStockReaderAdapter(
                 RecordedQuantity: 0m,
                 HasActiveStock: false,
                 DisplayUnitId: displayUnitId,
-                SupportedUnits: supportedUnits);
+                SupportedUnits: supportedUnits,
+                CategoryName: categoryName,
+                CategorySortOrder: categorySortOrder);
         }
 
         return rows.Values
@@ -280,6 +293,21 @@ public sealed class TakeStockReaderAdapter(
         return reachableIds
             .Select(id => new TakeStockUnitOption(id, unitCodesById.GetValueOrDefault(id, "?")))
             .ToList();
+    }
+
+    /// <summary>
+    /// Resolves a product's category name and store-layout sort order for the walk's category
+    /// grouping (plantry-vvqt design item 6). Returns (null, int.MaxValue) when the product has no
+    /// category, or when its category id doesn't resolve (a defensive fallback — category ids are a
+    /// bare cross-row reference with no FK, same rationale as elsewhere in this adapter).
+    /// </summary>
+    private static (string? Name, int SortOrder) ResolveCategory(
+        CategoryId? categoryId, Dictionary<Guid, Category> categoriesById)
+    {
+        if (categoryId is not { } id) return (null, int.MaxValue);
+        return categoriesById.TryGetValue(id.Value, out var category)
+            ? (category.Name, category.SortOrder)
+            : (null, int.MaxValue);
     }
 
     /// <summary>Pass-through converter when no conversion table is available (same-unit lots).</summary>

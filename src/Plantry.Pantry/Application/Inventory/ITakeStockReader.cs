@@ -43,7 +43,18 @@ public sealed record TakeStockLocationProductRow(
     /// Defaults to empty — callers that do not populate this field get a single-option selector
     /// driven by <see cref="DisplayUnitCode"/> on the client side.
     /// </summary>
-    IReadOnlyList<TakeStockUnitOption> SupportedUnits = default!);
+    IReadOnlyList<TakeStockUnitOption> SupportedUnits = default!,
+    /// <summary>
+    /// The product's category name, for the walk's category grouping (plantry-vvqt design item 6).
+    /// Null when the product has no category assigned — the walk page groups these under "Other".
+    /// </summary>
+    string? CategoryName = null,
+    /// <summary>
+    /// The category's <see cref="Plantry.Pantry.Domain.Category.SortOrder"/>, carried through so the
+    /// walk's category groups render in the household's configured store-layout order rather than
+    /// alphabetically. <see cref="int.MaxValue"/> (sorts last) when <see cref="CategoryName"/> is null.
+    /// </summary>
+    int CategorySortOrder = int.MaxValue);
 
 /// <summary>
 /// One product row on the "No location" section (J7): tracked products that have active stock

@@ -37,16 +37,21 @@ public sealed class TakeStockHydrationContractTests
             new UnitOptionVm(
                 UnitId: Guid.Parse("33333333-0000-0000-0000-300000000001"),
                 Code:   "g"),
-        ]);
+        ],
+        SaveLotsUrl:        "/pantry/take-stock/11111111-0000-0000-0000-100000000001?handler=SaveLots&productId=22222222-0000-0000-0000-200000000001",
+        CategoryName:       "Baking",
+        CategorySortOrder:  3);
 
     [Fact]
     public void Row_has_exact_RowSeed_key_set()
     {
         // Cross-checked against @typedef RowSeed in take-stock.js:
-        //   productId, productName, recorded, unitCode, unitId, hasActiveStock, lotsUrl, supportedUnits
+        //   productId, productName, recorded, unitCode, unitId, hasActiveStock, lotsUrl,
+        //   supportedUnits, saveLotsUrl, categoryName, categorySortOrder
         HydrationContract.AssertKeys(SerializeRow(Sample()),
             "productId", "productName", "recorded", "unitCode", "unitId",
-            "hasActiveStock", "lotsUrl", "supportedUnits");
+            "hasActiveStock", "lotsUrl", "supportedUnits", "saveLotsUrl",
+            "categoryName", "categorySortOrder");
     }
 
     [Fact]

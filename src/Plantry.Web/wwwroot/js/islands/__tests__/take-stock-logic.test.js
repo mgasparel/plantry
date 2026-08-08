@@ -25,6 +25,11 @@ import {
   saveStatusMessage,
   mergeSheetUnitIntoRow,
   shouldShowMarkCounted,
+  rowStatus,
+  toggleRowCheck,
+  confirmRow,
+  groupRowsByCategory,
+  readyToSaveCount,
 } from "../take-stock-logic.js";
 
 // Import the vendored reactive runtime so dirty/down computed tests exercise
@@ -317,6 +322,26 @@ describe("makeRow", () => {
       const row = makeTestRow({ expiryDate: "2027-05-20" });
       assert.equal(row.expiryDate.value, "2027-05-20");
     });
+
+    it("confirmed defaults to false (plantry-vvqt — an untouched row is 'todo')", () => {
+      const row = makeTestRow();
+      assert.equal(row.confirmed.value, false);
+    });
+
+    it("saveLotsUrl falls back to empty string when undefined in seed (plantry-vvqt)", () => {
+      const row = makeTestRow({ saveLotsUrl: undefined });
+      assert.equal(row.saveLotsUrl, "");
+    });
+
+    it("categoryName falls back to null when undefined in seed (plantry-vvqt)", () => {
+      const row = makeTestRow({ categoryName: undefined });
+      assert.equal(row.categoryName, null);
+    });
+
+    it("categorySortOrder falls back to Number.MAX_SAFE_INTEGER when undefined in seed (plantry-vvqt)", () => {
+      const row = makeTestRow({ categorySortOrder: undefined });
+      assert.equal(row.categorySortOrder, Number.MAX_SAFE_INTEGER);
+    });
   });
 
   describe("seed values propagated", () => {
@@ -463,6 +488,16 @@ describe("reconcileResults", () => {
     assert.equal(row.recorded.value, 3, "recorded should advance to counted");
     assert.equal(row.failed.value, false);
     assert.equal(row.failMsg.value, null);
+  });
+
+  it("marks the row confirmed on success (plantry-vvqt — a saved row has been reviewed)", () => {
+    const row = makeTestRow({ recorded: 5, productId: "prod-a" });
+    row.counted.value = 3;
+    assert.equal(row.confirmed.value, false, "precondition: not yet confirmed");
+
+    reconcileResults([row], [{ productId: "prod-a", isSuccess: true, error: null }]);
+
+    assert.equal(row.confirmed.value, true);
   });
 
   it("sets failed=true and failMsg from result.error on failure", () => {
@@ -722,5 +757,175 @@ describe("shouldShowMarkCounted", () => {
 
   it("hides once this session has already stamped the location", () => {
     assert.equal(shouldShowMarkCounted(0, 3, true), false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// rowStatus / toggleRowCheck / confirmRow (plantry-vvqt walk redesign)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("rowStatus", () => {
+  it("is 'todo' for an untouched row (not dirty, not confirmed)", () => {
+    const row = makeRealRow({ recorded: 5 });
+    assert.equal(rowStatus(row), "todo");
+  });
+
+  it("is 'ok' once confirmed and not dirty", () => {
+    const row = makeRealRow({ recorded: 5 });
+    row.confirmed.value = true;
+    assert.equal(rowStatus(row), "ok");
+  });
+
+  it("is 'chg' whenever dirty, regardless of confirmed", () => {
+    const row = makeRealRow({ recorded: 5 });
+    row.counted.value = 3;
+    assert.equal(rowStatus(row), "chg", "dirty, not confirmed");
+    row.confirmed.value = true;
+    assert.equal(rowStatus(row), "chg", "dirty wins over confirmed");
+  });
+});
+
+describe("toggleRowCheck", () => {
+  it("todo → ok: confirms the row (counted already equals recorded)", () => {
+    const row = makeRealRow({ recorded: 5 });
+    toggleRowCheck(row);
+    assert.equal(rowStatus(row), "ok");
+    assert.equal(row.counted.value, 5);
+  });
+
+  it("ok → todo: un-confirms (a mis-tap escape hatch)", () => {
+    const row = makeRealRow({ recorded: 5 });
+    row.confirmed.value = true;
+    toggleRowCheck(row);
+    assert.equal(rowStatus(row), "todo");
+  });
+
+  it("chg → ok: re-confirms AT the recorded value, discarding the pending edit", () => {
+    const row = makeRealRow({ recorded: 5 });
+    row.counted.value = 2;
+    assert.equal(rowStatus(row), "chg", "precondition");
+    toggleRowCheck(row);
+    assert.equal(row.counted.value, 5, "counted resets to recorded");
+    assert.equal(rowStatus(row), "ok");
+  });
+
+  it("chg → ok: clears any prior failed/failMsg state", () => {
+    const row = makeRealRow({ recorded: 5 });
+    row.counted.value = 2;
+    row.failed.value = true;
+    row.failMsg.value = "boom";
+    toggleRowCheck(row);
+    assert.equal(row.failed.value, false);
+    assert.equal(row.failMsg.value, null);
+  });
+
+  it("does NOT reset counted on a new (isNewRow) chg row — that would silently zero the addition", () => {
+    // Inline-add rows are seeded recorded: 0 with counted set to the entered quantity
+    // (take-stock.js handleSheetAdd) — resetting to recorded here would drop the addition.
+    const row = makeRealRow({ recorded: 0, isNewRow: true });
+    row.counted.value = 3;
+    assert.equal(rowStatus(row), "chg", "precondition");
+
+    toggleRowCheck(row);
+
+    assert.equal(row.counted.value, 3, "counted must be left untouched for a new row");
+    assert.equal(rowStatus(row), "chg", "dirty (counted !== recorded) still wins — status stays chg");
+    assert.equal(row.confirmed.value, true);
+  });
+});
+
+describe("confirmRow", () => {
+  it("marks confirmed true without touching counted", () => {
+    const row = makeRealRow({ recorded: 5 });
+    row.counted.value = 8;
+    confirmRow(row);
+    assert.equal(row.confirmed.value, true);
+    assert.equal(row.counted.value, 8, "counted is untouched — a dirty row stays dirty");
+    assert.equal(rowStatus(row), "chg", "dirty still wins over confirmed");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// groupRowsByCategory (plantry-vvqt design item 6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("groupRowsByCategory", () => {
+  it("groups rows by categoryName", () => {
+    const milk = makeTestRow({ productId: "milk", categoryName: "Dairy", categorySortOrder: 1 });
+    const eggs = makeTestRow({ productId: "eggs", categoryName: "Dairy", categorySortOrder: 1 });
+    const carrot = makeTestRow({ productId: "carrot", categoryName: "Produce", categorySortOrder: 2 });
+
+    const groups = groupRowsByCategory([milk, eggs, carrot]);
+
+    assert.equal(groups.length, 2);
+    assert.deepEqual(groups.map((g) => g.name), ["Dairy", "Produce"]);
+    assert.equal(groups[0].items.length, 2);
+    assert.equal(groups[1].items.length, 1);
+  });
+
+  it("orders groups by categorySortOrder, not alphabetically", () => {
+    const carrot = makeTestRow({ productId: "carrot", categoryName: "Produce", categorySortOrder: 2 });
+    const milk = makeTestRow({ productId: "milk", categoryName: "Dairy", categorySortOrder: 5 });
+
+    // Alphabetically Dairy < Produce, but sortOrder says Produce (2) comes before Dairy (5).
+    const groups = groupRowsByCategory([milk, carrot]);
+
+    assert.deepEqual(groups.map((g) => g.name), ["Produce", "Dairy"]);
+  });
+
+  it("buckets rows with no category under 'Other', sorted last", () => {
+    const milk = makeTestRow({ productId: "milk", categoryName: "Dairy", categorySortOrder: 1 });
+    const misc = makeTestRow({ productId: "misc", categoryName: null });
+
+    const groups = groupRowsByCategory([misc, milk]);
+
+    assert.deepEqual(groups.map((g) => g.name), ["Dairy", "Other"]);
+  });
+
+  it("keeps rows within a group in their incoming order (stable)", () => {
+    const b = makeTestRow({ productId: "b", productName: "Banana", categoryName: "Produce" });
+    const a = makeTestRow({ productId: "a", productName: "Apple", categoryName: "Produce" });
+
+    const groups = groupRowsByCategory([b, a]);
+
+    assert.deepEqual(groups[0].items.map((r) => r.productId), ["b", "a"]);
+  });
+
+  it("ties within the same sortOrder break alphabetically by category name", () => {
+    const z = makeTestRow({ productId: "z", categoryName: "Zesty", categorySortOrder: 1 });
+    const a = makeTestRow({ productId: "a", categoryName: "Ambient", categorySortOrder: 1 });
+
+    const groups = groupRowsByCategory([z, a]);
+
+    assert.deepEqual(groups.map((g) => g.name), ["Ambient", "Zesty"]);
+  });
+
+  it("returns an empty array for an empty row list", () => {
+    assert.deepEqual(groupRowsByCategory([]), []);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// readyToSaveCount (plantry-vvqt design point 4 — lots ride the page-level Save)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("readyToSaveCount", () => {
+  it("is just the dirty row count when no lot panel is pending", () => {
+    assert.equal(readyToSaveCount(2, {}), 2);
+  });
+
+  it("a lot-dirty product with NO dirty rows still yields a positive count", () => {
+    // This is the case the adjuster sheet's Done button used to short-circuit (critic pass 1 FIX):
+    // closing the sheet after only editing lot amounts (no row-level count change) must still
+    // surface as a pending change once the sheet closes, not silently vanish.
+    assert.equal(readyToSaveCount(0, { "prod-a": true }), 1);
+  });
+
+  it("sums dirty rows and dirty lot products together", () => {
+    assert.equal(readyToSaveCount(2, { "prod-a": true, "prod-b": true }), 4);
+  });
+
+  it("is 0 when nothing is dirty", () => {
+    assert.equal(readyToSaveCount(0, {}), 0);
   });
 });

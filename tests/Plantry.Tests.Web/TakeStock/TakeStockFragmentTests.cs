@@ -2131,26 +2131,35 @@ public sealed class FakeTsUnitRepository : IUnitRepository
 }
 
 /// <summary>
-/// Fake <see cref="ICategoryRepository"/> for L4 fragment tests. Returns an empty category list
-/// so the Defaults collapsible in the create view renders with no options other than "— None —"
-/// (plantry-y53t). WalkModel now resolves ICategoryRepository in LoadAsync.
+/// Fake <see cref="ICategoryRepository"/> for L4 fragment tests and <see cref="Plantry.Tests.Web.TakeStockReaderAdapterTests"/>
+/// (plantry-vvqt — the walk redesign's category grouping). Defaults to an empty category list — so
+/// existing fragment-test call sites are unchanged and the Defaults collapsible in the create view
+/// renders with no options other than "— None —" (plantry-y53t) — but accepts an explicit seed list
+/// so adapter tests can assert <see cref="TakeStockReaderAdapter"/>'s category resolution.
+/// WalkModel and TakeStockReaderAdapter both resolve ICategoryRepository.
 /// </summary>
-public sealed class FakeTsCategoryRepository : ICategoryRepository
+public sealed class FakeTsCategoryRepository(IReadOnlyList<CatalogCategory>? categories = null) : ICategoryRepository
 {
+    private readonly List<CatalogCategory> _categories = categories?.ToList() ?? [];
+
     public Task<CatalogCategory?> FindAsync(CategoryId id, CancellationToken ct = default) =>
-        Task.FromResult<CatalogCategory?>(null);
+        Task.FromResult(_categories.FirstOrDefault(c => c.Id == id));
 
     public Task<CatalogCategory?> FindByNameAsync(string name, CancellationToken ct = default) =>
-        Task.FromResult<CatalogCategory?>(null);
+        Task.FromResult(_categories.FirstOrDefault(
+            c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)));
 
     public Task<List<CatalogCategory>> ListAsync(CancellationToken ct = default) =>
-        Task.FromResult(new List<CatalogCategory>());
+        Task.FromResult(_categories.ToList());
 
     public Task<List<CatalogCategory>> ListActiveAsync(CancellationToken ct = default) =>
-        Task.FromResult(new List<CatalogCategory>());
+        Task.FromResult(_categories.Where(c => !c.IsArchived).ToList());
 
-    public Task AddAsync(CatalogCategory category, CancellationToken ct = default) =>
-        Task.CompletedTask;
+    public Task AddAsync(CatalogCategory category, CancellationToken ct = default)
+    {
+        _categories.Add(category);
+        return Task.CompletedTask;
+    }
 
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         Task.CompletedTask;

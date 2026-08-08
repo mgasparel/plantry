@@ -286,12 +286,15 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await pantryLink.ClickAsync();
             await page.WaitForURLAsync("**/pantry/take-stock/**");
 
-            // ── Expand the lot panel ──────────────────────────────────────────────
-            // The expand-lots button uses aria-label pattern; locate by its CSS class ts-expand
-            // (visible only for rows with active stock).
-            var adjustLotsBtn = page.Locator("button.ts-expand").First;
-            await Assertions.Expect(adjustLotsBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await adjustLotsBtn.ClickAsync();
+            // ── Open the row's adjuster sheet, then expand the lot panel ──────────
+            // Lots live inside the sheet (plantry-vvqt walk redesign) — tap the check-off row to
+            // open it, then the "Adjust individual lots" toggle to expand the lot panel.
+            var row = page.Locator(".ts-checkrow__main", new() { HasText = productName });
+            await Assertions.Expect(row).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await row.ClickAsync();
+            var lotsToggle = page.Locator(".lots-toggle");
+            await Assertions.Expect(lotsToggle).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await lotsToggle.ClickAsync();
 
             // The lot panel should appear with both lots.
             var lotPanel = page.Locator(".ts-hatch");
@@ -339,23 +342,33 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             Assert.True(untouchedOriginal > 0,
                 $"expected a third untouched lot with positive on-hand, got {untouchedOriginal}");
 
-            // Wait for button to enable (isDirty() reactive update).
-            var saveBtn = page.Locator(".ts-hatch button:has-text('Save lot changes')");
-            await Assertions.Expect(saveBtn).ToBeEnabledAsync(new LocatorAssertionsToBeEnabledOptions { Timeout = 15000 });
+            // ── Close the sheet via Done — the lot draft stays pending, not flushed ──
+            // The lot panel no longer has its own Save button (plantry-vvqt — that separate save
+            // model is what the redesign removes), and Done itself no longer flushes it either
+            // (critic pass 1 fix — flushing on Done would just move the separate POST trigger, not
+            // remove it). The lot-panel host is mounted persistently by AdjusterSheet regardless of
+            // which row's sheet is open, so the edit survives this close untouched.
+            var doneBtn = page.Locator(".ts-adjuster__foot button.btn--primary");
+            await doneBtn.ClickAsync();
+            await Assertions.Expect(page.Locator(".ts-adjuster")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
 
-            // ── Save lot changes ──────────────────────────────────────────────────
-            await saveBtn.ClickAsync();
+            // ── The sticky Save bar reflects the pending lot change even though no row-level
+            // count changed — dirtyLotIds (not dirtyCount) drives it (plantry-vvqt) — then Save
+            // flushes the lot panel; this IS the page-level Save the ticket describes.
+            var saveBar = page.Locator(".bar-sticky-bottom");
+            await Assertions.Expect(saveBar).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await Assertions.Expect(saveBar).ToContainTextAsync("ready", new LocatorAssertionsToContainTextOptions { Timeout = 15000 });
+            await page.ClickAsync(".bar-sticky-bottom button:has-text('Save')");
 
-            // After a successful save, the panel is collapsed by onLotsSaved (parent removes innerHTML).
-            // Wait for the lot panel to disappear as a proxy for save success.
+            // A successful flush hides the Save bar (nothing left pending) — proxy for save
+            // success.
             //
-            // plantry-lawx: this collapse is now a real test of the delta-0 skip guard. The mixed
-            // save posted adjustments for only the two changed lots; the untouched lot was skipped
-            // client-side. If the guard were broken and had posted amount:0 for the untouched lot,
-            // the server would reject it (Amount<=0), the save() result would carry failed > 0, the
-            // `failed === 0` branch would not run, lots-saved would never dispatch, and this panel
-            // would stay OPEN — failing here.
-            await Assertions.Expect(lotPanel).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+            // plantry-lawx: this is a real test of the delta-0 skip guard. The mixed save posted
+            // adjustments for only the two changed lots; the untouched lot was skipped client-side.
+            // If the guard were broken and had posted amount:0 for the untouched lot, the server
+            // would reject it (Amount<=0), the save() result would carry failed > 0, and the Save
+            // bar would stay visible (isDirty() still true) — failing here.
+            await Assertions.Expect(saveBar).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
 
             // ── Verify Pantry reflects ONLY the two intended reductions ───────────
             // Stock was 600g; lot A reduced by 50 + lot B reduced by 80 = 130g removed → 470g.
@@ -373,9 +386,10 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/pantry/take-stock**");
             await pantryLink.ClickAsync();
             await page.WaitForURLAsync("**/pantry/take-stock/**");
-            var reExpandBtn = page.Locator("button.ts-expand").First;
-            await Assertions.Expect(reExpandBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await reExpandBtn.ClickAsync();
+            await Assertions.Expect(row).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await row.ClickAsync();
+            await Assertions.Expect(lotsToggle).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await lotsToggle.ClickAsync();
             await Assertions.Expect(lotPanel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await Assertions.Expect(page.Locator(".ts-lot:not(.found)")).ToHaveCountAsync(3, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
 
@@ -400,6 +414,125 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
         finally
         {
             await context.Tracing.StopAsync(new() { Path = "trace-takestock-lots.zip" });
+        }
+    }
+
+    [Fact(DisplayName = "Take Stock: a row edited both scalar AND lot-level in the same visit posts only the lot outcome, no stale re-apply (plantry-vvqt, critic pass 2)")]
+    public async Task TakeStock_ScalarAndLotBothDirty_LotFlushWinsNoStaleReapply()
+    {
+        // Regression for a flush-ordering bug introduced by the walk redesign's lot rework:
+        // save() used to snapshot the dirty-row list BEFORE flushing lot panels. If a row was both
+        // scalar-dirty (an edited count) and lot-dirty (an adjustment to its only lot) at Save
+        // time, the lot flush's lots-saved handler reset row.counted back to the (now-updated)
+        // row.recorded — but the stale pre-flush dirty-row snapshot still carried the OLD scalar
+        // count, so buildSaveItems posted it anyway. RecordCountCommand recomputes recorded from
+        // current stock and applies an absolute delta, silently re-adding the units the lot flush
+        // had just removed. The fix moves the dirty-row snapshot to AFTER the flush loop so a row
+        // the lots-saved handler just cleaned drops out and is never re-posted.
+        var uniqueEmail = $"ts-mixed-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"TS Mixed {Guid.NewGuid():N}".Substring(0, 16);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household ─────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS Mixed E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS Mixed E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Create a stock-holding product with a single 500g lot in Pantry ────
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
+            await page.WaitForURLAsync("**/Catalog/Products/Create");
+            await page.FillAsync("[name='Input.Name']", productName);
+            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.ClickAsync("button:has-text('Create Product')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
+            await productSearch.FillAsync(productName);
+            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "500");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            var pantryRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(pantryRow).ToContainTextAsync("500 g");
+
+            // ── Navigate to Take Stock → open Pantry walk ─────────────────────────
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            var pantryLink = page.Locator(".ts-loc-grid a.ts-loc-card", new() { HasText = "Pantry" });
+            await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pantryLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+
+            // ── Open the row's sheet and make it scalar-dirty (500 → 470) ─────────
+            var row = page.Locator(".ts-checkrow__main", new() { HasText = productName });
+            await Assertions.Expect(row).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await row.ClickAsync();
+            await page.WaitForFunctionAsync(@"
+                () => typeof window.__takeStockIsland?.setCountByIndex === 'function'
+            ");
+            await page.EvaluateAsync(@"
+                () => { window.__takeStockIsland.setCountByIndex(0, 470); }
+            ");
+
+            // ── Also make the row's (only) lot dirty — reduce it by 20g ───────────
+            var lotsToggle = page.Locator(".lots-toggle");
+            await Assertions.Expect(lotsToggle).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await lotsToggle.ClickAsync();
+            await Assertions.Expect(page.Locator(".ts-lot:not(.found)")).ToHaveCountAsync(1, new LocatorAssertionsToHaveCountOptions { Timeout = 30000 });
+            await page.EvaluateAsync(@"
+                () => {
+                    const panel = document.querySelector('.ts-hatch');
+                    const data = window.Alpine.$data(panel);
+                    const lotId = Object.keys(data.lots)[0];
+                    data.setLotAmount(lotId, data.lots[lotId].original - 20); // reduce by 20g
+                }
+            ");
+
+            // ── Close via Done (both edits stay pending, neither is flushed yet) ──
+            await page.ClickAsync(".ts-adjuster__foot button.btn--primary");
+            await Assertions.Expect(page.Locator(".ts-adjuster")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
+
+            // ── Tap Save — this flushes the lot panel FIRST, then posts only rows
+            // still dirty afterwards; the row should have dropped out (lots-saved reset
+            // its counted back to the new recorded) rather than re-posting the stale 470. ──
+            var saveBar = page.Locator(".bar-sticky-bottom");
+            await Assertions.Expect(saveBar).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await page.ClickAsync(".bar-sticky-bottom button:has-text('Save')");
+            await Assertions.Expect(saveBar).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
+
+            // ── Verify Pantry reflects ONLY the 20g lot reduction (500 → 480) ─────
+            // A broken flush-ordering would re-apply the stale scalar edit on top of (or instead
+            // of) the lot reduction, landing on 470g (scalar only) or 450g (both applied). 480g is
+            // the only value proving the stale row correctly dropped out of the save batch.
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            var updatedRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(updatedRow).ToContainTextAsync("480 g", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-mixed-dirty.zip" });
         }
     }
 
@@ -489,9 +622,10 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
                 () => { window.__takeStockIsland.setCountByIndex(0, 300); }
             ");
 
-            // Save bar appears when the row is dirty (proves Alpine working-set client).
+            // Save bar appears when the row is dirty (proves the island's working-set client).
+            // Text is "N change(s) ready · M unchecked" (plantry-vvqt walk redesign).
             await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToContainTextAsync("ready to save", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
+            await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToContainTextAsync("ready", new LocatorAssertionsToContainTextOptions { Timeout = 30000 });
 
             // ── Tap Save ──────────────────────────────────────────────────────────
             await page.ClickAsync(".bar-sticky-bottom button:has-text('Save')");
@@ -578,11 +712,17 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.WaitForURLAsync("**/pantry/take-stock/**");
 
             // ── Verify the unit selector renders with multiple options (C10) ───────
-            // The selector has aria-label "Unit for <productName>" and should include kg.
+            // The selector has aria-label "Unit for <productName>" and should include kg. It now
+            // lives inside the adjuster sheet (plantry-vvqt walk redesign) — open the sheet by
+            // tapping the row before it's reachable.
+            var row = page.Locator(".ts-checkrow__main", new() { HasText = productName });
+            await Assertions.Expect(row).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await row.ClickAsync();
+
             var unitSelect = page.Locator($"select[aria-label='Unit for {productName}']");
             await Assertions.Expect(unitSelect).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
 
-            // Collect the kg option value (its UUID) from the select to use in Alpine mutation.
+            // Collect the kg option value (its UUID) from the select to use in the island seam call below.
             var kgUnitId = await page.EvaluateAsync<string?>($@"
                 () => {{
                     const sel = document.querySelector(""select[aria-label='Unit for {productName}']"");
@@ -593,6 +733,12 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             ");
             Assert.NotNull(kgUnitId);
             Assert.NotEqual(string.Empty, kgUnitId);
+
+            // Close the sheet without applying anything from it yet — the unit + count are set via
+            // the island's JS test seam below instead (Cancel reverts nothing since nothing was
+            // edited through the sheet's own controls here).
+            await page.ClickAsync(".ts-adjuster__foot button:has-text('Cancel')");
+            await Assertions.Expect(page.Locator(".ts-adjuster")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
 
             // ── Wait for island, then set count=1 in kg via the island test seam ──
             // The Preact island exposes window.__takeStockIsland replacing the old Alpine.$data()
@@ -861,7 +1007,14 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await pantryLink.ClickAsync();
             await page.WaitForURLAsync("**/pantry/take-stock/**");
 
-            // ── Increase the count above the recorded amount via the island test seam ──
+            // ── Open the row's adjuster sheet, then increase the count via the island test seam ──
+            // The expiry block lives inside the sheet (plantry-vvqt walk redesign), so open it
+            // first — the seam call below mutates the same row object the open sheet is bound to,
+            // and the sheet reactively re-renders on the count change.
+            var row = page.Locator(".ts-checkrow__main", new() { HasText = productName });
+            await Assertions.Expect(row).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await row.ClickAsync();
+
             // (plantry-2zvm.2's window.__takeStockIsland replaces the old Alpine.$data() pattern.)
             await page.WaitForFunctionAsync(@"
                 () => typeof window.__takeStockIsland?.setCountByIndex === 'function'
@@ -875,16 +1028,19 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await Assertions.Expect(expiryInput).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await expiryInput.FillAsync("2027-06-15");
 
-            // ── Tap Save ──────────────────────────────────────────────────────────
+            // ── Close the sheet via Done (keeps the pending edit), then Tap Save ────
+            await page.ClickAsync(".ts-adjuster__foot button.btn--primary");
+            await Assertions.Expect(page.Locator(".ts-adjuster")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 15000 });
             await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await page.ClickAsync(".bar-sticky-bottom button:has-text('Save')");
             await Assertions.Expect(page.Locator(".toast")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             await Assertions.Expect(page.Locator(".bar-sticky-bottom")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 30000 });
 
-            // ── Expand the lot panel and confirm the expiry round-tripped ──────────
-            var expandBtn = page.Locator("button.ts-expand").First;
-            await Assertions.Expect(expandBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
-            await expandBtn.ClickAsync();
+            // ── Re-open the sheet, expand the lot panel, confirm the expiry round-tripped ──
+            await row.ClickAsync();
+            var lotsToggle = page.Locator(".lots-toggle");
+            await Assertions.Expect(lotsToggle).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await lotsToggle.ClickAsync();
             var lotPanel = page.Locator(".ts-hatch");
             await Assertions.Expect(lotPanel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
             // The lot panel now renders the expiry as an editable date input (plantry-fyvr), not

@@ -31,7 +31,17 @@ public sealed record IslandRowVm(
     [property: JsonPropertyName("unitId")]         Guid                       UnitId,
     [property: JsonPropertyName("hasActiveStock")] bool                       HasActiveStock,
     [property: JsonPropertyName("lotsUrl")]        string                     LotsUrl,
-    [property: JsonPropertyName("supportedUnits")] List<UnitOptionVm>         SupportedUnits);
+    [property: JsonPropertyName("supportedUnits")] List<UnitOptionVm>         SupportedUnits,
+    /// <summary>POST ?handler=SaveLots URL for this row's product (plantry-vvqt) — the walk
+    /// redesign's adjuster sheet flushes any pending lot-panel adjustments here as part of the
+    /// page-level Save, replacing the old panel's own Save button/POST trigger.</summary>
+    [property: JsonPropertyName("saveLotsUrl")]    string                     SaveLotsUrl,
+    /// <summary>Category name for the walk's category grouping (plantry-vvqt design item 6); null
+    /// when the product has no category (the island groups these under "Other").</summary>
+    [property: JsonPropertyName("categoryName")]   string?                    CategoryName,
+    /// <summary>Store-layout sort order for the category group (plantry-vvqt); groups render in
+    /// this order rather than alphabetically.</summary>
+    [property: JsonPropertyName("categorySortOrder")] int                     CategorySortOrder);
 
 /// <summary>
 /// A unit the island may present in the per-row unit selector (multi-unit products).

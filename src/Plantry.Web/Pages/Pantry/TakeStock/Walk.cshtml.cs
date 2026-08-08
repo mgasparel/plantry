@@ -705,12 +705,15 @@ public sealed class WalkModel(
             r.DisplayUnitCode,
             r.DisplayUnitId,
             r.HasActiveStock,
-            // lotsUrl is resolved server-side so the island never constructs URLs.
+            // lotsUrl/saveLotsUrl are resolved server-side so the island never constructs URLs.
             // The handler remains the sole owner of its own routing.
             Url.Page("./Walk", "Lots", new { locationId = LocationId, productId = r.ProductId }) ?? "",
             r.SupportedUnits?
                 .Select(u => new UnitOptionVm(u.UnitId, u.Code))
-                .ToList() ?? []));
+                .ToList() ?? [],
+            Url.Page("./Walk", "SaveLots", new { locationId = LocationId, productId = r.ProductId }) ?? "",
+            r.CategoryName,
+            r.CategorySortOrder));
 
         return JsonSerializer.Serialize(list, TakeStockHydrationJson.Options);
     }

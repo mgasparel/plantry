@@ -225,10 +225,31 @@ function takeStockLotPanel(data) {
         lots: initialLots,
         found: { amount: null, expiryDate: '', unitId: data.foundUnitId ?? '' },
         saving: false,
-        status: null,
+        // No status string here (removed, plantry-vvqt): per-lot failures surface via the
+        // .ts-lot-fail / .ts-lot.failed inline markup, and batch/transport failures via the
+        // island's toast (lotSuffix in take-stock.js save()).
 
         init() {
-            // nothing to wire — collapse handled by island via window events
+            // Pending-adjustment tracking (plantry-vvqt) — the panel no longer has its own Save
+            // button; the island's page-level Save (and the adjuster sheet's Done button) reads
+            // isDirty()/calls save() on this component directly instead. The island still needs to
+            // know reactively WHETHER this panel is dirty (for the sticky Save bar's "ready to
+            // save" count), so notify it on every mutation to the two draft objects via a deep
+            // $watch — Alpine's reactivity (built on the same primitives as this component's other
+            // state) tracks nested property writes, so setLotAmount/setReason/x-model edits to
+            // `lots` and `found` all trigger this.
+            this.$watch('lots', () => this.notifyDirty());
+            this.$watch('found', () => this.notifyDirty());
+        },
+
+        /// <summary>Dispatches lots-dirty-changed with this panel's product id + current isDirty()
+        /// so the island (take-stock.js) can track pending lot state reactively (plantry-vvqt).
+        /// The product id lives on the lot-panel-{productId} host div this component is nested
+        /// inside (take-stock.js), not on $el itself (the .ts-hatch root) — same lookup pattern
+        /// already used by the lots-saved dispatch below.</summary>
+        notifyDirty() {
+            const productId = this.$el.closest('[data-product-id]')?.dataset?.productId;
+            if (productId) this.$dispatch('lots-dirty-changed', { productId, dirty: this.isDirty() });
         },
 
         setLotAmount(entryId, rawValue) {
@@ -265,7 +286,6 @@ function takeStockLotPanel(data) {
         async save(url) {
             if (this.saving || !this.isDirty()) return;
             this.saving = true;
-            this.status = null;
 
             const adjustments = [];
 
@@ -311,12 +331,11 @@ function takeStockLotPanel(data) {
                 });
 
                 if (!resp.ok) {
-                    this.status = 'Save failed (' + resp.status + ') — please try again';
                     return;
                 }
 
                 const result = await resp.json();
-                let saved = 0, failed = 0;
+                let failed = 0;
 
                 for (const r of result.results ?? []) {
                     if (r.entryId) {
@@ -334,22 +353,20 @@ function takeStockLotPanel(data) {
                             }
                         }
                     }
-                    if (r.isSuccess) saved++; else failed++;
+                    if (!r.isSuccess) failed++;
                 }
 
                 if (failed === 0) {
-                    this.status = saved === 1 ? '1 lot updated' : saved + ' lots updated';
                     this.found.amount = null;
                     this.found.expiryDate = '';
                     // Notify the island to collapse the lot panel and reset scalar row state.
                     this.$dispatch('lots-saved', {
                         productId: this.$el.closest('[data-product-id]')?.dataset?.productId
                     });
-                } else {
-                    this.status = failed + ' adjustment(s) failed — see highlighted lots';
                 }
             } catch {
-                this.status = 'Network error — please try again';
+                // Swallowed deliberately: the panel stays dirty, so the island's flushLotPanel
+                // sees ok:false and reports the failure via the save toast's lotSuffix.
             } finally {
                 this.saving = false;
             }

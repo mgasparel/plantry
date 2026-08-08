@@ -6754,22 +6754,12 @@ tr.line--dismissed .data-grid__cell:first-child {
 
 /* count control cluster — wraps the shared <stepper> primitive */
 .ts-count { display: flex; align-items: center; gap: 9px; flex: none; }
-.ts-unit { font-size: 0.8125rem; color: var(--color-text-muted); font-weight: 600; }
 /* C10 unit selector uses the shared .field__input primitive (sized via inline style) — no custom CSS needed. */
-.ts-none-btn {
-  border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted);
-  border-radius: var(--radius-md); padding: 8px 11px; font-size: 0.78125rem; font-weight: 600; white-space: nowrap;
-  transition: all .12s; cursor: pointer;
-}
-.ts-none-btn:hover, .ts-none-btn.on { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
-.ts-expand {
-  width: 34px; height: 34px; flex: none; border-radius: var(--radius-md); display: grid; place-items: center;
-  border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted); cursor: pointer;
-}
-.ts-expand:hover { background: var(--color-surface-2); color: var(--color-text); }
-.ts-expand.open { background: var(--color-accent-subtle); color: var(--color-accent); border-color: transparent; }
-.ts-expand .icon { width: 16px; height: 16px; transition: transform .18s; }
-.ts-expand.open .icon { transform: rotate(180deg); }
+/* .ts-unit / .ts-none-btn (the old inline row's unit label and "None left" button) removed —
+   plantry-vvqt walk redesign replaced them with the adjuster sheet's .ts-bigstep__unit and
+   .ts-chip; no producer remains. */
+/* .ts-expand (the old inline row's lots chevron) removed — plantry-vvqt walk redesign replaced it
+   with the adjuster sheet's .lots-toggle; no producer remains. */
 
 /* delta hint pill on a changed row */
 .ts-delta { display: flex; align-items: center; gap: 7px; padding: 9px var(--space-4); border-top: 1px dashed var(--color-border); font-size: 0.78125rem; color: var(--color-text-muted); }
@@ -6811,8 +6801,8 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-row-err { display: flex; align-items: center; gap: 10px; padding: 11px var(--space-4); border-top: 1px solid var(--color-border); background: var(--color-danger-bg); color: var(--color-danger); font-size: 0.8125rem; font-weight: 600; }
 .ts-row-err .icon { width: 15px; height: 15px; flex: none; }
 .ts-row-err .spacer { flex: 1; }
-.ts-retry { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: var(--radius-md); padding: 5px 11px; font-size: 0.78125rem; font-weight: 700; cursor: pointer; }
-.ts-retry:hover { background: var(--color-danger); color: #fff; border-color: var(--color-danger); }
+/* .ts-retry (the lot panel's removed "Collapse" button) removed — plantry-vvqt walk redesign
+   collapses lots via the adjuster sheet's .lots-toggle instead; no producer remains. */
 
 /* inline conversion-factor prompt (plantry-3mwx — NeedsConversion backstop) */
 .ts-conversion { padding: 11px var(--space-4) 13px; border-top: 1px solid var(--color-warning); background: var(--color-warning-bg); }
@@ -6848,7 +6838,8 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-date-lbl { font-size: 0.71875rem; font-weight: 600; color: var(--color-text-faint); }
 .ts-lot.found { background: var(--color-success-bg); margin: 6px -8px 0; padding: 11px 8px; border-radius: var(--radius-md); border-top: none; }
 .ts-lot .found-tag { font-size: 0.625rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-success); }
-.ts-hatch-foot { display: flex; align-items: center; gap: 12px; margin-top: 13px; }
+/* .ts-hatch-foot (the removed lot-panel Save/status footer) removed — plantry-vvqt walk redesign
+   dropped the panel's own footer entirely; no producer remains. */
 .ts-add-lot { display: inline-flex; align-items: center; gap: 7px; background: none; border: 1px dashed var(--color-border-strong); color: var(--color-text-muted); border-radius: var(--radius-md); padding: 8px 12px; font-weight: 600; font-size: 0.8125rem; cursor: pointer; }
 .ts-add-lot:hover { border-color: var(--color-success); color: var(--color-success); background: var(--color-success-bg); }
 .ts-add-lot .icon { width: 14px; height: 14px; }
@@ -6886,6 +6877,137 @@ tr.line--dismissed .data-grid__cell:first-child {
   .ts-loc-grid { grid-template-columns: 1fr; }
   .ts-row-main { flex-wrap: wrap; }
 }
+
+/* ── Walk redesign: progress strip, check-off rows, category groups, adjuster
+   sheet, done card (plantry-vvqt) ────────────────────────────────────────────
+   Reuses .ts-reason / .ts-expiry / .ts-conversion / .ts-hatch / .ts-lot* verbatim
+   inside the sheet body — same visual language, new host. .ts-row / .ts-row-main
+   and friends are UNTOUCHED above: NoLocation.cshtml (out of scope, plantry-vvqt)
+   still renders its own inline rows with them. */
+
+/* Progress strip — slim bar + "N of M checked", under the walk title, always visible. */
+.ts-progress { display: flex; align-items: center; gap: var(--space-3); padding: 2px 0 var(--space-4); }
+.ts-progress__track { flex: 1; height: 5px; border-radius: var(--radius-full); background: var(--color-bg-subtle); overflow: hidden; }
+.ts-progress__fill { height: 100%; border-radius: var(--radius-full); background: var(--color-accent); transition: width .25s cubic-bezier(.4,0,.2,1); }
+.ts-progress__lbl { font-size: 0.71875rem; font-weight: 700; color: var(--color-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Check-off row — name, recorded/counted amount, one full-height confirm tap target.
+   All editing depth (stepper, unit, reason, expiry, lots) lives in .ts-adjuster instead. */
+.ts-checkrow {
+  display: flex; align-items: stretch; gap: 0;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+  margin-bottom: var(--space-3); overflow: hidden;
+  transition: opacity .18s, border-color .18s, background .18s;
+}
+.ts-checkrow__main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--space-4);
+  background: none; border: none; text-align: left; font: inherit; color: inherit; cursor: pointer;
+}
+.ts-checkrow__main:hover { background: var(--color-surface-2); }
+.ts-checkrow__id { flex: 1; min-width: 0; }
+.ts-checkrow__name { font-weight: 650; font-size: 0.9375rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; color: var(--color-text); }
+.ts-checkrow__name .nm-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-checkrow__sub { font-size: 0.78125rem; color: var(--color-text-faint); margin-top: 3px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.ts-checkrow__sub .dpill { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 1px 8px; border-radius: 999px; font-size: 0.6875rem; }
+.ts-checkrow__sub .dpill .icon { width: 10px; height: 10px; }
+.ts-checkrow__sub .dpill.down { background: var(--color-danger-bg); color: var(--color-danger); }
+.ts-checkrow__sub .dpill.up { background: var(--color-success-bg); color: var(--color-success); }
+.ts-checkrow__sub .why { color: var(--color-text-faint); }
+.ts-checkrow__warn { display: inline-flex; align-items: center; gap: 5px; color: var(--color-warning); font-weight: 600; }
+.ts-checkrow__warn .icon { width: 12px; height: 12px; }
+.ts-checkrow__qty { flex: none; display: flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
+.ts-checkrow__qty .n { font-size: 1.0625rem; font-weight: 750; letter-spacing: -0.02em; color: var(--color-text); }
+.ts-checkrow__qty .u { font-size: 0.71875rem; font-weight: 600; color: var(--color-text-faint); }
+.ts-checkrow__check {
+  flex: none; width: 46px; align-self: stretch; display: grid; place-items: center;
+  border-left: 1px solid var(--color-border); background: none; color: var(--color-text-faint); cursor: pointer;
+}
+.ts-checkrow__check:hover { background: var(--color-success-bg); color: var(--color-success); }
+.ts-checkrow__check .icon { width: 19px; height: 19px; }
+
+/* confirmed (status "ok") — faded, reads as done */
+.ts-checkrow.ok { background: color-mix(in srgb, var(--color-surface) 60%, var(--color-bg)); box-shadow: none; }
+.ts-checkrow.ok .ts-checkrow__name { color: var(--color-text-muted); font-weight: 600; }
+.ts-checkrow.ok .ts-checkrow__qty .n { color: var(--color-text-muted); font-weight: 650; }
+.ts-checkrow.ok .ts-checkrow__check { color: var(--color-success); border-left-color: transparent; }
+
+/* changed (status "chg") — a pending edit, reviewable at a glance */
+.ts-checkrow.chg { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent-subtle), var(--shadow-sm); }
+.ts-checkrow.chg .ts-checkrow__check { color: var(--color-accent); border-left-color: transparent; }
+
+.ts-checkrow.errored { border-left: 3px solid var(--color-danger); }
+.ts-checkrow .ts-row-err { margin: 0 var(--space-3) var(--space-3); border-top: none; border-radius: var(--radius-md); }
+
+/* Category group headers (plantry-vvqt design item 6) — chunk long lists (Dairy, Produce, …). */
+.ts-group { margin-bottom: 2px; }
+.ts-group__head {
+  display: flex; align-items: center; gap: 8px; padding: var(--space-3) 4px 9px;
+  font-size: 0.6875rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+.ts-group__head .n { font-weight: 700; color: var(--color-text-faint); background: var(--color-bg-subtle); border-radius: var(--radius-full); padding: 1px 8px; letter-spacing: 0; }
+
+/* Walk-complete done card */
+.ts-done { margin: var(--space-2) 0 var(--space-4); padding: 26px var(--space-4); text-align: center; border: 1px dashed var(--color-border-strong); border-radius: var(--radius-xl); background: var(--color-surface); }
+.ts-done__big { font-size: 1.625rem; }
+.ts-done__title { font-weight: 750; margin-top: 7px; font-size: 1.0625rem; }
+.ts-done__body { font-size: 0.8125rem; color: var(--color-text-muted); margin-top: 5px; line-height: 1.5; }
+
+/* ── Adjuster sheet — all row editing depth lives here (plantry-vvqt) ──────── */
+/* Always mounted (never conditionally created/destroyed by Preact, plantry-vvqt FIX critic pass
+   1) — open/closed is a ".show" class toggle instead, so the lot-panel hosts nested inside
+   .ts-adjuster__body survive a sheet close with their Alpine draft state intact. Hidden by
+   default via `visibility: hidden` (NOT display:none — that would still leave the descendant lot
+   hosts mounted/functional, since visibility doesn't unmount anything, but Playwright's
+   toBeVisible/toBeHidden assertions key off computed visibility, so this keeps the E2E contract
+   honest) plus pointer-events; ".show" reveals and re-enables it. */
+.ts-adjuster { position: fixed; inset: 0; z-index: 120; visibility: hidden; pointer-events: none; }
+.ts-adjuster.show { visibility: visible; pointer-events: auto; }
+.ts-adjuster__scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.4); opacity: 0; transition: opacity .2s; }
+.ts-adjuster.show .ts-adjuster__scrim { opacity: 1; }
+.ts-adjuster__panel {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+  background: var(--color-surface); border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow: 0 -8px 40px rgba(0,0,0,.18); max-height: 88vh;
+  display: flex; flex-direction: column;
+  transform: translateY(105%); transition: transform .22s cubic-bezier(.4,0,.2,1);
+}
+.ts-adjuster.show .ts-adjuster__panel { transform: translateY(0); }
+.ts-adjuster__grab { flex: none; padding: 10px 0 2px; display: grid; place-items: center; }
+.ts-adjuster__grab::before { content: ""; width: 40px; height: 4px; border-radius: var(--radius-full); background: var(--color-border-strong); opacity: .6; }
+.ts-adjuster__body { overflow-y: auto; padding: 4px var(--space-4) var(--space-4); }
+.ts-adjuster__name { font-size: 1.1875rem; font-weight: 750; letter-spacing: -0.02em; color: var(--color-text); }
+.ts-adjuster__rec { font-size: 0.8125rem; color: var(--color-text-muted); margin: 3px 0 var(--space-4); }
+.ts-adjuster__rec b { font-variant-numeric: tabular-nums; }
+.ts-adjuster__foot { flex: none; display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--color-border); background: var(--color-surface); }
+.ts-adjuster__foot .btn--primary { flex: 1; }
+
+/* Big stepper — 64px thumb-sized +/- buttons flanking the count input. */
+.ts-bigstep { display: flex; align-items: stretch; gap: var(--space-2); }
+.ts-bigstep__btn { flex: none; width: 60px; border-radius: var(--radius-lg); border: 1px solid var(--color-border-strong); background: var(--color-surface-2); display: grid; place-items: center; color: var(--color-text); cursor: pointer; }
+.ts-bigstep__btn:hover { background: var(--color-accent-subtle); color: var(--color-accent); }
+.ts-bigstep__btn .icon { width: 20px; height: 20px; }
+.ts-bigstep__mid { flex: 1; display: flex; align-items: center; justify-content: center; gap: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); background: var(--color-surface); padding: var(--space-2) var(--space-2); }
+.ts-bigstep__mid input { width: 100%; max-width: 7rem; border: none; background: none; outline: none; text-align: right; font-size: 1.875rem; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--color-text); -moz-appearance: textfield; }
+.ts-bigstep__mid input::-webkit-outer-spin-button, .ts-bigstep__mid input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.ts-bigstep__unit { font-size: 0.875rem; font-weight: 700; color: var(--color-text-faint); white-space: nowrap; }
+.ts-bigstep__unit-select { min-width: 4.5rem; max-width: 7rem; }
+
+/* Quick chips — "None left" / "Matches record". */
+.ts-chiprow { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.ts-chip { flex: 1; text-align: center; font-size: 0.8125rem; font-weight: 700; border: 1px solid var(--color-border-strong); border-radius: var(--radius-full); padding: 9px 6px; color: var(--color-text-muted); background: var(--color-surface); cursor: pointer; }
+.ts-chip:hover, .ts-chip.on { background: var(--color-danger-bg); border-color: var(--color-danger); color: var(--color-danger); }
+.ts-chip.match:hover, .ts-chip.match.on { background: var(--color-success-bg); border-color: var(--color-success); color: var(--color-success); }
+
+.ts-expiry-optional { font-weight: 600; color: var(--color-text-faint); margin-left: 4px; }
+
+/* Lots-in-sheet toggle — the .ts-hatch panel content below it is unchanged. */
+.lots-toggle { margin-top: var(--space-4); width: 100%; display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; font-weight: 700; color: var(--color-text-muted); background: none; border: none; border-top: 1px dashed var(--color-border); padding: var(--space-4) 2px 0; cursor: pointer; }
+.lots-toggle .icon { width: 14px; height: 14px; transition: transform .16s; }
+.lots-toggle.open .icon { transform: rotate(90deg); }
+.lots-toggle:hover { color: var(--color-accent); }
 
 /* ── Popover ────────────────────────────────────────────────────────────────── */
 
@@ -7571,7 +7693,10 @@ tr.line--dismissed .data-grid__cell:first-child {
    Fixed bottom-centre status pill. Framework-agnostic: rendered by an island
    (Take Stock's Preact walk) or toggled from an Alpine page. Dismiss on click.
    Give it role="status" aria-live="polite" so assistive tech announces it. */
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; z-index: 70; display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: var(--color-text); color: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+/* z-index 130 — above .ts-adjuster's full-viewport scrim/panel (120, plantry-vvqt) so a toast
+   raised while the adjuster sheet is open (e.g. a lot-flush failure) stays readable instead of
+   rendering behind the sheet. No other fixed overlay in this file occupies 121-130. */
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; z-index: 130; display: flex; align-items: center; gap: 10px; padding: 12px 18px; background: var(--color-text); color: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
 .toast .icon { color: var(--color-success); width: 16px; height: 16px; }
 
 /* ── Sticky bars — the long-list idiom ──────────────────────────────────────
