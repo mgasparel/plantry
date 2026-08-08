@@ -15,7 +15,7 @@
 @{ ViewData["FormOob"] = true; }
 <partial name="_AddForm" model="Model" />
 <partial name="_ShoppingSummary"
-         model="new ShoppingSummaryPartialModel(Model.ShoppingList, true)" />
+         model="new ShoppingSummaryPartialModel(Model.ShoppingList, true, Model.DisplayCurrency)" />
 @if (Model.SuggestionsOob)
 {
     <partial name="_PantrySuggestions"

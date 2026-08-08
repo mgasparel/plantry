@@ -21,6 +21,7 @@ namespace Plantry.Tests.Web.Infrastructure;
 ///   <item><see cref="IShoppingCatalogReader"/> — returns fixture product/unit data.</item>
 ///   <item><see cref="IShoppingPantryReader"/> — returns fixture pantry stock levels (plantry-juh).</item>
 ///   <item><see cref="IShoppingRecipeReader"/> — returns empty recipe names (all fixture items are Manual-sourced; plantry-26g).</item>
+///   <item><see cref="IShoppingPriceReader"/> — returns fixture price observations, or none (plantry-e016).</item>
 ///   <item><see cref="ShoppingListQueryService"/> — real service over the fakes above.</item>
 /// </list>
 /// No database is touched; rendered HTML is deterministic.
@@ -34,6 +35,10 @@ public class ShoppingListFragmentFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+            // Household display currency (plantry-2x6e.1): a deterministic fake so the basket cost estimate
+            // (plantry-e016) formats without a real Identity DB — mirrors every other L4 factory that renders
+            // a money-formatting surface (RecipeDetailFragmentFactory, MealPlanFragmentFactory, etc.).
+            services.AddFakeDisplayCurrency();
             // Auth: header-driven test scheme.
             services.AddAuthentication(opts =>
                 {
@@ -75,6 +80,14 @@ public class ShoppingListFragmentFactory : WebApplicationFactory<Program>
             // deal-badge render test overrides this with a deal-bearing reader.
             services.RemoveAll<IShoppingDealReader>();
             services.AddSingleton<IShoppingDealReader>(new FakeShoppingDealReaderForSnapshots());
+
+            // Shopping price reader (plantry-e016): fixture products carry no price history by default, so
+            // the shared fixture's basket cost estimate footnotes every item as unpriced (baselines
+            // unchanged — the estimate line lives in #sl-summary, outside every existing snapshot's
+            // #shopping-list selector). The dedicated estimate render test overrides this with a
+            // price-bearing reader.
+            services.RemoveAll<IShoppingPriceReader>();
+            services.AddSingleton<IShoppingPriceReader>(new FakeShoppingPriceReaderForSnapshots());
 
             // Meal-plan slot labels + deal-attribution readers (plantry-jwyb): the shared fixture has no
             // MealPlan/Deal-sourced items, so both stubs return empty (baselines unchanged). The dedicated
@@ -121,6 +134,27 @@ internal sealed class FakeShoppingDealReaderForSnapshots : IShoppingDealReader
     public Task<IReadOnlyDictionary<Guid, ShoppingActiveDeal>> GetActiveDealsAsync(
         IReadOnlyList<Guid> productIds, DateOnly today, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, ShoppingActiveDeal>>(new Dictionary<Guid, ShoppingActiveDeal>());
+}
+
+/// <summary>
+/// Stub <see cref="IShoppingPriceReader"/> for the Shopping L4 snapshot tests (plantry-e016). Resolves a
+/// registered product-id → estimate map; unregistered ids are omitted (mirrors "no price history"). Defaults
+/// to empty for the shared fixture — every item footnotes as unpriced, no estimate line renders a $ figure.
+/// </summary>
+internal sealed class FakeShoppingPriceReaderForSnapshots(
+    IReadOnlyDictionary<Guid, ShoppingPriceEstimate>? prices = null) : IShoppingPriceReader
+{
+    private readonly IReadOnlyDictionary<Guid, ShoppingPriceEstimate> _prices =
+        prices ?? new Dictionary<Guid, ShoppingPriceEstimate>();
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingPriceEstimate>> GetEffectivePricesAsync(
+        IReadOnlyList<Guid> productIds, DateOnly today, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, ShoppingPriceEstimate> result = productIds
+            .Where(_prices.ContainsKey)
+            .ToDictionary(id => id, id => _prices[id]);
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>

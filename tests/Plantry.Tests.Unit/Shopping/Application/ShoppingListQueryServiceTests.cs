@@ -30,8 +30,10 @@ public sealed class ShoppingListQueryServiceTests
         FakeShoppingDealReader? dealReader = null,
         FakeMealPlanSlotRepository? mealPlanReader = null,
         FakeShoppingDealAttributionReader? dealAttributionReader = null,
+        FakeShoppingPriceReader? priceReader = null,
         IClock? clock = null)
     {
+        var effectiveClock = clock ?? Clock;
         return new ShoppingListQueryService(
             repo,
             catalog,
@@ -40,7 +42,8 @@ public sealed class ShoppingListQueryServiceTests
             mealPlanReader ?? new FakeMealPlanSlotRepository(),
             dealAttributionReader ?? new FakeShoppingDealAttributionReader(),
             dealReader ?? new FakeShoppingDealReader(),
-            clock ?? Clock,
+            new ShoppingBasketCostingService(priceReader ?? new FakeShoppingPriceReader(), catalog, effectiveClock),
+            effectiveClock,
             new FakeTenantContext(_household));
     }
 
@@ -838,6 +841,38 @@ public sealed class ShoppingListQueryServiceTests
         Assert.Equal(new DateOnly(2026, 7, 4), deals.LastToday);
     }
 
+    [Fact(DisplayName = "GetList — ActiveDealItemCount counts only unchecked items on an active deal (plantry-e016)")]
+    public async Task GetList_ActiveDealItemCount_CountsOnlyUncheckedDealItems()
+    {
+        var userId = Guid.CreateVersion7();
+        var checkedOffProductId = Guid.CreateVersion7();
+        var repo = new FakeShoppingListRepository();
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(_productId, new ShoppingProductSummary(_productId, "Milk", "Dairy"));
+        catalog.RegisterSummary(checkedOffProductId, new ShoppingProductSummary(checkedOffProductId, "Flour", "Baking"));
+
+        var list = ShoppingList.Create(HouseholdId.From(_household), Clock);
+        list.AddItem(_productId, quantity: 1m, unitId: _unitId, note: null,
+            source: ItemSource.Manual, sourceRef: null, Clock);
+        var checkedItem = list.AddItem(checkedOffProductId, quantity: 1m, unitId: _unitId, note: null,
+            source: ItemSource.Manual, sourceRef: null, Clock);
+        list.CheckOff(checkedItem.Id, userId, Clock);
+        repo.Seed(list);
+
+        // Both products carry an active deal, but the checked-off Flour is already bought — it must not
+        // count toward the "N items on active deals" chip, which is scoped to the outstanding basket.
+        var deals = new FakeShoppingDealReader();
+        deals.RegisterDeal(_productId, new ShoppingActiveDeal(_productId, Guid.CreateVersion7(), Guid.CreateVersion7(), "FreshCo"));
+        deals.RegisterDeal(checkedOffProductId, new ShoppingActiveDeal(checkedOffProductId, Guid.CreateVersion7(), Guid.CreateVersion7(), "FreshCo"));
+
+        var svc = BuildService(repo, catalog, dealReader: deals);
+        var view = await svc.GetListAsync();
+
+        Assert.NotNull(view);
+        Assert.Equal(1, view.ActiveDealItemCount);
+        Assert.True(view.HasActiveDeals);
+    }
+
     // ── GetRecipeContributionState (plantry-gsj, refines plantry-yt0m) ─────────
 
     [Fact(DisplayName = "GetRecipeContributionState — reports this recipe's contributed qty on the unchecked product row")]
@@ -949,6 +984,7 @@ public sealed class ShoppingListQueryServiceTests
             new FakeMealPlanSlotRepository(),
             new FakeShoppingDealAttributionReader(),
             new FakeShoppingDealReader(),
+            new ShoppingBasketCostingService(new FakeShoppingPriceReader(), catalog, Clock),
             Clock,
             new FakeTenantContext(null));
 
@@ -963,6 +999,32 @@ public sealed class ShoppingListQueryServiceTests
 internal sealed class FixedClock(DateTimeOffset utcNow) : IClock
 {
     public DateTimeOffset UtcNow { get; } = utcNow;
+}
+
+/// <summary>
+/// Fake <see cref="IShoppingPriceReader"/> for query-service tests (plantry-e016). Registered products
+/// resolve to their effective price observation; unregistered ids are simply absent (mirrors "no price
+/// history" — never guessed).
+/// </summary>
+internal sealed class FakeShoppingPriceReader : IShoppingPriceReader
+{
+    private readonly Dictionary<Guid, ShoppingPriceEstimate> _prices = [];
+
+    /// <summary>The "today" passed on the most recent call — lets tests assert clock-derivation (mirrors
+    /// <c>FakeShoppingDealReader.LastToday</c>).</summary>
+    public DateOnly? LastToday { get; private set; }
+
+    public void RegisterPrice(Guid productId, ShoppingPriceEstimate estimate) => _prices[productId] = estimate;
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingPriceEstimate>> GetEffectivePricesAsync(
+        IReadOnlyList<Guid> productIds, DateOnly today, CancellationToken ct = default)
+    {
+        LastToday = today;
+        IReadOnlyDictionary<Guid, ShoppingPriceEstimate> result = productIds
+            .Where(_prices.ContainsKey)
+            .ToDictionary(id => id, id => _prices[id]);
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>

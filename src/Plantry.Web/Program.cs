@@ -601,11 +601,15 @@ else
 
 // Shopping ACL adapters → Plantry.Composition (AddCrossContextAdapters): IShoppingCatalogReader (→ Catalog,
 // P2-Sc), IShoppingPantryReader (→ Inventory, plantry-juh), IShoppingRecipeReader (→ Recipes, plantry-26g),
-// IShoppingDealAttributionReader (attribution lines, plantry-jwyb), and IShoppingDealReader (→ Pricing
-// cheapest-active-deal badge, P5-9). MealPlan-source attribution labels resolve via
+// IShoppingDealAttributionReader (attribution lines, plantry-jwyb), IShoppingDealReader (→ Pricing
+// cheapest-active-deal badge, P5-9), and IShoppingPriceReader (→ Pricing raw price/qty/unit for the basket
+// cost estimate, plantry-e016). MealPlan-source attribution labels resolve via
 // IMealPlanRepository.FindSlotLabelsAsync directly — an intra-context call since the Planning merge
 // (ADR-024, plantry-g3da.5; formerly the IShoppingMealPlanReader ACL port). All keep Shopping.Application
 // off the other contexts' EF contexts (ADR-002 / ADR-010 / Gate 2).
+// ShoppingBasketCostingService is a stateless domain service (mirrors PlanCostingService above) that rolls
+// up the outstanding-basket estimate ShoppingListQueryService injects (plantry-e016).
+builder.Services.AddScoped<ShoppingBasketCostingService>();
 builder.Services.AddScoped<ShoppingListQueryService>();
 builder.Services.AddScoped<PantrySuggestionService>();
 

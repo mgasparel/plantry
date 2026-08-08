@@ -207,6 +207,70 @@ public sealed class PricingQueriesTests
         Assert.Equal(3.00m, result.UnitPrice);
     }
 
+    // ── EffectivePricesAsync (plantry-e016 batch display-price read) ────────────────────────────────
+
+    [Fact]
+    public async Task EffectivePrices_Batch_Prefers_Active_Deal_Over_Latest_Purchase_Per_Product()
+    {
+        var productB = Guid.CreateVersion7();
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(4.00m, DateTimeOffset.UtcNow));
+        repo.Items.Add(Deal(2.50m, new(2026, 7, 1), new(2026, 7, 7)));
+        repo.Items.Add(PriceObservation.Record(
+            Household, productB, null, 6.00m, 1m, UnitId, 6.00m,
+            PriceSource.Purchase, "Superstore", SourceRef, DateTimeOffset.UtcNow, UserId)); // no active deal
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePricesAsync([ProductId, productB], Today);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(PriceSource.Deal, result[ProductId].Source);
+        Assert.Equal(2.50m, result[ProductId].UnitPrice);
+        Assert.Equal(PriceSource.Purchase, result[productB].Source);
+        Assert.Equal(6.00m, result[productB].UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectivePrices_Batch_Surfaces_A_Unitless_Deal_Unlike_The_Costable_Batch()
+    {
+        // Display surfaces (plantry-e016) keep the unitless deal — only EffectiveCostablePricesAsync
+        // excludes it (plantry-pxjp), per EffectiveCostablePriceAsync's doc.
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, DateTimeOffset.UtcNow.AddDays(-1)));
+        repo.Items.Add(UnitlessDeal(2.49m, new(2026, 7, 1), new(2026, 7, 7)));
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePricesAsync([ProductId], Today);
+
+        Assert.Equal(PriceSource.Deal, result[ProductId].Source);
+        Assert.Equal(2.49m, result[ProductId].Price);
+    }
+
+    [Fact]
+    public async Task EffectivePrices_Batch_Omits_Products_With_Neither_A_Deal_Nor_A_Purchase()
+    {
+        var unpriced = Guid.CreateVersion7();
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, DateTimeOffset.UtcNow));
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePricesAsync([ProductId, unpriced], Today);
+
+        Assert.True(result.ContainsKey(ProductId));
+        Assert.False(result.ContainsKey(unpriced));
+    }
+
+    [Fact]
+    public async Task EffectivePrices_Batch_Returns_Empty_For_Empty_Input()
+    {
+        var repo = new FakePriceObservationRepository();
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectivePricesAsync([], Today);
+
+        Assert.Empty(result);
+    }
+
     // ── ADR-023 A7: PricingQueries never surfaces a superseded observation ──────────────────────────
 
     [Fact]
