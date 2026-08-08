@@ -23,6 +23,7 @@ using Plantry.Planning.Application;
 using Plantry.Planning.Domain;
 using Plantry.Planning.Infrastructure;
 using Plantry.Web.MealPlanning;
+using Plantry.Web.Pages.Today;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -262,6 +263,9 @@ builder.Services.AddScoped<HouseholdDefaultLocationService>();
 builder.Services.AddScoped<IHouseholdDefaultLocationReader>(sp => sp.GetRequiredService<HouseholdDefaultLocationService>());
 // Purchase-frequency read over the stock journal — feeds the Deals stock-up alerts (P5-10 / DL-O4).
 builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
+// Waste-journal read over the same stock journal — feeds the Today "did you know" stats widget
+// (plantry-h9z9), same shape/rationale as IPurchaseJournalReader just above but for Discarded rows.
+builder.Services.AddScoped<IWasteJournalReader, WasteJournalReader>();
 // Batched journal-by-SourceRef read (plantry-0eut) — feeds the MealPlanning cook-status composition
 // adapter's product-dish leg (Plantry.Composition, AddCrossContextAdapters). Inventory-only, so it is
 // registered here like IPurchaseJournalReader rather than in the composition root.
@@ -300,6 +304,12 @@ builder.Services.AddDbContext<IntakeDbContext>((sp, opts) =>
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
 builder.Services.AddScoped<PendingReviewQuery>();
+// Today stats widget (plantry-h9z9) — composes IWasteJournalReader + MealPlanStreakQuery, both
+// registered above, into the rotating "did you know" fact + streak chips. Registered here (a
+// Web-layer, Today-page-only composition) rather than in either bounded context, since it has
+// exactly one consumer and crosses Pantry/Planning the same way IndexModel's other constructor
+// dependencies already do.
+builder.Services.AddScoped<TodayStatsService>();
 
 // Receipt-upload abuse gate (plantry-aij): per-household burst + daily rate limit over the upload POST
 // handler. Singleton so its fixed-window counters persist across requests; limits are tunable via the
@@ -543,6 +553,11 @@ builder.Services.AddScoped<IMealPlanRepository, MealPlanRepository>();
 builder.Services.AddScoped<MealConstraintResolver>();
 builder.Services.AddScoped<AssignMealService>();
 builder.Services.AddScoped<MoveMealService>();
+// Consecutive weekly planning-streak read (plantry-h9z9) — feeds the Today stats widget's streak chip
+// and rotating-fact pool; reads IMealPlanRepository.PlannedWeekStartsBeforeAsync in one scalar-only
+// query, so it lives beside the other MealPlan-repository-backed services rather than as a standalone
+// Web-layer computation.
+builder.Services.AddScoped<MealPlanStreakQuery>();
 
 // Meal Planning — P3-4 roll-up + Shop for the week (plantry-ux2).
 // IMealPlanStockReader / IMealPlanPriceReader are MealPlanning-owned ACL ports onto the same

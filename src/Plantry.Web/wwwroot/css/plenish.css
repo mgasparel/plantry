@@ -1226,6 +1226,11 @@ button.bottom-nav__item {
 .chip-stat .delta--good { color: var(--color-success); }
 .chip-stat .delta--bad  { color: var(--color-danger); }
 
+/* Canonical wrapper for a row of .chip-stat pills (plantry-h9z9) — flex-wrap so chips reflow on
+   narrow viewports instead of overflowing. Reused wherever multiple chips sit side by side (Today
+   stats widget, product-detail stats panel) instead of each caller repeating the same inline style. */
+.chip-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
 /* ── Catalog sections / lists ──────────────────────────────────────────────── */
 .catalog-section { margin-bottom: var(--space-8); }
 

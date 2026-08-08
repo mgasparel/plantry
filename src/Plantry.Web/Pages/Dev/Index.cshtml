@@ -1174,13 +1174,15 @@
         <code>.delta--good</code>/<code>.delta--bad</code> to that <code>&lt;b&gt;</code> to tint just the
         value from the existing success/danger tokens (never a new colour value) when the stat has a
         direction — leave both off for a neutral stat with no good/bad reading (e.g. a plain basket total).
+        Wrap two or more chips in <code>.chip-row</code> (a plain flex-wrap container) rather than repeating
+        an inline flex style at each call site — the canonical wrapper for a row of chips.
     </p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom: var(--space-4)">
+    <div class="chip-row" style="margin-bottom: var(--space-4)">
         <span class="chip-stat"><b class="delta--bad">▲ 12%</b> vs last time</span>
         <span class="chip-stat"><b class="delta--good">▼ 8%</b> vs last time</span>
         <span class="chip-stat">Basket <b>$42.00</b> vs avg <b>$38.50</b></span>
     </div>
-    <pre class="code-sample"><code>@("<span class=\"chip-stat\"><b class=\"delta--bad\">▲ 12%</b> vs last time</span>\n<span class=\"chip-stat\"><b class=\"delta--good\">▼ 8%</b> vs last time</span>\n<span class=\"chip-stat\">Basket <b>$42.00</b> vs avg <b>$38.50</b></span>")</code></pre>
+    <pre class="code-sample"><code>@("<div class=\"chip-row\">\n  <span class=\"chip-stat\"><b class=\"delta--bad\">▲ 12%</b> vs last time</span>\n  <span class=\"chip-stat\"><b class=\"delta--good\">▼ 8%</b> vs last time</span>\n  <span class=\"chip-stat\">Basket <b>$42.00</b> vs avg <b>$38.50</b></span>\n</div>")</code></pre>
 </section>
 
 <section class="catalog-section">

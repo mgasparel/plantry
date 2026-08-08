@@ -100,6 +100,7 @@ public abstract class TodayExpiringWidgetFactoryBase : WebApplicationFactory<Pro
             // MealPlanning + Deals seams: null/empty — these tests exercise only the expiring widget.
             TodayMealPlanningStubs.RegisterNull(services);
             TodayDealsStubs.RegisterEmpty(services);
+            TodayWasteStatsStubs.RegisterEmpty(services);
         });
     }
 }

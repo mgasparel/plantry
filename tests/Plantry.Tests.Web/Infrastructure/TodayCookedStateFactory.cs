@@ -119,6 +119,7 @@ public sealed class TodayCookedStateFactory : WebApplicationFactory<Program>
             services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
             TodayDealsStubs.RegisterEmpty(services);
+            TodayWasteStatsStubs.RegisterEmpty(services);
         });
     }
 }

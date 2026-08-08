@@ -142,6 +142,7 @@ public sealed class TodayPlannedMealsBandFactory : WebApplicationFactory<Program
 
             // Empty Deals seams (plantry-bpw) — Today now consumes BrowseDeals for the deal banner.
             TodayDealsStubs.RegisterEmpty(services);
+            TodayWasteStatsStubs.RegisterEmpty(services);
         });
     }
 }
@@ -213,6 +214,7 @@ public sealed class TodayPlannedMealsBandNoSlotsFactory : WebApplicationFactory<
 
             // Empty Deals seams (plantry-bpw) — Today now consumes BrowseDeals for the deal banner.
             TodayDealsStubs.RegisterEmpty(services);
+            TodayWasteStatsStubs.RegisterEmpty(services);
         });
     }
 }

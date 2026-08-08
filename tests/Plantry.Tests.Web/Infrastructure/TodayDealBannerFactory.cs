@@ -116,5 +116,6 @@ internal static class TodayBannerCommon
         services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
 
         TodayMealPlanningStubs.RegisterNull(services);
+        TodayWasteStatsStubs.RegisterEmpty(services);
     }
 }

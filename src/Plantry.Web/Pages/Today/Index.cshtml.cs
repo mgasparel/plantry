@@ -115,6 +115,7 @@ public sealed class IndexModel(
     BrowseDeals browseDeals,
     IMealPlanCatalogProductReader catalogReader,
     IMealPlanCookStatusReader cookStatusReader,
+    TodayStatsService todayStats,
     IClock clock,
     ITenantContext tenant) : PageModel
 {
@@ -194,6 +195,14 @@ public sealed class IndexModel(
     /// </summary>
     public bool ExpiringUrgent => ExpiringSoon.Any(x => x.DaysLeft <= 1);
 
+    /// <summary>
+    /// The Today stats widget's rotating fact + streak chips (plantry-h9z9, stats-page-prototype.html
+    /// appendix "Today" injection point). Null only when <see cref="IsColdStart"/> is true — Index.cshtml
+    /// only renders <c>_StatsWidget</c> inside the same <c>!IsColdStart</c> block every other right-rail
+    /// widget lives in, so the partial can safely dereference this with <c>!</c>.
+    /// </summary>
+    public TodayStatsVm? TodayStats { get; private set; }
+
     public async Task OnGetAsync(CancellationToken ct = default)
     {
         var now = clock.UtcNow;
@@ -223,6 +232,10 @@ public sealed class IndexModel(
                 ExpiringSoon = await inventoryQueries.ExpiringSoonAsync(ct);
                 Members = (await memberReader.ListMembersAsync(ct)).ToList();
                 PlannedMealsToday = await LoadPlannedMealsTodayAsync(houseId, now, ct);
+                // Stats widget (plantry-h9z9) — the local calendar day (not the UTC-basis Today above,
+                // which exists to match the inventory read model's expiry-day arithmetic) since streaks
+                // and "days since" are things a household experiences on their own clock.
+                TodayStats = await todayStats.BuildAsync(houseId, household?.CreatedAt ?? now, clock.ToLocalDate(now), ct);
 
                 // Kind-keyed banner stack (plantry-yb6): intake banners first, then the additive
                 // Phase-5 deal-review banner (plantry-bpw) when any deal is pending review in-window.
