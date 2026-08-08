@@ -10,7 +10,7 @@ namespace Plantry.Pantry.Application;
 /// pantry read facade) because it answers a different question — cross-product purchase frequency — and has
 /// exactly one consumer: the Deals stock-up alerts (P5-10). The <b>threshold and window</b> that define
 /// "frequently bought" are a Deals policy (<c>StockUpAlerts</c>), not this reader's concern — it is a pure
-/// count read. Household scoping is enforced by the <c>InventoryDbContext</c> RLS query filter, so no
+/// count read. Household scoping is enforced by the <c>PantryDbContext</c> RLS query filter, so no
 /// household argument is carried.</para>
 /// </summary>
 public interface IPurchaseJournalReader

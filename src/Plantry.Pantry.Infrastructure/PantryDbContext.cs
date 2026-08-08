@@ -5,22 +5,53 @@ using Plantry.SharedKernel;
 namespace Plantry.Pantry.Infrastructure;
 
 /// <summary>
-/// EF DbContext for the Catalog bounded context.
-/// Owns: units, categories, locations, stores, products (+ SKUs, conversions).
+/// The single EF DbContext for the Pantry bounded context (ADR-024 Phase C). Unifies what were
+/// formerly two separate DbContexts — <c>CatalogDbContext</c> and <c>InventoryDbContext</c> — kept
+/// apart only during the interim (plantry-g3da.6) merge to avoid touching migration history. This
+/// context owns both physical schemas unchanged (plantry-g3da.10 does not move data — see ADR-024
+/// §"Physical schemas do not move on day one"):
+/// <list type="bullet">
+/// <item><b>catalog</b> — <see cref="Unit"/>, <see cref="Category"/>, <see cref="Location"/>,
+/// <see cref="Store"/>, <see cref="Product"/> (with <see cref="ProductSku"/> and
+/// <see cref="ProductConversion"/> children).</item>
+/// <item><b>inventory</b> — <see cref="ProductStock"/> (aggregate root, composite key
+/// <c>household_id, product_id</c>) with its <see cref="StockEntry"/> lots and the append-only
+/// <see cref="StockJournalEntry"/>, plus the flat <see cref="HouseholdInventorySettings"/> aggregate.
+/// Inventory's <c>product_id</c>/<c>unit_id</c>/<c>location_id</c> references into <c>catalog.*</c> are
+/// soft (DM-3: no enforced cross-context FK) — sharing one DbContext does not change that; no
+/// navigation or FK was added by this unification.</item>
+/// </list>
+/// The EF migrations-history table (<c>__EFMigrationsHistory</c>) lives in the <c>catalog</c> schema —
+/// this context's default schema — reusing the location the old <c>CatalogDbContext</c> already used,
+/// rather than introducing a third schema purely for bookkeeping.
+/// <para>
+/// The RlsMiddleware MUST call <see cref="SetHouseholdId"/> on this context for every authenticated
+/// request, exactly as for the other bounded-context DbContexts (the known P2-0/P3-0 gotcha: omitting
+/// it leaves _householdId as Guid.Empty and every EF query filter returns nothing).
+/// </para>
 /// </summary>
-public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
-    : DbContext(options)
+public sealed class PantryDbContext(DbContextOptions<PantryDbContext> options) : DbContext(options)
 {
+    // ── Catalog ──────────────────────────────────────────────────────────────
     public DbSet<Unit> Units => Set<Unit>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<Store> Stores => Set<Store>();
     public DbSet<Product> Products => Set<Product>();
 
+    // ── Inventory ────────────────────────────────────────────────────────────
+    public DbSet<ProductStock> ProductStocks => Set<ProductStock>();
+    public DbSet<StockEntry> StockEntries => Set<StockEntry>();
+    public DbSet<StockJournalEntry> StockJournalEntries => Set<StockJournalEntry>();
+    public DbSet<HouseholdInventorySettings> HouseholdInventorySettings => Set<HouseholdInventorySettings>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
+        // Default schema covers Catalog; Inventory entities are schema-qualified explicitly below —
+        // there is no single default schema for a context spanning two physical schemas.
         builder.HasDefaultSchema("catalog");
 
+        // ── Unit aggregate root (catalog schema) ────────────────────────────────
         builder.Entity<Unit>(b =>
         {
             b.ToTable("units");
@@ -271,14 +302,176 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             // ADR-022 amendment (plantry-pcfe): a product may hold at most one conversion per
             // UNORDERED unit pair. That is enforced by a unique EXPRESSION index over
             // (product_id, LEAST(from_unit_id, to_unit_id), GREATEST(from_unit_id, to_unit_id)),
-            // added by migration 20260727194353_AddProductConversionUnorderedPairUniqueIndex via
-            // raw SQL — HasIndex/the fluent API cannot express an expression index, so it is
-            // intentionally absent here and from CatalogDbContextModelSnapshot. Do NOT add a plain
-            // HasIndex on the ordered (FromUnitId, ToUnitId) triple as a "fix" for this gap — it
-            // would be redundant with the ProductId index above and would wrongly imply
-            // ordered-triple semantics, which Product.AddConversion's merge rule explicitly rejects.
+            // added by the baseline migration via raw SQL — HasIndex/the fluent API cannot express
+            // an expression index, so it is intentionally absent here and from
+            // PantryDbContextModelSnapshot. Do NOT add a plain HasIndex on the ordered
+            // (FromUnitId, ToUnitId) triple as a "fix" for this gap — it would be redundant with the
+            // ProductId index above and would wrongly imply ordered-triple semantics, which
+            // Product.AddConversion's merge rule explicitly rejects.
 
             b.HasQueryFilter(c => c.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── ProductStock aggregate root (inventory schema) ──────────────────────
+        builder.Entity<ProductStock>(b =>
+        {
+            b.ToTable("product_stock", "inventory");
+
+            // Composite PK (household_id, product_id) — the ADR-010 keying. The base Entity.Id
+            // (a ProductStockId value pair) is not a stored column; identity lives in these two.
+            b.Ignore(p => p.Id);
+            b.Property(p => p.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(p => p.ProductId).HasColumnName("product_id").IsRequired();
+            b.HasKey(p => new { p.HouseholdId, p.ProductId });
+
+            b.Property(p => p.CreatedAt).HasColumnName("created_at");
+            b.Property(p => p.UpdatedAt).HasColumnName("updated_at");
+            b.Property(p => p.LowStockThreshold).HasColumnName("low_stock_threshold").HasPrecision(12, 3);
+
+            // Optimistic-concurrency backstop: Postgres' xmin system column, no stored column and
+            // no app-side increment (inventory.md resolved-call #1). Npgsql maps a uint shadow
+            // property named "xmin" to the system column. The authoritative serialization is the
+            // repository's SELECT … FOR UPDATE on this root row.
+            b.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
+
+            b.HasMany(p => p.Entries)
+                .WithOne()
+                .HasForeignKey(e => new { e.HouseholdId, e.ProductId })
+                .HasPrincipalKey(p => new { p.HouseholdId, p.ProductId })
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(p => p.Entries).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_entries");
+
+            // The journal is scoped to the aggregate by (household_id, product_id) so it persists in
+            // the same unit of work; its entry_id FK to stock_entry is configured on the journal below.
+            b.HasMany(p => p.Journal)
+                .WithOne()
+                .HasForeignKey(j => new { j.HouseholdId, j.ProductId })
+                .HasPrincipalKey(p => new { p.HouseholdId, p.ProductId })
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(p => p.Journal).UsePropertyAccessMode(PropertyAccessMode.Field).HasField("_journal");
+
+            b.HasQueryFilter(p => p.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<StockEntry>(b =>
+        {
+            b.ToTable("stock_entry", "inventory");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id)
+                .HasConversion(id => id.Value, v => StockEntryId.From(v))
+                .HasColumnName("entry_id")
+                .ValueGeneratedNever();
+            b.Property(e => e.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(e => e.ProductId).HasColumnName("product_id").IsRequired();
+            b.Property(e => e.SkuId).HasColumnName("sku_id");
+            b.Property(e => e.Quantity).HasColumnName("quantity").HasPrecision(12, 3);
+            b.Property(e => e.UnitId).HasColumnName("unit_id").IsRequired();
+            b.Property(e => e.LocationId).HasColumnName("location_id").IsRequired();
+            b.Property(e => e.ExpiryDate).HasColumnName("expiry_date");
+            b.Property(e => e.IsOpen).HasColumnName("is_open");
+            b.Property(e => e.FrozenAt).HasColumnName("frozen_at");
+            b.Property(e => e.ThawedAt).HasColumnName("thawed_at");
+            b.Property(e => e.PurchasedAt).HasColumnName("purchased_at");
+            b.Property(e => e.DepletedAt).HasColumnName("depleted_at");
+            b.Property(e => e.CreatedAt).HasColumnName("created_at");
+            b.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+
+            // Supports the FEFO scan: expiry ASC (nulls last), created_at, then the PK entry_id.
+            // The composite index's leading household_id column also covers the single-column case.
+            b.HasIndex(e => new { e.HouseholdId, e.ProductId, e.ExpiryDate, e.CreatedAt })
+                .HasDatabaseName("ix_stock_entry_fefo");
+
+            // TS-S2: Take Stock location scan — filters only active (non-depleted) lots so the
+            // index is small and the walk query never hits depleted rows.
+            b.HasIndex(e => new { e.HouseholdId, e.LocationId, e.ProductId })
+                .HasDatabaseName("ix_stock_entry_by_location")
+                .HasFilter("depleted_at IS NULL");
+
+            b.HasQueryFilter(e => e.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        builder.Entity<StockJournalEntry>(b =>
+        {
+            b.ToTable("stock_journal_entry", "inventory");
+            b.HasKey(j => j.Id);
+            b.Property(j => j.Id)
+                .HasConversion(id => id.Value, v => JournalId.From(v))
+                .HasColumnName("journal_id")
+                .ValueGeneratedNever();
+            b.Property(j => j.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(j => j.ProductId).HasColumnName("product_id").IsRequired();
+            b.Property(j => j.StockEntryId)
+                .HasConversion(id => id.Value, v => StockEntryId.From(v))
+                .HasColumnName("entry_id")
+                .IsRequired();
+            b.Property(j => j.Delta).HasColumnName("delta").HasPrecision(12, 3);
+            b.Property(j => j.UnitId).HasColumnName("unit_id").IsRequired();
+            b.Property(j => j.Reason)
+                .HasConversion(r => r.ToDbValue(), v => StockReasonExtensions.Parse(v))
+                .HasColumnName("reason")
+                .HasMaxLength(20)
+                .IsRequired();
+            b.Property(j => j.SourceType)
+                .HasConversion(
+                    s => s == null ? null : s.Value.ToDbValue(),
+                    v => v == null ? (StockSourceType?)null : StockSourceTypeExtensions.Parse(v))
+                .HasColumnName("source_type")
+                .HasMaxLength(20);
+            b.Property(j => j.SourceRef).HasColumnName("source_ref");
+            b.Property(j => j.SourceLineRef).HasColumnName("source_line_ref");
+            b.Property(j => j.OccurredAt).HasColumnName("occurred_at");
+            b.Property(j => j.UserId).HasColumnName("user_id").IsRequired();
+
+            // Every journal row points at a live lot (DM-14) — enforced FK to stock_entry, no navigation.
+            // NoAction (not Cascade): the journal is already cascade-owned by product_stock above, so
+            // deleting a root removes both children without a second cascade path through stock_entry.
+            b.HasOne<StockEntry>()
+                .WithMany()
+                .HasForeignKey(j => j.StockEntryId)
+                .HasPrincipalKey(e => e.Id)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            b.HasIndex(j => j.HouseholdId);
+            b.HasIndex(j => new { j.HouseholdId, j.ProductId });
+            b.HasIndex(j => j.StockEntryId);
+            // Idempotency lookup: for a given household + cook event (source_ref) + line (source_line_ref),
+            // find whether any journal row already carries this token (plantry-292a).
+            b.HasIndex(j => new { j.HouseholdId, j.SourceRef, j.SourceLineRef })
+                .HasDatabaseName("ix_stock_journal_idempotency");
+
+            b.HasQueryFilter(j => j.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── HouseholdInventorySettings aggregate root (plantry-5yhd) ─────────────
+        // One row per household, seeded lazily on first write. HouseholdId is both the PK and the
+        // aggregate identity (mirrors HouseholdPlanningSettings in the meal_planning context).
+        builder.Entity<HouseholdInventorySettings>(b =>
+        {
+            b.ToTable("household_inventory_settings", "inventory");
+            b.HasKey(s => s.HouseholdId);
+            b.Property(s => s.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .ValueGeneratedNever();
+            b.Property(s => s.ExpiringSoonDays).HasColumnName("expiring_soon_days").IsRequired();
+            // Household-wide default storage location (plantry-iypo) — nullable bare LocationId ref,
+            // no FK (a soft cross-schema reference into catalog.locations, DM-3 — unchanged by this
+            // DbContext unification; sharing one DbContext does not add an FK). Every pre-existing row
+            // backfills to NULL (unset).
+            b.Property(s => s.DefaultLocationId)
+                .HasConversion(id => id == null ? (Guid?)null : id.Value.Value, v => v == null ? (LocationId?)null : LocationId.From(v.Value))
+                .HasColumnName("default_location_id");
+
+            b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });
     }
 

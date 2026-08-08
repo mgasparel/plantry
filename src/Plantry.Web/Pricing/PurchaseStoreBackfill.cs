@@ -17,7 +17,7 @@ namespace Plantry.Web.Pricing;
 /// Merchant → store resolution reuses Catalog's <see cref="EnsureStoreByNameCommand"/> — the same
 /// find-or-create the intake commit path uses (<c>CommitSessionCommand</c> via
 /// <c>EnsurePurchaseStoreAdapter</c>) — so a purchase and a deal for the same merchant share one store
-/// identity. Pricing never touches <c>CatalogDbContext</c> directly: this class lives in Plantry.Web (the
+/// identity. Pricing never touches <c>PantryDbContext</c> directly: this class lives in Plantry.Web (the
 /// composition root) and drives the Catalog command over its own <see cref="IStoreRepository"/> (ADR-010).
 /// </para>
 /// <para>

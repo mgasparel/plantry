@@ -14,8 +14,10 @@ namespace Plantry.Migrator;
 /// it manages, a display name for console logging, and a factory that builds the DbContext
 /// from an owner connection string. Most contexts own exactly one schema; <see cref="MarketDbContext"/>
 /// owns two (<c>pricing</c> and <c>deals</c>, unified into one DbContext by plantry-g3da.7 without
-/// moving the underlying data — ADR-024 §"Physical schemas do not move on day one") so
-/// <see cref="Schemas"/> is a list rather than a single string.
+/// moving the underlying data — ADR-024 §"Physical schemas do not move on day one") and
+/// <see cref="PantryDbContext"/> owns two (<c>catalog</c> and <c>inventory</c>, unified by
+/// plantry-g3da.10 for the same reason), so <see cref="Schemas"/> is a list rather than a single
+/// string.
 /// </summary>
 public sealed record MigrationTarget(
     string MigrationsAssembly,
@@ -44,6 +46,14 @@ public sealed record MigrationTarget(
 /// and <c>docs/Operations/deployment.md</c> for the one-time deploy reconciliation an already-deployed
 /// database needs to adopt it.
 ///
+/// Plantry.Pantry.Infrastructure likewise owns ONE entry — PantryDbContext, spanning both the
+/// <c>catalog</c> and <c>inventory</c> schemas — since plantry-g3da.10 unified the interim
+/// CatalogDbContext/InventoryDbContext split (plantry-g3da.6, ADR-024) into a single DbContext with
+/// a single migration history (hosted in the <c>catalog</c> schema, PantryDbContext's EF default
+/// schema). See <c>Plantry.Pantry.Infrastructure/Migrations/Pantry/InitialPantrySchema</c> for the
+/// squashed baseline and <c>docs/Operations/deployment.md</c> for the one-time deploy reconciliation
+/// an already-deployed database needs to adopt it.
+///
 /// ORDER IS LOAD-BEARING. Plantry.Identity.Infrastructure MUST remain first — its initial
 /// migration creates the <c>app_user</c> role that every other schema's RLS policies (and
 /// the app_user-authenticated test/runtime connections) depend on. HousekeepingDbContext's migrations
@@ -63,8 +73,7 @@ public static class MigrationTargets
     public static readonly IReadOnlyList<MigrationTarget> All =
     [
         Target<PlantryIdentityDbContext>("Plantry.Identity.Infrastructure", "identity"),
-        Target<CatalogDbContext>("Plantry.Pantry.Infrastructure", "catalog"),
-        Target<InventoryDbContext>("Plantry.Pantry.Infrastructure", "inventory"),
+        Target<PantryDbContext>("Plantry.Pantry.Infrastructure", "catalog", "inventory"),
         Target<MarketDbContext>("Plantry.Market.Infrastructure", "pricing", "deals"),
         Target<IntakeDbContext>("Plantry.Intake.Infrastructure", "intake"),
         Target<RecipesDbContext>("Plantry.Recipes.Infrastructure", "recipes"),

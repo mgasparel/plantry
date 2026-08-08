@@ -47,9 +47,8 @@ public sealed class RecipeConversionSeedTrigger(
             // unit-gap follow-up below also reads Recipes (cook_consume_line) and drives an Inventory
             // consume, so all three query filters must be armed or the follow-up is a silent no-op / leak.
             sp.GetRequiredService<TenantContext>().Set(householdId);
-            sp.GetRequiredService<CatalogDbContext>().SetHouseholdId(householdId);
+            sp.GetRequiredService<PantryDbContext>().SetHouseholdId(householdId);
             sp.GetRequiredService<RecipesDbContext>().SetHouseholdId(householdId);
-            sp.GetRequiredService<InventoryDbContext>().SetHouseholdId(householdId);
 
             var seeder = sp.GetRequiredService<RecipeConversionSeeder>();
             await seeder.SeedAsync(gaps, workCt);

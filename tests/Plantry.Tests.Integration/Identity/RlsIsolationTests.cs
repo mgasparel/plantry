@@ -40,7 +40,7 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
 
         // Create household A
         await using (var identityDb = new PlantryIdentityDbContext(identityOpts))
-        await using (var catalogDb  = new CatalogDbContext(catalogOpts))
+        await using (var catalogDb  = new PantryDbContext(catalogOpts))
         {
             var householdA = Household.Create("Household A", clock);
             _householdA = householdA.Id;
@@ -53,7 +53,7 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
 
         // Create household B
         await using (var identityDb = new PlantryIdentityDbContext(identityOpts))
-        await using (var catalogDb  = new CatalogDbContext(catalogOpts))
+        await using (var catalogDb  = new PantryDbContext(catalogOpts))
         {
             var householdB = Household.Create("Household B", clock);
             _householdB = householdB.Id;
@@ -71,7 +71,7 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
     public async Task EfFilter_HouseholdA_Cannot_Read_HouseholdB_Units()
     {
         var opts = BuildCatalogOptions();
-        await using var catalogDb = new CatalogDbContext(opts);
+        await using var catalogDb = new PantryDbContext(opts);
 
         // Activate as household A
         catalogDb.SetHouseholdId(_householdA.Value);
@@ -86,7 +86,7 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
     public async Task EfFilter_HouseholdB_Cannot_Read_HouseholdA_Categories()
     {
         var opts = BuildCatalogOptions();
-        await using var catalogDb = new CatalogDbContext(opts);
+        await using var catalogDb = new PantryDbContext(opts);
 
         catalogDb.SetHouseholdId(_householdB.Value);
 
@@ -132,11 +132,11 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
     {
         var opts = BuildCatalogOptions();
 
-        await using var dbA = new CatalogDbContext(opts);
+        await using var dbA = new PantryDbContext(opts);
         dbA.SetHouseholdId(_householdA.Value);
         var unitsA = await dbA.Units.Select(u => u.Id).ToListAsync();
 
-        await using var dbB = new CatalogDbContext(opts);
+        await using var dbB = new PantryDbContext(opts);
         dbB.SetHouseholdId(_householdB.Value);
         var unitsB = await dbB.Units.Select(u => u.Id).ToListAsync();
 
@@ -159,7 +159,7 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         tenant.Set(_householdA.Value);
 
         var opts = BuildCatalogOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var catalogDb = new CatalogDbContext(opts);
+        await using var catalogDb = new PantryDbContext(opts);
 
         var locations = await catalogDb.Locations.IgnoreQueryFilters().ToListAsync();
 
@@ -174,7 +174,7 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         var tenant = new TenantContext(); // never set
 
         var opts = BuildCatalogOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var catalogDb = new CatalogDbContext(opts);
+        await using var catalogDb = new PantryDbContext(opts);
 
         var locations = await catalogDb.Locations.IgnoreQueryFilters().ToListAsync();
 
@@ -306,13 +306,13 @@ public sealed class RlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         return builder.Options;
     }
 
-    private DbContextOptions<CatalogDbContext> BuildCatalogOptions() =>
+    private DbContextOptions<PantryDbContext> BuildCatalogOptions() =>
         BuildCatalogOptions(db.ConnectionString);
 
-    private static DbContextOptions<CatalogDbContext> BuildCatalogOptions(
+    private static DbContextOptions<PantryDbContext> BuildCatalogOptions(
         string connStr, IInterceptor? interceptor = null)
     {
-        var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(connStr);
+        var builder = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(connStr);
         if (interceptor is not null) builder.AddInterceptors(interceptor);
         return builder.Options;
     }

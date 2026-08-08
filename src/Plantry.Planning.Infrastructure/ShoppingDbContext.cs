@@ -131,7 +131,7 @@ public sealed class ShoppingDbContext(DbContextOptions<ShoppingDbContext> option
         });
     }
 
-    // Populated by the RLS middleware before each request (mirrors CatalogDbContext / IntakeDbContext pattern).
+    // Populated by the RLS middleware before each request (mirrors PantryDbContext / IntakeDbContext pattern).
     private Guid _householdId;
     public void SetHouseholdId(Guid id) => _householdId = id;
 }

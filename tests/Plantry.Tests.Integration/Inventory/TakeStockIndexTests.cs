@@ -209,12 +209,12 @@ public sealed class TakeStockIndexTests(PostgresFixture db) : IAsyncLifetime
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private DbContextOptions<InventoryDbContext> Options() =>
-        new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> Options() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private InventoryDbContext NewInventoryDb(HouseholdId household)
+    private PantryDbContext NewInventoryDb(HouseholdId household)
     {
-        var ctx = new InventoryDbContext(Options());
+        var ctx = new PantryDbContext(Options());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

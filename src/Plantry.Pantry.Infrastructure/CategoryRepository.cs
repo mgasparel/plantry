@@ -3,7 +3,7 @@ using Plantry.Pantry.Domain;
 
 namespace Plantry.Pantry.Infrastructure;
 
-public sealed class CategoryRepository(CatalogDbContext db) : ICategoryRepository
+public sealed class CategoryRepository(PantryDbContext db) : ICategoryRepository
 {
     public Task<Category?> FindAsync(CategoryId id, CancellationToken ct = default) =>
         db.Categories.FirstOrDefaultAsync(c => c.Id == id, ct);

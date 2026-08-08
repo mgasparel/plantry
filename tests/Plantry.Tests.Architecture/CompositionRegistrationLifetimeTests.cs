@@ -12,7 +12,7 @@ namespace Plantry.Tests.Architecture;
 /// <para>
 /// This is not just a perf convention: <c>MealPlanCatalogProductReaderAdapter</c>'s memoised
 /// <c>_unitCodes</c> cache (added in plantry-jefp) is only tenant-safe because the adapter is
-/// registered Scoped over a scoped <c>CatalogDbContext</c>, combined with RLS pinning
+/// registered Scoped over a scoped <c>PantryDbContext</c>, combined with RLS pinning
 /// <c>app.household_id</c> per connection for the scope's lifetime. Every other ACL adapter here
 /// captures its own scoped <c>DbContext</c>, so the same captive-dependency / cross-household leak
 /// risk applies uniformly. If a future "simplify DI" refactor silently widened any of these

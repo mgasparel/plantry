@@ -410,7 +410,7 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(await converter.FindUnconvertiblePathsAsync([]));
     }
 
-    private CatalogWriterAdapter NewWriter(CatalogDbContext ctx) =>
+    private CatalogWriterAdapter NewWriter(PantryDbContext ctx) =>
         new(
             new ProductRepository(ctx),
             new UnitRepository(ctx),
@@ -419,13 +419,13 @@ public sealed class CatalogPortAdapterTests(PostgresFixture db) : IAsyncLifetime
             Clock,
             new TestTenant(_household.Value));
 
-    private RecipesUnitConverterAdapter NewConverter(CatalogDbContext ctx) =>
+    private RecipesUnitConverterAdapter NewConverter(PantryDbContext ctx) =>
         new(new ProductRepository(ctx), new UnitRepository(ctx));
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var ctx = new CatalogDbContext(
-            new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new PantryDbContext(
+            new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

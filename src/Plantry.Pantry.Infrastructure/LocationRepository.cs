@@ -3,7 +3,7 @@ using Plantry.Pantry.Domain;
 
 namespace Plantry.Pantry.Infrastructure;
 
-public sealed class LocationRepository(CatalogDbContext db) : ILocationRepository
+public sealed class LocationRepository(PantryDbContext db) : ILocationRepository
 {
     public Task<Location?> FindAsync(LocationId id, CancellationToken ct = default) =>
         db.Locations.FirstOrDefaultAsync(l => l.Id == id, ct);

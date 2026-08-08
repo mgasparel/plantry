@@ -61,7 +61,7 @@ public sealed class BackfillYieldProductsIsProducedMigrationTests : IAsyncLifeti
         await MigrateHousekeepingToAsync(HousekeepingBaselineMigration);
 
         ProductId autoYieldId, chosenYieldId, ordinaryId;
-        await using (var catalog = NewCatalogContext(household))
+        await using (var catalog = NewPantryContext(household))
         {
             var unit = CatalogUnit.Create(household, "ea", "Each", Dimension.Count, 1m, isBase: true);
             await catalog.Units.AddAsync(unit);
@@ -92,7 +92,7 @@ public sealed class BackfillYieldProductsIsProducedMigrationTests : IAsyncLifeti
 
         await MigrateHousekeepingToAsync(HousekeepingMigrationUnderTest);
 
-        await using var read = NewCatalogContext(household);
+        await using var read = NewPantryContext(household);
         var autoYieldProduct = await read.Products.SingleAsync(p => p.Id == autoYieldId);
         var chosenYieldProduct = await read.Products.SingleAsync(p => p.Id == chosenYieldId);
         var ordinaryProduct = await read.Products.SingleAsync(p => p.Id == ordinaryId);
@@ -117,7 +117,7 @@ public sealed class BackfillYieldProductsIsProducedMigrationTests : IAsyncLifeti
         await MigrateHousekeepingToAsync(HousekeepingBaselineMigration);
 
         ProductId ordinaryId;
-        await using (var catalog = NewCatalogContext(household))
+        await using (var catalog = NewPantryContext(household))
         {
             var unit = CatalogUnit.Create(household, "ea", "Each", Dimension.Count, 1m, isBase: true);
             await catalog.Units.AddAsync(unit);
@@ -138,7 +138,7 @@ public sealed class BackfillYieldProductsIsProducedMigrationTests : IAsyncLifeti
 
         await MigrateHousekeepingToAsync(HousekeepingMigrationUnderTest);
 
-        await using var read = NewCatalogContext(household);
+        await using var read = NewPantryContext(household);
         var ordinaryProduct = await read.Products.SingleAsync(p => p.Id == ordinaryId);
         Assert.False(ordinaryProduct.IsProduced);
     }
@@ -155,13 +155,11 @@ public sealed class BackfillYieldProductsIsProducedMigrationTests : IAsyncLifeti
             .UseNpgsql(_container.GetConnectionString(), npgsql => npgsql.MigrationsAssembly("Plantry.Identity.Infrastructure")).Options,
             o => new PlantryIdentityDbContext(o));
 
-        await MigrateAsync(new DbContextOptionsBuilder<CatalogDbContext>()
+        // Catalog and Inventory were two migration targets pre-plantry-g3da.10; PantryDbContext now
+        // owns both schemas via a single migration history, so one MigrateAsync call covers both.
+        await MigrateAsync(new DbContextOptionsBuilder<PantryDbContext>()
             .UseNpgsql(_container.GetConnectionString(), npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure")).Options,
-            o => new CatalogDbContext(o));
-
-        await MigrateAsync(new DbContextOptionsBuilder<InventoryDbContext>()
-            .UseNpgsql(_container.GetConnectionString(), npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure")).Options,
-            o => new InventoryDbContext(o));
+            o => new PantryDbContext(o));
 
         await MigrateAsync(new DbContextOptionsBuilder<MarketDbContext>()
             .UseNpgsql(_container.GetConnectionString(), npgsql => npgsql.MigrationsAssembly("Plantry.Market.Infrastructure")).Options,
@@ -207,12 +205,12 @@ public sealed class BackfillYieldProductsIsProducedMigrationTests : IAsyncLifeti
         return new HousekeepingDbContext(opts);
     }
 
-    private CatalogDbContext NewCatalogContext(HouseholdId household)
+    private PantryDbContext NewPantryContext(HouseholdId household)
     {
-        var opts = new DbContextOptionsBuilder<CatalogDbContext>()
+        var opts = new DbContextOptionsBuilder<PantryDbContext>()
             .UseNpgsql(_container.GetConnectionString(), npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
             .Options;
-        var ctx = new CatalogDbContext(opts);
+        var ctx = new PantryDbContext(opts);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

@@ -162,12 +162,8 @@ builder.Services.AddDbContext<PlantryIdentityDbContext>((sp, opts) =>
             npgsql => npgsql.MigrationsAssembly("Plantry.Identity.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
 
-builder.Services.AddDbContext<CatalogDbContext>((sp, opts) =>
-    opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
-        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
-
-builder.Services.AddDbContext<InventoryDbContext>((sp, opts) =>
+// Pantry context (Catalog + Inventory, unified into one DbContext — ADR-024 / plantry-g3da.10).
+builder.Services.AddDbContext<PantryDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
@@ -364,7 +360,7 @@ builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>(
 
 // Deals — P5-2 store subscriptions + §7e (DJ1). IStoreSubscriptionRepository is the first Deals repo.
 // ICatalogStoreReader/Writer are ACL ports onto Catalog's store reference data (DM-16) — the Web adapters
-// implement them over Catalog's IStoreRepository / EnsureStoreCommand so Deals never touches CatalogDbContext
+// implement them over Catalog's IStoreRepository / EnsureStoreCommand so Deals never touches PantryDbContext
 // (ADR-010/DM-3).
 builder.Services.AddScoped<IStoreSubscriptionRepository, StoreSubscriptionRepository>();
 // ICatalogStoreReader/ICatalogStoreWriter adapters → Plantry.Composition (AddCrossContextAdapters).

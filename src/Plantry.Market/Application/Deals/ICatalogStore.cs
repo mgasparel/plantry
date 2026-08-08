@@ -6,7 +6,7 @@ public sealed record CatalogStoreInfo(Guid StoreId, string Name, string? Externa
 /// <summary>
 /// Read port onto Catalog's store reference data (DM-16) — resolves a subscribed store's display
 /// identity for the §7e list. Deals holds only the <c>store_id</c> soft-ref and never reads
-/// <c>CatalogDbContext</c> directly (ADR-010/DM-3); the Web adapter implements this over Catalog's
+/// <c>PantryDbContext</c> directly (ADR-010/DM-3); the Web adapter implements this over Catalog's
 /// <c>IStoreRepository</c>.
 /// </summary>
 public interface ICatalogStoreReader

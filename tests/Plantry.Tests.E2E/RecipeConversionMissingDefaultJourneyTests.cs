@@ -103,7 +103,7 @@ public sealed class RecipeConversionMissingDefaultJourneyTests(AppHostFixture ap
     /// <summary>
     /// Forces the unresolvable-default state: points <c>catalog.products.default_unit_id</c> at a random
     /// GUID absent from the household unit list. The column has NO foreign key to the units table
-    /// (CatalogDbContext configures no relationship), so this is a safe direct UPDATE and creates exactly
+    /// (PantryDbContext configures no relationship), so this is a safe direct UPDATE and creates exactly
     /// the dangling condition the server unit test forces with RecipeEditorFixture.MissingDefaultUnitId.
     /// Runs on the owner connection, so it is not blocked by RLS.
     /// </summary>

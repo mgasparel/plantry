@@ -228,7 +228,7 @@ public sealed class ProductRoundTripTests(PostgresFixture db) : IAsyncLifetime
 
     // ── Replace-on-confirm round-trips through EF (ADR-022 amendment, plantry-pcfe) ──
     //
-    // The unique expression index is intentionally absent from CatalogDbContext's model (an
+    // The unique expression index is intentionally absent from PantryDbContext's model (an
     // expression index cannot be declared via HasIndex — see the comment there), which means EF
     // Core's model-declared-unique-index ordering guarantee does NOT cover it: when
     // Product.AddConversion replaces an existing row for the same unordered pair, the resulting
@@ -470,12 +470,12 @@ public sealed class ProductRoundTripTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal("Flour", found.Name);
     }
 
-    private DbContextOptions<CatalogDbContext> CatalogOptions() =>
-        new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> CatalogOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var ctx = new CatalogDbContext(CatalogOptions());
+        var ctx = new PantryDbContext(CatalogOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

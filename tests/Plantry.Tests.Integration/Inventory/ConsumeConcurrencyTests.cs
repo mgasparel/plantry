@@ -119,12 +119,12 @@ public sealed class ConsumeConcurrencyTests(PostgresFixture db) : IAsyncLifetime
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => ctxB.SaveChangesAsync());
     }
 
-    private DbContextOptions<InventoryDbContext> InventoryOptions() =>
-        new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> InventoryOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private InventoryDbContext NewInventoryDb()
+    private PantryDbContext NewInventoryDb()
     {
-        var ctx = new InventoryDbContext(InventoryOptions());
+        var ctx = new PantryDbContext(InventoryOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

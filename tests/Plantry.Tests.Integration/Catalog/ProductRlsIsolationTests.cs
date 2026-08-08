@@ -99,7 +99,7 @@ public sealed class ProductRlsIsolationTests(PostgresFixture db) : IAsyncLifetim
         tenant.Set(_householdA.Value);
 
         var opts = BuildCatalogOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var catalogDb = new CatalogDbContext(opts);
+        await using var catalogDb = new PantryDbContext(opts);
 
         var products = await catalogDb.Products
             .IgnoreQueryFilters()
@@ -124,7 +124,7 @@ public sealed class ProductRlsIsolationTests(PostgresFixture db) : IAsyncLifetim
         var tenant = new TenantContext(); // never set
 
         var opts = BuildCatalogOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var catalogDb = new CatalogDbContext(opts);
+        await using var catalogDb = new PantryDbContext(opts);
 
         var products = await catalogDb.Products.IgnoreQueryFilters().ToListAsync();
 
@@ -147,19 +147,19 @@ public sealed class ProductRlsIsolationTests(PostgresFixture db) : IAsyncLifetim
         Assert.DoesNotContain(seenIds, id => id == forbiddenHouseholdId);
     }
 
-    private DbContextOptions<CatalogDbContext> CatalogOptions() =>
-        new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> CatalogOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private static DbContextOptions<CatalogDbContext> BuildCatalogOptions(string connStr, IInterceptor? interceptor = null)
+    private static DbContextOptions<PantryDbContext> BuildCatalogOptions(string connStr, IInterceptor? interceptor = null)
     {
-        var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(connStr);
+        var builder = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(connStr);
         if (interceptor is not null) builder.AddInterceptors(interceptor);
         return builder.Options;
     }
 
-    private CatalogDbContext NewCatalogDb(HouseholdId household)
+    private PantryDbContext NewCatalogDb(HouseholdId household)
     {
-        var ctx = new CatalogDbContext(CatalogOptions());
+        var ctx = new PantryDbContext(CatalogOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

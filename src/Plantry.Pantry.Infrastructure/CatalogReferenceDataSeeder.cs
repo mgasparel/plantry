@@ -8,7 +8,7 @@ namespace Plantry.Pantry.Infrastructure;
 /// Implements IReferenceDataSeeder for the Catalog context.
 /// Seeds standard units, starter categories, and starter locations on household creation (DM-9).
 /// </summary>
-public sealed class CatalogReferenceDataSeeder(CatalogDbContext db) : IReferenceDataSeeder
+public sealed class CatalogReferenceDataSeeder(PantryDbContext db) : IReferenceDataSeeder
 {
     public async Task SeedAsync(HouseholdId householdId, CancellationToken ct = default)
     {

@@ -157,12 +157,12 @@ public sealed class LowStockThresholdTests(PostgresFixture db) : IAsyncLifetime
         Assert.True(loaded.IsRunningLow(onHand)); // 3 ≤ 5 → true
     }
 
-    private DbContextOptions<InventoryDbContext> InventoryOptions() =>
-        new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> InventoryOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private InventoryDbContext NewInventoryDb(HouseholdId household)
+    private PantryDbContext NewInventoryDb(HouseholdId household)
     {
-        var ctx = new InventoryDbContext(InventoryOptions());
+        var ctx = new PantryDbContext(InventoryOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

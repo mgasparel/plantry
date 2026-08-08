@@ -95,11 +95,11 @@ public sealed class EfNpgsqlTracingTests(PostgresFixture db) : IAsyncLifetime
         ActivitySource.AddActivityListener(listener);
 
         // Seed one unit so the subsequent SELECT returns a row (exercises the read path).
-        var opts = new DbContextOptionsBuilder<CatalogDbContext>()
+        var opts = new DbContextOptionsBuilder<PantryDbContext>()
             .UseNpgsql(db.ConnectionString)
             .Options;
 
-        await using var seedCtx = new CatalogDbContext(opts);
+        await using var seedCtx = new PantryDbContext(opts);
         seedCtx.SetHouseholdId(_household.Value);
         var unit = CatalogUnit.Create(_household, "kg", piiSentinel, Dimension.Mass, 1000m, isBase: false);
         seedCtx.Units.Add(unit);
@@ -109,7 +109,7 @@ public sealed class EfNpgsqlTracingTests(PostgresFixture db) : IAsyncLifetime
         capturedActivities.Clear();
 
         // ── Act ───────────────────────────────────────────────────────────────────────
-        await using var queryCtx = new CatalogDbContext(opts);
+        await using var queryCtx = new PantryDbContext(opts);
         queryCtx.SetHouseholdId(_household.Value);
         _ = await queryCtx.Units.ToListAsync();
 

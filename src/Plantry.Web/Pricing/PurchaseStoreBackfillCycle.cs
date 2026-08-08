@@ -63,7 +63,7 @@ public sealed class PurchaseStoreBackfillCycle(IServiceScopeFactory scopeFactory
 
         var id = household.Value;
         sp.GetRequiredService<TenantContext>().Set(id);              // arms Postgres RLS (app.household_id GUC)
-        sp.GetRequiredService<CatalogDbContext>().SetHouseholdId(id); // Catalog: store find-or-create
+        sp.GetRequiredService<PantryDbContext>().SetHouseholdId(id); // Catalog: store find-or-create
         sp.GetRequiredService<MarketDbContext>().SetHouseholdId(id);  // Market: the pricing observation being enriched
 
         await sp.GetRequiredService<PurchaseStoreBackfill>().RunAsync(ct);

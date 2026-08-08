@@ -68,7 +68,7 @@ public sealed class RecipeConversionBackfillCycle(
         var id = household.Value;
         sp.GetRequiredService<TenantContext>().Set(id);                // arms Postgres RLS (app.household_id GUC)
         sp.GetRequiredService<RecipesDbContext>().SetHouseholdId(id);  // Recipes: the recipe/ingredient read
-        sp.GetRequiredService<CatalogDbContext>().SetHouseholdId(id);  // Catalog: product/unit reads + conversion write
+        sp.GetRequiredService<PantryDbContext>().SetHouseholdId(id);  // Catalog: product/unit reads + conversion write
 
         var recipes = sp.GetRequiredService<IRecipeRepository>();
         var products = sp.GetRequiredService<ICatalogProductReader>();

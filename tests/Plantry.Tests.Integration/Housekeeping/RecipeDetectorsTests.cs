@@ -244,10 +244,10 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
         return tenant;
     }
 
-    private CatalogDbContext NewCatalogDb(HouseholdId household)
+    private PantryDbContext NewCatalogDb(HouseholdId household)
     {
-        var opts = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new CatalogDbContext(opts);
+        var opts = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new PantryDbContext(opts);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

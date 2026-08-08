@@ -5,11 +5,11 @@ using Plantry.SharedKernel;
 namespace Plantry.Pantry.Infrastructure;
 
 /// <summary>
-/// EF-backed <see cref="IHouseholdInventorySettingsRepository"/> over <see cref="InventoryDbContext"/>.
+/// EF-backed <see cref="IHouseholdInventorySettingsRepository"/> over <see cref="PantryDbContext"/>.
 /// The context's per-household query filter plus the table's RLS policy scope every read to the
 /// tenant (defence-in-depth, ADR-008).
 /// </summary>
-public sealed class HouseholdInventorySettingsRepository(InventoryDbContext db)
+public sealed class HouseholdInventorySettingsRepository(PantryDbContext db)
     : IHouseholdInventorySettingsRepository
 {
     public Task<HouseholdInventorySettings?> FindByHouseholdAsync(

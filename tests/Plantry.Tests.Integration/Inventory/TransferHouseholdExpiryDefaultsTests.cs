@@ -62,7 +62,7 @@ public sealed class TransferHouseholdExpiryDefaultsTests(PostgresFixture db) : I
         await db.ResetAsync();
 
         await using (var identityDb = new PlantryIdentityDbContext(IdentityOptions()))
-        await using (var catalogDb = new CatalogDbContext(CatalogOptions()))
+        await using (var catalogDb = new PantryDbContext(CatalogOptions()))
         {
             // Household.Create mints its own id — capture it into _household once created, then use
             // that for every subsequent query filter (catalogDb.SetHouseholdId, etc.).
@@ -189,25 +189,25 @@ public sealed class TransferHouseholdExpiryDefaultsTests(PostgresFixture db) : I
         return await command.ExecuteAsync();
     }
 
-    private DbContextOptions<CatalogDbContext> CatalogOptions() =>
-        new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> CatalogOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
     private DbContextOptions<PlantryIdentityDbContext> IdentityOptions() =>
         new DbContextOptionsBuilder<PlantryIdentityDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private DbContextOptions<InventoryDbContext> InventoryOptions() =>
-        new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> InventoryOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var ctx = new CatalogDbContext(CatalogOptions());
+        var ctx = new PantryDbContext(CatalogOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }
 
-    private InventoryDbContext NewInventoryDb()
+    private PantryDbContext NewInventoryDb()
     {
-        var ctx = new InventoryDbContext(InventoryOptions());
+        var ctx = new PantryDbContext(InventoryOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

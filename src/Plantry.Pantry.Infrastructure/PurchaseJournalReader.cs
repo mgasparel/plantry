@@ -10,11 +10,11 @@ namespace Plantry.Pantry.Infrastructure;
 /// <c>(household_id, product_id)</c> index on the journal covers the grouping; the <c>Reason</c>
 /// value-converter comparison translates to a <c>WHERE reason = 'Purchase'</c> at the SQL layer.
 ///
-/// <para>Household scoping is handled by <see cref="InventoryDbContext"/>'s RLS query filter (armed per
+/// <para>Household scoping is handled by <see cref="PantryDbContext"/>'s RLS query filter (armed per
 /// request by <c>RlsMiddleware</c>), the same way the pantry/detail read models are scoped — so this reader
 /// carries no household argument and never sees another household's journal.</para>
 /// </summary>
-public sealed class PurchaseJournalReader(InventoryDbContext db) : IPurchaseJournalReader
+public sealed class PurchaseJournalReader(PantryDbContext db) : IPurchaseJournalReader
 {
     public async Task<IReadOnlyDictionary<Guid, int>> CountPurchasesSinceAsync(
         DateTimeOffset since, CancellationToken ct = default)

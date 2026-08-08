@@ -139,12 +139,12 @@ public sealed class UnitDisplayStyleTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(DisplayStyle.Decimal, byCode["g"]);
     }
 
-    private DbContextOptions<CatalogDbContext> CatalogOptions() =>
-        new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> CatalogOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var ctx = new CatalogDbContext(CatalogOptions());
+        var ctx = new PantryDbContext(CatalogOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

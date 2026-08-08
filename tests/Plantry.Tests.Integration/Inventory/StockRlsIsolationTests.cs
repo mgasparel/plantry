@@ -91,7 +91,7 @@ public sealed class StockRlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         tenant.Set(_householdA.Value);
 
         var opts = BuildInventoryOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var inventoryDb = new InventoryDbContext(opts);
+        await using var inventoryDb = new PantryDbContext(opts);
 
         var stocks = await inventoryDb.ProductStocks
             .IgnoreQueryFilters()
@@ -109,7 +109,7 @@ public sealed class StockRlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         var tenant = new TenantContext(); // never set
 
         var opts = BuildInventoryOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var inventoryDb = new InventoryDbContext(opts);
+        await using var inventoryDb = new PantryDbContext(opts);
 
         var stocks = await inventoryDb.ProductStocks.IgnoreQueryFilters().ToListAsync();
 
@@ -132,19 +132,19 @@ public sealed class StockRlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         Assert.DoesNotContain(seenIds, id => id == forbiddenHouseholdId);
     }
 
-    private DbContextOptions<InventoryDbContext> InventoryOptions() =>
-        new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> InventoryOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private static DbContextOptions<InventoryDbContext> BuildInventoryOptions(string connStr, IInterceptor? interceptor = null)
+    private static DbContextOptions<PantryDbContext> BuildInventoryOptions(string connStr, IInterceptor? interceptor = null)
     {
-        var builder = new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(connStr);
+        var builder = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(connStr);
         if (interceptor is not null) builder.AddInterceptors(interceptor);
         return builder.Options;
     }
 
-    private InventoryDbContext NewInventoryDb(HouseholdId household)
+    private PantryDbContext NewInventoryDb(HouseholdId household)
     {
-        var ctx = new InventoryDbContext(InventoryOptions());
+        var ctx = new PantryDbContext(InventoryOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

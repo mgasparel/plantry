@@ -515,7 +515,7 @@ internal sealed class WeekBagEnricher
         // UnitFact.FactorToBase is decimal? (nullable in the flat SQL projection, MealPlanWeekReadModel.cs);
         // a null value maps to 1m, preserving today's week-bag behaviour exactly (deliberate, not a
         // projection change — plantry-jvd7 AC5). DimensionExtensions.Parse is the same helper
-        // CatalogDbContext's Dimension value conversion uses.
+        // PantryDbContext's Dimension value conversion uses.
         var unitShapes = _bag.Units.Values
             .Select(u => new UnitConverter.UnitShape(u.UnitId, DimensionExtensions.Parse(u.Dimension), u.FactorToBase ?? 1m))
             .ToList();

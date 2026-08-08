@@ -140,13 +140,13 @@ public sealed class ProductDishQuantitySnapshotMigrationTests : IAsyncLifetime
             Guid.Parse("00000000-0000-7000-8000-000000000002"));
     }
 
-    private CatalogDbContext NewCatalogContext()
+    private PantryDbContext NewCatalogContext()
     {
-        var options = new DbContextOptionsBuilder<CatalogDbContext>()
+        var options = new DbContextOptionsBuilder<PantryDbContext>()
             .UseNpgsql(_container.GetConnectionString(),
                 npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
             .Options;
-        return new CatalogDbContext(options);
+        return new PantryDbContext(options);
     }
 
     private MealPlanningDbContext NewMealPlanningContext()

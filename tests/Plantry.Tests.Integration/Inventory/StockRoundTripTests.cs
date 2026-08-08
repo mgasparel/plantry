@@ -234,7 +234,7 @@ public sealed class StockRoundTripTests(PostgresFixture db) : IAsyncLifetime
         var otherHousehold = HouseholdId.New();
         var sharedProductId = Guid.CreateVersion7(); // same product id "coincidentally" stocked by another household
 
-        await using (var seedDb = new InventoryDbContext(InventoryOptions()))
+        await using (var seedDb = new PantryDbContext(InventoryOptions()))
         {
             seedDb.SetHouseholdId(otherHousehold.Value);
             var stock = ProductStock.Start(otherHousehold, sharedProductId, SystemClock.Instance);
@@ -251,12 +251,12 @@ public sealed class StockRoundTripTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(result);
     }
 
-    private DbContextOptions<InventoryDbContext> InventoryOptions() =>
-        new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> InventoryOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private InventoryDbContext NewInventoryDb()
+    private PantryDbContext NewInventoryDb()
     {
-        var ctx = new InventoryDbContext(InventoryOptions());
+        var ctx = new PantryDbContext(InventoryOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

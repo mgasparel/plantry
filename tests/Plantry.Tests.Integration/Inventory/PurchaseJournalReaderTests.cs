@@ -12,7 +12,7 @@ namespace Plantry.Tests.Integration.Inventory;
 /// L3 integration tests for <see cref="PurchaseJournalReader"/> (P5-10 / DL-O4) — the purchase-frequency
 /// read behind the Deals stock-up alerts. Proves, against a real Postgres schema, that it counts only
 /// <see cref="StockReason.Purchase"/> movements, respects the trailing-window <c>since</c> boundary, groups
-/// per product, and is scoped to the signed-in household by the <c>InventoryDbContext</c> RLS query filter.
+/// per product, and is scoped to the signed-in household by the <c>PantryDbContext</c> RLS query filter.
 /// </summary>
 [Collection(nameof(PostgresCollection))]
 public sealed class PurchaseJournalReaderTests(PostgresFixture db) : IAsyncLifetime
@@ -125,14 +125,14 @@ public sealed class PurchaseJournalReaderTests(PostgresFixture db) : IAsyncLifet
         Assert.Equal(1, counts[product]);
     }
 
-    private DbContextOptions<InventoryDbContext> InventoryOptions() =>
-        new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> InventoryOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private InventoryDbContext NewInventoryDb() => NewInventoryDbFor(_household);
+    private PantryDbContext NewInventoryDb() => NewInventoryDbFor(_household);
 
-    private InventoryDbContext NewInventoryDbFor(HouseholdId household)
+    private PantryDbContext NewInventoryDbFor(HouseholdId household)
     {
-        var ctx = new InventoryDbContext(InventoryOptions());
+        var ctx = new PantryDbContext(InventoryOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

@@ -140,12 +140,12 @@ public sealed class CatalogReferenceDataTests(PostgresFixture db) : IAsyncLifeti
         Assert.Equal(2, names.Count(n => n == "Pantry"));
     }
 
-    private DbContextOptions<CatalogDbContext> CatalogOptions() =>
-        new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> CatalogOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var ctx = new CatalogDbContext(CatalogOptions());
+        var ctx = new PantryDbContext(CatalogOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

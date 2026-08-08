@@ -11,7 +11,7 @@ namespace Plantry.Web.Deals;
 /// Web-side adapter for <see cref="ICatalogStoreWriter"/> — ensures a <c>catalog.store</c> identity for a
 /// subscribed merchant via Catalog's own <see cref="EnsureStoreCommand"/> (no reimplementation; idempotent
 /// reuse/adopt/reactivate, P5-1). Throws on failure so <c>ManageSubscriptions</c> aborts the subscribe,
-/// mirroring the Intake/Recipes create adapters. Deals never touches <c>CatalogDbContext</c> directly.
+/// mirroring the Intake/Recipes create adapters. Deals never touches <c>PantryDbContext</c> directly.
 /// </summary>
 public sealed class CatalogStoreWriterAdapter(
     IStoreRepository stores,

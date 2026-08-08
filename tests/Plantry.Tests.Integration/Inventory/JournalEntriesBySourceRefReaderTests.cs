@@ -12,7 +12,7 @@ namespace Plantry.Tests.Integration.Inventory;
 /// L3 integration tests for <see cref="JournalEntriesBySourceRefReader"/> (plantry-0eut) — the batched
 /// journal-by-SourceRef read behind the MealPlanning cook-status port's product-dish leg. Proves, against
 /// a real Postgres schema, that it groups movements by SourceRef, batches multiple refs in one query, and
-/// is scoped to the signed-in household by the <c>InventoryDbContext</c> RLS query filter.
+/// is scoped to the signed-in household by the <c>PantryDbContext</c> RLS query filter.
 /// </summary>
 [Collection(nameof(PostgresCollection))]
 public sealed class JournalEntriesBySourceRefReaderTests(PostgresFixture db) : IAsyncLifetime
@@ -135,14 +135,14 @@ public sealed class JournalEntriesBySourceRefReaderTests(PostgresFixture db) : I
         Assert.Empty(await reader.ListBySourceRefsAsync([]));
     }
 
-    private DbContextOptions<InventoryDbContext> InventoryOptions() =>
-        new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> InventoryOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private InventoryDbContext NewInventoryDb() => NewInventoryDbFor(_household);
+    private PantryDbContext NewInventoryDb() => NewInventoryDbFor(_household);
 
-    private InventoryDbContext NewInventoryDbFor(HouseholdId household)
+    private PantryDbContext NewInventoryDbFor(HouseholdId household)
     {
-        var ctx = new InventoryDbContext(InventoryOptions());
+        var ctx = new PantryDbContext(InventoryOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

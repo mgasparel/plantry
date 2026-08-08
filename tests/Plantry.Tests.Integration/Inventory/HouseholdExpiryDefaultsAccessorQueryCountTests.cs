@@ -110,7 +110,7 @@ public sealed class HouseholdExpiryDefaultsAccessorQueryCountTests(PostgresFixtu
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private CatalogReadFacade NewCatalogReadFacade(PlantryIdentityDbContext identityDb, CatalogDbContext catalogDb)
+    private CatalogReadFacade NewCatalogReadFacade(PlantryIdentityDbContext identityDb, PantryDbContext catalogDb)
     {
         var tenant = new FixedTenantContext(_household.Value);
         var expiryService = new HouseholdExpiryDefaultsService(
@@ -130,10 +130,10 @@ public sealed class HouseholdExpiryDefaultsAccessorQueryCountTests(PostgresFixtu
         return builder.Options;
     }
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var ctx = new CatalogDbContext(
-            new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new PantryDbContext(
+            new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

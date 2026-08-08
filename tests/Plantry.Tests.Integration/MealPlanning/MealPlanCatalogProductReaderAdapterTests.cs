@@ -282,12 +282,12 @@ public sealed class MealPlanCatalogProductReaderAdapterTests(PostgresFixture db)
         Assert.Empty(await reader.ResolveUnitCodesAsync([]));
     }
 
-    private CatalogDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
+    private PantryDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
     {
-        var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString);
+        var builder = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString);
         if (counter is not null) builder.AddInterceptors(counter);
 
-        var ctx = new CatalogDbContext(builder.Options);
+        var ctx = new PantryDbContext(builder.Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

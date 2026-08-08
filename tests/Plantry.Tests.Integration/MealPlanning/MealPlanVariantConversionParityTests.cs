@@ -543,10 +543,10 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
         return new MealPlanWeekReadModel(db.ConnectionString, tenant, Clock);
     }
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var ctx = new CatalogDbContext(
-            new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new PantryDbContext(
+            new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

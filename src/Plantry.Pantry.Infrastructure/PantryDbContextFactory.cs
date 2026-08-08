@@ -4,20 +4,20 @@ using Microsoft.EntityFrameworkCore.Design;
 namespace Plantry.Pantry.Infrastructure;
 
 /// <summary>
-/// Design-time factory so <c>dotnet ef migrations</c> can construct <see cref="InventoryDbContext"/>
+/// Design-time factory so <c>dotnet ef migrations</c> can construct <see cref="PantryDbContext"/>
 /// without booting the Aspire web host. The connection string is a placeholder — scaffolding a
 /// migration only needs the provider wired up; it never opens a connection.
 /// </summary>
-public sealed class InventoryDbContextFactory : IDesignTimeDbContextFactory<InventoryDbContext>
+public sealed class PantryDbContextFactory : IDesignTimeDbContextFactory<PantryDbContext>
 {
-    public InventoryDbContext CreateDbContext(string[] args)
+    public PantryDbContext CreateDbContext(string[] args)
     {
-        var options = new DbContextOptionsBuilder<InventoryDbContext>()
+        var options = new DbContextOptionsBuilder<PantryDbContext>()
             .UseNpgsql(
                 "Host=localhost;Database=plantry_design;Username=postgres;Password=postgres",
                 npgsql => npgsql.MigrationsAssembly("Plantry.Pantry.Infrastructure"))
             .Options;
 
-        return new InventoryDbContext(options);
+        return new PantryDbContext(options);
     }
 }
