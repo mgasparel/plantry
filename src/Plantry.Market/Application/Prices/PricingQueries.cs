@@ -53,6 +53,21 @@ public sealed class PricingQueries(IPriceObservationRepository repository)
     private static bool IsCostable(PriceObservation observation) =>
         observation.UnitId != Guid.Empty && observation.UnitPrice.HasValue;
 
+    /// <summary>Full unit-normalized price history for a product (plantry-fuej price sparkline + median):
+    /// live (<c>superseded_by_id IS NULL</c>, ADR-023 A7) Purchase/Manual observations — a deal price never
+    /// contaminates "what you pay" history, same source filter as <see cref="LatestPurchasePriceAsync"/> —
+    /// filtered to those with a usable <see cref="PriceObservation.UnitPrice"/> (a soft-failed normalization
+    /// can't be plotted or averaged), ordered oldest-first.</summary>
+    public async Task<IReadOnlyList<PriceHistoryPoint>> PriceHistoryAsync(Guid productId, CancellationToken ct = default)
+    {
+        var observations = await repository.HistoryForProductAsync(productId, ct);
+        return observations
+            .Where(o => o.UnitPrice.HasValue)
+            .OrderBy(o => o.ObservedAt)
+            .Select(o => new PriceHistoryPoint(DateOnly.FromDateTime(o.ObservedAt.UtcDateTime), o.UnitPrice!.Value))
+            .ToList();
+    }
+
     /// <summary>Batch existence check for Tidy Up's D5 detector (tidy-up.md §3): of the given products,
     /// which have any live price observation at all, in one round trip.</summary>
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyPriceAsync(IEnumerable<Guid> productIds, CancellationToken ct = default) =>

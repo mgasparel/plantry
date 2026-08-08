@@ -1,0 +1,39 @@
+@model Plantry.Web.Pages.Pantry.Products.StatsPanelViewModel?
+@{
+    // Product-detail stats injection (plantry-fuej, stats-page-prototype.html appendix "Catalog / Pantry
+    // product detail"): price sparkline + median, days-of-supply at current velocity, and waste rate.
+    // BuildStatsAsync only ever hands this partial a non-null model when at least one stat has enough
+    // data to show — a product with nothing to show renders no section at all (degrade gracefully),
+    // matching the "Recipes" section's own not-applicable-state convention below it on this page.
+    var stats = Model;
+    var hasPriceHistory = stats?.PriceHistory.Count >= Plantry.Web.Pages.Pantry.Products.DetailModel.MinPricePointsForSparkline;
+}
+@if (stats is not null)
+{
+    <section class="catalog-section">
+        <h2 class="catalog-section__heading">Stats</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            @if (hasPriceHistory)
+            {
+                <svg width="@Plantry.Web.Pages.Pantry.Products.PriceSparkline.Width"
+                     height="@Plantry.Web.Pages.Pantry.Products.PriceSparkline.Height"
+                     viewBox="0 0 @Plantry.Web.Pages.Pantry.Products.PriceSparkline.Width @Plantry.Web.Pages.Pantry.Products.PriceSparkline.Height"
+                     aria-label="Price history trend">
+                    <polyline points="@Plantry.Web.Pages.Pantry.Products.PriceSparkline.BuildPoints(stats.PriceHistory)"
+                              fill="none" stroke="var(--color-text-faint)" stroke-width="2"
+                              stroke-linejoin="round" stroke-linecap="round" />
+                </svg>
+                <span class="chip-stat">You pay <b>@Plantry.Web.MoneyDisplay.Format(stats.MedianUnitPrice!.Value, stats.Currency)</b> median</span>
+            }
+            @if (stats.DaysOfSupply is { } days)
+            {
+                <span class="chip-stat">~<b>@days.ToString("0.#")</b> day@(days == 1m ? "" : "s") of supply left</span>
+            }
+            @if (stats.WasteRate is { } waste)
+            {
+                var pct = (waste * 100m).ToString("0.#");
+                <span class="chip-stat">Waste rate <b class="@(waste > 0m ? "delta--bad" : "delta--good")">@(pct)%</b></span>
+            }
+        </div>
+    </section>
+}

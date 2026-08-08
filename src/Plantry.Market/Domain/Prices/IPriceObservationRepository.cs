@@ -58,6 +58,13 @@ public interface IPriceObservationRepository
     /// that store for that product/date.</summary>
     Task<PriceObservation?> ActiveDealForPurchaseAsync(Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default);
 
+    /// <summary>Full purchase/manual observation history for a product (plantry-fuej price sparkline +
+    /// median), ordered oldest-first. Same source filter as <see cref="LatestForProductAsync"/> — a deal
+    /// price never contaminates "what you pay" history — and the same superseded filter as every other
+    /// read here (ADR-023 A7). The caller (<c>PricingQueries.PriceHistoryAsync</c>) further filters to
+    /// observations with a usable <see cref="PriceObservation.UnitPrice"/> before plotting/averaging.</summary>
+    Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default);
+
     /// <summary>Batch existence check (Tidy Up D5, tidy-up.md §3): of the given product ids, which have at
     /// least one live (<c>superseded_by_id IS NULL</c>) price observation of any <see cref="PriceSource"/>.
     /// Lets D5 find products with zero price data in one round trip instead of a per-product query — the

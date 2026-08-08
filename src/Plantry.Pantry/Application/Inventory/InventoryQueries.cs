@@ -158,6 +158,24 @@ public sealed record ProductStockDetail(
 public sealed record AmendEligibility(decimal ConsumedTotal, bool ClosedByCorrection, bool Depleted);
 
 /// <summary>
+/// Product-detail consumption stats (plantry-fuej, stats-page-prototype.html appendix "Catalog / Pantry
+/// product detail" injection point) — days-of-supply remaining at the recent consumption pace, and the
+/// waste rate (discarded vs consumed). Either half can be null independently: a product with purchase
+/// history but no consumption/discard events yet has neither. See
+/// <see cref="InventoryQueryService.GetConsumptionStatsAsync"/> for the "enough data" gates.
+/// </summary>
+public sealed record ProductConsumptionStats(
+    /// <summary>Current on-hand quantity ÷ the trailing-window daily consumption rate, rounded to one
+    /// decimal place. Null when fewer than <see cref="InventoryQueryService.MinConsumptionEventsForVelocity"/>
+    /// Consumed events fall in the trailing <see cref="InventoryQueryService.VelocityWindowDays"/> days, or
+    /// the converted consumed quantity nets to zero (e.g. every event's unit failed conversion).</summary>
+    decimal? DaysOfSupply,
+    /// <summary>Discarded ÷ (discarded + consumed), both converted to the product's display unit and
+    /// summed across the product's entire history. Null when the product has no Consumed or Discarded
+    /// events at all (nothing to rate) or every event's unit failed conversion.</summary>
+    decimal? WasteRate);
+
+/// <summary>
 /// Builds the pantry list and product-stock detail read models. Inventory owns the lots/journal; the
 /// Catalog names and per-product unit conversions arrive through the <see cref="ICatalogReadFacade"/>
 /// and <see cref="IProductConversionProvider"/> ports (so this project stays <c>→ SharedKernel only</c>).
@@ -175,6 +193,17 @@ public class InventoryQueryService(
 {
     /// <summary>Maximum number of rows returned by <see cref="ExpiringSoonAsync"/> (top-N soonest-first).</summary>
     public const int ExpiringSoonMaxItems = 10;
+
+    /// <summary>Trailing window, in days, the days-of-supply pace is computed over (plantry-fuej) — a
+    /// deliberately shorter window than <c>StockUpAlerts.FrequencyWindowDays</c> (120d, a "do we buy this
+    /// at all" frequency heuristic): days-of-supply wants a *recent* pace, not a whole-season average.</summary>
+    public const int VelocityWindowDays = 90;
+
+    /// <summary>Minimum Consumed events within <see cref="VelocityWindowDays"/> before a days-of-supply
+    /// figure is shown (plantry-fuej "render only rows with enough data ... degrade gracefully") — a
+    /// single event is too noisy a pace to project forward. Mirrors the price sparkline's own two-point
+    /// minimum for the same reason.</summary>
+    public const int MinConsumptionEventsForVelocity = 2;
 
     public async Task<IReadOnlyList<PantryListItem>> ListPantryAsync(CancellationToken ct = default)
     {
@@ -464,6 +493,82 @@ public class InventoryQueryService(
         var depleted = lot is null || !lot.IsActive;
 
         return new AmendEligibility(consumedTotal, closedByCorrection, depleted);
+    }
+
+    /// <summary>
+    /// Days-of-supply and waste-rate stats for the product-detail injection (plantry-fuej). Journal rows
+    /// for one product can carry mixed units (each row records its own lot's unit, not a canonical one —
+    /// see <see cref="ProductStock.Consume"/>), so every row is converted to the product's display unit
+    /// via <paramref name="ct"/>'s <see cref="IProductConversionProvider"/> before summing — the same
+    /// per-row-convert-then-sum pattern <see cref="SumInDisplayUnit"/> uses for lots, just applied to
+    /// journal deltas instead. A row whose unit fails to convert is silently excluded from both sums
+    /// (same soft-fail posture as <see cref="SumInDisplayUnit"/>) rather than throwing or corrupting the
+    /// rate with an unconverted magnitude. Returns null when there is no stock record for the product, or
+    /// when the product itself cannot be resolved from the catalog (no display unit to convert into).
+    /// </summary>
+    public async Task<ProductConsumptionStats?> GetConsumptionStatsAsync(Guid productId, CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdId)
+            return null;
+
+        var stock = await stocks.FindWithHistoryAsync(HouseholdId.From(householdId), productId, ct);
+        if (stock is null)
+            return null;
+
+        var product = await catalog.FindProductAsync(productId, ct);
+        if (product is null)
+            return null;
+
+        var converter = await conversions.ForProductAsync(productId, ct);
+        var displayUnitId = product.DefaultUnitId;
+
+        var today = Today();
+        var windowStart = new DateTimeOffset(
+            today.AddDays(-VelocityWindowDays).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+
+        var consumedInWindow = stock.Journal
+            .Where(j => j.Reason == StockReason.Consumed && j.OccurredAt >= windowStart)
+            .ToList();
+
+        decimal? daysOfSupply = null;
+        if (consumedInWindow.Count >= MinConsumptionEventsForVelocity)
+        {
+            var consumedQtyInWindow = SumConvertedAbsolute(consumedInWindow, displayUnitId, converter);
+            if (consumedQtyInWindow > 0m)
+            {
+                var perDay = consumedQtyInWindow / VelocityWindowDays;
+                var onHand = SumInDisplayUnit(stock.ActiveLotsFefo(), displayUnitId, converter);
+                daysOfSupply = Math.Round(onHand / perDay, 1);
+            }
+        }
+
+        decimal? wasteRate = null;
+        var discardedTotal = SumConvertedAbsolute(
+            stock.Journal.Where(j => j.Reason == StockReason.Discarded), displayUnitId, converter);
+        var consumedTotal = SumConvertedAbsolute(
+            stock.Journal.Where(j => j.Reason == StockReason.Consumed), displayUnitId, converter);
+        var wasteDenominator = discardedTotal + consumedTotal;
+        if (wasteDenominator > 0m)
+            wasteRate = discardedTotal / wasteDenominator;
+
+        return daysOfSupply is null && wasteRate is null
+            ? null
+            : new ProductConsumptionStats(daysOfSupply, wasteRate);
+    }
+
+    /// <summary>Converts each journal row's absolute delta into <paramref name="displayUnitId"/> and sums
+    /// the successes — a failed conversion (mixed incompatible units, rare) is excluded rather than
+    /// corrupting the sum, mirroring <see cref="SumInDisplayUnit"/>'s soft-fail posture for lots.</summary>
+    private static decimal SumConvertedAbsolute(
+        IEnumerable<StockJournalEntry> rows, Guid displayUnitId, IQuantityConverter converter)
+    {
+        var total = 0m;
+        foreach (var row in rows)
+        {
+            var converted = converter.Convert(Math.Abs(row.Delta), row.UnitId, displayUnitId);
+            if (converted.IsSuccess) total += converted.Value;
+        }
+        return total;
     }
 
     /// <summary>

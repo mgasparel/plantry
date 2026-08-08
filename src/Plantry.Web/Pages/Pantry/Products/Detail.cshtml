@@ -49,6 +49,11 @@
     <partial name="_PriceDisplay" model="new Plantry.Web.Pages.Pantry.Products.PriceDisplayPartialModel(Model.ProductId, Model.PriceDisplayText, false)" />
 </div>
 
+@* Stats injection (plantry-fuej): price sparkline/median, days-of-supply, waste rate — in context on
+   this same page rather than a separate Stats destination. Renders nothing at all when the product has
+   neither enough price history nor any consumption/discard history yet (degrade gracefully). *@
+<partial name="_StatsPanel" model="Model.Stats" />
+
 <partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null, Model.Chips, Model.AmendableLines, Model.HistoryWhenLocal, Model.TodayDate, Model.ExpiringSoonDays)" />
 
 @* Product→recipes cross-context read (plantry-o0r8): every household recipe that directly references

@@ -377,4 +377,145 @@ public sealed class InventoryQueryServiceTests
         Assert.Null(detail!.LowStockThreshold);
         Assert.False(detail.IsRunningLow);
     }
+
+    // ── GetConsumptionStatsAsync (plantry-fuej: days-of-supply + waste rate) ─────────────────────
+
+    /// <summary>Mutable "now" so a test can backdate journal rows outside the velocity window.</summary>
+    private sealed class MutableClock : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = new(2026, 8, 8, 12, 0, 0, TimeSpan.Zero);
+    }
+
+    private InventoryQueryService ServiceWithClock(
+        FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, IQuantityConverter converter, IClock clock) =>
+        new(stocks, catalog, new FakeConversionProvider(converter),
+            new FakeExpiringSoonHorizon(), clock, new FakeTenantContext(_household));
+
+    [Fact(DisplayName = "plantry-fuej: returns null when the product has no stock record at all")]
+    public async Task GetConsumptionStats_ReturnsNull_WhenNoStockRecord()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.Null(stats);
+    }
+
+    [Fact(DisplayName = "plantry-fuej: DaysOfSupply is null with only a single Consumed event in the window (below the two-event floor)")]
+    public async Task GetConsumptionStats_DaysOfSupply_Null_BelowMinimumEvents()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        stock.AddStock(100m, _grams, _location, _user, clock);
+        stock.Consume(10m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.Null(stats?.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-fuej: DaysOfSupply = on-hand ÷ (trailing-window consumed ÷ window days)")]
+    public async Task GetConsumptionStats_DaysOfSupply_Computed_From_Trailing_Window_Pace()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        stock.AddStock(1000m, _grams, _location, _user, clock);
+        // Two Consumed events inside the 90-day window, totalling 180g → 2g/day pace.
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.NotNull(stats);
+        // On hand 820g at 2g/day (180g / 90 days) = 410 days.
+        Assert.Equal(410m, stats!.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-fuej: a Consumed event older than the trailing window doesn't count toward the pace")]
+    public async Task GetConsumptionStats_DaysOfSupply_Excludes_Events_Outside_The_Window()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        stock.AddStock(1000m, _grams, _location, _user, clock);
+
+        clock.UtcNow = clock.UtcNow.AddDays(-200); // well outside the 90-day window
+        stock.Consume(500m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(200); // back to "today"
+        stock.Consume(10m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        // Only one Consumed event falls inside the window — below the two-event floor, so null
+        // rather than a pace derived from a single data point (or the excluded old one).
+        Assert.Null(stats?.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-fuej: journal rows in a different unit than the product's display unit are converted before summing")]
+    public async Task GetConsumptionStats_Converts_Mixed_Unit_Journal_Rows_Before_Summing()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        stock.AddStock(1m, _kilos, _location, _user, clock); // 1kg lot
+        var converter = new FactorQuantityConverter(new() { [(_kilos, _grams)] = 1000m });
+        // Consume from the kg lot in kg — the journal row's own UnitId is _kilos, not the product's
+        // display unit (_grams) — GetConsumptionStatsAsync must convert before summing.
+        stock.Consume(0.09m, _kilos, StockReason.Consumed, converter, _user, clock); // 90g
+        stock.Consume(0.09m, _kilos, StockReason.Consumed, converter, _user, clock); // 90g
+
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), converter, clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.NotNull(stats);
+        // On hand: 1000g - 180g = 820g, at 2g/day pace (180g / 90 days) = 410 days — same figure as
+        // the identity-converter test, proving the mixed-unit journal rows converted correctly.
+        Assert.Equal(410m, stats!.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-fuej: WasteRate is null when the product has no Consumed or Discarded history")]
+    public async Task GetConsumptionStats_WasteRate_Null_WithNoRemovalHistory()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        stock.AddStock(100m, _grams, _location, _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.Null(stats);
+    }
+
+    [Fact(DisplayName = "plantry-fuej: WasteRate = discarded ÷ (discarded + consumed), across the product's whole history")]
+    public async Task GetConsumptionStats_WasteRate_Computed_Across_Full_History()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        stock.AddStock(100m, _grams, _location, _user, clock);
+        stock.Consume(60m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stock.Consume(20m, _grams, StockReason.Discarded, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.NotNull(stats);
+        // 20 discarded / (20 discarded + 60 consumed) = 0.25.
+        Assert.Equal(0.25m, stats!.WasteRate);
+    }
 }

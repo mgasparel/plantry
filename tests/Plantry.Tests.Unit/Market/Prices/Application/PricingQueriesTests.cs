@@ -266,4 +266,65 @@ public sealed class PricingQueriesTests
         Assert.Equal(amendment.Id, result.Id);
         Assert.Equal(1.00m, result.UnitPrice);
     }
+
+    // ── PriceHistoryAsync / PriceHistoryStats (plantry-fuej) ────────────────────────────────────
+
+    [Fact]
+    public async Task PriceHistory_Excludes_Deals_And_Unitless_Observations_Orders_Oldest_First()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero)));
+        repo.Items.Add(Manual(2.50m, new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero)));
+        repo.Items.Add(Deal(1.00m, new(2026, 6, 1), new(2026, 6, 7))); // deal — never "what you pay" history
+        // A purchase whose unit price could not be normalized (soft-fail) — excluded from history/median.
+        repo.Items.Add(PriceObservation.Record(
+            Household, ProductId, null, 9.99m, 1m, UnitId, unitPrice: null,
+            PriceSource.Purchase, "Superstore", SourceRef, DateTimeOffset.UtcNow, UserId));
+        var queries = new PricingQueries(repo);
+
+        var history = await queries.PriceHistoryAsync(ProductId);
+
+        Assert.Equal(2, history.Count);
+        Assert.Equal(2.50m, history[0].UnitPrice); // oldest first
+        Assert.Equal(3.00m, history[1].UnitPrice);
+    }
+
+    [Fact]
+    public async Task PriceHistory_Excludes_A_Superseded_Observation()
+    {
+        var repo = new FakePriceObservationRepository();
+        var superseded = Purchase(5.00m, DateTimeOffset.UtcNow.AddDays(-2));
+        repo.Items.Add(superseded);
+        var replacement = PriceObservation.RecordAmendment(superseded, correctedQuantity: 2m, unitPrice: 2.50m, UserId);
+        superseded.Supersede(replacement.Id);
+        repo.Items.Add(replacement);
+        var queries = new PricingQueries(repo);
+
+        var history = await queries.PriceHistoryAsync(ProductId);
+
+        var point = Assert.Single(history);
+        Assert.Equal(2.50m, point.UnitPrice);
+    }
+
+    [Theory]
+    [InlineData(new double[] { 1.0, 2.0, 3.0 }, 2.0)] // odd count — middle value
+    [InlineData(new double[] { 1.0, 2.0, 3.0, 4.0 }, 2.5)] // even count — average of the two middles
+    [InlineData(new double[] { 5.0 }, 5.0)] // single point
+    public void Median_Computes_Middle_Value_Regardless_Of_Input_Order(double[] prices, double expected)
+    {
+        var points = prices
+            .Select((p, i) => new PriceHistoryPoint(new DateOnly(2026, 1, 1).AddDays(i), (decimal)p))
+            .Reverse() // input order must not matter — Median sorts internally
+            .ToList();
+
+        var median = PriceHistoryStats.Median(points);
+
+        Assert.Equal((decimal)expected, median);
+    }
+
+    [Fact]
+    public void Median_Returns_Null_For_Empty_Series()
+    {
+        Assert.Null(PriceHistoryStats.Median([]));
+    }
 }
