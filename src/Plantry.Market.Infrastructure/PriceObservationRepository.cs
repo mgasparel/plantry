@@ -79,6 +79,28 @@ public sealed class PriceObservationRepository(MarketDbContext db) : IPriceObser
             .OrderBy(p => p.ObservedAt)
             .ToListAsync(ct);
 
+    /// <summary>Batch counterpart to <see cref="HistoryForProductAsync"/> (plantry-gtgl): fetches every
+    /// candidate purchase/manual row for the wanted products in one query, then groups by product
+    /// client-side — mirrors <see cref="LatestForProductsAsync"/>'s materialize-then-group pattern.</summary>
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PriceObservation>>> HistoryForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idList = productIds.Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<Guid, IReadOnlyList<PriceObservation>>();
+
+        var rows = await db.PriceObservations
+            .Where(p => idList.Contains(p.ProductId)
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById == null)
+            .OrderBy(p => p.ObservedAt)
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(p => p.ProductId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<PriceObservation>)g.ToList());
+    }
+
     public async Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(
         IEnumerable<Guid> productIds, CancellationToken ct = default)
     {

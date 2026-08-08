@@ -160,7 +160,7 @@ public sealed class ReviewModel(
         {
             await LoadSheetOptionsAsync(ct);
             DisplayCurrency = await displayCurrency.GetAsync(ct);
-            var one = await reviewDeals.FindAsync(DealId.From(id), ct);
+            var one = await reviewDeals.FindAsync(DealId.From(id), ct: ct);
             if (one is not null)
             {
                 IsSingleCorrection = true;
@@ -233,7 +233,9 @@ public sealed class ReviewModel(
         if (tenant.HouseholdId is null)
             return Forbid();
 
-        var view = await reviewDeals.FindAsync(DealId.From(dealId), ct);
+        // Confirm only ever reads SuggestedProductId off the result — the purchase-context round trips
+        // (price history, purchase dates, latest purchase) would be spent and thrown away, so skip them.
+        var view = await reviewDeals.FindAsync(DealId.From(dealId), includePurchaseContext: false, ct);
         if (view is null)
             return await QueueFragmentAsync(flyer, step, ct);
 

@@ -17,6 +17,11 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
     public List<PriceObservation> Items { get; } = [];
     public int SaveChangesCalls { get; private set; }
     public int? ThrowOnAdd { get; set; }
+    /// <summary>Times <see cref="HistoryForProductsAsync"/> was called — lets batching tests prove the
+    /// whole-queue read really is one call, not the interface's per-product DIM loop (plantry-gtgl).</summary>
+    public int HistoryForProductsCalls { get; private set; }
+    /// <summary>Times <see cref="LatestForProductsAsync"/> was called (same batching proof).</summary>
+    public int LatestForProductsCalls { get; private set; }
     private int _adds;
 
     public Task AddAsync(PriceObservation observation, CancellationToken ct = default)
@@ -62,6 +67,50 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
             .OrderBy(p => p.ObservedAt)
             .ToList());
 
+    /// <summary>Overrides the interface's per-product DIM, mirroring the production repository's batch
+    /// query (same source/supersession filter, oldest-first per product, no-history products absent) —
+    /// without this override the batching test would silently exercise the very N+1 loop it claims to
+    /// rule out (plantry-gtgl pass-3 critic).</summary>
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PriceObservation>>> HistoryForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        HistoryForProductsCalls++;
+        var result = new Dictionary<Guid, IReadOnlyList<PriceObservation>>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var history = Items
+                .Where(p => p.ProductId == productId
+                    && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                    && p.SupersededById is null)
+                .OrderBy(p => p.ObservedAt)
+                .ToList();
+            if (history.Count > 0)
+                result[productId] = history;
+        }
+        return Task.FromResult<IReadOnlyDictionary<Guid, IReadOnlyList<PriceObservation>>>(result);
+    }
+
+    /// <summary>Overrides the interface's per-product DIM with the same call-counting rationale as
+    /// <see cref="HistoryForProductsAsync"/> — pins the "one latest-purchase read" half of the
+    /// whole-queue batching guarantee.</summary>
+    public Task<IReadOnlyDictionary<Guid, PriceObservation>> LatestForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        LatestForProductsCalls++;
+        var result = new Dictionary<Guid, PriceObservation>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var latest = Items
+                .Where(p => p.ProductId == productId
+                    && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                    && p.SupersededById is null)
+                .MaxBy(p => p.ObservedAt);
+            if (latest is not null)
+                result[productId] = latest;
+        }
+        return Task.FromResult<IReadOnlyDictionary<Guid, PriceObservation>>(result);
+    }
+
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
         Task.FromResult(Items
             .Where(p => p.SkuId == skuId
@@ -106,9 +155,16 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
     }
 }
 
-/// <summary>Fake <see cref="IUnitPriceCalculator"/> — always returns the configured value (soft-fail via null).</summary>
+/// <summary>Fake <see cref="IUnitPriceCalculator"/> — always returns the configured value (soft-fail via null).
+/// <see cref="NormalizeCalls"/> lets tests pin whether normalization ran at all — a deal that never carried a
+/// unit must skip the calculator entirely, not merely receive a null back (plantry-gtgl).</summary>
 internal sealed class FakeUnitPriceCalculator(decimal? returnValue) : IUnitPriceCalculator
 {
-    public Task<decimal?> TryNormalizeAsync(decimal price, decimal quantity, Guid unitId, CancellationToken ct = default) =>
-        Task.FromResult(returnValue);
+    public int NormalizeCalls { get; private set; }
+
+    public Task<decimal?> TryNormalizeAsync(decimal price, decimal quantity, Guid unitId, CancellationToken ct = default)
+    {
+        NormalizeCalls++;
+        return Task.FromResult(returnValue);
+    }
 }

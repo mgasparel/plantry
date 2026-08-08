@@ -87,6 +87,28 @@
         </div>
     }
 
+    @if (Model.Purchase is { } purchase)
+    {
+        @* Purchase context (plantry-gtgl, stats-page-prototype.html "Deals review" injection point):
+           what the household normally pays and buys this at, surfaced at the moment of the confirm/reject
+           decision. Skipped entirely (Model.Purchase is null) when the suggested product has no purchase
+           history — never rendered with a blank/zero stand-in. *@
+        <div class="deal-review-row__purchase-context">
+            <span class="chip-stat">
+                You pay <b>@MoneyDisplay.Format(purchase.AverageUnitPrice, displayCurrency)</b> avg
+                @if (purchase.PercentDelta is { } pct)
+                {
+                    <text>&rarr; deal is <b class="@(pct < 0 ? "delta--good" : "delta--bad")">@Math.Abs(pct)% @(pct < 0 ? "below" : "above")</b></text>
+                }
+            </span>
+            @if (purchase.AveragePurchaseInterval is { } interval)
+            {
+                <span class="chip-stat">You buy this every <b>~@DealReviewDisplay.FormatPurchaseInterval(interval)</b></span>
+            }
+            <span class="chip-stat">Last bought <b>@purchase.LastPurchasedAt.ToString("MMM d")</b></span>
+        </div>
+    }
+
     <div class="deal-review-row__actions">
         @if (isPending && Model.HasSuggestion)
         {

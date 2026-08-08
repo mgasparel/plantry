@@ -68,6 +68,34 @@ public sealed class PricingQueries(IPriceObservationRepository repository)
             .ToList();
     }
 
+    /// <summary>Batch counterpart to <see cref="LatestPurchasePriceAsync"/> (plantry-gtgl, Deals-review
+    /// purchase context — "last bought" date): the latest purchase/manual observation for each of the given
+    /// product ids, in one round trip. Products with no purchase history are absent from the result.</summary>
+    public Task<IReadOnlyDictionary<Guid, PriceObservation>> LatestPurchasePricesAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default) =>
+        repository.LatestForProductsAsync(productIds, ct);
+
+    /// <summary>Batch counterpart to <see cref="PriceHistoryAsync"/> (plantry-gtgl, Deals-review "you pay $X
+    /// avg" — needs every pending deal's suggested product's history in one queue render, not one query per
+    /// card). Same unit-normalization filter as the single-product read.</summary>
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PriceHistoryPoint>>> PriceHistoryForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var histories = await repository.HistoryForProductsAsync(productIds, ct);
+        var result = new Dictionary<Guid, IReadOnlyList<PriceHistoryPoint>>();
+        foreach (var (productId, observations) in histories)
+        {
+            var points = observations
+                .Where(o => o.UnitPrice.HasValue)
+                .OrderBy(o => o.ObservedAt)
+                .Select(o => new PriceHistoryPoint(DateOnly.FromDateTime(o.ObservedAt.UtcDateTime), o.UnitPrice!.Value))
+                .ToList();
+            if (points.Count > 0)
+                result[productId] = points;
+        }
+        return result;
+    }
+
     /// <summary>Batch existence check for Tidy Up's D5 detector (tidy-up.md §3): of the given products,
     /// which have any live price observation at all, in one round trip.</summary>
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyPriceAsync(IEnumerable<Guid> productIds, CancellationToken ct = default) =>

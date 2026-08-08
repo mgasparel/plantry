@@ -21,4 +21,13 @@ public interface IPurchaseJournalReader
     /// </summary>
     Task<IReadOnlyDictionary<Guid, int>> CountPurchasesSinceAsync(
         DateTimeOffset since, CancellationToken ct = default);
+
+    /// <summary>
+    /// Every purchase-movement timestamp for each of the given products, oldest-first per product, scoped
+    /// to the signed-in household — the second <c>Plantry.Market</c> consumer of this journal (plantry-gtgl,
+    /// Deals-review purchase-cadence estimate), alongside <see cref="CountPurchasesSinceAsync"/>'s
+    /// stock-up-alert threshold check. Products with no purchase movements are absent from the map.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>> PurchaseDatesForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default);
 }

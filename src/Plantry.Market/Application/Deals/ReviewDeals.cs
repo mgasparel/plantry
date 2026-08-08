@@ -27,7 +27,9 @@ public sealed record DealReviewView(
     Guid? SuggestedProductId,
     string? SuggestedProductName,
     DealStatus Status,
-    bool AutoMatched)
+    bool AutoMatched,
+    Guid? UnitId = null,
+    DealPurchaseContext? Purchase = null)
 {
     /// <summary>
     /// True when a live, resolvable suggested product exists — drives the "did you mean" chip and the
@@ -117,7 +119,10 @@ public sealed class ReviewDeals(
     ICatalogProductReader products,
     ICatalogStoreReader stores,
     IFlyerImportRepository flyerImports,
-    IClock clock)
+    IClock clock,
+    PricingQueries pricingQueries,
+    IPurchaseFrequencyReader purchaseFrequency,
+    IUnitPriceCalculator unitPriceCalculator)
 {
     /// <summary>The pending review queue (DD14: Pending ∧ not yet expired), oldest-expiring first.</summary>
     public async Task<IReadOnlyList<DealReviewView>> ListPendingAsync(CancellationToken ct = default)
@@ -173,8 +178,11 @@ public sealed class ReviewDeals(
 
         var (storeNames, suggestionNames) = await ResolveNamesAsync(pending, ct);
 
-        return pending
-            .Select(d => ToView(d, storeNames, suggestionNames))
+        var views = pending.Select(d => ToView(d, storeNames, suggestionNames)).ToList();
+        var purchaseContexts = await BuildPurchaseContextsAsync(views, ct);
+
+        return views
+            .Select(v => purchaseContexts.TryGetValue(v.DealId, out var context) ? v with { Purchase = context } : v)
             .OrderBy(v => v.ValidTo)
             .ThenBy(v => v.StoreName, StringComparer.OrdinalIgnoreCase)
             // Confidence descending — highest first (the 16 one-click confirms lead each flyer/store block
@@ -184,6 +192,75 @@ public sealed class ReviewDeals(
             .ThenBy(v => v.RawName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    /// <summary>
+    /// Purchase-history context for each view with a resolved suggested product (plantry-gtgl), keyed by
+    /// <see cref="DealId"/> — batched over the whole card set (one price-history read, one purchase-dates
+    /// read, one latest-purchase read; no N+1 per card), so rendering a flyer with many cards costs three
+    /// round trips total instead of three per card. A view's suggested product with no purchase/manual price
+    /// history at all is simply absent from the result (the ticket's "skip the row silently") — no entry
+    /// with null/zero fields standing in for "unknown". The deal's own unit-price normalization
+    /// (<see cref="IUnitPriceCalculator"/>) still runs per-deal — price/quantity/unit are deal attributes,
+    /// not product attributes — but the calculator memoizes per unit, so this stays cheap.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<DealId, DealPurchaseContext>> BuildPurchaseContextsAsync(
+        IReadOnlyList<DealReviewView> views, CancellationToken ct)
+    {
+        var productIds = views
+            .Where(v => v.SuggestedProductId is not null)
+            .Select(v => v.SuggestedProductId!.Value)
+            .Distinct()
+            .ToList();
+        if (productIds.Count == 0)
+            return EmptyPurchaseContexts;
+
+        var histories = await pricingQueries.PriceHistoryForProductsAsync(productIds, ct);
+        if (histories.Count == 0)
+            return EmptyPurchaseContexts;
+
+        var purchaseDates = await purchaseFrequency.PurchaseDatesForProductsAsync(histories.Keys, ct);
+        var latestPurchases = await pricingQueries.LatestPurchasePricesAsync(histories.Keys, ct);
+
+        var result = new Dictionary<DealId, DealPurchaseContext>();
+        foreach (var view in views)
+        {
+            if (view.SuggestedProductId is not { } productId)
+                continue;
+            if (!histories.TryGetValue(productId, out var history))
+                continue; // no purchase history at all — skip silently (the ticket's stated behaviour)
+            if (!latestPurchases.TryGetValue(productId, out var latest))
+                continue;
+
+            // A zero average (a $0.00 free/promo purchase observation normalizes to a 0m unit price and is
+            // still a usable PriceHistoryStats.Average input) would divide-by-zero below — skip the whole
+            // context rather than null just PercentDelta, matching DealPurchaseContext's "never a context
+            // with null/zero fields standing in for unknown".
+            if (PriceHistoryStats.Average(history) is not { } averagePrice || averagePrice <= 0m)
+                continue;
+
+            decimal? dealUnitPrice = view.UnitId is { } unitId
+                ? await unitPriceCalculator.TryNormalizeAsync(view.Price, view.Quantity ?? 1m, unitId, ct)
+                : null;
+            var percentDelta = dealUnitPrice is { } dup
+                ? Math.Round((dup - averagePrice) / averagePrice * 100m, 1)
+                : (decimal?)null;
+
+            var interval = purchaseDates.TryGetValue(productId, out var dates)
+                ? PurchaseCadence.AverageInterval(dates)
+                : null;
+
+            result[view.DealId] = new DealPurchaseContext(
+                averagePrice,
+                dealUnitPrice,
+                percentDelta,
+                interval,
+                DateOnly.FromDateTime(latest.ObservedAt.UtcDateTime));
+        }
+        return result;
+    }
+
+    private static readonly IReadOnlyDictionary<DealId, DealPurchaseContext> EmptyPurchaseContexts =
+        new Dictionary<DealId, DealPurchaseContext>();
 
     /// <summary>
     /// Collapses Flipp's duplicate flyer-item crops (plantry-g1u9). Flipp's flyer feed is page-image-based:
@@ -314,15 +391,25 @@ public sealed class ReviewDeals(
     /// <summary>
     /// One deal by id for the review form (the already-confirmed correction entry path). Returns null when
     /// the id is unknown to this household (RLS) or the deal has been rejected (nothing left to review).
+    /// <paramref name="includePurchaseContext"/> defaults to true (the single-correction card render, which
+    /// needs it); action handlers that only read <see cref="DealReviewView.SuggestedProductId"/> off the
+    /// result (e.g. Confirm) pass false so the three purchase-context round trips aren't spent and thrown
+    /// away on every one-click confirm.
     /// </summary>
-    public async Task<DealReviewView?> FindAsync(DealId id, CancellationToken ct = default)
+    public async Task<DealReviewView?> FindAsync(
+        DealId id, bool includePurchaseContext = true, CancellationToken ct = default)
     {
         var deal = await deals.FindAsync(id, ct);
         if (deal is null || deal.Status == DealStatus.Rejected)
             return null;
 
         var (storeNames, suggestionNames) = await ResolveNamesAsync([deal], ct);
-        return ToView(deal, storeNames, suggestionNames);
+        var view = ToView(deal, storeNames, suggestionNames);
+        if (!includePurchaseContext)
+            return view;
+
+        var purchaseContexts = await BuildPurchaseContextsAsync([view], ct);
+        return purchaseContexts.TryGetValue(view.DealId, out var context) ? view with { Purchase = context } : view;
     }
 
     private async Task<(IReadOnlyDictionary<Guid, string> Stores, IReadOnlyDictionary<Guid, DealProductInfo> Products)>
@@ -370,7 +457,8 @@ public sealed class ReviewDeals(
             deal.SuggestedProductId,
             suggestedName,
             deal.Status,
-            deal.AutoMatched);
+            deal.AutoMatched,
+            deal.UnitId);
     }
 
     private static readonly IReadOnlyDictionary<Guid, DealProductInfo> EmptyProducts =

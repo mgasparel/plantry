@@ -1004,6 +1004,101 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Single(batch, productA);
     }
 
+    // ── plantry-gtgl: HistoryForProductsAsync batch parity (Deals-review purchase context) ──────────
+
+    [Fact(DisplayName = "HistoryForProductsAsync returns the same rows per product as HistoryForProductAsync, for many products in one call — deal rows never contaminate it")]
+    public async Task HistoryForProductsAsync_Matches_Single_Product_Method_For_Each_Product()
+    {
+        var productA = _productId;
+        var productB = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            // productA: two purchases, oldest-first expected, plus a Deal row that must be absent.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-2), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 5m, 1m, _unitId, 5m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 1m, 1m, _unitId, 1m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            // productB: two purchases of its own.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 2m, 1m, _unitId, 2m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-3), _userId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+
+        var batch = await repo.HistoryForProductsAsync([productA, productB]);
+        var singleA = await repo.HistoryForProductAsync(productA);
+        var singleB = await repo.HistoryForProductAsync(productB);
+
+        Assert.Equal(2, batch.Count);
+        // Id-sequence equality proves both membership AND the oldest-first per-product ordering match.
+        Assert.Equal(singleA.Select(o => o.Id), batch[productA].Select(o => o.Id));
+        Assert.Equal(singleB.Select(o => o.Id), batch[productB].Select(o => o.Id));
+        Assert.Equal(2, batch[productA].Count); // the Deal row is absent
+        Assert.All(batch[productA], o => Assert.NotEqual(PriceSource.Deal, o.Source));
+    }
+
+    [Fact(DisplayName = "HistoryForProductsAsync excludes superseded rows, matching HistoryForProductAsync (ADR-023 A7)")]
+    public async Task HistoryForProductsAsync_Excludes_Superseded_Rows()
+    {
+        var original = PriceObservation.Record(
+            _household, _productId, null, 3.98m, 1m, _unitId, 3.98m,
+            PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow.AddDays(-1), _userId);
+        await SeedAmendmentPairAsync(original, correctedQuantity: 3m, unitPrice: 1.33m);
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var batch = await repo.HistoryForProductsAsync([_productId]);
+
+        var row = Assert.Single(batch[_productId]); // only the live amendment, never the superseded original
+        Assert.Equal(3m, row.Quantity);
+        Assert.Null(row.SupersededById);
+    }
+
+    [Fact(DisplayName = "HistoryForProductsAsync: empty input short-circuits to an empty result with no query")]
+    public async Task HistoryForProductsAsync_Empty_Input_Returns_Empty()
+    {
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var batch = await repo.HistoryForProductsAsync([]);
+        Assert.Empty(batch);
+    }
+
+    [Fact(DisplayName = "HistoryForProductsAsync omits products with no purchase/manual observation, and dedups repeated ids")]
+    public async Task HistoryForProductsAsync_Omits_Unknown_Products_And_Dedups_Ids()
+    {
+        var known = _productId;
+        var unknown = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, known, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Purchase, null, _sourceRef, DateTimeOffset.UtcNow, _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var batch = await repo.HistoryForProductsAsync([known, known, unknown]);
+
+        var entry = Assert.Single(batch);
+        Assert.Equal(known, entry.Key);
+        Assert.Single(entry.Value); // the repeated id did not double the rows
+    }
+
     private DbContextOptions<MarketDbContext> PricingOptions() =>
         new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options;
 

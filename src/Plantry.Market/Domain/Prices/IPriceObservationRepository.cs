@@ -65,6 +65,24 @@ public interface IPriceObservationRepository
     /// observations with a usable <see cref="PriceObservation.UnitPrice"/> before plotting/averaging.</summary>
     Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default);
 
+    /// <summary>Batch counterpart to <see cref="HistoryForProductAsync"/> (plantry-gtgl, Deals-review
+    /// purchase context): the full purchase/manual observation history for each of the given product ids, in
+    /// one round trip instead of one query per product — the queue's per-card avg price needs every pending
+    /// deal's suggested product's history, not just one. Same source/supersession filtering as the
+    /// single-product read. Products with no history are simply absent from the result.</summary>
+    async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PriceObservation>>> HistoryForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, IReadOnlyList<PriceObservation>>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var history = await HistoryForProductAsync(productId, ct);
+            if (history.Count > 0)
+                result[productId] = history;
+        }
+        return result;
+    }
+
     /// <summary>Batch existence check (Tidy Up D5, tidy-up.md §3): of the given product ids, which have at
     /// least one live (<c>superseded_by_id IS NULL</c>) price observation of any <see cref="PriceSource"/>.
     /// Lets D5 find products with zero price data in one round trip instead of a per-product query — the

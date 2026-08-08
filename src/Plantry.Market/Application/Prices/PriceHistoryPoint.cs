@@ -27,4 +27,10 @@ public static class PriceHistoryStats
             ? (sorted[mid - 1] + sorted[mid]) / 2m
             : sorted[mid];
     }
+
+    /// <summary>The product's mean unit price across its history — the "you pay $X avg" stat (plantry-gtgl,
+    /// Deals review purchase context). Null when there are no usable points; the caller decides the minimum
+    /// count worth displaying.</summary>
+    public static decimal? Average(IReadOnlyList<PriceHistoryPoint> points) =>
+        points.Count == 0 ? null : points.Average(p => p.UnitPrice);
 }

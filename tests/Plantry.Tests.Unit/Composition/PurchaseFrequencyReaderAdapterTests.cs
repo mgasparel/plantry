@@ -24,16 +24,42 @@ public sealed class PurchaseFrequencyReaderAdapterTests
         Assert.Equal(since, journal.LastRequestedSince);
     }
 
-    private sealed class FakePurchaseJournalReader(DateTimeOffset expectedSince, IReadOnlyDictionary<Guid, int> counts)
+    [Fact(DisplayName = "PurchaseDatesForProductsAsync forwards the product ids and the result verbatim (plantry-gtgl)")]
+    public async Task Forwards_ProductIds_And_Dates_Verbatim()
+    {
+        var productId = Guid.NewGuid();
+        var dates = new List<DateTimeOffset> { new(2026, 7, 1, 0, 0, 0, TimeSpan.Zero), new(2026, 7, 22, 0, 0, 0, TimeSpan.Zero) };
+        var journal = new FakePurchaseJournalReader(
+            default, new Dictionary<Guid, int>(),
+            new Dictionary<Guid, IReadOnlyList<DateTimeOffset>> { [productId] = dates });
+
+        var result = await new PurchaseFrequencyReaderAdapter(journal).PurchaseDatesForProductsAsync([productId]);
+
+        Assert.Equal(dates, result[productId]);
+        Assert.Equal([productId], journal.LastRequestedProductIds);
+    }
+
+    private sealed class FakePurchaseJournalReader(
+        DateTimeOffset expectedSince,
+        IReadOnlyDictionary<Guid, int> counts,
+        IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>? dates = null)
         : IPurchaseJournalReader
     {
         public DateTimeOffset? LastRequestedSince { get; private set; }
+        public IReadOnlyList<Guid>? LastRequestedProductIds { get; private set; }
 
         public Task<IReadOnlyDictionary<Guid, int>> CountPurchasesSinceAsync(DateTimeOffset since, CancellationToken ct = default)
         {
             LastRequestedSince = since;
             Assert.Equal(expectedSince, since);
             return Task.FromResult(counts);
+        }
+
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>> PurchaseDatesForProductsAsync(
+            IEnumerable<Guid> productIds, CancellationToken ct = default)
+        {
+            LastRequestedProductIds = productIds.ToList();
+            return Task.FromResult(dates ?? new Dictionary<Guid, IReadOnlyList<DateTimeOffset>>());
         }
     }
 }

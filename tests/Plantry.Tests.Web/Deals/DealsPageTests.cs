@@ -241,10 +241,21 @@ public sealed class DealsPageFactory : WebApplicationFactory<Program>
 public sealed class FakeDealFrequency : IPurchaseFrequencyReader
 {
     public Dictionary<Guid, int> Counts { get; } = new();
+    public Dictionary<Guid, IReadOnlyList<DateTimeOffset>> Dates { get; } = new();
 
     public Task<IReadOnlyDictionary<Guid, int>> PurchaseCountsSinceAsync(
         DateTimeOffset since, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, int>>(new Dictionary<Guid, int>(Counts));
+
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>> PurchaseDatesForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idSet = productIds.ToHashSet();
+        IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>> result = Dates
+            .Where(kv => idSet.Contains(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>Records every "Add to list" call so the page POST test can assert the item was placed.</summary>

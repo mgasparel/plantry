@@ -27,4 +27,22 @@ public sealed class PurchaseJournalReader(PantryDbContext db) : IPurchaseJournal
 
         return counts.ToDictionary(r => r.ProductId, r => r.Count);
     }
+
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>> PurchaseDatesForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idList = productIds.Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<Guid, IReadOnlyList<DateTimeOffset>>();
+
+        var rows = await db.StockJournalEntries
+            .Where(j => j.Reason == StockReason.Purchase && idList.Contains(j.ProductId))
+            .OrderBy(j => j.OccurredAt)
+            .Select(j => new { j.ProductId, j.OccurredAt })
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(r => r.ProductId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<DateTimeOffset>)g.Select(r => r.OccurredAt).ToList());
+    }
 }

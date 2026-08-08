@@ -19,4 +19,8 @@ public sealed class PurchaseFrequencyReaderAdapter(IPurchaseJournalReader journa
     public Task<IReadOnlyDictionary<Guid, int>> PurchaseCountsSinceAsync(
         DateTimeOffset since, CancellationToken ct = default) =>
         journal.CountPurchasesSinceAsync(since, ct);
+
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>> PurchaseDatesForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default) =>
+        journal.PurchaseDatesForProductsAsync(productIds, ct);
 }

@@ -7554,6 +7554,9 @@ tr.line--dismissed .data-grid__cell:first-child {
   font-size: var(--font-size-xs);
   color: var(--color-warning);
 }
+/* Purchase context (plantry-gtgl) — composes the shared .chip-stat primitive (Dev/Index.cshtml), same
+   flex-wrap row convention as .sl-estimate/.ts-chiprow. */
+.deal-review-row__purchase-context { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .deal-review-row__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .deal-review-row__reject { margin-left: auto; }
 

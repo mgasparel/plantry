@@ -21,4 +21,15 @@ public interface IPurchaseFrequencyReader
     /// </summary>
     Task<IReadOnlyDictionary<Guid, int>> PurchaseCountsSinceAsync(
         DateTimeOffset since, CancellationToken ct = default);
+
+    /// <summary>
+    /// Every purchase-movement timestamp for each of the given products (household-scoped), oldest-first
+    /// per product — unlike <see cref="PurchaseCountsSinceAsync"/>, which only counts, this returns the
+    /// individual dates a "buy this every ~3 weeks" cadence estimate needs (plantry-gtgl, Deals review
+    /// purchase context). No window: the full purchase-journal history for the product is used, since a
+    /// cadence estimate wants as many data points as exist, not a fixed trailing slice. Products with no
+    /// purchases are absent from the map.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>> PurchaseDatesForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default);
 }
