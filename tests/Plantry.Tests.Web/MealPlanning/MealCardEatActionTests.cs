@@ -95,6 +95,36 @@ public sealed class MealCardEatActionTests
         Assert.DoesNotContain("mc-cook-done", html);
     }
 
+    [Fact(DisplayName = "POST /MealPlan?handler=Eat: a product with nothing on hand consumes nothing and the cell swap shows a no-stock warning, dish stays pending (plantry-ljng)")]
+    public async Task Eat_With_No_Stock_Shows_Warning_And_Dish_Stays_Pending()
+    {
+        var factory = new EatActionFactory();
+        // Spy's EatAsync returns false (nothing consumed) — mirrors the real adapter's
+        // Inventory.NoStock branch for a never-stocked/fully-depleted product.
+        factory.Writer.NextEatConsumes = false;
+        await using var _ = factory;
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, EatActionFixture.HouseholdId.ToString());
+
+        var pageHtml = await (await client.GetAsync("/MealPlan")).Content.ReadAsStringAsync();
+        var token = ExtractAntiforgeryToken(pageHtml);
+
+        var response = await client.PostAsync(
+            $"/MealPlan?handler=Eat&plannedDishId={factory.Repo.ProductDishId:D}" +
+            $"&date={factory.Repo.TodayIso}&slotId={EatActionFixture.LunchSlotId.Value:D}",
+            AntiforgeryForm(token));
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+
+        // The write port WAS invoked (it's the port's job to decide nothing was available), but no
+        // journal row resulted, so the dish's derived state is still pending.
+        Assert.Single(factory.Writer.EatCalls);
+        Assert.Contains("nothing to eat", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("mc-cook-act eat", html); // still the pending Eat button, not "Eaten"
+        Assert.DoesNotContain("mc-cook-done", html);
+    }
+
     [Fact(DisplayName = "POST /MealPlan?handler=Eat: unauthenticated request is rejected (401), never reaches the write port")]
     public async Task Eat_Without_Auth_Is_Rejected_And_Never_Calls_The_Writer()
     {
@@ -263,15 +293,21 @@ public sealed class SpyEatWriter : IMealPlanEatWriter, IMealPlanCookStatusReader
     public List<(Guid DishId, Guid ProductId, decimal Quantity, Guid UserId)> EatCalls { get; } = [];
     public List<(Guid DishId, Guid ProductId, decimal Quantity, Guid UserId)> UndoCalls { get; } = [];
 
-    public Task EatAsync(Guid plannedDishId, Guid productId, decimal quantity, Guid userId, CancellationToken ct = default)
+    /// <summary>When set, the next <see cref="EatAsync"/> call returns this instead of consuming — spies the
+    /// "nothing to eat" (no stock) signal (plantry-ljng) without needing a real ConsumeStockCommand failure.</summary>
+    public bool NextEatConsumes { get; set; } = true;
+
+    public Task<bool> EatAsync(Guid plannedDishId, Guid productId, decimal quantity, Guid userId, CancellationToken ct = default)
     {
         EatCalls.Add((plannedDishId, productId, quantity, userId));
+        if (!NextEatConsumes)
+            return Task.FromResult(false);
         // plantry-vqa7: mirrors the real MealPlanCookStatusReaderAdapter's netting — a single-movement
         // eat is always uniform-unit, so ConsumedQuantity is set to exactly the quantity consumed,
         // denominated in the fixture's single "each" unit (see EatActionFixture.EachUnitId's doc
         // comment for the load-bearing constraint on that value).
         _statuses[plannedDishId] = new DishCookStatus(MealPlanningTestClock.Instant, quantity, EatActionFixture.EachUnitId);
-        return Task.CompletedTask;
+        return Task.FromResult(true);
     }
 
     public Task UndoEatAsync(Guid plannedDishId, Guid productId, decimal quantity, Guid userId, CancellationToken ct = default)

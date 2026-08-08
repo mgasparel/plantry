@@ -266,29 +266,84 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
 
     // ── Shortfall tolerance (C8/R9 mirror) ──────────────────────────────────────
 
-    [Fact(DisplayName = "Eat on a never-stocked product never throws (shortfall-tolerant no-op)")]
+    [Fact(DisplayName = "Eat on a never-stocked product never throws, and reports nothing consumed (shortfall-tolerant no-op)")]
     public async Task Eat_On_NeverStocked_Product_Never_Throws()
     {
         var plannedDishId = Guid.CreateVersion7();
         // No SeedStockAsync call — the product has no ProductStock record at all.
 
-        var exception = await Record.ExceptionAsync(() =>
-            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId));
+        bool consumed = false;
+        var exception = await Record.ExceptionAsync(async () =>
+            consumed = await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId));
 
         Assert.Null(exception);
+        // plantry-ljng: the caller (MealPlan's Eat handler) uses this false to surface a "nothing to
+        // eat" warning instead of silently re-rendering an unchanged cell.
+        Assert.False(consumed);
     }
 
-    [Fact(DisplayName = "Eat reports a partial shortfall as a partial consume, never over-deducting")]
+    [Fact(DisplayName = "Eat reports a partial shortfall as a partial consume, never over-deducting, and reports something was consumed")]
     public async Task Eat_Consumes_Partial_Stock_Without_Blocking()
     {
         var plannedDishId = Guid.CreateVersion7();
         await SeedStockAsync(0.5m);
 
-        await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 2m, _unitId, _userId);
+        var consumed = await BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 2m, _unitId, _userId);
 
         var loaded = await LoadStockAsync();
         var row = Assert.Single(EatRows(loaded));
         Assert.Equal(-0.5m, row.Delta); // only what was available, never a negative-2 over-deduction
+        Assert.True(consumed); // a genuine (if partial) consume — no "nothing to eat" warning is warranted
+    }
+
+    [Fact(DisplayName = "Eat on a product whose stock is fully depleted (all lots at zero) reports nothing consumed, same as a never-stocked product (plantry-ljng)")]
+    public async Task Eat_On_Fully_Depleted_Stock_Reports_Nothing_Consumed()
+    {
+        var firstDishId = Guid.CreateVersion7();
+        await SeedStockAsync(1m);
+
+        // First eat drains the only lot to zero — genuinely consumed, must report true.
+        var firstConsumed = await BuildAdapter().EatAsync(firstDishId, _productId, quantity: 1m, _unitId, _userId);
+        Assert.True(firstConsumed);
+
+        var afterFirstEat = await LoadStockAsync();
+        Assert.Equal(0m, afterFirstEat.Entries.Where(e => e.IsActive).Sum(e => e.Quantity));
+
+        // A DIFFERENT planned dish (fresh idempotency token, not a replay of the first eat) tries to
+        // eat the same now-fully-depleted product. ProductStock.Consume finds zero active lots, writes
+        // zero journal rows, and returns a SUCCESSFUL ConsumeOutcome with a full shortfall — not the
+        // Inventory.NoStock failure — so this is the "stocked it, ate it, now it's zero" case the
+        // Inventory.NoStock branch alone does not catch.
+        var secondDishId = Guid.CreateVersion7();
+        var secondConsumed = await BuildAdapter().EatAsync(secondDishId, _productId, quantity: 1m, _unitId, _userId);
+        Assert.False(secondConsumed);
+
+        var afterSecondEat = await LoadStockAsync();
+        // No additional Eat journal row was written for the second (fully-shortfalled) attempt.
+        Assert.Single(EatRows(afterSecondEat));
+    }
+
+    [Fact(DisplayName = "A double-tapped (racing) eat on a stocked product reports BOTH calls as consumed, not as nothing-to-eat (idempotency-replay half of the shortfall check)")]
+    public async Task DoubleTapped_Eat_On_Stocked_Product_Still_Reports_Consumed()
+    {
+        var plannedDishId = Guid.CreateVersion7();
+        await SeedStockAsync(4m);
+
+        // Genuine double-tap is two CONCURRENT requests that both read the same "before" state (see
+        // Concurrent_Eat_Race_Is_Idempotent above) — both independently compute n = 1 and thus the
+        // SAME idempotency token. The loser's ProductStock.Consume finds the winner's journal row
+        // already carrying that token and short-circuits to a recomputed shortfall of 0 (fully
+        // satisfied), a SUCCESS outcome with zero deductions — this must still report true (a
+        // successful replay of a real eat), not the "nothing to eat" false a never-stocked/depleted
+        // product reports.
+        var results = await Task.WhenAll(
+            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId),
+            BuildAdapter().EatAsync(plannedDishId, _productId, quantity: 1m, _unitId, _userId));
+
+        Assert.All(results, Assert.True);
+
+        var loaded = await LoadStockAsync();
+        Assert.Single(EatRows(loaded)); // still exactly one journal row — the loser wrote nothing new
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

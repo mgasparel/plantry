@@ -23,6 +23,12 @@
     // the week grid, indistinguishable to a screen-reader user tabbing the grid. Mirrors the
     // day+date+slot card-level pattern established by plantry-rhxv (_MealCard.cshtml cardContext).
     var cellContext = $"{Model.Date:dddd} {Model.Date:MMM d}, {Model.SlotLabel}";
+    // Inline dismissible cell warnings — hard-stance dietary conflict (C9, advisory only, does not
+    // block) and product-dish Eat consuming nothing because there's no stock on hand at all
+    // (plantry-ljng). Semantically unrelated and in principle both could be present on the same cell
+    // at once, so both render (order: dietary first, then eat) — but they share one markup block
+    // (reuse-first) since the presentation is identical.
+    var cellWarnings = new[] { Model.HardStanceWarning, Model.EatWarning }.Where(w => w is not null);
 }
 
 <div id="@cellId"
@@ -32,11 +38,10 @@
      ondragleave="onDragLeave(event)"
      ondrop="onDrop(event, '@dateIso', '@slotId')">
 
-    @* Hard-stance dietary conflict warning (C9 — advisory only, does not block) *@
-    @if (Model.HardStanceWarning is not null)
+    @foreach (var warning in cellWarnings)
     {
         <div class="ed-warn" x-data="{ open: true }" x-show="open" role="alert">
-            <span class="ew-text">@Model.HardStanceWarning</span>
+            <span class="ew-text">@warning</span>
             <button class="ew-dismiss" type="button" @@click="open = false" aria-label="Dismiss warning">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
