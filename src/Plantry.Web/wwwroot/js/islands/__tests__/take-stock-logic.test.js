@@ -24,6 +24,7 @@ import {
   reconcileResults,
   saveStatusMessage,
   mergeSheetUnitIntoRow,
+  shouldShowMarkCounted,
 } from "../take-stock-logic.js";
 
 // Import the vendored reactive runtime so dirty/down computed tests exercise
@@ -699,5 +700,27 @@ describe("mergeSheetUnitIntoRow", () => {
     row.expiryDate.value = "2027-03-01"; // stale value from a prior merge
     mergeSheetUnitIntoRow(row, { addCount: 2, addUnitId: "unit-l", addUnitCode: "L" });
     assert.equal(row.expiryDate.value, "");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// shouldShowMarkCounted (plantry-hp67)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("shouldShowMarkCounted", () => {
+  it("shows for a clean, non-empty, not-yet-marked walk", () => {
+    assert.equal(shouldShowMarkCounted(0, 3, false), true);
+  });
+
+  it("hides while any row is dirty (a dirty walk completes via Save instead)", () => {
+    assert.equal(shouldShowMarkCounted(2, 3, false), false);
+  });
+
+  it("hides for an empty location (nothing to count)", () => {
+    assert.equal(shouldShowMarkCounted(0, 0, false), false);
+  });
+
+  it("hides once this session has already stamped the location", () => {
+    assert.equal(shouldShowMarkCounted(0, 3, true), false);
   });
 });

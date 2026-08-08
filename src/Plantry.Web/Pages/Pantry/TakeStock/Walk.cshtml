@@ -16,6 +16,10 @@
 @* Location name — separate hydration element so no JS string escaping in the <script> tag. *@
 <script type="application/json" id="ts-walk-location">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.LocationName ?? "Take Stock"))</script>
 
+@* Freshness text for the header sub-line (plantry-hp67) — pre-formatted server-side by *@
+@* TakeStockDisplay.CountedAgo so the JS island doesn't duplicate the relative-time rules. *@
+<script type="application/json" id="ts-walk-counted-ago">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.CountedAgoText))</script>
+
 @* Inline-add sheet bridge (P4-7, J5) — a thin Alpine wrapper around the shared sheet only. *@
 @* The shared _ProductSearchCreateSheet is Alpine-owned and cross-feature (Recipes, Shopping). *@
 @* ADR-020 §2 bridge: the sheet stays Alpine; it dispatches ts-sheet-add to the island root. *@
@@ -60,6 +64,7 @@
         const root         = document.getElementById('ts-walk-root');
         const rows         = readHydration('ts-walk-data');
         const locationName = readHydration('ts-walk-location') ?? 'Take Stock';
+        const countedAgo   = readHydration('ts-walk-counted-ago') ?? 'Never counted';
         const token        = readAntiforgeryToken();
 
         if (root && rows) {
@@ -68,8 +73,10 @@
                 saveUrl:          '@Url.Page("./Walk", "Save",          new { locationId = Model.LocationId })',
                 addItemUrl:       '@Url.Page("./Walk", "AddItem",       new { locationId = Model.LocationId })',
                 addConversionUrl: '@Url.Page("./Walk", "AddConversion", new { locationId = Model.LocationId })',
+                completeUrl:      '@Url.Page("./Walk", "Complete",      new { locationId = Model.LocationId })',
                 token,
                 locationName,
+                countedAgo,
             });
         }
     </script>

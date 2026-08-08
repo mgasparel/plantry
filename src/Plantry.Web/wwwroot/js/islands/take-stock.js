@@ -54,7 +54,7 @@
 
 import { render, html, signal, computed } from "./runtime.js?v=1";
 import { readHydration, readAntiforgeryToken, postJson } from "./helpers.js";
-import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage, mergeSheetUnitIntoRow } from "./take-stock-logic.js?v=4";
+import { setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage, mergeSheetUnitIntoRow, shouldShowMarkCounted } from "./take-stock-logic.js?v=5";
 import { createToast, createToastHost } from "./toast.js?v=1";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
@@ -257,14 +257,17 @@ function CountRow({ row, expandedLots, onExpandLots, onCollapseLots, onAddConver
  *           saving: import("@preact/signals").Signal<boolean>,
  *           toast: import("./toast.js").Toast,
  *           locationName: string,
+ *           countedAgo: import("@preact/signals").Signal<string>,
+ *           markedThisSession: import("@preact/signals").Signal<boolean>,
  *           onSave: () => void,
  *           onOpenAdd: () => void,
+ *           onMarkCounted: () => void,
  *           expandedLots: import("@preact/signals").Signal<Record<string,boolean>>,
  *           onExpandLots: (row:Row) => void,
  *           onCollapseLots: (pid:string) => void,
  *           onAddConversion: (row:Row) => void }} props
  */
-function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd, expandedLots, onExpandLots, onCollapseLots, onAddConversion }) {
+function App({ rows, dirtyCount, saving, toast, locationName, countedAgo, markedThisSession, onSave, onOpenAdd, onMarkCounted, expandedLots, onExpandLots, onCollapseLots, onAddConversion }) {
   const allRows = rows.value;
   const rowCount = allRows.length;
 
@@ -279,10 +282,23 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
           <span class="wt-ico"><svg class="icon" aria-hidden="true"><use href="#i-location" /></svg></span>
           <div>
             <h1>${locationName}</h1>
-            <div class="sub">${rowCount} product${rowCount === 1 ? "" : "s"} here</div>
+            <div class="sub">${rowCount} product${rowCount === 1 ? "" : "s"} here · ${countedAgo.value}</div>
           </div>
         </div>
         <div class="spacer"></div>
+        ${/* Explicit zero-change completion (plantry-hp67) — the Save bar only renders when
+             dirtyCount > 0, so a fully-confirmed walk (nothing to change) has no other way to
+             advance the location's freshness. An authored tap, not an implicit navigation
+             signal (per code review — a back-link stamp fired on any click, reviewed or not).
+             Hidden once markedThisSession is true so the header (already updated to "Counted
+             today" above) and the button never disagree, and a redundant repeat POST isn't
+             one more tap away. */ ""}
+        ${shouldShowMarkCounted(dirtyCount.value, rowCount, markedThisSession.value) && html`
+          <button type="button" class="btn btn--ghost ts-mark-counted" disabled=${saving.value}
+                  onClick=${onMarkCounted}>
+            <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
+            Mark counted
+          </button>`}
       </div>
 
       <div class="ts-walk-inner">
@@ -356,8 +372,10 @@ function App({ rows, dirtyCount, saving, toast, locationName, onSave, onOpenAdd,
  * @param {string} token
  * @param {import("./toast.js").Toast} toast
  * @param {import("@preact/signals").Signal<boolean>} saving
+ * @param {import("@preact/signals").Signal<string>} countedAgo
+ * @param {import("@preact/signals").Signal<boolean>} markedThisSession
  */
-async function save(rowsSignal, saveUrl, token, toast, saving) {
+async function save(rowsSignal, saveUrl, token, toast, saving, countedAgo, markedThisSession) {
   if (saving.value) return;
   const rows = rowsSignal.value;
   const dirty = rows.filter((r) => r.dirty.value);
@@ -376,6 +394,17 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
 
     const data = await resp.json();
     const { saved, failed, needsConversion } = reconcileResults(rows, data.results ?? []);
+    // Freshness contract (plantry-hp67): the server reports the completion-stamp outcome in
+    // data.countedAgo — a pre-formatted string (from RelativeTimeDisplay via
+    // TakeStockDisplay.CountedAgo) only when the stamp actually persisted, null when it failed or
+    // didn't run (Walk.cshtml.cs deliberately swallows stamp failures so the per-row results this
+    // response rides on still arrive). Updating strictly from the response — never optimistically
+    // from saved-row counts — means a silent stamp failure leaves the header honest and keeps the
+    // "Mark counted" recovery button available; it also keeps all relative-time wording server-side.
+    if (typeof data.countedAgo === "string") {
+      countedAgo.value = data.countedAgo;
+      markedThisSession.value = true;
+    }
     // A needsConversion row is neither saved nor a plain failure — it is waiting on a factor.
     // Prompt the user toward the highlighted rows rather than reporting a save success/failure.
     toast.show(needsConversion > 0 && saved === 0 && failed === 0
@@ -397,8 +426,10 @@ async function save(rowsSignal, saveUrl, token, toast, saving) {
  *   saveUrl: string,
  *   addItemUrl: string,
  *   addConversionUrl: string,
+ *   completeUrl: string,
  *   token: string,
  *   locationName: string,
+ *   countedAgo: string,
  * }} config
  */
 export function mountTakeStockWalk(root, config) {
@@ -407,6 +438,14 @@ export function mountTakeStockWalk(root, config) {
   const toast = createToast(signal);
   const expandedLots = signal(/** @type {Record<string,boolean>} */ ({}));
   const dirtyCount = computed(() => rowsSignal.value.filter((r) => r.dirty.value).length);
+  // Reactive freshness header text (plantry-hp67) — starts at the server-rendered value and is
+  // replaced only by a countedAgo string reported in a Save/Complete response (i.e. only when the
+  // server confirms the completion stamp persisted), so the header never claims a freshness the
+  // database doesn't have.
+  const countedAgo = signal(config.countedAgo);
+  // True once the server has confirmed a stamp this walk session — hides the "Mark counted"
+  // button (via shouldShowMarkCounted) so it can't disagree with the just-updated header.
+  const markedThisSession = signal(false);
 
   // ── beforeunload dirty guard (C7) ─────────────────────
   const guardHandler = (/** @type {BeforeUnloadEvent} */ e) => {
@@ -614,7 +653,7 @@ export function mountTakeStockWalk(root, config) {
     },
   };
 
-  const onSave = () => save(rowsSignal, config.saveUrl, config.token, toast, saving);
+  const onSave = () => save(rowsSignal, config.saveUrl, config.token, toast, saving, countedAgo, markedThisSession);
 
   // ── NeedsConversion prompt (plantry-3mwx) ──────────────────────────────
   // Persist the user-supplied factor (1 countedUnit = factor defaultUnit), then re-save so the
@@ -646,7 +685,7 @@ export function mountTakeStockWalk(root, config) {
       row.needsConversion.value = false;
       if (row.convFromUnitId.value) row.unitId.value = row.convFromUnitId.value;
       row.convFactor.value = "";
-      await save(rowsSignal, config.saveUrl, config.token, toast, saving);
+      await save(rowsSignal, config.saveUrl, config.token, toast, saving, countedAgo, markedThisSession);
     } catch {
       toast.show("Network error — please try again");
     }
@@ -658,6 +697,36 @@ export function mountTakeStockWalk(root, config) {
     window.dispatchEvent(new CustomEvent("ts-open-add"));
   };
 
+  // ── Zero-change walk completion (plantry-hp67) ─────────────────────────
+  // The Save bar only renders when dirtyCount > 0 (see App below), so a walk where every row
+  // was already correct never calls save() — leaving the location's freshness stale forever.
+  // The "Mark counted" button (shown only when dirtyCount === 0 and there is at least one row)
+  // is an explicit, user-authored completion signal — not an implicit stamp on navigation, which
+  // would fire on any click regardless of whether the user actually reviewed anything.
+  async function onMarkCounted() {
+    if (saving.value) return;
+    saving.value = true;
+    try {
+      const resp = await postJson(config.completeUrl, {}, config.token);
+      const body = resp.ok ? await resp.json().catch(() => null) : null;
+      // Same freshness contract as save() above: the header/button flip ONLY on the
+      // server-reported countedAgo string (present exactly when the stamp persisted —
+      // OnPostCompleteAsync's failure path is a 500 with no countedAgo), so the UI can never
+      // claim a freshness the database doesn't have, and the wording stays server-owned.
+      if (body && typeof body.countedAgo === "string") {
+        countedAgo.value = body.countedAgo;
+        markedThisSession.value = true;
+        toast.show("Marked counted.");
+      } else {
+        toast.show(`Couldn't mark counted (${resp.status}) — please try again`);
+      }
+    } catch {
+      toast.show("Network error — please try again");
+    } finally {
+      saving.value = false;
+    }
+  }
+
   render(
     html`<${App}
       rows=${rowsSignal}
@@ -665,8 +734,11 @@ export function mountTakeStockWalk(root, config) {
       saving=${saving}
       toast=${toast}
       locationName=${config.locationName}
+      countedAgo=${countedAgo}
+      markedThisSession=${markedThisSession}
       onSave=${onSave}
       onOpenAdd=${onOpenAdd}
+      onMarkCounted=${onMarkCounted}
       expandedLots=${expandedLots}
       onExpandLots=${expandLots}
       onCollapseLots=${collapseLots}

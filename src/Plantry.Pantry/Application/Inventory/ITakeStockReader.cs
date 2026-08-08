@@ -7,7 +7,9 @@ namespace Plantry.Pantry.Application;
 /// </summary>
 public sealed record TakeStockLocationRow(
     Guid LocationId,
-    string LocationName);
+    string LocationName,
+    /// <summary>When a Take Stock walk of this location last completed (plantry-hp67); null if never counted.</summary>
+    DateTimeOffset? LastCountedAt = null);
 
 /// <summary>
 /// One unit option in the per-row unit selector on the Take Stock walk (C10).

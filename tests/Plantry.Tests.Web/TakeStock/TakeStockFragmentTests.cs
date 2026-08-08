@@ -50,6 +50,24 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var html = await resp.Content.ReadAsStringAsync();
         Assert.Contains("Pantry", html);
         Assert.Contains("Fridge", html);
+        // Neither fixture location has ever been counted (plantry-hp67) — the freshness line
+        // on each card reads "Never counted".
+        Assert.Contains("Never counted", html);
+    }
+
+    [Fact(DisplayName = "GET /pantry/take-stock shows freshness text for a previously counted location (plantry-hp67)")]
+    public async Task Get_Index_ShowsCountedAgo_ForPreviouslyCountedLocation()
+    {
+        using var factory = new TakeStockCountedLocationFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var resp = await client.GetAsync("/pantry/take-stock");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("Counted 3 days ago", html);
+        // The other (never-counted) location still reads "Never counted" on the same page.
+        Assert.Contains("Never counted", html);
     }
 
     // ── J2: Walk page ─────────────────────────────────────────────────────────
@@ -110,6 +128,18 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.Contains("\"productName\":", html);
         Assert.Contains("\"hasActiveStock\":", html);
         Assert.Contains("\"lotsUrl\":", html);
+    }
+
+    [Fact(DisplayName = "GET /pantry/take-stock/{locationId} includes the header freshness hydration (plantry-hp67)")]
+    public async Task Get_Walk_IncludesCountedAgoHydration()
+    {
+        var client = AuthClient();
+        var resp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        resp.EnsureSuccessStatusCode();
+        var html = await resp.Content.ReadAsStringAsync();
+
+        // The shared class-fixture reader's Pantry row has never been counted (LastCountedAt null).
+        Assert.Matches(@"id=""ts-walk-counted-ago"">""Never counted""</script>", html);
     }
 
     [Fact(DisplayName = "GET /pantry/take-stock/{locationId} includes island mount and sheet bridge")]
@@ -209,6 +239,228 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
         Assert.NotNull(data);
         Assert.Empty(data.Results);
+    }
+
+    // ── Location freshness (plantry-hp67) ──────────────────────────────────────
+
+    [Fact(DisplayName = "POST Save with a dirty row stamps the location as counted (plantry-hp67)")]
+    public async Task Post_Save_WithDirtyRow_MarksLocationCounted()
+    {
+        // Dedicated factory so the shared _factory's CatalogWriter call count from other tests
+        // in this class does not leak into this assertion.
+        using var factory = new TakeStockFragmentFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId = TakeStockFixture.FlourId,
+                    countedValue = 300m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason = "Correction"
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        Assert.Equal(1, factory.CatalogWriter.MarkCountedCalls);
+        Assert.Equal(TakeStockFixture.PantryLocId, factory.CatalogWriter.LastMarkCountedLocationId);
+
+        // Freshness response contract (plantry-hp67): a persisted stamp is reported to the island
+        // as the server-formatted countedAgo string ("Counted today" — stamped just now), which is
+        // the ONLY trigger for the island's header/button update.
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        Assert.Equal("Counted today", data.CountedAgo);
+    }
+
+    [Fact(DisplayName = "POST Save still returns the per-row success when the completion stamp itself fails (plantry-hp67)")]
+    public async Task Post_Save_WithDirtyRow_MarkCountedThrows_SaveResponseStillSucceeds()
+    {
+        // Proves the completion stamp after a successful Save is genuinely best-effort: a failure
+        // stamping the location must not fail the save response the client's per-row results ride on.
+        using var factory = new TakeStockMarkCountedThrowsFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId = TakeStockFixture.FlourId,
+                    countedValue = 300m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason = "Correction"
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp2 = await client.SendAsync(request);
+        resp2.EnsureSuccessStatusCode();
+
+        var data = await resp2.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.Equal(TakeStockFixture.FlourId, result.ProductId);
+        Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
+
+        // The stamp attempt did happen (and threw) — it just did not propagate to the response.
+        Assert.Equal(1, factory.CatalogWriter.MarkCountedCalls);
+
+        // Freshness response contract (plantry-hp67): a swallowed stamp failure is reported as a
+        // null countedAgo, so the island leaves its header untouched and keeps the "Mark counted"
+        // recovery button available instead of optimistically claiming "Counted today".
+        Assert.Null(data.CountedAgo);
+    }
+
+    [Fact(DisplayName = "POST Save with empty items does not stamp the location as counted (plantry-hp67)")]
+    public async Task Post_Save_WithNoItems_DoesNotMarkLocationCounted()
+    {
+        using var factory = new TakeStockFragmentFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new { items = Array.Empty<object>() };
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        Assert.Equal(0, factory.CatalogWriter.MarkCountedCalls);
+    }
+
+    [Fact(DisplayName = "POST Save where every submitted row is rejected does not stamp the location as counted (plantry-hp67)")]
+    public async Task Post_Save_AllItemsInvalid_DoesNotMarkLocationCounted()
+    {
+        // A batch that is submitted but entirely rejected (invalid unit, here Guid.Empty) never
+        // reaches SaveCountsCommand, so nothing is actually recorded — freshness must not advance
+        // just because the client posted something.
+        using var factory = new TakeStockFragmentFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId = TakeStockFixture.FlourId,
+                    countedValue = 300m,
+                    countedUnitId = Guid.Empty,
+                    reason = "Correction"
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        Assert.Equal(0, factory.CatalogWriter.MarkCountedCalls);
+    }
+
+    [Fact(DisplayName = "POST Complete stamps the location as counted for a zero-change walk (plantry-hp67)")]
+    public async Task Post_Complete_MarksLocationCounted()
+    {
+        using var factory = new TakeStockFragmentFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Complete");
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        Assert.Equal(1, factory.CatalogWriter.MarkCountedCalls);
+        Assert.Equal(TakeStockFixture.PantryLocId, factory.CatalogWriter.LastMarkCountedLocationId);
+
+        // Same freshness response contract as Save (plantry-hp67): success always carries the
+        // server-formatted countedAgo string the island swaps into its header (the failure path
+        // is a 500 with no countedAgo).
+        var data = await resp.Content.ReadFromJsonAsync<CompleteResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess);
+        Assert.Equal("Counted today", data.CountedAgo);
+    }
+
+    [Fact(DisplayName = "Unauthenticated POST Complete returns 401 (plantry-hp67)")]
+    public async Task Unauthenticated_Complete_Returns401()
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        var resp = await client.PostAsync(
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Complete", content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
     // ── J3: Lot panel fragment (P4-5) ─────────────────────────────────────────
@@ -1511,6 +1763,18 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
     private sealed class SaveResponse
     {
         public List<SaveResultItem> Results { get; set; } = [];
+
+        /// <summary>Freshness response contract (plantry-hp67): the server-formatted relative-time
+        /// string when the completion stamp persisted; null when it failed or didn't run.</summary>
+        public string? CountedAgo { get; set; }
+    }
+
+    /// <summary>Response of <c>?handler=Complete</c> (plantry-hp67) — the zero-change walk
+    /// completion. Carries the same countedAgo freshness field as <see cref="SaveResponse"/>.</summary>
+    private sealed class CompleteResponse
+    {
+        public bool IsSuccess { get; set; }
+        public string? CountedAgo { get; set; }
     }
 
     private sealed class SaveResultItem
@@ -1578,12 +1842,14 @@ public static class TakeStockFixture
 
 // ── In-memory fake reader ─────────────────────────────────────────────────────
 
-public sealed class FakeTakeStockReader(bool hasNoLocationProducts = false) : ITakeStockReader
+public sealed class FakeTakeStockReader(bool hasNoLocationProducts = false, DateTimeOffset? pantryLastCountedAt = null) : ITakeStockReader
 {
     public Task<IReadOnlyList<TakeStockLocationRow>> ListLocationsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<TakeStockLocationRow>>(
         [
-            TakeStockFixture.PantryRow,
+            // pantryLastCountedAt lets freshness tests (plantry-hp67) exercise the "Counted N
+            // days/weeks ago" branch; defaults to null ("Never counted") for every other test.
+            TakeStockFixture.PantryRow with { LastCountedAt = pantryLastCountedAt },
             TakeStockFixture.FridgeRow,
         ]);
 
@@ -1688,7 +1954,7 @@ public sealed class FakeTsStockRepository : IProductStockRepository
 /// Fake <see cref="ITakeStockCatalogWriter"/> for L4 fragment tests.
 /// Returns a fixed product id on create; can be configured to throw for duplicate-name tests.
 /// </summary>
-public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? throwMessage = null)
+public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? throwMessage = null, bool throwOnMarkCounted = false)
     : ITakeStockCatalogWriter
 {
     private static readonly Guid DefaultProductId = Guid.Parse("55555555-0000-0000-0000-500000000001");
@@ -1764,6 +2030,28 @@ public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? th
         LastConversionFromUnitId = fromUnitId;
         LastConversionToUnitId = toUnitId;
         LastConversionFactor = factor;
+
+        if (throwMessage is not null)
+            throw new InvalidOperationException(throwMessage);
+
+        return Task.CompletedTask;
+    }
+
+    // ── MarkLocationCounted capture (plantry-hp67) ────────────────────────────
+    public int MarkCountedCalls { get; private set; }
+    public Guid? LastMarkCountedLocationId { get; private set; }
+
+    public Task MarkLocationCountedAsync(Guid locationId, CancellationToken ct = default)
+    {
+        MarkCountedCalls++;
+        LastMarkCountedLocationId = locationId;
+
+        // Opt-in-only throw (plantry-hp67): throwMessage is shared with the Create/AddConversion
+        // paths above, so a test proving the Save-path stamp failure is swallowed (Walk.cshtml.cs's
+        // anyCountRecorded branch) needs a way to fail *only* MarkLocationCountedAsync while the
+        // preceding SaveCountsCommand/AddConversion calls still succeed normally.
+        if (throwOnMarkCounted)
+            throw new InvalidOperationException("Mark location counted failed (Catalog.NotFound): location not found.");
 
         if (throwMessage is not null)
             throw new InvalidOperationException(throwMessage);
@@ -1918,7 +2206,8 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
         IServiceCollection services,
         FakeTsStockRepository? stockRepo = null,
         FakeTsCatalogWriter? catalogWriter = null,
-        bool hasNoLocationProducts = false)
+        bool hasNoLocationProducts = false,
+        DateTimeOffset? pantryLastCountedAt = null)
     {
         services.AddAuthentication(opts =>
             {
@@ -1929,7 +2218,7 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
 
         services.RemoveAll<ITakeStockReader>();
-        services.AddSingleton<ITakeStockReader>(new FakeTakeStockReader(hasNoLocationProducts));
+        services.AddSingleton<ITakeStockReader>(new FakeTakeStockReader(hasNoLocationProducts, pantryLastCountedAt));
 
         services.RemoveAll<IProductStockRepository>();
         services.AddSingleton<IProductStockRepository>(stockRepo ?? new FakeTsStockRepository());
@@ -1977,6 +2266,69 @@ public sealed class TakeStockDuplicateNameFactory : WebApplicationFactory<Progra
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
             TakeStockFragmentFactory.RegisterFakes(services, catalogWriter: _dupWriter));
+    }
+
+    public HttpClient CreateAuthClient(Guid householdId)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, householdId.ToString());
+        return client;
+    }
+}
+
+/// <summary>
+/// L4 WebApplicationFactory whose Pantry location row carries a non-null LastCountedAt, so
+/// freshness tests (plantry-hp67) can exercise the "Counted N days/weeks ago" branch on the
+/// location picker card without disturbing the shared class-fixture factory's "Never counted"
+/// default.
+/// </summary>
+public sealed class TakeStockCountedLocationFactory : WebApplicationFactory<Program>
+{
+    // The single fixed instant both the fixture (PantryLastCountedAt below) and the SUT's IClock
+    // (registered in ConfigureWebHost) resolve, so "now" never races two independent reads of the
+    // real system clock (the same pattern MealPlanFragmentFactory.cs:219 uses for IndexModel, which
+    // — like this test's IndexModel — now takes an IClock, plantry-hp67).
+    internal static readonly DateTimeOffset Instant = new(2026, 3, 10, 12, 0, 0, TimeSpan.Zero);
+
+    /// <summary>Fixed relative to <see cref="Instant"/> so the freshness assertion
+    /// (e.g. "Counted 3 days ago") is deterministic.</summary>
+    public static readonly DateTimeOffset PantryLastCountedAt = Instant.AddDays(-3);
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+        {
+            TakeStockFragmentFactory.RegisterFakes(services, pantryLastCountedAt: PantryLastCountedAt);
+            services.RemoveAll<IClock>();
+            services.AddScoped<IClock>(_ => new FixedClock(Instant));
+        });
+    }
+
+    public HttpClient CreateAuthClient(Guid householdId)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, householdId.ToString());
+        return client;
+    }
+}
+
+/// <summary>
+/// L4 WebApplicationFactory whose catalog writer throws only from
+/// <see cref="FakeTsCatalogWriter.MarkLocationCountedAsync"/> — proves the Save-path completion
+/// stamp is genuinely best-effort (Walk.cshtml.cs's swallowed try/catch after the
+/// anyCountRecorded gate, plantry-hp67): a stamp failure must not fail the save response the
+/// per-row results ride on.
+/// </summary>
+public sealed class TakeStockMarkCountedThrowsFactory : WebApplicationFactory<Program>
+{
+    public FakeTsCatalogWriter CatalogWriter { get; } = new FakeTsCatalogWriter(throwOnMarkCounted: true);
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+            TakeStockFragmentFactory.RegisterFakes(services, catalogWriter: CatalogWriter));
     }
 
     public HttpClient CreateAuthClient(Guid householdId)

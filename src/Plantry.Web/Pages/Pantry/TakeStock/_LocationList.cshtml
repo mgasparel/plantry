@@ -21,7 +21,7 @@ else
                     <span class="ts-loc-ico"><svg class="icon" aria-hidden="true"><use href="#i-location" /></svg></span>
                     <span class="ts-loc-main">
                         <span class="ts-loc-name">@loc.LocationName</span>
-                        <span class="ts-loc-sub">Count what's on these shelves</span>
+                        <span class="ts-loc-sub">@Plantry.Web.Pages.Pantry.TakeStock.TakeStockDisplay.CountedAgo(loc.LastCountedAt, Model.NowUtc)</span>
                     </span>
                     <svg class="icon ts-chev" aria-hidden="true"><use href="#i-chevron-right" /></svg>
                 </a>

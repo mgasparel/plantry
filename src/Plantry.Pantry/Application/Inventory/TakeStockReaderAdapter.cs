@@ -29,7 +29,7 @@ public sealed class TakeStockReaderAdapter(
         var activeLocations = await locations.ListActiveAsync(ct);
         return activeLocations
             .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(l => new TakeStockLocationRow(l.Id.Value, l.Name))
+            .Select(l => new TakeStockLocationRow(l.Id.Value, l.Name, l.LastCountedAt))
             .ToList();
     }
 

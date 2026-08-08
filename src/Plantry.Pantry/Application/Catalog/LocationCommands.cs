@@ -104,3 +104,26 @@ public sealed class UnarchiveLocationCommand(LocationId id, ILocationRepository 
         return Result.Success();
     }
 }
+
+/// <summary>
+/// Stamps a location as counted — a Take Stock walk of it completed (plantry-hp67). Location-level
+/// only for v1 (no per-product verified timestamp); see <see cref="Location.MarkCounted"/>.
+/// </summary>
+public sealed class MarkLocationCountedCommand(LocationId id, ILocationRepository locations, IClock clock, ILogger<MarkLocationCountedCommand>? logger = null)
+{
+    public async Task<Result> ExecuteAsync(CancellationToken ct = default)
+    {
+        var location = await locations.FindAsync(id, ct);
+        if (location is null)
+        {
+            logger?.LogWarning("MarkLocationCounted failed — location {LocationId} not found.", id.Value);
+            return Error.NotFound;
+        }
+
+        location.MarkCounted(clock);
+        await locations.SaveChangesAsync(ct);
+
+        logger?.LogInformation("Location {LocationId} marked counted.", id.Value);
+        return Result.Success();
+    }
+}

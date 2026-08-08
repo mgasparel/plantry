@@ -346,3 +346,26 @@ export function mergeSheetUnitIntoRow(row, detail) {
     if (detail.addUnitCode) row.unitCode = detail.addUnitCode;
   }
 }
+
+// ── shouldShowMarkCounted ─────────────────────────────────────────────────────
+
+/**
+ * Visibility predicate for the walk header's explicit "Mark counted" button (plantry-hp67).
+ *
+ * The button is the zero-change completion path: the Save bar only renders when at least one
+ * row is dirty, so a fully-confirmed walk (nothing to change) needs an explicit, user-authored
+ * gesture to advance the location's freshness. It shows only when:
+ *   - nothing is dirty (a dirty walk completes via Save, which stamps server-side), and
+ *   - there is at least one product row (an empty location has nothing to count), and
+ *   - this session hasn't already stamped the location (via the button itself, or a Save whose
+ *     response reported a successful stamp) — so the button can never contradict a header
+ *     already updated to the server-reported freshness.
+ *
+ * @param {number} dirtyCount
+ * @param {number} rowCount
+ * @param {boolean} markedThisSession
+ * @returns {boolean}
+ */
+export function shouldShowMarkCounted(dirtyCount, rowCount, markedThisSession) {
+  return dirtyCount === 0 && rowCount > 0 && !markedThisSession;
+}
