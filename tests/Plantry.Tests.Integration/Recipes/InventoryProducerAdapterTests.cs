@@ -30,6 +30,9 @@ namespace Plantry.Tests.Integration.Recipes;
 /// <list type="bullet">
 /// <item>a produce lands exactly one lot stamped <see cref="StockSourceType.Cook"/> in the household's
 /// first active location, carrying the user-supplied expiry (ADR-011);</item>
+/// <item>a produce prefers the yielded product's configured default location over that alphabetical
+/// fallback; falls through to the household's configured default location when the product has none;
+/// and falls back to the alphabetical default when neither is set or active (plantry-iypo);</item>
 /// <item>a re-driven <see cref="ReconcilePendingCooks"/> (interrupted-then-reconciled cook) does not
 /// double-add — a single lot + single journal row survive via the (source_ref, source_line_ref)
 /// idempotency short-circuit (plantry-292a / plantry-fks);</item>
@@ -115,6 +118,116 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
         Assert.Equal(StockSourceType.Cook, journalRow.SourceType);
         Assert.Equal(cookEventId, journalRow.SourceRef);
         Assert.Equal(sourceLineRef, journalRow.SourceLineRef);
+    }
+
+    // ── Criterion (plantry-iypo): product default location wins over the alphabetical fallback ──
+
+    [Fact(DisplayName = "Produce stores the yield in the product's default location, not the alphabetically-first active location")]
+    public async Task Produce_Uses_Product_Default_Location_Over_Alphabetical_Fallback()
+    {
+        // A third location, "Zeta Freezer" (sorts after both seeded locations), set as this product's
+        // configured default — proves the adapter now prefers Product.DefaultLocationId over
+        // ListActiveAsync()[0] (which would otherwise pick "Alpha Pantry", per InitializeAsync).
+        Guid defaultLocationId;
+        await using (var catalogDb = NewCatalogDb(_household))
+        {
+            var freezer = Location.Create(_household, "Zeta Freezer", LocationType.Frozen);
+            await catalogDb.Locations.AddAsync(freezer);
+            var productRepo = new Plantry.Pantry.Infrastructure.ProductRepository(catalogDb);
+            var product = await productRepo.FindAsync(ProductId.From(_productId)) ?? throw new InvalidOperationException("Seeded product not found.");
+            product.SetDefaultLocation(freezer.Id, Clock);
+            await catalogDb.SaveChangesAsync();
+            defaultLocationId = freezer.Id.Value;
+        }
+
+        await BuildProducer(_household).ProduceAsync(
+            _productId, quantity: 200m, _unitId, expiryDate: null,
+            ProduceReason.Recipe, Guid.CreateVersion7(), _userId, sourceLineRef: Guid.CreateVersion7());
+
+        await using var verify = NewInventoryDb(_household);
+        var loaded = await verify.ProductStocks
+            .Include(p => p.Entries)
+            .SingleAsync(p => p.ProductId == _productId);
+        var lot = Assert.Single(loaded.Entries);
+        Assert.Equal(defaultLocationId, lot.LocationId);
+        Assert.NotEqual(_firstActiveLocationId, lot.LocationId);
+    }
+
+    [Fact(DisplayName = "Produce falls back to the alphabetically-first active location when the product's default location was archived")]
+    public async Task Produce_Falls_Back_When_Default_Location_Archived()
+    {
+        await using (var catalogDb = NewCatalogDb(_household))
+        {
+            var stale = Location.Create(_household, "Zeta Freezer", LocationType.Frozen);
+            await catalogDb.Locations.AddAsync(stale);
+            await catalogDb.SaveChangesAsync();
+            stale.Archive(Clock);
+            var productRepo = new Plantry.Pantry.Infrastructure.ProductRepository(catalogDb);
+            var product = await productRepo.FindAsync(ProductId.From(_productId)) ?? throw new InvalidOperationException("Seeded product not found.");
+            product.SetDefaultLocation(stale.Id, Clock);
+            await catalogDb.SaveChangesAsync();
+        }
+
+        await BuildProducer(_household).ProduceAsync(
+            _productId, quantity: 150m, _unitId, expiryDate: null,
+            ProduceReason.Recipe, Guid.CreateVersion7(), _userId, sourceLineRef: Guid.CreateVersion7());
+
+        await using var verify = NewInventoryDb(_household);
+        var loaded = await verify.ProductStocks
+            .Include(p => p.Entries)
+            .SingleAsync(p => p.ProductId == _productId);
+        var lot = Assert.Single(loaded.Entries);
+        Assert.Equal(_firstActiveLocationId, lot.LocationId);
+    }
+
+    [Fact(DisplayName = "Produce falls through to the household's default location when the product has none")]
+    public async Task Produce_Uses_Household_Default_Location_When_Product_Has_None()
+    {
+        // The seeded product carries no Product.DefaultLocationId (InitializeAsync never sets one), so
+        // rung 1 is empty — this proves rung 2 (household default) wins over rung 3 (alphabetical
+        // fallback), which would otherwise pick "Alpha Pantry".
+        Guid householdDefaultLocationId;
+        var (catalog, stocks, locations, tenant) = BuildInventoryDependencies(_household);
+        await using (var catalogDb = NewCatalogDb(_household))
+        {
+            var freezer = Location.Create(_household, "Zeta Freezer", LocationType.Frozen);
+            await catalogDb.Locations.AddAsync(freezer);
+            await catalogDb.SaveChangesAsync();
+            householdDefaultLocationId = freezer.Id.Value;
+        }
+        var setResult = await BuildHouseholdDefaultLocationService(_household, locations, tenant)
+            .SetDefaultLocationAsync(householdDefaultLocationId);
+        Assert.True(setResult.IsSuccess);
+
+        await BuildProducer(_household).ProduceAsync(
+            _productId, quantity: 100m, _unitId, expiryDate: null,
+            ProduceReason.Recipe, Guid.CreateVersion7(), _userId, sourceLineRef: Guid.CreateVersion7());
+
+        await using var verify = NewInventoryDb(_household);
+        var loaded = await verify.ProductStocks
+            .Include(p => p.Entries)
+            .SingleAsync(p => p.ProductId == _productId);
+        var lot = Assert.Single(loaded.Entries);
+        Assert.Equal(householdDefaultLocationId, lot.LocationId);
+        Assert.NotEqual(_firstActiveLocationId, lot.LocationId);
+    }
+
+    [Fact(DisplayName = "Produce falls back to the alphabetically-first active location when neither the product nor the household default is set")]
+    public async Task Produce_Falls_Back_To_Alphabetical_When_No_Defaults_Set()
+    {
+        // Neither Product.DefaultLocationId nor HouseholdInventorySettings.DefaultLocationId is set for
+        // this household/product (InitializeAsync's baseline state) — the original alphabetical-fallback
+        // behaviour must still hold with both new rungs in place.
+        await BuildProducer(_household).ProduceAsync(
+            _productId, quantity: 75m, _unitId, expiryDate: null,
+            ProduceReason.Recipe, Guid.CreateVersion7(), _userId, sourceLineRef: Guid.CreateVersion7());
+
+        await using var verify = NewInventoryDb(_household);
+        var loaded = await verify.ProductStocks
+            .Include(p => p.Entries)
+            .SingleAsync(p => p.ProductId == _productId);
+        var lot = Assert.Single(loaded.Entries);
+        Assert.Equal(_firstActiveLocationId, lot.LocationId);
     }
 
     [Fact(DisplayName = "Produce throws when the household has no active storage location")]
@@ -310,8 +423,20 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
     private IInventoryProducer BuildProducer(HouseholdId household)
     {
         var (catalog, stocks, locations, tenant) = BuildInventoryDependencies(household);
+        var householdDefaultLocation = BuildHouseholdDefaultLocationService(household, locations, tenant);
         return new InventoryProducerAdapter(
-            stocks, catalog, locations, Clock, tenant, NullLogger<AddStockCommand>.Instance);
+            stocks, catalog, locations, householdDefaultLocation, Clock, tenant,
+            NullLogger<AddStockCommand>.Instance, NullLogger<InventoryProducerAdapter>.Instance);
+    }
+
+    // Real service (not a fake) — the household-default rung of the fallback chain is a subject of this
+    // test file (plantry-iypo), so it exercises the same read/write path production wiring uses.
+    private HouseholdDefaultLocationService BuildHouseholdDefaultLocationService(
+        HouseholdId household, CatalogLocationRepository locations, TestTenant tenant)
+    {
+        var settingsRepo = new HouseholdInventorySettingsRepository(NewInventoryDb(household));
+        return new HouseholdDefaultLocationService(
+            settingsRepo, locations, tenant, NullLogger<HouseholdDefaultLocationService>.Instance);
     }
 
     private ReconcilePendingCooks BuildReconciler(HouseholdId household)

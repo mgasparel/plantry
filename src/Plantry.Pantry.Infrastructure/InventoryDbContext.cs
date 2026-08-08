@@ -170,6 +170,12 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
                 .HasColumnName("household_id")
                 .ValueGeneratedNever();
             b.Property(s => s.ExpiringSoonDays).HasColumnName("expiring_soon_days").IsRequired();
+            // Household-wide default storage location (plantry-iypo) — nullable bare LocationId ref,
+            // no FK (Location lives in the Catalog side of this same assembly but a different DbContext/
+            // schema, ADR-024). Every pre-existing row backfills to NULL (unset).
+            b.Property(s => s.DefaultLocationId)
+                .HasConversion(id => id == null ? (Guid?)null : id.Value.Value, v => v == null ? (LocationId?)null : LocationId.From(v.Value))
+                .HasColumnName("default_location_id");
 
             b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });

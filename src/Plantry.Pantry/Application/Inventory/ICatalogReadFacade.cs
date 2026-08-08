@@ -107,4 +107,12 @@ public sealed record CatalogProductInfo(
     /// bought", plantry-sn6v) rather than bought — mirrors <c>Product.IsProduced</c>. Drives the
     /// restock-candidate exclusion in <c>ShoppingPantryReaderAdapter.GetLowStockProductsAsync</c>.
     /// </summary>
-    bool IsProduced = false);
+    bool IsProduced = false,
+    /// <summary>
+    /// The product's configured typical storage location (<c>Product.DefaultLocationId</c>, plantry-iypo)
+    /// — the same field Take Stock and product intake already use as "where this normally lives". Lets
+    /// <c>InventoryProducerAdapter.ProduceAsync</c> store a cooked yield in the product's usual location
+    /// instead of an arbitrary alphabetically-first active location. Null when the product has no
+    /// configured default (e.g. a freshly auto-created yield product).
+    /// </summary>
+    Guid? DefaultLocationId = null);
