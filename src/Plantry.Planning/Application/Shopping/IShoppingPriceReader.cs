@@ -4,7 +4,7 @@ namespace Plantry.Planning.Application;
 /// Anti-corruption port: Shopping's basket cost estimate (plantry-e016, stats-injection appendix) needs
 /// each product's <b>effective</b> price observation — the cheapest active deal if one covers it, else the
 /// latest Purchase/Manual observation — from the Pricing context. Defined here in Shopping.Application and
-/// implemented in the Web layer over <c>Market.Application.PricingQueries.EffectivePricesAsync</c>, the same
+/// implemented in the Web layer over <c>Market.Application.PricingQueries.EffectiveCostablePricesAsync</c>, the same
 /// ACL shape as <see cref="IShoppingDealReader"/> (P5-9) but returning the raw price/quantity/unit rather
 /// than deal metadata — the two ports serve different needs (a badge vs. a computed line cost) over the same
 /// underlying read model.
