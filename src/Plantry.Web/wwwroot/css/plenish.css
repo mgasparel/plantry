@@ -6958,7 +6958,9 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-checkrow__qty .u { font-size: 0.71875rem; font-weight: 600; color: var(--color-text-faint); }
 .ts-checkrow__check {
   flex: none; width: 46px; align-self: stretch; display: grid; place-items: center;
-  border-left: 1px solid var(--color-border); background: none; color: var(--color-text-faint); cursor: pointer;
+  appearance: none; border: none; border-left: 1px solid var(--color-border);
+  border-radius: 0; box-shadow: none; margin: 0; padding: 0;
+  background: none; color: var(--color-text-faint); cursor: pointer;
 }
 .ts-checkrow__check:hover { background: var(--color-success-bg); color: var(--color-success); }
 .ts-checkrow__check .icon { width: 19px; height: 19px; }
