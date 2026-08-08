@@ -7015,6 +7015,21 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-adjuster__foot { flex: none; display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--color-border); background: var(--color-surface); }
 .ts-adjuster__foot .btn--primary { flex: 1; }
 
+/* Desktop: right-side flyout, matching the shared .sheet contract (440px panel, same 767px
+   boundary as .sheet/.bottom-nav per plantry-kdvi) — the bottom-sheet rules above stay the
+   phone behaviour (plantry-9iag). The grab handle is a touch affordance; hidden here, its
+   10px top padding moves onto the body. */
+@media (min-width: 768px) {
+  .ts-adjuster__panel {
+    left: auto; top: 0; bottom: 0; width: min(440px, 100%);
+    max-height: none; border-radius: 0; box-shadow: var(--shadow-lg);
+    transform: translateX(105%);
+  }
+  .ts-adjuster.show .ts-adjuster__panel { transform: translateX(0); }
+  .ts-adjuster__grab { display: none; }
+  .ts-adjuster__body { padding-top: var(--space-4); }
+}
+
 /* Big stepper — 64px thumb-sized +/- buttons flanking the count input. */
 .ts-bigstep { display: flex; align-items: stretch; gap: var(--space-2); }
 .ts-bigstep__btn { flex: none; width: 60px; border-radius: var(--radius-lg); border: 1px solid var(--color-border-strong); background: var(--color-surface-2); display: grid; place-items: center; color: var(--color-text); cursor: pointer; }
