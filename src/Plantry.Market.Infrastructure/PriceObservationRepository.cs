@@ -140,4 +140,34 @@ public sealed class PriceObservationRepository(MarketDbContext db) : IPriceObser
                 .ThenBy(p => p.Price)
                 .First());
     }
+
+    /// <summary>Batch counterpart to <see cref="ActiveDealForPurchaseAsync"/> (plantry-bb7p): fetches every
+    /// candidate active-deal row for the wanted products at the store/date in one query, then applies the
+    /// qualification predicate client-side — the predicate is identical to the single-product read's SQL
+    /// (<c>unit_price * (1 + tolerance) &gt;= purchase unit price</c>, NULL unit_price and superseded rows
+    /// excluded); only the round-trip count differs. Same materialize-then-group pattern as
+    /// <see cref="LatestForProductsAsync"/>.</summary>
+    public async Task<IReadOnlySet<Guid>> ProductIdsWithQualifyingDealAsync(
+        IReadOnlyDictionary<Guid, decimal> unitPriceByProductId, Guid storeId, DateOnly observedDate,
+        decimal tolerance, CancellationToken ct = default)
+    {
+        if (unitPriceByProductId.Count == 0)
+            return new HashSet<Guid>();
+
+        var idList = unitPriceByProductId.Keys.ToList();
+        var rows = await db.PriceObservations
+            .Where(p => idList.Contains(p.ProductId)
+                && p.Source == PriceSource.Deal
+                && p.StoreId == storeId
+                && p.ValidFrom <= observedDate
+                && p.ValidTo >= observedDate
+                && p.SupersededById == null
+                && p.UnitPrice != null)
+            .ToListAsync(ct);
+
+        return rows
+            .Where(p => p.UnitPrice!.Value * (1m + tolerance) >= unitPriceByProductId[p.ProductId])
+            .Select(p => p.ProductId)
+            .ToHashSet();
+    }
 }

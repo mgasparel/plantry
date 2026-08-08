@@ -54,7 +54,8 @@ public sealed class ReviewHydrationContractTests
                     LineId: "l1", ReceiptText: "WHOLE MILK 2L", Confidence: "High",
                     Status: "Pending", ProductId: "p1", SkuId: "sku1", Quantity: 2m, UnitId: "u1",
                     LocationId: "loc1", ExpiryDate: "2026-06-22", Price: 3.99m, IsNewProduct: false,
-                    NewProductName: null, NewProductCategoryId: null, SuggestedPrice: 3.99m),
+                    NewProductName: null, NewProductCategoryId: null, SuggestedPrice: 3.99m,
+                    PriceDeltaPercent: 0.12m, DealHit: true),
                 Prefill: new PrefillData(
                     ProductId: "p1", ProductName: "Milk", Quantity: 2m, UnitId: "u1", LocationId: "loc1",
                     Price: 3.99m, Expiry: "2026-06-22", SkuId: "sku1"),
@@ -73,6 +74,7 @@ public sealed class ReviewHydrationContractTests
         Subtotal: 40.00m,
         Tax: 2.00m,
         Total: 42.00m,
+        TrailingAverageBasket: 38.50m,
         Payment: "VISA ****4471 APPROVED",
         ReceiptNo: "TXN 0472 118",
         CurrencySymbol: "$");
@@ -86,7 +88,7 @@ public sealed class ReviewHydrationContractTests
             "products", "units", "locations", "categories", "stores", "lines",
             "scanVia", "scannedLabel", "storeBranch", "purchaseDate", "purchaseTime",
             "merchantTextRaw", "selectedStoreId", "purchaseDateRaw", "purchaseTimeRaw",
-            "subtotal", "tax", "total", "payment", "receiptNo", "currencySymbol");
+            "subtotal", "tax", "total", "trailingAverageBasket", "payment", "receiptNo", "currencySymbol");
     }
 
     [Fact]
@@ -117,7 +119,7 @@ public sealed class ReviewHydrationContractTests
             "lineId", "receiptText", "confidence", "status",
             "productId", "skuId", "quantity", "unitId", "locationId",
             "expiryDate", "price", "isNewProduct", "newProductName",
-            "newProductCategoryId", "suggestedPrice");
+            "newProductCategoryId", "suggestedPrice", "priceDeltaPercent", "dealHit");
         HydrationContract.AssertKeys(item.GetProperty("prefill"),
             "productId", "productName", "quantity", "unitId", "locationId",
             "price", "expiry", "skuId");

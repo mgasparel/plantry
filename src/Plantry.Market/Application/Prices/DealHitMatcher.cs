@@ -20,14 +20,20 @@ namespace Plantry.Market.Application;
 /// check.
 /// </para>
 /// </summary>
-internal static class DealHitMatcher
+public static class DealHitMatcher
 {
     /// <summary>Relative allowance (plantry-j9q4 acceptance sketch: "small tolerance") on the deal's
     /// <b>per-base-unit</b> price — a flat cent amount would be meaningless at the per-base-unit scale
     /// unit prices are stored at (e.g. $0.00798/g), so the allowance scales with the deal's own price
     /// instead. Absorbs rounding noise between the receipt's derived unit price and the deal's derived
     /// unit price — both are independently rounded outputs of <see cref="IUnitPriceCalculator"/>, not the
-    /// same computation.</summary>
+    /// same computation.
+    ///
+    /// <para>Public (plantry-bb7p) so the Intake review page's own deal-hit preview
+    /// (<c>Review.cshtml.cs::ComputeDealHitsAsync</c>) reuses the exact same tolerance the commit-time
+    /// stamp uses instead of duplicating the magic number — the preview and the eventual stamp must agree,
+    /// or a line could show "you got the deal" at review time and then not actually stamp at commit.</para>
+    /// </summary>
     public const decimal DealHitTolerance = 0.01m; // 1% of the deal's unit price
 
     /// <summary>Only ever attempted for a <see cref="PriceSource.Purchase"/> row with a resolved store and

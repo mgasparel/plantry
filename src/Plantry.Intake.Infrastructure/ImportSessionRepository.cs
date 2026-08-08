@@ -107,6 +107,19 @@ public sealed class ImportSessionRepository(IntakeDbContext db) : IImportSession
             .Take(take)
             .ToListAsync(ct);
 
+    // Precise Committed-only, Total-only projection (plantry-bb7p) — no .Include(Lines), same economy as
+    // ListInMonthWindowAsync above; overrides the interface's over-fetch-and-filter default.
+    public async Task<IReadOnlyList<decimal>> ListRecentCommittedTotalsAsync(
+        HouseholdId householdId, int take, CancellationToken ct = default) =>
+        await db.ImportSessions
+            .Where(s => s.HouseholdId == householdId &&
+                        s.Status == ImportStatus.Committed &&
+                        s.Total != null)
+            .OrderByDescending(s => s.CommittedAt)
+            .Take(take)
+            .Select(s => s.Total!.Value)
+            .ToListAsync(ct);
+
     public async Task<IReadOnlyList<ImportLineProvenanceRow>> FindLinesForProvenanceAsync(
         HouseholdId householdId,
         IReadOnlyCollection<Guid> lineIds,

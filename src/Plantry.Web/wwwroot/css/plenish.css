@@ -1206,6 +1206,26 @@ button.bottom-nav__item {
 .badge-confidence--low  .icon,
 .badge-confidence--none .icon { width: 0.9em; height: 0.9em; }
 
+/* ── chip-stat — quiet inline stat chip (plantry-bb7p) ──────────────────────
+   A small pill for surfacing a computed stat inline in a flow (a price delta vs history, a
+   basket-vs-average trip comparison) — a quiet aside, not an alert: no icon, no bright border,
+   just a muted pill with a bold value. `.delta--good`/`.delta--bad` color only the bold segment,
+   reusing the existing success/danger tokens (no new colour values). */
+.chip-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.chip-stat b { color: var(--color-text); font-weight: 600; }
+.chip-stat .delta--good { color: var(--color-success); }
+.chip-stat .delta--bad  { color: var(--color-danger); }
+
 /* ── Catalog sections / lists ──────────────────────────────────────────────── */
 .catalog-section { margin-bottom: var(--space-8); }
 

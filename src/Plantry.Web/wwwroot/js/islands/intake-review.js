@@ -64,7 +64,8 @@ import {
   cardTransform,
   filterStores,
   buildCorrectHeaderBody,
-} from "./intake-review-logic.js?v=7";
+  priceDeltaChipModel,
+} from "./intake-review-logic.js?v=10";
 
 // ── Type documentation ───────────────────────────────────────────────────────
 
@@ -98,6 +99,8 @@ import {
  * @property {string|null} newProductCategoryId
  * @property {string|null} stagedProductId
  * @property {number|null} suggestedPrice
+ * @property {number|null} priceDeltaPercent   unit-price delta vs the product's last purchase (plantry-bb7p), e.g. 0.12 for "▲ 12%"; null unless the line is Confirmed and both its own and the prior unit price normalized
+ * @property {boolean} dealHit   "you got the deal" marker (plantry-bb7p / plantry-j9q4) — true when this Confirmed line's price matched an active confirmed deal at the session's picked store/date
  */
 
 /**
@@ -194,6 +197,7 @@ import {
  * @property {number|null} subtotal
  * @property {number|null} tax
  * @property {number|null} total
+ * @property {number|null} trailingAverageBasket   the household's trailing average committed-basket total (plantry-bb7p trip context); null when there's no committed history yet
  * @property {string|null} payment
  * @property {string|null} receiptNo
  * @property {string} currencySymbol
@@ -228,6 +232,19 @@ const fmtMoney = (n) => moneySymbol + n.toFixed(2);
 const fmtRcpt = (n) => moneySymbol + n.toFixed(2);
 /** @param {string} raw */
 const prettyRaw = (raw) => raw.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+/**
+ * Quiet per-line unit-price-delta chip ("▲ 12% vs last time" / "▼ 8% vs last time"), plantry-bb7p
+ * (stats-page-prototype.html injection appendix). Deliberately a plain `.chip-stat` — no alert
+ * icon/border — the review flow's exceptions-first UI reserves loud treatment for things that need a
+ * decision. All display judgment (rounding, zero-suppression, sign→class/arrow) lives in the pure
+ * `priceDeltaChipModel`; this only renders its model.
+ * @param {number|null} pct
+ */
+function priceDeltaChip(pct) {
+  const m = priceDeltaChipModel(pct);
+  return m && html`<span class="chip-stat"><b class=${m.cls}>${m.arrow} ${m.pct}%</b> vs last time</span>`;
+}
 
 // Shared toast host bound to this island's own `html` tag function (see toast.js header).
 const ToastHost = createToastHost(html);
@@ -638,6 +655,8 @@ function ConfirmedRow({ ls, products, units, locations, today, onSaveEdit, onRem
           <div class="import-row__meta-cell">
             <div class="import-row__meta-value">${price}</div>
             <div class="import-row__meta-label">price</div>
+            ${priceDeltaChip(ls.priceDeltaPercent.value)}
+            ${ls.dealHit.value && html`<span class="chip-stat"><b class="delta--good">You got the deal</b></span>`}
           </div>
           <div class="import-row__meta-cell">
             <div class="import-row__meta-value">${expiry}</div>
@@ -953,6 +972,8 @@ function App({ lines, order, skipStack, baseline, products, stagedProducts, unit
             <span class="commit-bar__spacer"></span>
             ${bar.value.remaining > 0 && html`
               <span class="commit-bar__warn"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> ${bar.value.remaining} to resolve</span>`}
+            ${session.trailingAverageBasket != null && session.total != null && html`
+              <span class="chip-stat">Basket <b>${fmtMoney(session.total)}</b> vs avg <b>${fmtMoney(session.trailingAverageBasket)}</b></span>`}
             <div class="commit-bar__summary">Adding <b>${bar.value.confirmedCount}</b> items · <b class="mono">${fmtMoney(confirmedLines.value.reduce((s, l) => s + (l.price.value ?? 0), 0))}</b></div>
             <button type="button" class="btn btn--primary" disabled=${!bar.value.canCommit} onClick=${handlers.commit}>
               <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Add to pantry
@@ -1074,6 +1095,8 @@ export function mountIntakeReview(root, hydration) {
       ls.stagedProductId.value = data.stagedProductId ?? "";
       ls.createNew.value = !!(data.isNewProduct ?? ls.createNew.value);
       if (typeof data.price === "number") ls.price.value = data.price;
+      ls.priceDeltaPercent.value = typeof data.priceDeltaPercent === "number" ? data.priceDeltaPercent : null;
+      ls.dealHit.value = data.dealHit === true;
       if (data.productId) ls.draftProductId.value = data.productId;
       if (data.productName) ls.draftProductName.value = data.productName;
       ls.searchOpen.value = false;
@@ -1224,7 +1247,21 @@ export function mountIntakeReview(root, hydration) {
         const resp = await postJson(hydration.confirmLinesUrl, { lineIds: picked.map((l) => l.lineId) }, token);
         const data = await resp.json();
         if (!resp.ok || data.error) { alertMsg.value = data.error ?? `Confirm failed (${resp.status})`; picked.forEach((l) => { l.saving.value = false; }); return; }
-        batch(() => { picked.forEach((l) => { l.status.value = "Confirmed"; l.saving.value = false; l.error.value = null; }); });
+        // Per-line stat chips (plantry-bb7p): the response carries each confirmed line's
+        // priceDeltaPercent/dealHit — apply them so a bulk-confirmed line shows the same chips a
+        // line resolved one-at-a-time through SaveLine does, without waiting for a page reload.
+        const statsByLineId = new Map(
+          (data.lines ?? []).map((/** @type {{lineId: string, priceDeltaPercent: number|null, dealHit: boolean}} */ e) => [e.lineId, e]));
+        batch(() => {
+          picked.forEach((l) => {
+            l.status.value = "Confirmed"; l.saving.value = false; l.error.value = null;
+            const stats = statsByLineId.get(l.lineId);
+            if (stats) {
+              l.priceDeltaPercent.value = typeof stats.priceDeltaPercent === "number" ? stats.priceDeltaPercent : null;
+              l.dealHit.value = stats.dealHit === true;
+            }
+          });
+        });
       } catch {
         alertMsg.value = "Network error — please try again.";
         picked.forEach((l) => { l.saving.value = false; });
@@ -1375,6 +1412,11 @@ export function mountIntakeReview(root, hydration) {
       const resp = await postJson(hydration.correctHeaderUrl, buildCorrectHeaderBody(next), token);
       const data = await resp.json();
       if (!resp.ok || data.error) { header.error.value = data.error ?? `Save failed (${resp.status})`; return false; }
+      // Per-line stat refresh (plantry-bb7p): the corrected store/date changes what qualifies as a deal
+      // hit (and the delta context), so the response carries every line's recomputed stats — apply them
+      // all, clearing markers on lines that no longer qualify, mirroring the bulk-confirm handler.
+      const statsByLineId = new Map(
+        (data.lines ?? []).map((/** @type {{lineId: string, priceDeltaPercent: number|null, dealHit: boolean}} */ e) => [e.lineId, e]));
       batch(() => {
         header.merchantText.value = data.merchantText ?? "";
         header.selectedStoreId.value = data.selectedStoreId ?? "";
@@ -1385,6 +1427,13 @@ export function mountIntakeReview(root, hydration) {
         header.storeEditing.value = false;
         header.dateEditing.value = false;
         header.error.value = "";
+        linesSignal.value.forEach((l) => {
+          const stats = statsByLineId.get(l.lineId);
+          if (stats) {
+            l.priceDeltaPercent.value = typeof stats.priceDeltaPercent === "number" ? stats.priceDeltaPercent : null;
+            l.dealHit.value = stats.dealHit === true;
+          }
+        });
       });
       return true;
     } catch {

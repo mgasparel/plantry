@@ -933,6 +933,77 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Equal(1.5m, batch[productB].UnitPrice);
     }
 
+    [Fact(DisplayName = "ProductIdsWithQualifyingDeal (batch, plantry-bb7p) matches the per-product ActiveDealForPurchase results for a multi-product/multi-deal seed")]
+    public async Task ProductIdsWithQualifyingDeal_Matches_PerProduct_ActiveDealForPurchase()
+    {
+        var today = new DateOnly(2026, 7, 4);
+        var storeId = Guid.CreateVersion7();
+        var otherStore = Guid.CreateVersion7();
+        var productA = Guid.CreateVersion7(); // qualifying deal at the store
+        var productB = Guid.CreateVersion7(); // active deal, but dearer purchase → does not qualify
+        var productC = Guid.CreateVersion7(); // deals exist, but only at another store / expired / unpriceable
+
+        await using (var ctx = NewPricingDb())
+        {
+            // A: two in-window deals at the store; the 2.00 one qualifies A's 2.00 purchase.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 2m, 1m, _unitId, 2m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7), storeId: storeId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productA, null, 1m, 1m, _unitId, 1m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7), storeId: storeId));
+            // B: active in-window deal at the store, but B's purchase price (3.00) exceeds
+            // 2.00 * (1 + 0.01) → must not qualify.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productB, null, 2m, 1m, _unitId, 2m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7), storeId: storeId));
+            // C: a cheap deal at ANOTHER store (store-scoping), an expired one at the store
+            // (window filter), and an unpriceable one at the store (NULL unit_price filter) —
+            // none may qualify C.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productC, null, 0.5m, 1m, _unitId, 0.5m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7), storeId: otherStore));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productC, null, 0.5m, 1m, _unitId, 0.5m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 6, 1), validTo: new(2026, 6, 7), storeId: storeId));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, productC, null, 0.5m, 1m, Guid.Empty, unitPrice: null,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7), storeId: storeId));
+            await ctx.SaveChangesAsync();
+        }
+
+        var unitPriceByProductId = new Dictionary<Guid, decimal>
+        {
+            [productA] = 2m,
+            [productB] = 3m,
+            [productC] = 1m,
+        };
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+
+        var batch = await repo.ProductIdsWithQualifyingDealAsync(
+            unitPriceByProductId, storeId, today, tolerance: 0.01m);
+
+        // The batch override must return exactly the product set the per-product read qualifies.
+        var perProduct = new HashSet<Guid>();
+        foreach (var (productId, unitPrice) in unitPriceByProductId)
+        {
+            if (await repo.ActiveDealForPurchaseAsync(productId, storeId, today, unitPrice, tolerance: 0.01m) is not null)
+                perProduct.Add(productId);
+        }
+
+        Assert.True(perProduct.SetEquals(batch),
+            $"batch {{{string.Join(", ", batch)}}} diverged from per-product {{{string.Join(", ", perProduct)}}}");
+        Assert.Single(batch, productA);
+    }
+
     private DbContextOptions<MarketDbContext> PricingOptions() =>
         new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options;
 

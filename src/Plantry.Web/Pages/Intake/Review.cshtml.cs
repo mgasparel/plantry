@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
@@ -48,6 +50,8 @@ public sealed class ReviewModel(
     IRecordPricePort recordPrice,
     IEnsurePurchaseStorePort ensureStore,
     ISeedConversionPort seedConversion,
+    IPriceObservationRepository priceRepository,
+    IUnitPriceCalculator priceCalculator,
     IClock clock,
     ITenantContext tenant,
     DisplayCurrencyAccessor displayCurrency,
@@ -107,10 +111,126 @@ public sealed class ReviewModel(
         // Resolve the household display-currency symbol once (plantry-2x6e.3) so the island's money formatters
         // prefix the same glyph the server renders with — sourced from MoneyDisplay.Symbol, no currency map in JS.
         var currencySymbol = MoneyDisplay.Symbol(await displayCurrency.GetAsync(ct));
+        var (priceDeltas, dealHits) = await ComputePriceStatsAsync(Session.Lines, ct);
+        var trailingAverageBasket = tenant.HouseholdId is { } householdGuid
+            ? await new GetTrailingAverageBasketQuery(sessions).ExecuteAsync(HouseholdId.From(householdGuid), ct)
+            : null;
         var hydration = hydrationBuilder.Build(
-            Session, Today, clock.UtcNow, clock.Zone, BuildHandlerUrls(), currencySymbol);
+            Session, Today, clock.UtcNow, clock.Zone, BuildHandlerUrls(), currencySymbol,
+            priceDeltas, trailingAverageBasket, dealHits);
         IslandHydrationJson = JsonSerializer.Serialize(hydration, IntakeHydrationJson.Options);
         return Page();
+    }
+
+    private static readonly Dictionary<Guid, decimal> EmptyUnitPrices = [];
+    private static readonly HashSet<Guid> EmptyDealHitLineIds = [];
+
+    /// <summary>
+    /// Computes both intake-review trip-context stats that key off each line's own normalized unit price
+    /// (plantry-bb7p): the per-line unit-price delta vs the product's last purchase ("▲ 12% vs last time")
+    /// and the "you got the deal" marker (once plantry-j9q4's deal-hit stamp landed, its confirmed-deal
+    /// query is reused here for the review-time preview). Both are impure by necessity — a cross-context
+    /// read into Market pricing plus the unit-normalization port — so they stay here rather than in the
+    /// pure <see cref="IntakeReviewHydrationBuilder"/>; the delta's pure combination logic itself lives in
+    /// <see cref="IntakeLinePriceDeltas"/>.
+    ///
+    /// <para>Only Confirmed lines with a resolved product, positive quantity, unit and price are
+    /// considered — the same fields <see cref="CommitSessionCommand"/> requires to record a purchase.
+    /// Each line's own unit price is normalized exactly once and shared between the delta and deal-hit
+    /// passes (a second <see cref="IUnitPriceCalculator.TryNormalizeAsync"/> loop would double the
+    /// per-line unit lookups for no reason). <paramref name="lines"/> lets a caller scope the work to a
+    /// single just-saved line (<see cref="OnPostSaveLineAsync"/>) instead of the whole session — resolving
+    /// one row must not cost the whole receipt's worth of price/unit lookups.</para>
+    /// </summary>
+    private async Task<(IReadOnlyDictionary<Guid, decimal> Deltas, IReadOnlySet<Guid> DealHits)> ComputePriceStatsAsync(
+        IReadOnlyList<ReviewLineView> lines, CancellationToken ct)
+    {
+        var confirmed = lines
+            .Where(l => l.Status == LineStatus.Confirmed && l.ProductId is not null &&
+                        l.Quantity is > 0m && l.UnitId is not null && l.Price is not null)
+            .ToList();
+        if (confirmed.Count == 0)
+            return (IntakeLinePriceDeltas.Compute(lines, EmptyUnitPrices, EmptyUnitPrices), EmptyDealHitLineIds);
+
+        var productIds = confirmed.Select(l => l.ProductId!.Value).Distinct().ToList();
+        var lastObservations = await priceRepository.LatestForProductsAsync(productIds, ct);
+        var lastUnitPriceByProductId = lastObservations
+            .Where(kv => kv.Value.UnitPrice is > 0m)
+            .ToDictionary(kv => kv.Key, kv => kv.Value.UnitPrice!.Value);
+
+        var currentUnitPriceByLineId = new Dictionary<Guid, decimal>();
+        foreach (var line in confirmed)
+        {
+            var normalized = await priceCalculator.TryNormalizeAsync(
+                line.Price!.Value, line.Quantity!.Value, line.UnitId!.Value, ct);
+            if (normalized is { } price && price > 0m)
+                currentUnitPriceByLineId[line.LineId] = price;
+        }
+
+        var deltas = IntakeLinePriceDeltas.Compute(lines, currentUnitPriceByLineId, lastUnitPriceByProductId);
+        var dealHits = await ComputeDealHitsAsync(confirmed, currentUnitPriceByLineId, ct);
+        return (deltas, dealHits);
+    }
+
+    /// <summary>
+    /// "You got the deal" preview (plantry-bb7p, deferred half of the injection appendix — now unblocked
+    /// since plantry-j9q4's confirmed-deal query landed on this epic branch): for each Confirmed line whose
+    /// own unit price normalized, checks whether an active Confirmed deal at the session's store covers
+    /// the (possibly corrected) purchase date at-or-below that price, using the same qualification
+    /// predicate and tolerance <see cref="DealHitMatcher"/> uses at commit time (batched into one round trip
+    /// via <see cref="IPriceObservationRepository.ProductIdsWithQualifyingDealAsync"/>) — so a line that
+    /// previews as a hit here is guaranteed to actually stamp as one at commit. The store is the explicit
+    /// CorrectHeader pick when there is one, else a read-only name match of the AI-parsed merchant text
+    /// against the household's existing stores (see the store-resolution comment in the body). Returns
+    /// empty when neither resolves a store, or the session has no purchase date yet — an unknown-merchant
+    /// or undated session can't know which store's deals apply.
+    /// </summary>
+    private async Task<IReadOnlySet<Guid>> ComputeDealHitsAsync(
+        IReadOnlyList<ReviewLineView> confirmedLines,
+        IReadOnlyDictionary<Guid, decimal> currentUnitPriceByLineId,
+        CancellationToken ct)
+    {
+        // Store resolution mirrors commit's, read-only: an explicit CorrectHeader store pick wins, else the
+        // AI-parsed merchant text is matched against the household's stores using the same
+        // whitespace-normalize + ordinal compare EnsureStoreByNameCommand applies at commit
+        // (StoreCommands.NormalizeName) — so a receipt whose merchant text names a known store previews its
+        // deal hits without the user ever opening the header editor. Deliberately NOT the find-or-CREATE
+        // commit path: a GET must never mint a Store row, so an unknown merchant simply previews no hits
+        // (commit will still stamp them after it creates the store).
+        var storeId = Session.SelectedStoreId
+            ?? (string.IsNullOrWhiteSpace(Session.MerchantText)
+                ? null
+                : Session.ReferenceData.Stores
+                    .FirstOrDefault(s => string.Equals(
+                        System.Text.RegularExpressions.Regex.Replace(s.Name.Trim(), @"\s+", " "),
+                        System.Text.RegularExpressions.Regex.Replace(Session.MerchantText!.Trim(), @"\s+", " "),
+                        StringComparison.Ordinal))?.Id);
+        if (storeId is not { } resolvedStoreId || Session.PurchaseDate is not { } purchaseDate)
+            return EmptyDealHitLineIds;
+
+        // One batch read for the whole receipt (same convention as the LatestForProductsAsync call above —
+        // a resolved 40-line receipt must not cost 40 sequential deal queries to paint one page). When two
+        // lines resolve to the same product (two pack sizes, routine), the DEAREST line's unit price is the
+        // one checked: if it qualifies, every cheaper sibling line qualifies a fortiori, and if it doesn't,
+        // no line previews as a hit — keeping the guarantee that a previewed hit always stamps at commit
+        // (a cheaper sibling that would have stamped merely misses the preview chip, never the stamp).
+        var candidateLines = confirmedLines
+            .Where(l => l.ProductId is not null && currentUnitPriceByLineId.ContainsKey(l.LineId))
+            .ToList();
+        if (candidateLines.Count == 0)
+            return EmptyDealHitLineIds;
+
+        var unitPriceByProductId = candidateLines
+            .GroupBy(l => l.ProductId!.Value)
+            .ToDictionary(g => g.Key, g => g.Max(l => currentUnitPriceByLineId[l.LineId]));
+
+        var qualifyingProductIds = await priceRepository.ProductIdsWithQualifyingDealAsync(
+            unitPriceByProductId, resolvedStoreId, purchaseDate, DealHitMatcher.DealHitTolerance, ct);
+
+        return candidateLines
+            .Where(l => qualifyingProductIds.Contains(l.ProductId!.Value))
+            .Select(l => l.LineId)
+            .ToHashSet();
     }
 
     // ── Row actions — JSON endpoints (ADR-015 amendment: island data endpoints return JSON) ──
@@ -180,6 +300,14 @@ public sealed class ReviewModel(
         if (updated is null)
             return JsonError("Line not found after save.");
 
+        // Price-delta / deal-hit chips (plantry-bb7p): SaveLine is the row-resolve path the deck/drawer
+        // flow uses, so it — not just the initial page GET — must carry the just-confirmed line's stats,
+        // or the chips would only ever appear after a full page reload. Scoped to just this one line (not
+        // the whole session) so resolving a single row costs one price query + one unit lookup, not one
+        // per Confirmed line in the receipt.
+        var (priceDeltas, dealHits) = await ComputePriceStatsAsync([updated], ct);
+        var priceDeltaPercent = priceDeltas.TryGetValue(updated.LineId, out var delta) ? (decimal?)delta : null;
+
         return new JsonResult(new
         {
             status = updated.Status.ToString(),
@@ -201,6 +329,8 @@ public sealed class ReviewModel(
                     }
                     : null,
             price = updated.Price ?? updated.SuggestedPrice,
+            priceDeltaPercent,
+            dealHit = dealHits.Contains(updated.LineId),
             error = (string?)null,
         });
     }
@@ -289,9 +419,25 @@ public sealed class ReviewModel(
         if (result.IsFailure)
             return JsonError(result.Error.Description);
 
+        // Price-delta / deal-hit chips (plantry-bb7p): like SaveLine, bulk-confirm flips lines to Confirmed
+        // without a page reload, so its response must carry each confirmed line's stats too — otherwise the
+        // same screen would show chips on a line resolved one-at-a-time but not on one confirmed via the
+        // checklist, until the next full page load. Scoped to just the confirmed lines and batched inside
+        // ComputePriceStatsAsync (one price read + one deal read for the whole set).
+        await LoadAsync(ct);
+        var confirmedIds = result.Value.ToHashSet();
+        var confirmedViews = Session.Lines.Where(l => confirmedIds.Contains(l.LineId)).ToList();
+        var (priceDeltas, dealHits) = await ComputePriceStatsAsync(confirmedViews, ct);
+
         return new JsonResult(new
         {
             confirmedLineIds = result.Value.Select(id => id.ToString()).ToList(),
+            lines = confirmedViews.Select(l => new
+            {
+                lineId = l.LineId.ToString(),
+                priceDeltaPercent = priceDeltas.TryGetValue(l.LineId, out var delta) ? (decimal?)delta : null,
+                dealHit = dealHits.Contains(l.LineId),
+            }).ToList(),
             status = LineStatus.Confirmed.ToString(),
             error = (string?)null,
         });
@@ -353,6 +499,15 @@ public sealed class ReviewModel(
 
         // Reload and echo the resolved header so the island re-locks from server truth (not its own draft).
         await LoadAsync(ct);
+
+        // Per-line stat refresh (plantry-bb7p): a header correction mutates the two inputs the deal-hit
+        // marker derives from (store + purchase date), so already-rendered chips can become wrong, not just
+        // missing — correcting from a store with a deal to one without must clear the marker immediately.
+        // Same response rule SaveLine/ConfirmLines follow: a mutation that changes a line's stats carries
+        // them. Every line is projected (not only Confirmed ones) so a line that ceases to qualify is
+        // actively cleared rather than left stale.
+        var (priceDeltas, dealHits) = await ComputePriceStatsAsync(Session.Lines, ct);
+
         return new JsonResult(new
         {
             merchantText = Session.MerchantText,
@@ -361,6 +516,12 @@ public sealed class ReviewModel(
             purchaseTime = Session.PurchaseTime?.ToString("h:mm tt", CultureInfo.CurrentCulture),
             purchaseDateRaw = Session.PurchaseDate?.ToString("yyyy-MM-dd"),
             purchaseTimeRaw = Session.PurchaseTime?.ToString("HH:mm", CultureInfo.InvariantCulture),
+            lines = Session.Lines.Select(l => new
+            {
+                lineId = l.LineId.ToString(),
+                priceDeltaPercent = priceDeltas.TryGetValue(l.LineId, out var delta) ? (decimal?)delta : null,
+                dealHit = dealHits.Contains(l.LineId),
+            }).ToList(),
             error = (string?)null,
         });
     }

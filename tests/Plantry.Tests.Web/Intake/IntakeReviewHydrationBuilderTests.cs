@@ -464,4 +464,55 @@ public sealed class IntakeReviewHydrationBuilderTests
         var milk = h.Products.Single(p => p.Id == MilkId.ToString());
         Assert.Equal(Today.AddDays(7).ToString("yyyy-MM-dd"), milk.Defaults.Expiry);
     }
+
+    // ── Trip-context stats (plantry-bb7p) ───────────────────────────────────────────────
+
+    [Fact(DisplayName = "PriceDeltaPercent, DealHit and TrailingAverageBasket default to null/false when the caller omits them")]
+    public void Trip_Context_Stats_Default_To_Null()
+    {
+        var h = Build(Session([Line()]));
+
+        Assert.Null(h.Lines[0].Line.PriceDeltaPercent);
+        Assert.False(h.Lines[0].Line.DealHit);
+        Assert.Null(h.TrailingAverageBasket);
+    }
+
+    [Fact(DisplayName = "A caller-supplied deal-hit set is threaded onto the matching LineSeed by line id")]
+    public void DealHit_Is_Threaded_Onto_The_Matching_Line()
+    {
+        var hitLine = Line();
+        var missLine = Line();
+        var hits = new HashSet<Guid> { hitLine.LineId };
+
+        var h = Builder.Build(
+            Session([hitLine, missLine]), Today, Now, Zone, Urls, Symbol,
+            priceDeltaPercentByLineId: null, trailingAverageBasket: null, dealHitLineIds: hits);
+
+        Assert.True(h.Lines[0].Line.DealHit);
+        Assert.False(h.Lines[1].Line.DealHit);
+    }
+
+    [Fact(DisplayName = "A caller-supplied per-line delta is threaded onto the matching LineSeed by line id")]
+    public void PriceDeltaPercent_Is_Threaded_Onto_The_Matching_Line()
+    {
+        var withDelta = Line();
+        var withoutDelta = Line();
+        var deltas = new Dictionary<Guid, decimal> { [withDelta.LineId] = 0.12m };
+
+        var h = Builder.Build(
+            Session([withDelta, withoutDelta]), Today, Now, Zone, Urls, Symbol, deltas);
+
+        Assert.Equal(0.12m, h.Lines[0].Line.PriceDeltaPercent);
+        Assert.Null(h.Lines[1].Line.PriceDeltaPercent);
+    }
+
+    [Fact(DisplayName = "A caller-supplied trailing average basket is threaded through verbatim")]
+    public void TrailingAverageBasket_Is_Passed_Through()
+    {
+        var h = Builder.Build(
+            Session([Line()]), Today, Now, Zone, Urls, Symbol,
+            priceDeltaPercentByLineId: null, trailingAverageBasket: 86.40m);
+
+        Assert.Equal(86.40m, h.TrailingAverageBasket);
+    }
 }

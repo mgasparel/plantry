@@ -361,10 +361,18 @@ internal sealed class IdentityConversionProvider : IProductConversionProvider
     }
 }
 
+/// <summary>
+/// Always normalizes to <see cref="ReturnValue"/> (mutable — plantry-bb7p — so a shared/singleton-registered
+/// instance, e.g. one held by a WAF fixture across a whole test class, can be reseeded per test without
+/// re-registering DI), regardless of the inputs. Constructor-seeded for callers that just want a fixed
+/// value for one test method.
+/// </summary>
 internal sealed class FakeUnitPriceCalculator(decimal? returnValue) : IUnitPriceCalculator
 {
+    public decimal? ReturnValue { get; set; } = returnValue;
+
     public Task<decimal?> TryNormalizeAsync(decimal price, decimal quantity, Guid unitId, CancellationToken ct = default) =>
-        Task.FromResult(returnValue);
+        Task.FromResult(ReturnValue);
 }
 
 internal sealed class FakeDisplayCurrency : IDisplayCurrency

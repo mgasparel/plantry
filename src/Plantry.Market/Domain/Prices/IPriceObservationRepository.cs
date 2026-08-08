@@ -97,4 +97,24 @@ public interface IPriceObservationRepository
         }
         return result;
     }
+
+    /// <summary>Batch counterpart to <see cref="ActiveDealForPurchaseAsync"/> (plantry-bb7p): of the given
+    /// products (each paired with its purchase unit price), which have at least one active Confirmed deal at
+    /// <paramref name="storeId"/> covering <paramref name="observedDate"/> that qualifies that unit price
+    /// (<c>unit_price * (1 + tolerance) &gt;= purchase unit price</c>) — in one round trip instead of one
+    /// query per product. Same qualification predicate and filtering as the single-product read; only the
+    /// round-trip count differs. Products with no qualifying deal are simply absent from the result.</summary>
+    async Task<IReadOnlySet<Guid>> ProductIdsWithQualifyingDealAsync(
+        IReadOnlyDictionary<Guid, decimal> unitPriceByProductId, Guid storeId, DateOnly observedDate,
+        decimal tolerance, CancellationToken ct = default)
+    {
+        var result = new HashSet<Guid>();
+        foreach (var (productId, unitPrice) in unitPriceByProductId)
+        {
+            var deal = await ActiveDealForPurchaseAsync(productId, storeId, observedDate, unitPrice, tolerance, ct);
+            if (deal is not null)
+                result.Add(productId);
+        }
+        return result;
+    }
 }
