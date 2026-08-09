@@ -126,6 +126,29 @@ public sealed class MealPlannerAiServiceCompletionTests
     }
 
     [Fact]
+    public async Task The_System_Prompt_Constrains_Evidence_Based_Reasoning_And_Uses_A_Neutral_Example()
+    {
+        var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse));
+
+        await Propose(Planner(chat));
+
+        var call = Assert.Single(chat.Calls);
+        var systemText = Assert.IsType<SystemChatMessage>(call.Messages[0]).Content[0].Text;
+        var normalizedSystemText = string.Join(
+            " ",
+            systemText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains(
+            "make a waste claim only when the selected candidate has expiring_stock=use_soon",
+            normalizedSystemText);
+        Assert.Contains(
+            "make a cost claim only when that candidate has cost_completeness=complete",
+            normalizedSystemText);
+        Assert.Contains("use a neutral rationale", normalizedSystemText);
+        Assert.Contains("Fits the slot constraints.", normalizedSystemText);
+        Assert.DoesNotContain("High fulfillment from expiring stock.", normalizedSystemText);
+    }
+
+    [Fact]
     public async Task Already_Planned_Section_Is_Omitted_When_The_List_Is_Empty()
     {
         var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse));

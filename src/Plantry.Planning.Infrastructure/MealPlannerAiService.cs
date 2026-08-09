@@ -79,6 +79,10 @@ public sealed class MealPlannerAiService : IMealPlanner
           is an under-estimate and unknown cost is unresolved. Never treat partial or unknown cost as zero
           or as cheaper than a recipe with complete evidence. Higher variety weight means avoid repeating
           the same recipe across the week.
+        - In each proposal's reasoning, make a waste claim only when the selected candidate has
+          expiring_stock=use_soon, and make a cost claim only when that candidate has
+          cost_completeness=complete. For expiring_stock=none or unknown, or cost_completeness=partial
+          or unknown, use a neutral rationale and do not imply an unsupported waste or cost benefit.
         - The "Already planned this week" list (when present) shows meals the household has already
           planned this week. Treat them as part of the week when applying the variety weight — do not
           unintentionally repeat an already-planned dish. Repeating one is acceptable when the weights
@@ -95,7 +99,7 @@ public sealed class MealPlannerAiService : IMealPlanner
             "dishes": [
               { "recipe_id": "uuid-of-recipe", "servings": 4, "ordinal": 1 }
             ],
-            "reasoning": "High fulfillment from expiring stock."
+            "reasoning": "Fits the slot constraints."
           }
         ]
         """;

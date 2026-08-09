@@ -22,6 +22,17 @@ internal sealed class FakeStock : IInventoryStockReader
         _stock[productId] = new ProductStock(productId, available, unitId, null);
         return this;
     }
+
+    public FakeStock AddLots(Guid productId, Guid defaultUnitId, params ActiveStockLot[] lots)
+    {
+        _stock[productId] = new ProductStock(
+            productId,
+            lots.Sum(l => l.AvailableQuantity),
+            defaultUnitId,
+            lots.Select(l => l.ExpiryDate).Where(e => e.HasValue).Min(),
+            lots);
+        return this;
+    }
     public Task<ProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(_stock.GetValueOrDefault(productId));
     public Task<IReadOnlyDictionary<Guid, ProductStock>> FindStockBatchAsync(
