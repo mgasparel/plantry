@@ -676,6 +676,67 @@ public sealed class GeneratePlanServiceTests
         }
     }
 
+    [Fact(DisplayName = "Execute_ProposalRationale_UnknownEvidence_ReplacesUnsupportedPlannerReasoning")]
+    public async Task Execute_ProposalRationale_UnknownEvidence_ReplacesUnsupportedPlannerReasoning()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var recipeId = Guid.NewGuid();
+        const string unsupportedReasoning = "This is the cheapest option and prevents food waste.";
+        var planner = new UnsupportedReasoningPlanner(recipeId, unsupportedReasoning);
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(recipeId, "Pasta", [], 4)],
+            planner: planner);
+
+        await generateService.ExecuteAsync(
+            Household,
+            Monday,
+            "unknown-evidence-rationale",
+            null,
+            scopeDate: Monday,
+            scopeSlotId: breakfast.Id);
+
+        var proposal = Assert.Single(await store.GetAsync("unknown-evidence-rationale"));
+        Assert.NotEqual(unsupportedReasoning, proposal.Reasoning);
+        Assert.Equal(
+            "Selected recipes satisfy the slot's hard constraints; no additional cost or waste benefit is claimed without supporting evidence.",
+            proposal.Reasoning);
+    }
+
+    [Fact(DisplayName = "Execute_ProposalRationale_CompleteCostAndUseSoonEvidence_ReplacesUnsupportedPlannerReasoning")]
+    public async Task Execute_ProposalRationale_CompleteCostAndUseSoonEvidence_ReplacesUnsupportedPlannerReasoning()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var recipeId = Guid.NewGuid();
+        const string unsupportedReasoning = "This is the cheapest option and prevents food waste.";
+        var evidence = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [recipeId] = new(2m, CandidateCostCompleteness.Complete, 100, true),
+        };
+        var planner = new UnsupportedReasoningPlanner(recipeId, unsupportedReasoning);
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(recipeId, "Pasta", [], 4)],
+            evidence: evidence,
+            planner: planner);
+
+        await generateService.ExecuteAsync(
+            Household,
+            Monday,
+            "complete-evidence-rationale",
+            null,
+            scopeDate: Monday,
+            scopeSlotId: breakfast.Id);
+
+        var proposal = Assert.Single(await store.GetAsync("complete-evidence-rationale"));
+        Assert.NotEqual(unsupportedReasoning, proposal.Reasoning);
+        Assert.Equal(
+            "Selected recipes satisfy the slot's hard constraints; complete cost evidence is available and some stock is due to expire soon.",
+            proposal.Reasoning);
+    }
+
     // ── Per-slot auto-plan opt-out (plantry-av8z) ─────────────────────────────────
 
     [Fact(DisplayName = "Execute_Bulk_SkipsOptedOutSlots — a slot with IncludeInAutoPlan=false is not dispatched")]
@@ -959,6 +1020,26 @@ public sealed class GeneratePlanServiceTests
         {
             WasCalled = true;
             return Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
+        }
+    }
+
+    private sealed class UnsupportedReasoningPlanner(Guid recipeId, string reasoning) : IMealPlanner
+    {
+        public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
+            IReadOnlyList<PlannerMealSlotContext> contexts,
+            IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+            PlanningWeights weights,
+            CancellationToken ct = default)
+        {
+            IReadOnlyList<ProposedMeal> proposals = contexts
+                .Select(context => new ProposedMeal(
+                    context.Date,
+                    context.MealSlotId,
+                    context.EffectiveAttendees,
+                    [new ProposedDish(recipeId, 4, 1)],
+                    reasoning))
+                .ToList();
+            return Task.FromResult(proposals);
         }
     }
 
