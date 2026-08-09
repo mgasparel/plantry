@@ -251,6 +251,26 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         Assert.Null(candidate.CostPerServing);
     }
 
+    [Fact(DisplayName = "GetCandidateEvidenceAsync preserves unknown expiry for an untracked-only recipe")]
+    public async Task GetCandidateEvidenceAsync_Projects_Unknown_Expiry_For_UntrackedOnlyRecipe()
+    {
+        var productId = Guid.CreateVersion7();
+        var recipeId = await SeedFlatRecipeAsync(productId, qty: 2m, _unitId);
+
+        await using var ctx = NewContext();
+        var adapter = BuildAdapter(ctx,
+            catalog: new FakeCatalog().AddUntrackedLeaf(productId, _unitId),
+            stock: new FakeStock(),
+            prices: new FakePrices());
+
+        var evidence = await adapter.GetCandidateEvidenceAsync(
+            [new CandidateRecipeEvidenceRequest(recipeId.Value, Servings: 2)], Today);
+
+        var candidate = Assert.Single(evidence).Value;
+        Assert.Equal(100, candidate.FulfillmentPercent);
+        Assert.Null(candidate.HasContributingExpiringStock);
+    }
+
     // ── Seeding ──────────────────────────────────────────────────────────────────
 
     /// <summary>Seeds a flat (no inclusions) recipe with TWO ingredients — for the produced-exclusion

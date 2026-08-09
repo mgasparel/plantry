@@ -56,6 +56,12 @@ internal sealed class FakeCatalog : ICatalogProductReader
         return c;
     }
 
+    public FakeCatalog AddUntrackedLeaf(Guid productId, Guid unitId, string name = "Staple")
+    {
+        _products[productId] = new CatalogProduct(productId, name, TrackStock: false, unitId, null, false, []);
+        return this;
+    }
+
     /// <summary>Adds an additional tracked leaf product, fluent-chainable — for a scenario needing more
     /// than the single product <see cref="WithTrackedLeaf"/> seeds (e.g. a substitution edge's target
     /// AND substitute product).</summary>

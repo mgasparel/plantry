@@ -20,6 +20,10 @@ public sealed class GeneratePlanServiceTests
     private static readonly HouseholdId Household = HouseholdId.New();
     private static readonly IClock Clock = SystemClock.Instance;
     private static readonly DateOnly Monday = MealPlan.NormalizeToMonday(new DateOnly(2026, 6, 16));
+    private static readonly Guid ExpensiveCandidateId = Guid.Parse("0193b4a0-4444-7000-8000-000000000001");
+    private static readonly Guid CheapCandidateId = Guid.Parse("0193b4a0-4444-7000-8000-000000000002");
+    private static readonly Guid NoExpiryCandidateId = Guid.Parse("0193b4a0-4444-7000-8000-000000000003");
+    private static readonly Guid UseSoonCandidateId = Guid.Parse("0193b4a0-4444-7000-8000-000000000004");
 
     // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +37,7 @@ public sealed class GeneratePlanServiceTests
             IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null,
             IMealPlanCatalogProductReader? catalogReader = null,
             IReadOnlyDictionary<Guid, CandidateRecipeEvidence>? evidence = null,
-            Action? evidenceRequested = null,
+            IReadOnlyList<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>>? evidenceSnapshots = null,
             IClock? planningClock = null)
     {
         var config = slotConfig ?? BuildDefaultSlotConfig();
@@ -43,7 +47,7 @@ public sealed class GeneratePlanServiceTests
             recipes ?? [],
             ratings ?? new Dictionary<Guid, RecipeRatingSummary>(),
             evidence ?? new Dictionary<Guid, CandidateRecipeEvidence>(),
-            evidenceRequested);
+            evidenceSnapshots);
         var mealPlanRepo = new FakeMealPlanRepository();
         var sp = new ServiceCollection().AddDistributedMemoryCache().BuildServiceProvider();
         var memoryCache = sp.GetRequiredService<IDistributedCache>();
@@ -573,8 +577,8 @@ public sealed class GeneratePlanServiceTests
     {
         var config = BuildDefaultSlotConfig();
         var breakfast = config.Slots.First(s => s.Label == "Breakfast");
-        var expensiveId = Guid.NewGuid();
-        var cheapId = Guid.NewGuid();
+        var expensiveId = ExpensiveCandidateId;
+        var cheapId = CheapCandidateId;
         var recipes = new List<RecipeReadModel>
         {
             new(expensiveId, "Alpha Expensive", [], 4),
@@ -610,8 +614,8 @@ public sealed class GeneratePlanServiceTests
     {
         var config = BuildDefaultSlotConfig();
         var breakfast = config.Slots.First(s => s.Label == "Breakfast");
-        var noExpiryId = Guid.NewGuid();
-        var useSoonId = Guid.NewGuid();
+        var noExpiryId = NoExpiryCandidateId;
+        var useSoonId = UseSoonCandidateId;
         var recipes = new List<RecipeReadModel>
         {
             new(noExpiryId, "Alpha No Expiry", [], 4),
@@ -645,15 +649,31 @@ public sealed class GeneratePlanServiceTests
     [Fact(DisplayName = "Execute_CandidateEvidence_IsRequestedOnceAndReusedAcrossSlots")]
     public async Task Execute_CandidateEvidence_IsRequestedOnce()
     {
-        var requested = 0;
         var recipeId = Guid.NewGuid();
+        var firstSnapshot = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [recipeId] = new(2m, CandidateCostCompleteness.Complete, 100, false),
+        };
+        var secondSnapshot = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [recipeId] = new(99m, CandidateCostCompleteness.Complete, 100, true),
+        };
+        var planner = new RecordingMealPlanner();
         var (generateService, _, _, _, _) = BuildStack(
             recipes: [new RecipeReadModel(recipeId, "Pasta", [], 4)],
-            evidenceRequested: () => requested++);
+            evidenceSnapshots: [firstSnapshot, secondSnapshot],
+            planner: planner);
 
         await generateService.ExecuteAsync(Household, Monday, "candidate-evidence-once", null);
 
-        Assert.Equal(1, requested);
+        Assert.NotEmpty(planner.SeenContexts);
+        foreach (var context in planner.SeenContexts)
+        {
+            var candidate = Assert.Single(context.CandidateRecipes, c => c.RecipeId == recipeId);
+            Assert.Equal(2m, candidate.CostPerServing);
+            Assert.Equal(CandidateCostCompleteness.Complete, candidate.CostCompleteness);
+            Assert.False(candidate.HasContributingExpiringStock);
+        }
     }
 
     // ── Per-slot auto-plan opt-out (plantry-av8z) ─────────────────────────────────
@@ -816,8 +836,10 @@ public sealed class GeneratePlanServiceTests
         IReadOnlyList<RecipeReadModel> recipes,
         IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null,
         IReadOnlyDictionary<Guid, CandidateRecipeEvidence>? evidence = null,
-        Action? evidenceRequested = null) : IRecipeReadModel
+        IReadOnlyList<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>>? evidenceSnapshots = null) : IRecipeReadModel
     {
+        private int _evidenceSnapshotIndex;
+
         public Task<RecipeReadModel?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
             Task.FromResult(recipes.FirstOrDefault(r => r.RecipeId == id));
 
@@ -832,12 +854,15 @@ public sealed class GeneratePlanServiceTests
             DateOnly today,
             CancellationToken ct = default)
         {
-            evidenceRequested?.Invoke();
+            var snapshot = evidenceSnapshots is { Count: > 0 }
+                ? evidenceSnapshots[Math.Min(_evidenceSnapshotIndex, evidenceSnapshots.Count - 1)]
+                : evidence ?? new Dictionary<Guid, CandidateRecipeEvidence>();
+            _evidenceSnapshotIndex++;
             IReadOnlyDictionary<Guid, CandidateRecipeEvidence> result = requests
                 .Select(r => r.RecipeId)
                 .Distinct()
-                .Where(evidence!.ContainsKey)
-                .ToDictionary(id => id, id => evidence[id]);
+                .Where(snapshot.ContainsKey)
+                .ToDictionary(id => id, id => snapshot[id]);
             return Task.FromResult(result);
         }
 

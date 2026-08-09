@@ -185,7 +185,7 @@ public sealed record CandidateRecipeEvidence(
     decimal? CostPerServing,
     CandidateCostCompleteness CostCompleteness,
     int FulfillmentPercent,
-    bool HasContributingExpiringStock);
+    bool? HasContributingExpiringStock);
 
 /// <summary>
 /// Live fulfillment and cost enrichment for a recipe dish at a given serving count.
@@ -206,15 +206,16 @@ public sealed record CandidateRecipeEvidence(
 /// </param>
 /// <param name="HasContributingExpiringStock">
 /// True only when positive stock allocated to satisfy a tracked ingredient has a non-expired expiry
-/// within the configured horizon. This is the planning waste signal; it is intentionally narrower than
-/// <paramref name="HasExpiringIngredients"/>, which preserves the display-oriented earliest-expiry flag.
+/// within the configured horizon. False means tracked lines were evaluated but no such allocation was
+/// found. Null means the recipe had no tracked line from which expiry evidence could be obtained (for
+/// example, an all-untracked recipe); the planner renders that state as unknown rather than none.
 /// </param>
 public sealed record RecipeDishEnrichment(
     int FulfillmentPercent,
     decimal? TotalCost,
     bool CostIsPartial,
     bool HasExpiringIngredients,
-    bool HasContributingExpiringStock = false);
+    bool? HasContributingExpiringStock = null);
 
 /// <summary>
 /// One missing (or low-stock) ingredient for a recipe at a given serving count, for the ShopForWeek flow.

@@ -656,6 +656,48 @@ public sealed class FulfillmentServiceTests
         Assert.False(line.HasContributingExpiringStock);
     }
 
+    [Fact(DisplayName = "Global FEFO orders direct parent variants before allocation")]
+    public async Task Direct_Parent_NonExpiring_Variant_Does_Not_Mask_Expiring_Variant()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var nonExpiringVariant = Guid.CreateVersion7();
+        var expiringVariant = Guid.CreateVersion7();
+        var milk = h.Catalog.AddParent([nonExpiringVariant, expiringVariant], "Milk");
+
+        // The non-expiring variant is deliberately first and has enough stock to satisfy the line
+        // by itself. Global FEFO must still consume the tomorrow-expiring variant first.
+        h.Stock.AddLots(nonExpiringVariant, unit, new ActiveStockLot(10m, unit, null));
+        h.Stock.AddLots(expiringVariant, unit, new ActiveStockLot(1m, unit, Today.AddDays(1)));
+
+        var result = await h.Service.ComputeAsync(BuildRecipe(milk.Id, 2m, unit), 4, Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStock, line.Status);
+        Assert.True(line.HasContributingExpiringStock);
+    }
+
+    [Fact(DisplayName = "Global FEFO orders substitute parent variants before allocation")]
+    public async Task Substitute_Parent_NonExpiring_Variant_Does_Not_Mask_Expiring_Variant()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var nonExpiringVariant = Guid.CreateVersion7();
+        var expiringVariant = Guid.CreateVersion7();
+        var riceFlour = h.Catalog.AddParent([nonExpiringVariant, expiringVariant], "Rice Flour");
+        h.Stock.AddLots(nonExpiringVariant, unit, new ActiveStockLot(10m, unit, null));
+        h.Stock.AddLots(expiringVariant, unit, new ActiveStockLot(1m, unit, Today.AddDays(1)));
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlour.Id, 1m, unit));
+
+        var result = await h.Service.ComputeAsync(BuildRecipe(flour.Id, 2m, unit), 4, Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.True(line.HasContributingExpiringStock);
+    }
+
     // ── Parent/variant expiry-soon flag ──────────────────────────────────────
 
     [Fact]

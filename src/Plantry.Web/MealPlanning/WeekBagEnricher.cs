@@ -215,6 +215,9 @@ internal sealed class WeekBagEnricher
         }
 
         var hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+        bool? hasContributingExpiringStock = trackedLines.Count > 0
+            ? fulfillment.Lines.Any(l => l.HasContributingExpiringStock)
+            : null;
 
         // TotalCost = CostPerServing.Amount × servings (Amount is per-serving).
         decimal? totalCost = cost.Amount.HasValue ? cost.Amount.Value * servings : null;
@@ -223,7 +226,8 @@ internal sealed class WeekBagEnricher
             pct,
             totalCost,
             cost.Completeness == CostCompleteness.Partial,
-            hasExpiring);
+            hasExpiring,
+            hasContributingExpiringStock);
     }
 
     // ── Adapter builders ──────────────────────────────────────────────────────

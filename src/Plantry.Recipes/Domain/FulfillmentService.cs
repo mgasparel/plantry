@@ -596,7 +596,12 @@ public sealed class FulfillmentService(
         var allocated = 0m;
         var hasContributingExpiringStock = false;
 
-        foreach (var lot in lots)
+        // A parent product and a substitute parent can contribute lots from several concrete
+        // products. Apply FEFO after conversion/landing, not just per product, so an earlier
+        // non-expiring variant cannot consume the allocation before a later expiring variant.
+        foreach (var lot in lots
+            .OrderBy(l => l.ExpiryDate is null)
+            .ThenBy(l => l.ExpiryDate ?? DateOnly.MaxValue))
         {
             if (remaining <= 0m) break;
 

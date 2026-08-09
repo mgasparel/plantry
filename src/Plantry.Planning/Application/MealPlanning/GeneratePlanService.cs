@@ -292,7 +292,7 @@ public sealed class GeneratePlanService(
 
             var result = ProposalAcl.Validate(raw, ctx.CandidateRecipes, ctx.Constraints);
             if (result.IsValid && result.ValidatedProposal is not null)
-                validatedProposals.Add(result.ValidatedProposal);
+                validatedProposals.Add(BuildEvidenceBackedProposal(result.ValidatedProposal, ctx));
             else
                 unfilledCount++;
         }
@@ -378,6 +378,36 @@ public sealed class GeneratePlanService(
 
     private static string CellKey(DateOnly date, MealSlotId slotId) =>
         $"{date:yyyy-MM-dd}_{slotId.Value:N}";
+
+    /// <summary>
+    /// Replaces the model-authored explanation at the trust boundary. The rationale is deliberately
+    /// derived only from the candidate snapshot that survived ACL validation, so unsupported cost or
+    /// waste claims cannot be staged even when the model ignores the prompt instructions.
+    /// </summary>
+    private static ProposedMeal BuildEvidenceBackedProposal(
+        ProposedMeal validated,
+        PlannerMealSlotContext context)
+    {
+        var candidatesById = context.CandidateRecipes.ToDictionary(c => c.RecipeId);
+        var selectedCandidates = validated.Dishes
+            .Select(d => candidatesById.GetValueOrDefault(d.RecipeId))
+            .Where(c => c is not null)
+            .Select(c => c!)
+            .ToList();
+
+        var evidenceClaims = new List<string>();
+        if (selectedCandidates.Any(c =>
+                c.CostCompleteness == CandidateCostCompleteness.Complete && c.CostPerServing.HasValue))
+            evidenceClaims.Add("complete cost evidence is available");
+        if (selectedCandidates.Any(c => c.HasContributingExpiringStock == true))
+            evidenceClaims.Add("some stock is due to expire soon");
+
+        var rationale = evidenceClaims.Count == 0
+            ? "Selected recipes satisfy the slot's hard constraints; no additional cost or waste benefit is claimed without supporting evidence."
+            : $"Selected recipes satisfy the slot's hard constraints; {string.Join(" and ", evidenceClaims)}.";
+
+        return validated with { Reasoning = rationale };
+    }
 }
 
 /// <summary>Result of <see cref="GeneratePlanService.ExecuteAsync"/>.</summary>

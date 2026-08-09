@@ -175,12 +175,19 @@ public sealed class RecipeReadModelAdapter(
         // TotalCost = CostPerServing.Amount × servings (Amount is per-serving; we want the total).
         decimal? totalCost = cost.Amount.HasValue ? cost.Amount.Value * servings : null;
 
+        // No tracked line means there was no expiry-bearing inventory fact to evaluate. Preserve
+        // that as unknown for planning rather than collapsing it to "no expiring stock"; a tracked
+        // line with no qualifying allocation is the distinct, known-false state.
+        bool? planningHasContributingExpiringStock = statuses.Any(s => s != IngredientStatus.Untracked)
+            ? hasContributingExpiringStock
+            : null;
+
         return new RecipeDishEnrichment(
             pct,
             totalCost,
             cost.Completeness == CostCompleteness.Partial,
             hasExpiring,
-            hasContributingExpiringStock);
+            planningHasContributingExpiringStock);
     }
 
     /// <summary>
