@@ -83,6 +83,23 @@ public sealed class RecipeEditorTagSuggestionTests
         Assert.Equal(JsonValueKind.Null, neu.GetProperty("existingTagId").ValueKind);
     }
 
+    [Fact]
+    public async Task Existing_Recipe_With_Missing_Diversity_Metadata_Surfaces_Staged_Suggestion_Maintenance()
+    {
+        var recipe = RecipeEditorFixture.BuildRich();
+        using var factory = new TagSuggestionFactory(gateEnabled: true, CannedSuggestions(), recipe);
+        var client = AuthedClient(factory);
+
+        var response = await client.GetAsync($"/Recipes/{recipe.Id.Value}/Edit");
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("data-metadata-gap", html);
+        Assert.Contains("Missing Protein and Cuisine metadata", html);
+        Assert.Contains("suggestions are not applied until you save", html);
+        Assert.Contains("tagSuggestEligible: true", html);
+    }
+
     // ── Criterion 3: toggle off ⇒ no call, no chips ──────────────────────────────
 
     [Fact]
@@ -246,12 +263,19 @@ internal sealed class TagSuggestionFactory : WebApplicationFactory<Program>
     public FakeEditorRecipeRepository RecipeRepo { get; }
     public StubTagSuggester Suggester { get; }
 
-    public TagSuggestionFactory(bool gateEnabled, IReadOnlyList<TagSuggestion> canned)
+    public TagSuggestionFactory(
+        bool gateEnabled,
+        IReadOnlyList<TagSuggestion> canned,
+        Recipe? existingRecipe = null)
     {
         _gateEnabled = gateEnabled;
         _canned = canned;
         TagRepo = new MutableTagRepository(RecipeEditorFixture.ActiveTags());
-        RecipeRepo = new FakeEditorRecipeRepository(new ConstantTenantContext(RecipeEditorFixture.HouseholdAId));
+        RecipeRepo = existingRecipe is null
+            ? new FakeEditorRecipeRepository(new ConstantTenantContext(RecipeEditorFixture.HouseholdAId))
+            : new FakeEditorRecipeRepository(
+                new ConstantTenantContext(RecipeEditorFixture.HouseholdAId),
+                existingRecipe);
         Suggester = new StubTagSuggester(_canned);
     }
 

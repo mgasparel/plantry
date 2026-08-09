@@ -30,6 +30,14 @@ namespace Plantry.Planning.Domain;
 /// True only when positive FEFO-allocated stock with a non-expired expiry inside the horizon contributes
 /// to this candidate. Null means the evidence was unavailable.
 /// </param>
+/// <param name="TagFacts">
+/// Semantic tag facts supplied by the Recipes read boundary. <see cref="TagIds"/> remains the sole
+/// hard-constraint identity; these facts are additive selection evidence.
+/// </param>
+/// <param name="DiversityProfile">
+/// Compact deterministic exact/Diet/Protein/Cuisine/Flavor facts. Null means metadata was unavailable,
+/// not that the candidate is invalid.
+/// </param>
 public sealed record CandidateRecipe(
     Guid RecipeId,
     string Name,
@@ -41,7 +49,9 @@ public sealed record CandidateRecipe(
     IReadOnlyDictionary<Guid, int>? AttendeeStars = null,
     CandidateCostCompleteness CostCompleteness = CandidateCostCompleteness.Unknown,
     int? FulfillmentPercent = null,
-    bool? HasContributingExpiringStock = null);
+    bool? HasContributingExpiringStock = null,
+    IReadOnlyList<RecipeSemanticTagFact>? TagFacts = null,
+    RecipeDiversityProfile? DiversityProfile = null);
 
 /// <summary>Three-state completeness for a candidate's live cost evidence.</summary>
 public enum CandidateCostCompleteness

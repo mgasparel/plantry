@@ -7,7 +7,7 @@ namespace Plantry.Recipes.Infrastructure;
 
 /// <summary>
 /// Implements IReferenceDataSeeder for the Recipes context.
-/// Seeds the eight default tags on household creation (DM-9), mirroring the units/categories/locations
+/// Seeds the ten default tags on household creation (DM-9), mirroring the units/categories/locations
 /// the Catalog context seeds. Three of the four <see cref="TagCategory"/> values get starter tags;
 /// Cuisine ships with none — those are minted inline from the editor (recipes-domain-model.md §5).
 /// </summary>
@@ -33,6 +33,10 @@ public sealed class RecipesReferenceDataSeeder(RecipesDbContext db, IClock clock
         Tag.Create(hid, "Meat",        TagCategory.Protein, clock),
         Tag.Create(hid, "Poultry",     TagCategory.Protein, clock),
         Tag.Create(hid, "Fish",        TagCategory.Protein, clock),
+        // Plant-protein vocabulary is semantic reference data only. It does not apply a Diet stance or
+        // assume how the household eats; recipes still receive these tags only through user confirmation.
+        Tag.Create(hid, "Tofu",        TagCategory.Protein, clock),
+        Tag.Create(hid, "Legumes",     TagCategory.Protein, clock),
 
         // Flavor
         Tag.Create(hid, "Spicy",       TagCategory.Flavor,  clock),

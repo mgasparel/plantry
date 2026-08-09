@@ -174,7 +174,9 @@ public sealed class GeneratePlanService(
                     RatedCount: summary?.RatedCount ?? 0,
                     CostCompleteness: evidence?.CostCompleteness ?? CandidateCostCompleteness.Unknown,
                     FulfillmentPercent: evidence?.FulfillmentPercent,
-                    HasContributingExpiringStock: evidence?.HasContributingExpiringStock);
+                    HasContributingExpiringStock: evidence?.HasContributingExpiringStock,
+                    TagFacts: r.TagFacts,
+                    DiversityProfile: r.DiversityProfile);
             })
             .ToList();
 

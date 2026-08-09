@@ -663,6 +663,7 @@ builder.Services.AddScoped<RecipeExpansionService>();
 // Tag management application service (plantry-7ju). Drives the /Settings/Tags admin page:
 // create/rename/set-category/archive/unarchive over the ITagRepository.
 builder.Services.AddScoped<ManageTagsService>();
+builder.Services.AddScoped<RecipeDiversityMetadataQuery>();
 
 // Edit-moment AI tag suggestions (plantry-qll2.2). SuggestRecipeTags orchestrates the gate check +
 // ingredient-name resolution + vocabulary load over the Recipes ACL ports; IRecipeTagSuggester is the

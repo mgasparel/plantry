@@ -165,13 +165,24 @@ public interface IRecipeReadModel
 /// the port's contract is "minimal facts needed to display and validate a recipe dish"
 /// (see this interface's summary), and cook time is such a fact. Defaults to null so existing
 /// positional construction sites keep compiling; the adapter always supplies the resolved value.</param>
+/// <param name="TagFacts">
+/// Stable id + display-name + category facts for the recipe's tags. These are additive to
+/// <paramref name="TagIds"/>: hard constraints continue to validate against ids, while selection can
+/// reason over names/categories without reaching through this port into Recipes persistence.
+/// </param>
+/// <param name="DiversityProfile">
+/// Compact confirmed/fallback semantic facts for deterministic recipe comparison. Null is the graceful
+/// compatibility state for a read-model implementation that has not supplied profile facts.
+/// </param>
 public sealed record RecipeReadModel(
     Guid RecipeId,
     string Name,
     IReadOnlyList<Guid> TagIds,
     int DefaultServings,
     bool HasPhoto = false,
-    int? CookTimeMinutes = null);
+    int? CookTimeMinutes = null,
+    IReadOnlyList<RecipeSemanticTagFact>? TagFacts = null,
+    RecipeDiversityProfile? DiversityProfile = null);
 
 /// <summary>One recipe/serving request in a candidate evidence snapshot.</summary>
 public sealed record CandidateRecipeEvidenceRequest(Guid RecipeId, int Servings);

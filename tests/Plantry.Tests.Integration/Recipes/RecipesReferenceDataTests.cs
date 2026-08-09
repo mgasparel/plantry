@@ -10,7 +10,7 @@ namespace Plantry.Tests.Integration.Recipes;
 
 /// <summary>
 /// L3 integration test for the Recipes reference-data seeder (DM-9): registering a household seeds
-/// exactly the eight default tags, with the right names and categories, scoped to that household.
+/// exactly the ten default tags, with the right names and categories, scoped to that household.
 /// The fourth <see cref="TagCategory"/> value (Cuisine) ships with no seeded default — only user-minted
 /// inline (recipes-domain-model.md §5) — which the exact-set assertion below guards.
 /// </summary>
@@ -34,13 +34,13 @@ public sealed class RecipesReferenceDataTests(PostgresFixture db) : IAsyncLifeti
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    [Fact(DisplayName = "Seeding a household creates exactly the 8 default tags with correct names and categories")]
-    public async Task Seeding_Creates_The_Eight_Default_Tags()
+    [Fact(DisplayName = "Seeding a household creates exactly the 10 default tags with plant-protein vocabulary")]
+    public async Task Seeding_Creates_The_Ten_Default_Tags()
     {
         await using var read = NewRecipesDb(_household);
         var tags = await read.Tags.ToListAsync();
 
-        Assert.Equal(8, tags.Count);
+        Assert.Equal(10, tags.Count);
         Assert.All(tags, t => Assert.Equal(_household, t.HouseholdId));
 
         var byCategory = tags
@@ -51,7 +51,7 @@ public sealed class RecipesReferenceDataTests(PostgresFixture db) : IAsyncLifeti
             new[] { "Dairy-Free", "Gluten-Free", "Vegan", "Vegetarian" },
             byCategory[TagCategory.Diet]);
         Assert.Equal(
-            new[] { "Fish", "Meat", "Poultry" },
+            new[] { "Fish", "Legumes", "Meat", "Poultry", "Tofu" },
             byCategory[TagCategory.Protein]);
         Assert.Equal(
             new[] { "Spicy" },

@@ -271,6 +271,61 @@ public sealed class GeneratePlanServiceTests
         Assert.Contains(bobId, firstConflict.AttendeeIds);
     }
 
+    [Fact(DisplayName = "Execute_RequiredVeganCandidate_CarriesSemanticProfileWithIndependentMissingFacets")]
+    public async Task Execute_RequiredVeganCandidate_CarriesSemanticProfile()
+    {
+        var userId = Guid.Parse("60000000-0000-0000-0000-000000000001");
+        var veganTagId = Guid.Parse("60000000-0000-0000-0000-000000000002");
+        var recipeId = Guid.Parse("60000000-0000-0000-0000-000000000003");
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var slot in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(slot.Id, [userId], Clock);
+
+        var preference = UserPreference.Create(Household, userId, Clock);
+        preference.SetStance(veganTagId, "Required", Clock);
+        var veganFact = new RecipeSemanticTagFact(
+            veganTagId,
+            "Vegan",
+            RecipeSemanticTagCategory.Diet);
+        var profile = RecipeDiversityProfile.Create(
+            recipeId,
+            "Garden supper",
+            [veganFact],
+            [veganFact],
+            []);
+        var recipes = new[]
+        {
+            new RecipeReadModel(
+                recipeId,
+                "Garden supper",
+                [veganTagId],
+                DefaultServings: 4,
+                TagFacts: [veganFact],
+                DiversityProfile: profile),
+        };
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [preference],
+            recipes: recipes,
+            planner: planner);
+
+        await generateService.ExecuteAsync(Household, Monday, "semantic-profile", null);
+
+        Assert.NotEmpty(planner.SeenContexts);
+        foreach (var context in planner.SeenContexts)
+        {
+            var candidate = Assert.Single(context.CandidateRecipes);
+            Assert.Contains(veganTagId, candidate.TagIds);
+            Assert.Equal("Vegan", Assert.Single(candidate.TagFacts!).DisplayName);
+            Assert.Single(candidate.DiversityProfile!.Diet);
+            Assert.Equal(RecipeDiversityConfidence.Missing,
+                candidate.DiversityProfile.Confidence(RecipeDiversityFacet.Protein));
+            Assert.Equal(RecipeDiversityConfidence.Missing,
+                candidate.DiversityProfile.Confidence(RecipeDiversityFacet.Cuisine));
+        }
+    }
+
     // ── Execute_UnfulfillableCell_DetectedAndExcluded ─────────────────────────────
 
     [Fact(DisplayName = "Execute_UnfulfillableCell — vegetarian attendee + no vegetarian recipes in corpus → cell in UnfulfillableCells, AI NOT called")]

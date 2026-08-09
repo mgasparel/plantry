@@ -432,7 +432,12 @@ public sealed class FakeEditorRecipeRepository(ITenantContext tenant, params Rec
         Task.FromResult(false);
 
     public Task<IReadOnlyList<Recipe>> ListForBrowseAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<Recipe>>([]);
+        Task.FromResult<IReadOnlyList<Recipe>>(tenant.HouseholdId is { } hid
+            ? knownRecipes
+                .Where(r => r.HouseholdId.Value == hid && r.ArchivedAt == null)
+                .OrderBy(r => r.Name)
+                .ToList()
+            : []);
 
     public Task<IReadOnlySet<RecipeId>> ListRecipeIdsWithPhotoAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlySet<RecipeId>>(new HashSet<RecipeId>());

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -146,13 +147,66 @@ public sealed class RecipeReadModelAdapterBatchTests(PostgresFixture db) : IAsyn
         Assert.Equal(45, result!.CookTimeMinutes);
     }
 
-    private RecipeReadModelAdapter BuildAdapter(RecipesDbContext ctx)
+    [Fact(DisplayName = "SearchAsync projects semantic tag facts and catalog-backed tofu fallback without changing hard TagIds")]
+    public async Task Search_Projects_Semantic_Facts_And_Catalog_Fallback()
+    {
+        var productId = Guid.Parse("50000000-0000-0000-0000-000000000001");
+        var unitId = Guid.Parse("50000000-0000-0000-0000-000000000002");
+        Tag tofu;
+        Tag thai;
+        RecipeId taggedId;
+        RecipeId fallbackId;
+
+        await using (var ctx = NewContext())
+        {
+            tofu = Tag.Create(_household, "Tofu", TagCategory.Protein, Clock);
+            thai = Tag.Create(_household, "Thai", TagCategory.Cuisine, Clock);
+            await ctx.Tags.AddRangeAsync(tofu, thai);
+
+            var tagged = Recipe.Create(_household, "Golden bowl", 4, Clock).Value;
+            tagged.SetTags([tofu.Id, thai.Id], Clock);
+            tagged.ReplaceIngredients([new IngredientLine(productId, 400m, unitId, null, 0)], Clock);
+            await ctx.Recipes.AddAsync(tagged);
+            taggedId = tagged.Id;
+
+            var fallback = Recipe.Create(_household, "Weeknight supper", 4, Clock).Value;
+            fallback.ReplaceIngredients([new IngredientLine(productId, 400m, unitId, null, 0)], Clock);
+            await ctx.Recipes.AddAsync(fallback);
+            fallbackId = fallback.Id;
+
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var readCtx = NewContext();
+        var catalog = new FakeCatalog().AddTrackedLeaf(productId, unitId, "Extra firm tofu");
+        var result = await BuildAdapter(readCtx, catalog).SearchAsync(string.Empty, 20);
+
+        var taggedModel = result.Single(r => r.RecipeId == taggedId.Value);
+        Assert.True(new HashSet<Guid> { tofu.Id.Value, thai.Id.Value }.SetEquals(taggedModel.TagIds));
+        Assert.Contains(taggedModel.TagFacts!, fact =>
+            fact.TagId == tofu.Id.Value
+            && fact.DisplayName == "Tofu"
+            && fact.Category == RecipeSemanticTagCategory.Protein);
+        Assert.Equal(RecipeDiversityConfidence.Confirmed,
+            taggedModel.DiversityProfile!.Confidence(RecipeDiversityFacet.Protein));
+
+        var fallbackModel = result.Single(r => r.RecipeId == fallbackId.Value);
+        Assert.Empty(fallbackModel.TagIds);
+        var fallbackProtein = Assert.Single(fallbackModel.DiversityProfile!.Protein);
+        Assert.Equal(tofu.Id.Value, fallbackProtein.TagId);
+        Assert.Equal(RecipeDiversityEvidenceSource.ConfirmedCatalogFact, fallbackProtein.Source);
+        Assert.True(taggedModel.DiversityProfile.Shares(
+            fallbackModel.DiversityProfile,
+            RecipeDiversityFacet.Protein));
+    }
+
+    private RecipeReadModelAdapter BuildAdapter(RecipesDbContext ctx, FakeCatalog? catalog = null)
     {
         // GetByIdsAsync/GetByIdAsync never touch expansion/fulfillment/costing, but the adapter's
         // constructor requires them — construct with the shared (unused) port fakes over the same
         // context (RecipeAdapterPortFakes.cs), mirroring RecipeReadModelAdapterYieldPhotoTests's
         // fixture-sharing pattern.
-        var catalog = new FakeCatalog();
+        catalog ??= new FakeCatalog();
         var expansion = new RecipeExpansionService(new RecipeRepository(ctx));
         var fulfillment = new FulfillmentService(new FakeStock(), catalog, new IdentityConverter(), new FixedHorizon(7), new FakeSubstitutions());
         var costing = new CostingService(new FakePrices(), new IdentityConverter(), catalog);

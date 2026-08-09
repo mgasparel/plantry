@@ -43,6 +43,22 @@ public sealed class TagsPageTests : IClassFixture<TagsFragmentFactory>
         Assert.Contains("tag-admin-list", html);
     }
 
+    [Fact(DisplayName = "GET /Settings/Tags surfaces recipes missing Protein/Cuisine metadata with an edit link")]
+    public async Task Get_Page_Renders_Recipe_Metadata_Gaps()
+    {
+        var client = CreateClient();
+
+        var response = await client.GetAsync("/Settings/Tags");
+
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Recipe metadata", html);
+        Assert.Contains("Unclassified supper", html);
+        Assert.Contains("Missing Protein and Cuisine", html);
+        Assert.Contains("Edit recipe", html);
+        Assert.Contains("nothing is applied until you choose it and save", html);
+    }
+
     [Fact(DisplayName = "POST Create returns _TagsList fragment with the new tag name")]
     public async Task Post_Create_Returns_Fragment_With_New_Tag()
     {
@@ -322,6 +338,11 @@ public sealed class TagsFragmentFactory : WebApplicationFactory<Program>
 {
     // Shared store holds ALL tags (multi-household) so per-request scoping can filter.
     private readonly TagsStore _store = new(TagsFixture.BuildSeed());
+    private static readonly Recipe MetadataGapRecipe = Recipe.Create(
+        HouseholdId.From(TagsFixture.HouseholdId),
+        "Unclassified supper",
+        4,
+        new FixedClock(new DateTimeOffset(2026, 8, 9, 12, 0, 0, TimeSpan.Zero))).Value;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -347,9 +368,17 @@ public sealed class TagsFragmentFactory : WebApplicationFactory<Program>
                     sp.GetRequiredService<TagsStore>(),
                     sp.GetRequiredService<ITenantContext>()));
 
+            services.RemoveAll<IRecipeRepository>();
+            services.AddScoped<IRecipeRepository>(sp =>
+                new FakeEditorRecipeRepository(
+                    sp.GetRequiredService<ITenantContext>(),
+                    MetadataGapRecipe));
+
             // Re-register ManageTagsService so it picks up the fake repository.
             services.RemoveAll<ManageTagsService>();
             services.AddScoped<ManageTagsService>();
+            services.RemoveAll<RecipeDiversityMetadataQuery>();
+            services.AddScoped<RecipeDiversityMetadataQuery>();
         });
     }
 }
