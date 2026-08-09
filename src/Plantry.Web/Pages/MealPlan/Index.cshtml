@@ -1,6 +1,5 @@
 @page
 @model Plantry.Web.Pages.MealPlan.IndexModel
-@using Plantry.Planning.Domain
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @{
     ViewData["Title"] = "Meal Plan";
@@ -27,25 +26,10 @@
             ConfirmedOverBudget: Model.WeekBudgetTarget.HasValue && Model.WeekTotalCost > Model.WeekBudgetTarget,
             ProjectedOverBudget: Model.WeekBudgetTarget.HasValue && Model.ProjectedWeekCost > Model.WeekBudgetTarget,
             DisplayCurrency: Model.CurrentDisplayCurrency,
-            BudgetCurrency: Model.WeekBudgetCurrency))
+            BudgetCurrency: Model.WeekBudgetCurrency,
+            WeekPlanningWeights: Model.WeekPlanningWeights,
+            HasWeekPlanningWeightsOverride: Model.HasWeekPlanningWeightsOverride))
         <div class="plan-bar-spacer"></div>
-        @* planTune Alpine config: injected before _PlanBarNav uses it (the partial renders af-split
-           which calls planTune(window.__planTuneCfg) on Alpine init). *@
-        <script>
-            window.__planTuneCfg = {
-                // Legacy flat keys kept for backward-compat; buckets drives the generalised component.
-                wasteDefault: @(PlanningWeights.Default.Waste),
-                costDefault: @(PlanningWeights.Default.Cost),
-                varietyDefault: @(PlanningWeights.Default.Variety),
-                // Resolved budget (decimal amount, or 0 when not set) — popover money-input reflects persisted value.
-                budget: @((Model.WeekBudgetTarget ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture)),
-                buckets: [
-                    { key: 'waste',   label: 'Waste',   color: 'oklch(0.62 0.13 150)', defaultWeight: @(Model.WeekPlanningWeights?.Waste   ?? PlanningWeights.Default.Waste),   appDefault: @(PlanningWeights.Default.Waste)   },
-                    { key: 'cost',    label: 'Cost',     color: 'oklch(0.62 0.13 70)',  defaultWeight: @(Model.WeekPlanningWeights?.Cost    ?? PlanningWeights.Default.Cost),    appDefault: @(PlanningWeights.Default.Cost)    },
-                    { key: 'variety', label: 'Variety',  color: 'oklch(0.62 0.13 255)', defaultWeight: @(Model.WeekPlanningWeights?.Variety ?? PlanningWeights.Default.Variety), appDefault: @(PlanningWeights.Default.Variety) }
-                ]
-            };
-        </script>
         <span class="autofill-spinner htmx-indicator" aria-hidden="true"></span>
         @* Shop for this week — calls ShopForWeek application service (P3-4).
            This button is NOT in _PlanBarNav because it uses Alpine fetch state (loading/done)

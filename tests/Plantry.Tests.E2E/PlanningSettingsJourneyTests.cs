@@ -5,11 +5,11 @@ using Xunit;
 namespace Plantry.Tests.E2E;
 
 /// <summary>
-/// L5 E2E journey tests (Playwright) for persisted planning settings (plantry-so5.3).
+/// L5 E2E journey tests (Playwright) for persisted planning settings and auto-fill hydration.
 ///
-/// Acceptance criterion L5: set a week budget WITHOUT generating → budget chip is present →
-/// do a cell op → budget chip + settings survive the OOB refresh → navigate away and back →
-/// settings survive navigation.
+/// Acceptance criterion L5: configure household weights → verify the household fallback → create a
+/// week override through Tune → verify the OOB replacement, a cell mutation, adjacent-week fallback,
+/// navigation, and a hard reload all preserve the correct effective split.
 ///
 /// Boots the full Aspire stack via AppHostFixture.
 /// Run with: dotnet test --filter "Category=E2E"
@@ -36,20 +36,22 @@ public sealed class PlanningSettingsJourneyTests(AppHostFixture appHost) : IAsyn
     }
 
     /// <summary>
-    /// L5 AC: set week budget without generating → chip present → cell op → chip survives → nav back → chip survives.
+    /// L5 AC: configure household defaults → create a week override without generating → the OOB
+    /// replacement and a cell mutation preserve the override → adjacent navigation falls back to
+    /// household defaults → navigation/reload restore the overridden week.
     ///
     /// Journey:
     ///   1. Register a fresh household.
-    ///   2. Navigate to /MealPlan and open the Tune popover.
-    ///   3. Set a budget ($50) without clicking Generate — the @@change on the budget input
-    ///      fires persistSettings(), which POSTs ?handler=SetPlanningSettings.
-    ///   4. Wait for the OOB bar refresh and assert #plan-cost-chip is still present.
-    ///   5. Assign a note to a cell (cell op): GET editor → POST assign via htmx.
-    ///      The Assign handler re-emits the OOB rail + bar — chip must still be present.
-    ///   6. Navigate to /Recipes and back to /MealPlan — settings survive navigation.
-    ///   7. Reload and assert the budget chip is still present (settings persisted to DB).
-    ///   8. Open the popover and assert the budget input reflects the persisted value ($50),
-    ///      confirming fix for plantry-so5.3 FIX-2 (popover reflects persisted values on render).
+    ///   2. Configure household defaults to 40/30/30 from the settings page.
+    ///   3. Navigate to /MealPlan and verify the no-override fallback is 40/30/30.
+    ///   4. Move Waste to 50 in Tune; constant-sum rebalance produces 50/25/25, and the
+    ///      @@change persists it through ?handler=SetPlanningSettings.
+    ///   5. Wait for the OOB bar refresh, reopen Tune, and verify the override marker and 50/25/25.
+    ///   6. Assign a note to a cell; the Assign handler re-emits the OOB bar with the same override.
+    ///   7. Navigate to the adjacent week and verify it falls back to household defaults; navigate back
+    ///      and verify the original week's override returns.
+    ///   8. Navigate away and back, reload, and verify the original week still shows 50/25/25 and the
+    ///      household defaults remain 40/30/30.
     /// </summary>
     [Fact(DisplayName = "L5: set week budget (no generate) → chip present → cell op + nav → settings survive (plantry-so5.3)")]
     public async Task SetWeekBudget_NoGenerate_SettingsSurviveCellOpAndNavigation()
@@ -76,15 +78,35 @@ public sealed class PlanningSettingsJourneyTests(AppHostFixture appHost) : IAsyn
             await page.ClickAsync("button[type=submit]");
             await page.WaitForURLAsync("**/Today**");
 
-            // ── 2. Navigate to Meal Plan ──────────────────────────────────────────
-            await page.GetByRole(AriaRole.Link, new() { Name = "Meal Plan" }).First.ClickAsync();
+            // ── 2. Configure distinctive household defaults (40/30/30) ─────────────
+            await page.GotoAsync($"{BaseUrl}/Settings/MealPlanning");
+            await page.WaitForURLAsync("**/Settings/MealPlanning**");
+
+            var defaultsForm = page.Locator("#meal-planning-defaults-form");
+            await Assertions.Expect(defaultsForm).ToBeVisibleAsync();
+            var defaultSliders = defaultsForm.Locator("input[type='range']");
+            await defaultSliders.Nth(0).FillAsync("40");
+            await Assertions.Expect(defaultsForm.Locator("input[name='wasteWeight']")).ToHaveValueAsync("40");
+            await Assertions.Expect(defaultsForm.Locator("input[name='costWeight']")).ToHaveValueAsync("30");
+            await Assertions.Expect(defaultsForm.Locator("input[name='varietyWeight']")).ToHaveValueAsync("30");
+
+            await page.RunAndWaitForResponseAsync(
+                () => defaultsForm.Locator("button[type='submit']").ClickAsync(),
+                r => r.Url.Contains("handler=SetMealPlanningDefaults") && r.Status == 200);
+
+            await Assertions.Expect(defaultsForm.Locator("input[name='wasteWeight']")).ToHaveValueAsync("40");
+            await Assertions.Expect(defaultsForm.Locator("input[name='costWeight']")).ToHaveValueAsync("30");
+            await Assertions.Expect(defaultsForm.Locator("input[name='varietyWeight']")).ToHaveValueAsync("30");
+
+            // ── 3. Navigate to Meal Plan and verify household fallback ──────────────
+            await page.GotoAsync($"{BaseUrl}/MealPlan");
             await page.WaitForURLAsync("**/MealPlan**");
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
 
             // The budget chip should be present on the plan bar
             await Assertions.Expect(page.Locator("#plan-cost-chip")).ToBeVisibleAsync();
 
-            // ── 3. Open Tune popover and set a weekly budget ($50) ────────────────
+            // ── 4. Verify no-override fallback, then create a week override ────────
             // The af-caret button toggles tuneOpen, revealing .tune-pop.
             var caretButton = page.Locator("button.af-caret[aria-label='Tune auto-fill']");
             await Assertions.Expect(caretButton).ToBeVisibleAsync();
@@ -94,9 +116,34 @@ public sealed class PlanningSettingsJourneyTests(AppHostFixture appHost) : IAsyn
             var tunePop = page.Locator(".tune-pop");
             await Assertions.Expect(tunePop).ToBeVisibleAsync();
 
-            // Set the weekly budget to 50 WITHOUT clicking Generate.
-            // The budget number input has @@change="persistSettings(...)" which posts
-            // ?handler=SetPlanningSettings when the value changes.
+            await Assertions.Expect(page.Locator("#plan-bar-autofill"))
+                .ToHaveAttributeAsync("data-plan-tune-override", "false");
+            await AssertWeightsAsync(tunePop, "40", "30", "30");
+
+            // Move Waste to 50 WITHOUT clicking Generate. The other two buckets rebalance to 25/25.
+            var wasteSlider = tunePop.Locator("input[type='range']").Nth(0);
+            await page.RunAndWaitForResponseAsync(
+                async () =>
+                {
+                    await wasteSlider.FillAsync("50");
+                    await wasteSlider.PressAsync("Tab");
+                },
+                r => r.Url.Contains("handler=SetPlanningSettings") && r.Status == 200);
+
+            // The OOB response must replace the component with the server-resolved override.
+            await Assertions.Expect(page.Locator("#plan-bar-autofill"))
+                .ToHaveAttributeAsync("data-plan-tune-override", "true");
+            await AssertWeightsAsync(page.Locator("#plan-bar-autofill .tune-pop"), "50", "25", "25");
+
+            // Reopen after the OOB replacement and verify the visible override explanation.
+            await page.Locator("button.af-caret[aria-label='Tune auto-fill']").ClickAsync();
+            await Assertions.Expect(page.Locator("#plan-bar-autofill .tune-pop")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator("#plan-bar-autofill .tune-pop"))
+                .ToContainTextAsync("Using priorities saved for this week");
+            await AssertWeightsAsync(page.Locator("#plan-bar-autofill .tune-pop"), "50", "25", "25");
+
+            // Keep the existing budget journey in this same end-to-end regression: changing the
+            // weekly budget also persists through the same OOB path.
             var budgetInput = page.Locator(".tune-budget input[type='number']");
             await Assertions.Expect(budgetInput).ToBeVisibleAsync();
             await budgetInput.FillAsync("50");
@@ -107,10 +154,13 @@ public sealed class PlanningSettingsJourneyTests(AppHostFixture appHost) : IAsyn
                 async () => await budgetInput.PressAsync("Tab"),
                 r => r.Url.Contains("handler=SetPlanningSettings") && r.Status == 200);
 
-            // ── 4. Assert #plan-cost-chip is still present after SetPlanningSettings ─
+            // ── 5. Assert #plan-cost-chip and the week override survive settings OOB ─
             await Assertions.Expect(page.Locator("#plan-cost-chip")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator("#plan-bar-autofill"))
+                .ToHaveAttributeAsync("data-plan-tune-override", "true");
+            await AssertWeightsAsync(page.Locator("#plan-bar-autofill .tune-pop"), "50", "25", "25");
 
-            // ── 5. Cell op: assign a note to the first empty cell ────────────────
+            // ── 6. Cell op: assign a note to the first empty cell ────────────────
             // This triggers the AssignJson handler which re-emits the OOB rail + bar.
             // The budget chip must survive this OOB refresh (via island DOM swap).
 
@@ -181,8 +231,30 @@ public sealed class PlanningSettingsJourneyTests(AppHostFixture appHost) : IAsyn
 
             // Budget chip must still be present after the OOB bar refresh from Assign
             await Assertions.Expect(page.Locator("#plan-cost-chip")).ToBeVisibleAsync();
+            await Assertions.Expect(page.Locator("#plan-bar-autofill"))
+                .ToHaveAttributeAsync("data-plan-tune-override", "true");
+            await AssertWeightsAsync(page.Locator("#plan-bar-autofill .tune-pop"), "50", "25", "25");
 
-            // ── 6. Navigate away (to Recipes) and back ────────────────────────────
+            // ── 7. Adjacent week falls back to household defaults ─────────────────
+            var nextWeekButton = page.Locator("button.wknav-btn[aria-label='Next week']");
+            await page.RunAndWaitForResponseAsync(
+                () => nextWeekButton.ClickAsync(),
+                r => r.Url.Contains("handler=Grid") && r.Status == 200);
+
+            await Assertions.Expect(page.Locator("#plan-bar-autofill"))
+                .ToHaveAttributeAsync("data-plan-tune-override", "false");
+            await AssertWeightsAsync(page.Locator("#plan-bar-autofill .tune-pop"), "40", "30", "30");
+
+            var previousWeekButton = page.Locator("button.wknav-btn[aria-label='Previous week']");
+            await page.RunAndWaitForResponseAsync(
+                () => previousWeekButton.ClickAsync(),
+                r => r.Url.Contains("handler=Grid") && r.Status == 200);
+
+            await Assertions.Expect(page.Locator("#plan-bar-autofill"))
+                .ToHaveAttributeAsync("data-plan-tune-override", "true");
+            await AssertWeightsAsync(page.Locator("#plan-bar-autofill .tune-pop"), "50", "25", "25");
+
+            // ── 8. Navigate away (to Recipes) and back ─────────────────────────────
             await page.GetByRole(AriaRole.Link, new() { Name = "Recipes" }).First.ClickAsync();
             await page.WaitForURLAsync("**/Recipes**");
 
@@ -198,13 +270,17 @@ public sealed class PlanningSettingsJourneyTests(AppHostFixture appHost) : IAsyn
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
             await Assertions.Expect(page.Locator("#plan-cost-chip")).ToBeVisibleAsync();
 
-            // ── 8. Open popover and confirm budget reflects persisted value ($50) ─
-            // This verifies FIX-2: __planTuneCfg.budget is seeded from the persisted
-            // WeekBudgetTarget so the Alpine component initialises budget=50, not 0.
+            // Open popover and confirm both persisted budget and week override weights reflect
+            // server truth after the hard reload.
             var caretButton2 = page.Locator("button.af-caret[aria-label='Tune auto-fill']");
             await caretButton2.ClickAsync();
             var tunePop2 = page.Locator(".tune-pop");
             await Assertions.Expect(tunePop2).ToBeVisibleAsync();
+
+            await Assertions.Expect(page.Locator("#plan-bar-autofill"))
+                .ToHaveAttributeAsync("data-plan-tune-override", "true");
+            await Assertions.Expect(tunePop2).ToContainTextAsync("Using priorities saved for this week");
+            await AssertWeightsAsync(tunePop2, "50", "25", "25");
 
             var budgetInput2 = page.Locator(".tune-budget input[type='number']");
             await Assertions.Expect(budgetInput2).ToBeVisibleAsync();
@@ -216,5 +292,13 @@ public sealed class PlanningSettingsJourneyTests(AppHostFixture appHost) : IAsyn
         {
             await context.Tracing.StopAsync(new() { Path = "trace-planning-settings-journey.zip" });
         }
+    }
+
+    private static async Task AssertWeightsAsync(ILocator popover, string waste, string cost, string variety)
+    {
+        var sliders = popover.Locator("input[type='range']");
+        await Assertions.Expect(sliders.Nth(0)).ToHaveValueAsync(waste);
+        await Assertions.Expect(sliders.Nth(1)).ToHaveValueAsync(cost);
+        await Assertions.Expect(sliders.Nth(2)).ToHaveValueAsync(variety);
     }
 }

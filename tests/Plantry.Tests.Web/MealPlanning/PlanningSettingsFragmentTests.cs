@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Planning.Domain;
 using Plantry.SharedKernel;
 using Plantry.Tests.Web.Infrastructure;
+using System.Text.Json;
 
 namespace Plantry.Tests.Web.MealPlanning;
 
@@ -134,6 +135,77 @@ public sealed class PlanningSettingsFragmentTests
         OobContract.AssertCarriesProjections(html, "plan-bar-nav", "plan-cost-chip", "plan-bar-autofill");
         Assert.Contains("wkgrid", html, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact(DisplayName = "L4: plan-bar OOB carries resolved household weights, week override state, and adjacent-week fallback")]
+    public async Task PlanBarOob_CarriesResolvedWeightsAndOverrideState()
+    {
+        var householdWeights = new PlanningWeights(40, 35, 25);
+        var weekWeights = new PlanningWeights(50, 25, 25);
+        await using var factory = new ResolvedPlanningSettingsFactory(householdWeights);
+        var client = MakeClient(factory);
+
+        var today = DateOnly.FromDateTime(MealPlanningTestClock.Instant.UtcDateTime);
+        var monday = MealPlan.NormalizeToMonday(today);
+        var adjacentMonday = monday.AddDays(7);
+
+        var initialResponse = await client.GetAsync($"/MealPlan?week={monday:yyyy-MM-dd}");
+        initialResponse.EnsureSuccessStatusCode();
+        var initialHtml = await initialResponse.Content.ReadAsStringAsync();
+        var initialDoc = await _parser.ParseDocumentAsync(initialHtml);
+        var token = initialDoc.QuerySelector("input[name='__RequestVerificationToken']")?.GetAttribute("value");
+        Assert.False(string.IsNullOrWhiteSpace(token));
+
+        AssertPlanTuneProjection(initialHtml, householdWeights, hasWeekOverride: false);
+
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = token!,
+            ["week"] = monday.ToString("yyyy-MM-dd"),
+            ["wasteWeight"] = weekWeights.Waste.ToString(),
+            ["costWeight"] = weekWeights.Cost.ToString(),
+            ["varietyWeight"] = weekWeights.Variety.ToString(),
+        });
+
+        var overrideResponse = await client.PostAsync("/MealPlan?handler=SetPlanningSettings", form);
+        overrideResponse.EnsureSuccessStatusCode();
+        var overrideHtml = await overrideResponse.Content.ReadAsStringAsync();
+        AssertPlanTuneProjection(overrideHtml, weekWeights, hasWeekOverride: true);
+
+        var adjacentResponse = await client.GetAsync($"/MealPlan?handler=Grid&week={adjacentMonday:yyyy-MM-dd}");
+        adjacentResponse.EnsureSuccessStatusCode();
+        var adjacentHtml = await adjacentResponse.Content.ReadAsStringAsync();
+        AssertPlanTuneProjection(adjacentHtml, householdWeights, hasWeekOverride: false);
+    }
+
+    private static void AssertPlanTuneProjection(string html, PlanningWeights expected, bool hasWeekOverride)
+    {
+        var doc = _parser.ParseDocument(html);
+        var host = doc.QuerySelector("#plan-bar-autofill");
+        Assert.NotNull(host);
+        Assert.Equal(hasWeekOverride ? "true" : "false", host!.GetAttribute("data-plan-tune-override"));
+
+        var component = host.QuerySelector("[x-data^='planTune(']");
+        Assert.NotNull(component);
+        var xData = component!.GetAttribute("x-data");
+        Assert.NotNull(xData);
+        const string prefix = "planTune(";
+        Assert.StartsWith(prefix, xData!, StringComparison.Ordinal);
+        using var config = JsonDocument.Parse(xData![prefix.Length..^1]);
+        var buckets = config.RootElement.GetProperty("buckets");
+
+        Assert.Equal(expected.Waste, FindBucketWeight(buckets, "waste"));
+        Assert.Equal(expected.Cost, FindBucketWeight(buckets, "cost"));
+        Assert.Equal(expected.Variety, FindBucketWeight(buckets, "variety"));
+
+        if (hasWeekOverride)
+            Assert.Contains("Using priorities saved for this week", host.TextContent);
+    }
+
+    private static int FindBucketWeight(JsonElement buckets, string key) =>
+        buckets.EnumerateArray()
+            .Single(bucket => bucket.GetProperty("key").GetString() == key)
+            .GetProperty("defaultWeight")
+            .GetInt32();
 }
 
 // ── Factories ─────────────────────────────────────────────────────────────────
@@ -197,6 +269,27 @@ public sealed class SetPlanningSettingsFactory : MealPlanFragmentFactory
     }
 }
 
+/// <summary>
+/// Factory for the resolved-weight OOB contract. It supplies a household default and keeps week
+/// overrides keyed by week so the test can prove that navigation does not leak one week's values.
+/// </summary>
+public sealed class ResolvedPlanningSettingsFactory : MealPlanFragmentFactory
+{
+    private readonly HouseholdPlanningSettings _settings;
+    private readonly MutableWeekOverrideRepo _overrideRepo = new();
+
+    public ResolvedPlanningSettingsFactory(PlanningWeights householdWeights)
+    {
+        _settings = HouseholdPlanningSettings.Create(HouseholdId.From(WeekGridFixture.HouseholdId));
+        _settings.SetDefaults(budget: null, weights: householdWeights);
+    }
+
+    protected override IHouseholdPlanningSettingsRepository PlanningSettingsRepo =>
+        new SeededPlanningSettingsRepo(_settings);
+
+    protected override IWeekPlanningOverrideRepository WeekOverrideRepo => _overrideRepo;
+}
+
 // ── Repo stubs for L4 ─────────────────────────────────────────────────────────
 
 internal sealed class SeededPlanningSettingsRepo(HouseholdPlanningSettings? seeded) : IHouseholdPlanningSettingsRepository
@@ -226,14 +319,14 @@ internal sealed class MutablePlanningSettingsRepo : IHouseholdPlanningSettingsRe
 
 internal sealed class MutableWeekOverrideRepo : IWeekPlanningOverrideRepository
 {
-    private WeekPlanningOverride? _stored;
+    private readonly Dictionary<(Guid HouseholdId, DateOnly WeekStart), WeekPlanningOverride> _stored = [];
 
     public Task<WeekPlanningOverride?> FindAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default)
-        => Task.FromResult(_stored);
+        => Task.FromResult(_stored.GetValueOrDefault((householdId.Value, weekStart)));
 
     public Task AddAsync(WeekPlanningOverride weekOverride, CancellationToken ct = default)
     {
-        _stored = weekOverride;
+        _stored[(weekOverride.HouseholdId.Value, weekOverride.WeekStart)] = weekOverride;
         return Task.CompletedTask;
     }
 
