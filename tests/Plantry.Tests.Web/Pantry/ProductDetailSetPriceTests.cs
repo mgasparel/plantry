@@ -286,16 +286,23 @@ internal sealed class FakeSingleUnitRepository(CatalogUnit unit) : IUnitReposito
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
-internal sealed class FakeCatalogReadFacade(Guid productId, CatalogUnit unit) : ICatalogReadFacade
+internal sealed class FakeCatalogReadFacade(
+    Guid productId,
+    CatalogUnit unit,
+    Guid? defaultUnitId = null,
+    bool productExists = true) : ICatalogReadFacade
 {
+    private CatalogProductInfo ProductInfo =>
+        new(productId, "Test Product", "Pantry", defaultUnitId ?? unit.Id.Value, unit.Code, CanHoldStock: true);
+
     public Task<CatalogProductInfo?> FindProductAsync(Guid id, CancellationToken ct = default) =>
-        Task.FromResult<CatalogProductInfo?>(id == productId
-            ? new CatalogProductInfo(productId, "Test Product", "Pantry", unit.Id.Value, unit.Code, CanHoldStock: true)
+        Task.FromResult<CatalogProductInfo?>(id == productId && productExists
+            ? ProductInfo
             : null);
 
     public Task<IReadOnlyList<CatalogProductInfo>> ListProductsAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogProductInfo>>(
-            [new CatalogProductInfo(productId, "Test Product", "Pantry", unit.Id.Value, unit.Code, CanHoldStock: true)]);
+            productExists ? [ProductInfo] : []);
 
     public Task<IReadOnlyDictionary<Guid, string>> GetUnitCodesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string> { [unit.Id.Value] = unit.Code });

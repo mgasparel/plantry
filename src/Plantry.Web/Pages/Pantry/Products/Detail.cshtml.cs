@@ -821,16 +821,30 @@ public sealed class DetailModel(
             return null;
 
         string currency = "";
-        decimal? medianUnitPrice = null;
+        decimal? displayMedianUnitPrice = null;
+        string? displayMedianUnitCode = null;
         if (showPriceHistory)
         {
             currency = await displayCurrency.GetAsync();
-            medianUnitPrice = PriceHistoryStats.Median(priceHistory);
+            if (PriceHistoryStats.Median(priceHistory) is { } normalizedMedian)
+            {
+                var product = await catalog.FindProductAsync(productId);
+                if (product is not null)
+                {
+                    var unit = await units.FindAsync(UnitId.From(product.DefaultUnitId));
+                    if (unit is { FactorToBase: > 0 } && !string.IsNullOrWhiteSpace(unit.Code))
+                    {
+                        displayMedianUnitPrice = normalizedMedian * unit.FactorToBase;
+                        displayMedianUnitCode = unit.Code;
+                    }
+                }
+            }
         }
 
         return new StatsPanelViewModel(
             showPriceHistory ? priceHistory : [],
-            medianUnitPrice,
+            displayMedianUnitPrice,
+            displayMedianUnitCode,
             currency,
             consumption?.DaysOfSupply,
             consumption?.WasteRate);
@@ -1137,7 +1151,7 @@ public sealed record AmendSheetViewModel(
 /// <summary>
 /// View model for <c>_StatsPanel.cshtml</c> (plantry-fuej, stats-page-prototype.html appendix "Catalog /
 /// Pantry product detail" injection point). Price and consumption halves degrade independently:
-/// <see cref="PriceHistory"/> is empty (and <see cref="MedianUnitPrice"/>/<see cref="CurrencySymbol"/>
+/// <see cref="PriceHistory"/> is empty (and <see cref="DisplayMedianUnitPrice"/>/<see cref="DisplayMedianUnitCode"/>
 /// unused) when there aren't enough usable price points; <see cref="DaysOfSupply"/>/<see cref="WasteRate"/>
 /// are independently nullable per <see cref="ProductConsumptionStats"/>. <see cref="DetailModel.BuildStatsAsync"/>
 /// only produces this view model at all when at least one half has something to show.
@@ -1146,7 +1160,12 @@ public sealed record StatsPanelViewModel(
     /// <summary>Oldest-first price points; empty when there are fewer than
     /// <see cref="DetailModel.MinPricePointsForSparkline"/> usable observations.</summary>
     IReadOnlyList<PriceHistoryPoint> PriceHistory,
-    decimal? MedianUnitPrice,
+    /// <summary>The median of the normalized history converted to the product's resolved default unit.
+    /// Null when the history has enough points but the product/default unit cannot be resolved.</summary>
+    decimal? DisplayMedianUnitPrice,
+    /// <summary>The unit code paired with <see cref="DisplayMedianUnitPrice"/>. Null when that display
+    /// value cannot be resolved.</summary>
+    string? DisplayMedianUnitCode,
     /// <summary>The household's display-currency ISO code (plantry-2x6e.2), for <see cref="Plantry.Web.MoneyDisplay.Format(decimal, string)"/>.
     /// Empty string when <see cref="PriceHistory"/> is empty — never read in that case.</summary>
     string Currency,

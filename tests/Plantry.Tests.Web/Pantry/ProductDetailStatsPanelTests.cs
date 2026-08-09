@@ -28,18 +28,31 @@ public sealed class ProductDetailStatsPanelTests : IDisposable
 {
     private static readonly Guid HouseholdId = Guid.Parse("aaaaaaaa-1111-0000-0000-000000000001");
     private static readonly Plantry.SharedKernel.HouseholdId Household = Plantry.SharedKernel.HouseholdId.From(HouseholdId);
-    private static readonly IClock Clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+    internal static readonly IClock Clock = new FixedClock(new DateTimeOffset(2026, 3, 10, 12, 0, 0, TimeSpan.Zero));
     private static readonly Guid ProductId = Guid.Parse("bbbbbbbb-1111-0000-0000-bbb000000001");
     private static readonly Guid UnitId = Guid.Parse("cccccccc-1111-0000-0000-ccc000000001");
     private static readonly Guid UserId = Guid.Parse("dddddddd-1111-0000-0000-000000000aa1");
+    private static readonly DateTimeOffset OlderObservation = new(2026, 2, 8, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset RecentObservation = new(2026, 3, 9, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset CurrentObservation = new(2026, 3, 10, 12, 0, 0, TimeSpan.Zero);
 
     private ProductDetailStatsPanelFactory? _factory;
 
     public void Dispose() => _factory?.Dispose();
 
-    private HttpClient AuthClient(ProductStock stock, IReadOnlyList<PriceObservation> priceHistory)
+    private HttpClient AuthClient(
+        ProductStock stock,
+        IReadOnlyList<PriceObservation> priceHistory,
+        CatalogUnit? displayUnit = null,
+        Guid? catalogDefaultUnitId = null,
+        bool catalogProductExists = true)
     {
-        _factory = new ProductDetailStatsPanelFactory(stock, priceHistory);
+        _factory = new ProductDetailStatsPanelFactory(
+            stock,
+            priceHistory,
+            displayUnit ?? Unit(),
+            catalogDefaultUnitId,
+            catalogProductExists);
         var client = _factory.CreateClient(new() { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, HouseholdId.ToString());
         return client;
@@ -48,8 +61,11 @@ public sealed class ProductDetailStatsPanelTests : IDisposable
     private static CatalogUnit Unit() => CatalogUnit.Create(Household, "g", "Grams", Dimension.Mass, 1m, isBase: true);
 
     private static PriceObservation Purchase(decimal unitPrice, DateTimeOffset observedAt) =>
+        Purchase(unitPrice, unitPrice, observedAt);
+
+    private static PriceObservation Purchase(decimal price, decimal unitPrice, DateTimeOffset observedAt) =>
         PriceObservation.Record(
-            Household, ProductId, null, price: unitPrice, quantity: 1m, unitId: UnitId, unitPrice: unitPrice,
+            Household, ProductId, null, price: price, quantity: 1m, unitId: UnitId, unitPrice: unitPrice,
             source: PriceSource.Purchase, merchantText: "Superstore", sourceRef: Guid.CreateVersion7(),
             observedAt: observedAt, userId: UserId);
 
@@ -73,8 +89,8 @@ public sealed class ProductDetailStatsPanelTests : IDisposable
         stock.AddStock(100m, UnitId, Guid.CreateVersion7(), UserId, Clock);
         var priceHistory = new List<PriceObservation>
         {
-            Purchase(3.00m, DateTimeOffset.UtcNow.AddDays(-30)),
-            Purchase(5.00m, DateTimeOffset.UtcNow.AddDays(-1)),
+            Purchase(3.00m, OlderObservation),
+            Purchase(5.00m, RecentObservation),
         };
         var client = AuthClient(stock, priceHistory);
 
@@ -83,8 +99,74 @@ public sealed class ProductDetailStatsPanelTests : IDisposable
 
         Assert.Contains("catalog-section__heading\">Stats<", html, StringComparison.Ordinal);
         Assert.Contains("aria-label=\"Price history trend\"", html, StringComparison.Ordinal);
-        // Median of {3.00, 5.00} is 4.00.
-        Assert.Contains("4.00", html, StringComparison.Ordinal);
+        // Median of {3.00, 5.00} is 4.00, rendered per the configured base unit.
+        Assert.Contains("You pay <b>$4.00/g</b> median", html, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Detail GET — converts the normalized median to the product's non-base default unit")]
+    public async Task Get_RendersMedianConvertedToConfiguredDefaultUnit()
+    {
+        var pounds = CatalogUnit.Create(Household, "lb", "Pounds", Dimension.Mass, 453.592m);
+        var stock = ProductStock.Start(Household, ProductId, Clock);
+        stock.AddStock(100m, UnitId, Guid.CreateVersion7(), UserId, Clock);
+        var priceHistory = new List<PriceObservation>
+        {
+            Purchase(6.00m, 6.00m / pounds.FactorToBase, OlderObservation),
+            Purchase(6.99m, 6.99m / pounds.FactorToBase, new DateTimeOffset(2026, 2, 20, 12, 0, 0, TimeSpan.Zero)),
+            Purchase(7.49m, 7.49m / pounds.FactorToBase, RecentObservation),
+        };
+        var client = AuthClient(stock, priceHistory, pounds);
+
+        var html = await (await client.GetAsync($"/Pantry/Products/Detail/{ProductId}"))
+            .Content.ReadAsStringAsync();
+
+        Assert.Contains("aria-label=\"Price history trend\"", html, StringComparison.Ordinal);
+        Assert.Contains("You pay <b>$6.99/lb</b> median", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("$0.02", html, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Detail GET — omits the median when the configured default unit cannot be resolved")]
+    public async Task Get_OmitsMedianButKeepsSparkline_WhenDefaultUnitCannotBeResolved()
+    {
+        var unit = Unit();
+        var stock = ProductStock.Start(Household, ProductId, Clock);
+        stock.AddStock(1000m, UnitId, Guid.CreateVersion7(), UserId, Clock);
+        var converter = new IdentityQuantityConverter();
+        stock.Consume(90m, UnitId, StockReason.Consumed, converter, UserId, Clock);
+        stock.Consume(90m, UnitId, StockReason.Consumed, converter, UserId, Clock);
+        var missingUnitId = Guid.Parse("eeeeeeee-1111-0000-0000-eeeeeeee0001");
+        var client = AuthClient(
+            stock,
+            [Purchase(3.00m, OlderObservation), Purchase(5.00m, RecentObservation)],
+            unit,
+            catalogDefaultUnitId: missingUnitId);
+
+        var response = await client.GetAsync($"/Pantry/Products/Detail/{ProductId}");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("aria-label=\"Price history trend\"", html, StringComparison.Ordinal);
+        Assert.Contains("days of supply left", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(" median", html, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Detail GET — omits the median when the catalog product cannot be resolved")]
+    public async Task Get_OmitsMedianButKeepsSparkline_WhenCatalogProductCannotBeResolved()
+    {
+        var stock = ProductStock.Start(Household, ProductId, Clock);
+        stock.AddStock(100m, UnitId, Guid.CreateVersion7(), UserId, Clock);
+        var client = AuthClient(
+            stock,
+            [Purchase(3.00m, OlderObservation), Purchase(5.00m, RecentObservation)],
+            Unit(),
+            catalogProductExists: false);
+
+        var response = await client.GetAsync($"/Pantry/Products/Detail/{ProductId}");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("aria-label=\"Price history trend\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(" median", html, StringComparison.Ordinal);
     }
 
     [Fact(DisplayName = "Detail GET — omits the sparkline with only a single usable price point, but a single point still doesn't crash the page")]
@@ -92,7 +174,7 @@ public sealed class ProductDetailStatsPanelTests : IDisposable
     {
         var stock = ProductStock.Start(Household, ProductId, Clock);
         stock.AddStock(100m, UnitId, Guid.CreateVersion7(), UserId, Clock);
-        var client = AuthClient(stock, [Purchase(3.00m, DateTimeOffset.UtcNow)]);
+        var client = AuthClient(stock, [Purchase(3.00m, CurrentObservation)]);
 
         var response = await client.GetAsync($"/Pantry/Products/Detail/{ProductId}");
         var html = await response.Content.ReadAsStringAsync();
@@ -121,7 +203,12 @@ public sealed class ProductDetailStatsPanelTests : IDisposable
     }
 }
 
-internal sealed class ProductDetailStatsPanelFactory(ProductStock stock, IReadOnlyList<PriceObservation> priceHistory)
+internal sealed class ProductDetailStatsPanelFactory(
+    ProductStock stock,
+    IReadOnlyList<PriceObservation> priceHistory,
+    CatalogUnit displayUnit,
+    Guid? catalogDefaultUnitId,
+    bool catalogProductExists)
     : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -138,14 +225,18 @@ internal sealed class ProductDetailStatsPanelFactory(ProductStock stock, IReadOn
                 })
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
 
-            var unit = CatalogUnit.Create(
-                Plantry.SharedKernel.HouseholdId.From(ProductDetailStatsPanelTestsHousehold), "g", "Grams", Dimension.Mass, 1m, isBase: true);
+            services.RemoveAll<IClock>();
+            services.AddSingleton(ProductDetailStatsPanelTests.Clock);
 
             services.RemoveAll<IUnitRepository>();
-            services.AddSingleton<IUnitRepository>(new FakeSingleUnitRepository(unit));
+            services.AddSingleton<IUnitRepository>(new FakeSingleUnitRepository(displayUnit));
 
             services.RemoveAll<ICatalogReadFacade>();
-            services.AddSingleton<ICatalogReadFacade>(new FakeCatalogReadFacade(ProductDetailStatsPanelTestsProductId, unit));
+            services.AddSingleton<ICatalogReadFacade>(new FakeCatalogReadFacade(
+                ProductDetailStatsPanelTestsProductId,
+                displayUnit,
+                catalogDefaultUnitId,
+                catalogProductExists));
 
             var stockRepo = new FakeDetailStockRepository();
             stockRepo.Items.Add(stock);
