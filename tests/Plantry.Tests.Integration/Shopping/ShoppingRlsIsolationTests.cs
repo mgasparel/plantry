@@ -78,7 +78,7 @@ public sealed class ShoppingRlsIsolationTests(PostgresFixture db) : IAsyncLifeti
         tenant.Set(_householdA.Value);
 
         var opts = BuildShoppingOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var ctx = new ShoppingDbContext(opts);
+        await using var ctx = new PlanningDbContext(opts);
 
         var lists = await ctx.ShoppingLists.IgnoreQueryFilters().ToListAsync();
 
@@ -93,7 +93,7 @@ public sealed class ShoppingRlsIsolationTests(PostgresFixture db) : IAsyncLifeti
         var tenant = new TenantContext(); // never set
 
         var opts = BuildShoppingOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var ctx = new ShoppingDbContext(opts);
+        await using var ctx = new PlanningDbContext(opts);
 
         var lists = await ctx.ShoppingLists.IgnoreQueryFilters().ToListAsync();
 
@@ -147,20 +147,20 @@ public sealed class ShoppingRlsIsolationTests(PostgresFixture db) : IAsyncLifeti
         Assert.DoesNotContain(seenIds, id => id == forbiddenHouseholdId);
     }
 
-    private DbContextOptions<ShoppingDbContext> ShoppingOptions() =>
-        new DbContextOptionsBuilder<ShoppingDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> ShoppingOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private static DbContextOptions<ShoppingDbContext> BuildShoppingOptions(
+    private static DbContextOptions<PlanningDbContext> BuildShoppingOptions(
         string connStr, IInterceptor? interceptor = null)
     {
-        var builder = new DbContextOptionsBuilder<ShoppingDbContext>().UseNpgsql(connStr);
+        var builder = new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(connStr);
         if (interceptor is not null) builder.AddInterceptors(interceptor);
         return builder.Options;
     }
 
-    private ShoppingDbContext NewShoppingDb(HouseholdId household)
+    private PlanningDbContext NewShoppingDb(HouseholdId household)
     {
-        var ctx = new ShoppingDbContext(ShoppingOptions());
+        var ctx = new PlanningDbContext(ShoppingOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

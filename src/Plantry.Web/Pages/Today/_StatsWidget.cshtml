@@ -1,0 +1,31 @@
+@using Plantry.Web.Pages.Today
+@model IndexModel
+
+@* Today stats widget (plantry-h9z9, stats-page-prototype.html appendix "Today" injection point):
+   one rotating "did you know" fact plus the household's streak chips. Only rendered by Index.cshtml
+   when !IsColdStart, and TodayStats is always populated in that case (TodayStatsService never returns
+   null — see TodayStatsVm's doc comment) — so no empty/onboard state is needed here, unlike
+   _ExpiringWidget's three-state shape. Deliberately a single small card, never a dashboard takeover:
+   one fact line + a chip row, both reusing existing primitives (.today-cta__sub, .chip-row/.chip-stat)
+   with no new CSS beyond the shared .chip-row wrapper.
+
+   No footer link to /Stats: that route belongs to plantry-zjsu (Stats dashboard page), which is not
+   built yet — see the comment thread on plantry-h9z9/plantry-zjsu. Re-add a "See your stats" footer
+   link here once /Stats exists. *@
+<div class="today-widget" id="today-stats-widget">
+    <div class="today-widget__head">
+        <h3>Did you know?</h3>
+    </div>
+    <div class="today-widget__body">
+        <p class="today-cta__sub">@Model.TodayStats!.RotatingFactText</p>
+        @if (Model.TodayStats.StreakChips.Count > 0)
+        {
+            <div class="chip-row">
+                @foreach (var chip in Model.TodayStats.StreakChips)
+                {
+                    <span class="chip-stat">@chip.Icon <b>@chip.Value</b> @chip.Label</span>
+                }
+            </div>
+        }
+    </div>
+</div>

@@ -104,6 +104,14 @@ public sealed class DetailModel(
     public string PriceDisplayText { get; private set; } = "No price recorded yet";
 
     /// <summary>
+    /// The product-detail stats injection (plantry-fuej, stats-page-prototype.html appendix): price
+    /// history sparkline + median, days-of-supply at current velocity, and waste rate. Null when the
+    /// product has neither usable price history nor consumption/discard history — <c>_StatsPanel</c>
+    /// renders nothing at all in that case rather than an empty card (degrade gracefully).
+    /// </summary>
+    public StatsPanelViewModel? Stats { get; private set; }
+
+    /// <summary>
     /// Resolved provenance chips (receipt-intake-history.md H11) for <see cref="Detail"/>'s History rows,
     /// keyed by <see cref="StockJournalRow.JournalId"/>. Only Intake/Cook rows are offered to the reader —
     /// Manual rows keep today's plain text unconditionally. A row absent from this dictionary (unresolved,
@@ -256,6 +264,10 @@ public sealed class DetailModel(
         PriceDisplayText = await BuildPriceDisplayAsync(id);
         RecipeUsages = await recipeUsages.ExecuteAsync(id);
         ExpiringSoonDays = await expiringSoonHorizon.GetDaysAsync();
+        // Read-only injection (plantry-fuej) — like RecipeUsages above, loaded once on the initial GET;
+        // no Consume/Discard/Threshold/Price mutation on this page needs to refresh it, so none of the
+        // OOB partial-reload handlers below recompute it.
+        Stats = await BuildStatsAsync(id);
         return Page();
     }
 
@@ -786,6 +798,44 @@ public sealed class DetailModel(
         return Partial("_PriceDisplay", new PriceDisplayPartialModel(id, priceText, Oob: true));
     }
 
+    /// <summary>Minimum usable price-history points before the sparkline+median render (plantry-fuej
+    /// "render only rows with enough data" — a single point has no trend to plot and no meaningful
+    /// median).</summary>
+    internal const int MinPricePointsForSparkline = 2;
+
+    /// <summary>
+    /// Builds the stats-injection view model (plantry-fuej) — price sparkline/median from Market and
+    /// days-of-supply/waste-rate from this page's own <see cref="InventoryQueryService"/>, each degrading
+    /// independently: a product can have priced history but no consumption yet (freshly stocked), or
+    /// consumption history but no recorded price (a gifted/homemade item), or neither. Returns null only
+    /// when NEITHER half has anything to show, so <c>_StatsPanel</c> can render nothing at all rather than
+    /// an empty card.
+    /// </summary>
+    private async Task<StatsPanelViewModel?> BuildStatsAsync(Guid productId)
+    {
+        var priceHistory = await pricingQueries.PriceHistoryAsync(productId);
+        var consumption = await queries.GetConsumptionStatsAsync(productId);
+
+        var showPriceHistory = priceHistory.Count >= MinPricePointsForSparkline;
+        if (!showPriceHistory && consumption is null)
+            return null;
+
+        string currency = "";
+        decimal? medianUnitPrice = null;
+        if (showPriceHistory)
+        {
+            currency = await displayCurrency.GetAsync();
+            medianUnitPrice = PriceHistoryStats.Median(priceHistory);
+        }
+
+        return new StatsPanelViewModel(
+            showPriceHistory ? priceHistory : [],
+            medianUnitPrice,
+            currency,
+            consumption?.DaysOfSupply,
+            consumption?.WasteRate);
+    }
+
     /// <summary>Resolves the current effective price the same way <c>CostingService</c> would
     /// (<see cref="PricingQueries.EffectivePriceAsync"/> — cheapest active deal, else latest
     /// purchase/manual observation), rendered as "£3.99 for 500 g". Null when nothing has ever
@@ -1083,3 +1133,67 @@ public sealed record AmendSheetViewModel(
     /// <summary>The household's display-currency symbol (plantry-2x6e.2) — the preview never hardcodes a
     /// dollar glyph.</summary>
     string CurrencySymbol);
+
+/// <summary>
+/// View model for <c>_StatsPanel.cshtml</c> (plantry-fuej, stats-page-prototype.html appendix "Catalog /
+/// Pantry product detail" injection point). Price and consumption halves degrade independently:
+/// <see cref="PriceHistory"/> is empty (and <see cref="MedianUnitPrice"/>/<see cref="CurrencySymbol"/>
+/// unused) when there aren't enough usable price points; <see cref="DaysOfSupply"/>/<see cref="WasteRate"/>
+/// are independently nullable per <see cref="ProductConsumptionStats"/>. <see cref="DetailModel.BuildStatsAsync"/>
+/// only produces this view model at all when at least one half has something to show.
+/// </summary>
+public sealed record StatsPanelViewModel(
+    /// <summary>Oldest-first price points; empty when there are fewer than
+    /// <see cref="DetailModel.MinPricePointsForSparkline"/> usable observations.</summary>
+    IReadOnlyList<PriceHistoryPoint> PriceHistory,
+    decimal? MedianUnitPrice,
+    /// <summary>The household's display-currency ISO code (plantry-2x6e.2), for <see cref="Plantry.Web.MoneyDisplay.Format(decimal, string)"/>.
+    /// Empty string when <see cref="PriceHistory"/> is empty — never read in that case.</summary>
+    string Currency,
+    decimal? DaysOfSupply,
+    decimal? WasteRate);
+
+/// <summary>
+/// Turns an ordered <see cref="PriceHistoryPoint"/> series into an SVG <c>&lt;polyline&gt;</c> points
+/// attribute (plantry-fuej) — min/max-scaled into a fixed <see cref="Width"/>×<see cref="Height"/>
+/// viewBox with a small vertical pad so an extreme point never touches the SVG's edge, mirroring
+/// stats-page-prototype.html's mini-spark demo. Internal + pure so it is unit-testable without a page
+/// render (mirrors <see cref="DetailModel.FormatRelativeWhen"/>'s testing posture).
+/// </summary>
+internal static class PriceSparkline
+{
+    public const int Width = 90;
+    public const int Height = 22;
+
+    /// <summary>Vertical inset (px) from the top/bottom edges — keeps a flat-line series centred rather
+    /// than pinned to the bottom, and a min/max point from touching the viewBox boundary.</summary>
+    private const decimal VerticalPad = 3m;
+
+    /// <summary>Empty string when there are fewer than two points — a single point has no line to draw.</summary>
+    public static string BuildPoints(IReadOnlyList<PriceHistoryPoint> points)
+    {
+        if (points.Count < 2)
+            return "";
+
+        var min = points.Min(p => p.UnitPrice);
+        var max = points.Max(p => p.UnitPrice);
+        var range = max - min;
+        var stepX = (decimal)Width / (points.Count - 1);
+        var plotHeight = Height - 2 * VerticalPad;
+
+        var coords = new string[points.Count];
+        for (var i = 0; i < points.Count; i++)
+        {
+            var x = i * stepX;
+            // range == 0 (every price identical) draws a flat line through the vertical centre rather
+            // than dividing by zero.
+            var normalized = range == 0m ? 0.5m : (points[i].UnitPrice - min) / range;
+            // SVG y grows downward — a higher price must plot HIGHER on screen (smaller y), so the
+            // normalized fraction is subtracted from the bottom rather than added to the top.
+            var y = Height - VerticalPad - normalized * plotHeight;
+            coords[i] = $"{x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}," +
+                        $"{y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}";
+        }
+        return string.Join(" ", coords);
+    }
+}

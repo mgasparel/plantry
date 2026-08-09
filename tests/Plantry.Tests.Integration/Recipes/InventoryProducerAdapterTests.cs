@@ -489,18 +489,18 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
         return recipe.Id;
     }
 
-    private InventoryDbContext NewInventoryDb(HouseholdId household)
+    private PantryDbContext NewInventoryDb(HouseholdId household)
     {
-        var ctx = new InventoryDbContext(
-            new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new PantryDbContext(
+            new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }
 
-    private CatalogDbContext NewCatalogDb(HouseholdId household)
+    private PantryDbContext NewCatalogDb(HouseholdId household)
     {
-        var ctx = new CatalogDbContext(
-            new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new PantryDbContext(
+            new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

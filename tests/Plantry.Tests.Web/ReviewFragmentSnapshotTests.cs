@@ -28,15 +28,26 @@ public sealed class ReviewFragmentSnapshotTests(ReviewFragmentFactory factory)
         var response = await client.GetAsync($"/Intake/Review/{factory.SessionAId}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
+        return ExtractHydrationDocument(body);
+    }
 
+    /// <summary>Scrapes and parses the review island's hydration JSON out of a rendered page. The single
+    /// shared copy of the regex-and-parse — <see cref="ReviewPriceDeltaTests"/> reuses it via
+    /// <see cref="ExtractHydrationRoot"/> rather than keeping its own.</summary>
+    internal static JsonDocument ExtractHydrationDocument(string html)
+    {
         var match = System.Text.RegularExpressions.Regex.Match(
-            body, "<script type=\"application/json\" id=\"review-island-data\">(.*?)</script>",
+            html, "<script type=\"application/json\" id=\"review-island-data\">(.*?)</script>",
             System.Text.RegularExpressions.RegexOptions.Singleline);
         Assert.True(match.Success, "Hydration script element not found on review page.");
         return JsonDocument.Parse(match.Groups[1].Value.Trim());
     }
 
-    private JsonElement FindLine(JsonElement linesArray, string receiptText)
+    /// <inheritdoc cref="ExtractHydrationDocument"/>
+    internal static JsonElement ExtractHydrationRoot(string html) =>
+        ExtractHydrationDocument(html).RootElement;
+
+    internal static JsonElement FindLine(JsonElement linesArray, string receiptText)
     {
         foreach (var item in linesArray.EnumerateArray())
         {

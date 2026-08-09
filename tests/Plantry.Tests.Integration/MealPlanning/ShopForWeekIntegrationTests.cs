@@ -363,7 +363,7 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
 
     private async Task SeedSlotConfigAsync()
     {
-        await using var ctx = new MealPlanningDbContext(MealPlanningOptions());
+        await using var ctx = new PlanningDbContext(MealPlanningOptions());
         var configId = Guid.NewGuid();
         // Insert via raw SQL to bypass query filter (EF filter requires household to be set,
         // but seed operations use the superuser connection which bypasses RLS).
@@ -378,22 +378,22 @@ public sealed class ShopForWeekIntegrationTests(PostgresFixture db) : IAsyncLife
             configId, _household.Value, _slotId.Value);
     }
 
-    private DbContextOptions<MealPlanningDbContext> MealPlanningOptions() =>
-        new DbContextOptionsBuilder<MealPlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> MealPlanningOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private MealPlanningDbContext NewMealPlanningDb()
+    private PlanningDbContext NewMealPlanningDb()
     {
-        var ctx = new MealPlanningDbContext(MealPlanningOptions());
+        var ctx = new PlanningDbContext(MealPlanningOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }
 
-    private DbContextOptions<ShoppingDbContext> ShoppingOptions() =>
-        new DbContextOptionsBuilder<ShoppingDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> ShoppingOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private ShoppingDbContext NewShoppingDb()
+    private PlanningDbContext NewShoppingDb()
     {
-        var ctx = new ShoppingDbContext(ShoppingOptions());
+        var ctx = new PlanningDbContext(ShoppingOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

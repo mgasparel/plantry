@@ -14,7 +14,7 @@ namespace Plantry.Web.Tenancy;
 /// to both layers of household isolation:
 ///   1. <see cref="TenantContext"/>, which the RLS connection interceptor reads to set the
 ///      Postgres <c>app.household_id</c> session GUC on the live connection (database backstop).
-///   2. <see cref="CatalogDbContext.SetHouseholdId"/>, which feeds the EF query filter (app layer).
+///   2. <see cref="PantryDbContext.SetHouseholdId"/>, which feeds the EF query filter (app layer).
 /// Both must be live for defense-in-depth; relying on either alone is a tenant-isolation bug.
 ///
 /// CRITICAL: Every bounded-context DbContext must be registered here (the known P2-0 / P3-0 gotcha).
@@ -24,9 +24,9 @@ namespace Plantry.Web.Tenancy;
 public sealed class RlsMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(
-        HttpContext context, TenantContext tenant, CatalogDbContext catalogDb,
-        PlantryIdentityDbContext identityDb, InventoryDbContext inventoryDb, IntakeDbContext intakeDb,
-        RecipesDbContext recipesDb, ShoppingDbContext shoppingDb, MealPlanningDbContext mealPlanningDb,
+        HttpContext context, TenantContext tenant, PantryDbContext pantryDb,
+        PlantryIdentityDbContext identityDb, IntakeDbContext intakeDb,
+        RecipesDbContext recipesDb, PlanningDbContext planningDb,
         MarketDbContext marketDb, HousekeepingDbContext housekeepingDb)
     {
         if (context.User.Identity?.IsAuthenticated == true)
@@ -36,13 +36,11 @@ public sealed class RlsMiddleware(RequestDelegate next)
             {
                 var id = hid.Value.Value;
                 tenant.Set(id);                       // arms Postgres RLS via the connection interceptor
-                catalogDb.SetHouseholdId(id);         // feeds the Catalog EF query filter
+                pantryDb.SetHouseholdId(id);           // feeds the Pantry (catalog + inventory) EF query filter (plantry-g3da.10)
                 identityDb.SetHouseholdId(id);        // feeds the Household EF query filter
-                inventoryDb.SetHouseholdId(id);       // feeds the Inventory EF query filter
                 intakeDb.SetHouseholdId(id);          // feeds the Intake EF query filter
                 recipesDb.SetHouseholdId(id);         // feeds the Recipes EF query filter
-                shoppingDb.SetHouseholdId(id);        // feeds the Shopping EF query filter
-                mealPlanningDb.SetHouseholdId(id);    // feeds the MealPlanning EF query filter
+                planningDb.SetHouseholdId(id);         // feeds the Planning (shopping + meal_planning) EF query filter
                 marketDb.SetHouseholdId(id);           // feeds the Market (pricing + deals) EF query filter (P5-0, plantry-g3da.7)
                 housekeepingDb.SetHouseholdId(id);    // feeds the Housekeeping EF query filter (tidy-up.md)
             }

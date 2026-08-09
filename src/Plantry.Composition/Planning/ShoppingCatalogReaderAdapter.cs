@@ -16,6 +16,27 @@ public sealed class ShoppingCatalogReaderAdapter(
     IUnitRepository units)
     : IShoppingCatalogReader
 {
+    // Per-request memoization (plantry-e016): this adapter is registered AddScoped, so caching across calls
+    // within one request is safe. ShoppingBasketCostingService.EstimateAsync calls TryConvertAsync once per
+    // unchecked line item — without this, every htmx mutation handler's RefreshListAsync (check-off, uncheck,
+    // edit-qty, add, delete, recategorize) would re-issue a full units table scan and a per-product lookup for
+    // every uncertain-unit line, on the app's most-touched flow.
+    private IReadOnlyList<Unit>? _units;
+    private readonly Dictionary<Guid, Product?> _productCache = [];
+
+    private async Task<IReadOnlyList<Unit>> GetUnitsAsync(CancellationToken ct) =>
+        _units ??= await units.ListAsync(ct);
+
+    private async Task<Product?> GetProductAsync(Guid productId, CancellationToken ct)
+    {
+        if (_productCache.TryGetValue(productId, out var cached))
+            return cached;
+
+        var product = await products.FindAsync(ProductId.From(productId), ct);
+        _productCache[productId] = product;
+        return product;
+    }
+
     public async Task<IReadOnlyDictionary<Guid, ShoppingProductSummary>> ResolveSummariesAsync(
         IReadOnlyList<Guid> productIds,
         CancellationToken ct = default)
@@ -52,7 +73,7 @@ public sealed class ShoppingCatalogReaderAdapter(
         if (unitIds.Count == 0)
             return new Dictionary<Guid, string>();
 
-        var allUnits = await units.ListAsync(ct);
+        var allUnits = await GetUnitsAsync(ct);
         return allUnits
             .Where(u => unitIds.Contains(u.Id.Value))
             .ToDictionary(u => u.Id.Value, u => u.Code);
@@ -76,8 +97,8 @@ public sealed class ShoppingCatalogReaderAdapter(
         Guid productId,
         CancellationToken ct = default)
     {
-        var allUnits = await units.ListAsync(ct);
-        var product = await products.FindAsync(ProductId.From(productId), ct);
+        var allUnits = await GetUnitsAsync(ct);
+        var product = await GetProductAsync(productId, ct);
         IReadOnlyCollection<ProductConversion> conversions = product?.Conversions ?? [];
 
         var result = UnitConverter.Convert(amount, fromUnitId, toUnitId, allUnits, conversions);
@@ -86,7 +107,7 @@ public sealed class ShoppingCatalogReaderAdapter(
 
     public async Task<IReadOnlyList<ShoppingUnitOption>> ListUnitsAsync(CancellationToken ct = default)
     {
-        var allUnits = await units.ListAsync(ct);
+        var allUnits = await GetUnitsAsync(ct);
         return UnitQueries.OrderForDropdown(allUnits)
             .Select(u => new ShoppingUnitOption(u.Id.Value, u.Code, u.Name, u.Dimension.ToDbValue()))
             .ToList();

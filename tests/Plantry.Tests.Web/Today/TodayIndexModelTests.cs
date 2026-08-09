@@ -217,6 +217,7 @@ public sealed class TodayIndexModelTests
             browseDeals,
             new NullTodayCatalogProductReader(),
             new Plantry.Tests.Web.Infrastructure.NullCookStatusReader(),
+            new TodayStatsService(new Plantry.Tests.Web.Infrastructure.NullWasteJournalReader(), new MealPlanStreakQuery(mealPlanRepo), FixedClock),
             FixedClock,
             tenant);
     }
@@ -463,6 +464,7 @@ public sealed class ExpiringWidgetModelTests
             browseDeals,
             new NullTodayCatalogProductReader(),
             new Plantry.Tests.Web.Infrastructure.NullCookStatusReader(),
+            new TodayStatsService(new Plantry.Tests.Web.Infrastructure.NullWasteJournalReader(), new MealPlanStreakQuery(mealPlanRepo), FixedClock),
             FixedClock,
             tenant);
     }

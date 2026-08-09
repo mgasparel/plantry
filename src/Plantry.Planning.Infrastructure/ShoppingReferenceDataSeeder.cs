@@ -11,7 +11,7 @@ namespace Plantry.Planning.Infrastructure;
 /// DM-18). The list name defaults to "Shopping List"; additional named lists are a non-breaking
 /// future addition (the root table and Name column exist for that reason).
 /// </summary>
-public sealed class ShoppingReferenceDataSeeder(ShoppingDbContext db, IClock clock) : IReferenceDataSeeder
+public sealed class ShoppingReferenceDataSeeder(PlanningDbContext db, IClock clock) : IReferenceDataSeeder
 {
     public async Task SeedAsync(HouseholdId householdId, CancellationToken ct = default)
     {

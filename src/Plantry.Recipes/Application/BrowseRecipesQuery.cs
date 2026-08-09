@@ -92,11 +92,11 @@ public sealed class BrowseRecipesQuery(
         var recipesById = allRecipes.ToDictionary(r => r.Id);
 
         // Compute fulfillment + cost per recipe sequentially.
-        // Task.WhenAll would launch concurrent awaits over the shared scoped DbContexts
-        // (CatalogDbContext, InventoryDbContext) within a single HTTP request, which throws
-        // InvalidOperationException ("A second operation was started on this context instance
-        // before a previous operation completed"). FulfillmentService already documents this
-        // constraint at FulfillmentService.cs:51-53 and uses sequential awaits for the same reason.
+        // Task.WhenAll would launch concurrent awaits over the shared scoped PantryDbContext
+        // within a single HTTP request, which throws InvalidOperationException ("A second operation
+        // was started on this context instance before a previous operation completed").
+        // FulfillmentService already documents this constraint at FulfillmentService.cs:51-53 and
+        // uses sequential awaits for the same reason.
         var today = clock.ToLocalDate(clock.UtcNow);
         var computed = new List<RecipeBrowseRow>(allRecipes.Count);
         foreach (var r in allRecipes)

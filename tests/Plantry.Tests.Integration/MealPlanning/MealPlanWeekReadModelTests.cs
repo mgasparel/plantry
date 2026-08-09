@@ -697,10 +697,10 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         return new MealPlanWeekReadModel(db.ConnectionString, tenant, clock);
     }
 
-    private CatalogDbContext NewCatalogDb(HouseholdId household)
+    private PantryDbContext NewCatalogDb(HouseholdId household)
     {
-        var opts = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new CatalogDbContext(opts);
+        var opts = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new PantryDbContext(opts);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }
@@ -713,10 +713,10 @@ public sealed class MealPlanWeekReadModelTests(PostgresFixture db) : IAsyncLifet
         return ctx;
     }
 
-    private InventoryDbContext NewInventoryDb()
+    private PantryDbContext NewInventoryDb()
     {
-        var opts = new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new InventoryDbContext(opts);
+        var opts = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new PantryDbContext(opts);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

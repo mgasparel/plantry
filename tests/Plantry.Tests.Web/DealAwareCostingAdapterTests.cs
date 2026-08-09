@@ -316,6 +316,30 @@ public sealed class DealAwareCostingAdapterTests
         public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
             Task.FromResult<PriceObservation?>(null);
 
+        public Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<PriceObservation>>(_items
+                .Where(o => o.ProductId == productId
+                    && (o.Source == PriceSource.Purchase || o.Source == PriceSource.Manual)
+                    && o.SupersededById is null)
+                .OrderBy(o => o.ObservedAt)
+                .ToList());
+
+        public Task<PriceObservation?> ActiveDealForPurchaseAsync(
+            Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default) =>
+            Task.FromResult(_items
+                .Where(o => o.ProductId == productId
+                    && o.Source == PriceSource.Deal
+                    && o.StoreId == storeId
+                    && o.ValidFrom <= observedDate && observedDate <= o.ValidTo
+                    && o.SupersededById is null // ADR-023 A7
+                    // Qualification predicate mirrors the production Postgres query: cheapest QUALIFYING deal.
+                    && o.UnitPrice.HasValue && o.UnitPrice * (1m + tolerance) >= purchaseUnitPrice)
+                // Nulls-last tiebreak, matching Postgres `ORDER BY unit_price ASC`.
+                .OrderBy(o => o.UnitPrice.HasValue ? 0 : 1)
+                .ThenBy(o => o.UnitPrice)
+                .ThenBy(o => o.Price)
+                .FirstOrDefault());
+
         public Task<PriceObservation?> FindAsync(PriceObservationId id, CancellationToken ct = default) =>
             Task.FromResult(_items.FirstOrDefault(o => o.Id == id));
 

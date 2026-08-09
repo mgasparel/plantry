@@ -1165,6 +1165,28 @@
 
 <section class="catalog-section">
     <div class="catalog-section__header">
+        <h2 class="catalog-section__heading">Stat chip</h2>
+    </div>
+    <p>
+        <code>.chip-stat</code> — a quiet inline pill for surfacing a computed stat in the flow of a page
+        (a price delta vs history, a basket-vs-average trip comparison). No icon, no alert border — it's an
+        aside, not a warning. The <code>&lt;b&gt;</code> child carries the emphasised value; add
+        <code>.delta--good</code>/<code>.delta--bad</code> to that <code>&lt;b&gt;</code> to tint just the
+        value from the existing success/danger tokens (never a new colour value) when the stat has a
+        direction — leave both off for a neutral stat with no good/bad reading (e.g. a plain basket total).
+        Wrap two or more chips in <code>.chip-row</code> (a plain flex-wrap container) rather than repeating
+        an inline flex style at each call site — the canonical wrapper for a row of chips.
+    </p>
+    <div class="chip-row" style="margin-bottom: var(--space-4)">
+        <span class="chip-stat"><b class="delta--bad">▲ 12%</b> vs last time</span>
+        <span class="chip-stat"><b class="delta--good">▼ 8%</b> vs last time</span>
+        <span class="chip-stat">Basket <b>$42.00</b> vs avg <b>$38.50</b></span>
+    </div>
+    <pre class="code-sample"><code>@("<div class=\"chip-row\">\n  <span class=\"chip-stat\"><b class=\"delta--bad\">▲ 12%</b> vs last time</span>\n  <span class=\"chip-stat\"><b class=\"delta--good\">▼ 8%</b> vs last time</span>\n  <span class=\"chip-stat\">Basket <b>$42.00</b> vs avg <b>$38.50</b></span>\n</div>")</code></pre>
+</section>
+
+<section class="catalog-section">
+    <div class="catalog-section__header">
         <h2 class="catalog-section__heading">Category dot pill</h2>
     </div>
     <p>

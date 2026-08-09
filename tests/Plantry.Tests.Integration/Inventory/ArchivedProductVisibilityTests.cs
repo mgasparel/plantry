@@ -125,18 +125,18 @@ public sealed class ArchivedProductVisibilityTests(PostgresFixture db) : IAsyncL
         return new InventoryQueryService(stocks, catalog, conversions, new FixedHorizon(), Clock, tenant);
     }
 
-    private InventoryDbContext NewInventoryDb()
+    private PantryDbContext NewInventoryDb()
     {
-        var ctx = new InventoryDbContext(
-            new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new PantryDbContext(
+            new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var ctx = new CatalogDbContext(
-            new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new PantryDbContext(
+            new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

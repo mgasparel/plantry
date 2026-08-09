@@ -3,7 +3,7 @@ namespace Plantry.Planning.Application;
 /// <summary>
 /// Anti-corruption read port onto the Catalog context for the MealPlanning context.
 /// Checks whether a product referenced as a dish actually exists in this household's catalog.
-/// Implemented in Plantry.Web over CatalogDbContext.
+/// Implemented in Plantry.Web over PantryDbContext.
 /// Note: a same-named interface exists in Plantry.Recipes.Application — this is the MealPlanning copy,
 /// intentionally separate to avoid introducing a cross-context dependency.
 /// </summary>

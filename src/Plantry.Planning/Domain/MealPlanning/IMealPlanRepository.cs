@@ -35,6 +35,36 @@ public interface IMealPlanRepository
     Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
         IReadOnlyList<Guid> plannedMealIds, CancellationToken ct = default);
 
+    /// <summary>
+    /// Distinct week-start (Monday) dates, for which the household has at least one planned meal,
+    /// found while scanning backward one week at a time starting at <paramref name="notAfter"/> for at
+    /// most <paramref name="maxWeeks"/> calendar weeks — descending (most recent first). Feeds
+    /// <see cref="Plantry.Planning.Application.MealPlanStreakQuery"/>'s consecutive-week streak walk
+    /// (plantry-h9z9): since that walk only ever consumes the leading contiguous run (it stops at the
+    /// first week absent from this list), "scanned <paramref name="maxWeeks"/> calendar weeks" and
+    /// "returned the <paramref name="maxWeeks"/> most recent planned weeks regardless of gaps" are
+    /// equivalent for its purposes — this contract picks the cheaper one.
+    /// <para>The default implementation falls back to a per-week <see cref="FindByWeekAsync"/> loop so
+    /// test doubles need not reimplement it (the same "default falls back to an existing simple method,
+    /// the real EF repository overrides with a batched query" convention Inventory's
+    /// <c>IProductStockRepository.ListProductIdsWithStockAsync</c> already established); the EF
+    /// repository overrides it with one scalar-only query that never materializes a meal/dish graph.</para>
+    /// </summary>
+    async Task<IReadOnlyList<DateOnly>> PlannedWeekStartsBeforeAsync(
+        HouseholdId householdId, DateOnly notAfter, int maxWeeks, CancellationToken ct = default)
+    {
+        var result = new List<DateOnly>();
+        var week = notAfter;
+        for (var i = 0; i < maxWeeks; i++)
+        {
+            var plan = await FindByWeekAsync(householdId, week, ct);
+            if (plan is { PlannedMeals.Count: > 0 })
+                result.Add(week);
+            week = week.AddDays(-7);
+        }
+        return result;
+    }
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }
 

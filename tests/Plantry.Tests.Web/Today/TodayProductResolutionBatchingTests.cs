@@ -256,6 +256,7 @@ internal static class TodayProductBatchingCommon
         services.AddSingleton<Plantry.Planning.Application.IHouseholdMemberReader>(new FakeTodayPlannedBandMemberReader());
 
         TodayDealsStubs.RegisterEmpty(services);
+        TodayWasteStatsStubs.RegisterEmpty(services);
     }
 }
 

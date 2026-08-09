@@ -415,6 +415,110 @@ public sealed class IntakeRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(recent);
     }
 
+    // ── ListRecentCommittedTotalsAsync (plantry-bb7p trip-context stat) ──────────────────────────
+
+    [Fact(DisplayName = "ListRecentCommittedTotalsAsync returns only Committed sessions' totals")]
+    public async Task ListRecentCommittedTotalsAsync_Returns_Committed_Only()
+    {
+        await using (var ctx = NewIntakeDb())
+        {
+            var ready = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            ready.MarkReady("Shop", DateTimeOffset.UtcNow, new ReceiptMetadata(Total: 40.00m));
+
+            var failed = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            failed.MarkParsingFailed("oops");
+
+            var committed = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            committed.MarkReady("Shop", DateTimeOffset.UtcNow, new ReceiptMetadata(Total: 55.00m));
+            committed.MarkCommitted(DateTimeOffset.UtcNow);
+
+            await ctx.ImportSessions.AddRangeAsync(ready, failed, committed);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var repo = new ImportSessionRepository(ctx2);
+        var totals = await repo.ListRecentCommittedTotalsAsync(_household, take: 10);
+
+        var total = Assert.Single(totals);
+        Assert.Equal(55.00m, total);
+    }
+
+    [Fact(DisplayName = "ListRecentCommittedTotalsAsync excludes a Committed session with a null Total")]
+    public async Task ListRecentCommittedTotalsAsync_Excludes_Null_Total()
+    {
+        await using (var ctx = NewIntakeDb())
+        {
+            var noTotal = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            noTotal.MarkReady("Shop", DateTimeOffset.UtcNow); // no metadata → Total stays null
+            noTotal.MarkCommitted(DateTimeOffset.UtcNow);
+
+            var withTotal = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+            withTotal.MarkReady("Shop", DateTimeOffset.UtcNow, new ReceiptMetadata(Total: 100.00m));
+            withTotal.MarkCommitted(DateTimeOffset.UtcNow);
+
+            await ctx.ImportSessions.AddRangeAsync(noTotal, withTotal);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var repo = new ImportSessionRepository(ctx2);
+        var totals = await repo.ListRecentCommittedTotalsAsync(_household, take: 10);
+
+        var total = Assert.Single(totals);
+        Assert.Equal(100.00m, total);
+    }
+
+    [Fact(DisplayName = "ListRecentCommittedTotalsAsync orders newest-committed-first and respects take")]
+    public async Task ListRecentCommittedTotalsAsync_OrderedNewestCommittedFirst_And_TakeRespected()
+    {
+        var baseTime = new DateTimeOffset(2026, 5, 1, 9, 0, 0, TimeSpan.Zero);
+
+        await using (var ctx = NewIntakeDb())
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                var s = ImportSession.Start(_household, ImportSourceType.Receipt, _userId, Clock);
+                s.MarkReady("Shop", baseTime, new ReceiptMetadata(Total: 10m * (i + 1)));
+                // Committed order deliberately reversed from creation order, so this pins CommittedAt
+                // ordering specifically, not an incidental CreatedAt tie-break.
+                s.MarkCommitted(baseTime.AddDays(3 - i));
+                await ctx.ImportSessions.AddAsync(s);
+            }
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewIntakeDb();
+        var repo = new ImportSessionRepository(ctx2);
+        var totals = await repo.ListRecentCommittedTotalsAsync(_household, take: 2);
+
+        // Committed at +3, +2, +1, +0 days correspond to totals 10, 20, 30, 40 — newest-committed-first
+        // (+3 days = total 10) then (+2 days = total 20); the take:2 cap excludes the other two.
+        Assert.Equal([10m, 20m], totals);
+    }
+
+    [Fact(DisplayName = "ListRecentCommittedTotalsAsync is tenant-scoped: household B cannot see household A's totals")]
+    public async Task ListRecentCommittedTotalsAsync_TenantScoped()
+    {
+        var householdA = HouseholdId.New();
+        var householdB = HouseholdId.New();
+
+        await using (var ctxA = NewIntakeDbFor(householdA))
+        {
+            var s = ImportSession.Start(householdA, ImportSourceType.Receipt, _userId, Clock);
+            s.MarkReady("Shop A", DateTimeOffset.UtcNow, new ReceiptMetadata(Total: 75.00m));
+            s.MarkCommitted(DateTimeOffset.UtcNow);
+            await ctxA.ImportSessions.AddAsync(s);
+            await ctxA.SaveChangesAsync();
+        }
+
+        await using var ctxB = NewIntakeDbFor(householdB);
+        var repo = new ImportSessionRepository(ctxB);
+        var totals = await repo.ListRecentCommittedTotalsAsync(householdB, take: 10);
+
+        Assert.Empty(totals);
+    }
+
     [Fact(DisplayName = "ListInMonthWindowAsync returns sessions created OR committed inside the window")]
     public async Task ListInMonthWindowAsync_Unions_CreatedAt_And_CommittedAt()
     {

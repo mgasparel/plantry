@@ -560,15 +560,22 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
 
     private static Guid FirstLineId(ReviewFragmentFactory f) => f.SessionA.Lines.First().Id.Value;
 
-    /// <summary>GETs the page for a token, POSTs a SaveLine JSON body, asserts 200, returns the parsed root.</summary>
-    private static async Task<JsonElement> PostSaveLineAsync(ReviewFragmentFactory factory, object payload)
+    /// <summary>GETs the page for a token, POSTs a SaveLine JSON body, asserts 200, returns the parsed root.
+    /// Internal (not private) so other Review test classes — e.g. <c>ReviewPriceDeltaTests</c> — can reuse
+    /// it rather than duplicating the antiforgery-token dance.</summary>
+    internal static Task<JsonElement> PostSaveLineAsync(ReviewFragmentFactory factory, object payload) =>
+        PostJsonHandlerAsync(factory, "SaveLine", payload);
+
+    /// <summary>Generalized JSON-handler POST behind <see cref="PostSaveLineAsync"/> — same
+    /// antiforgery-token dance for any review island endpoint (e.g. ConfirmLines).</summary>
+    internal static async Task<JsonElement> PostJsonHandlerAsync(ReviewFragmentFactory factory, string handler, object payload)
     {
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, ReviewSessionFixture.HouseholdAId.ToString());
         var pageHtml = await (await client.GetAsync($"/Intake/Review/{factory.SessionAId}")).Content.ReadAsStringAsync();
         var token = AntiforgeryToken(pageHtml);
 
-        var request = new HttpRequestMessage(HttpMethod.Post, $"/Intake/Review/{factory.SessionAId}?handler=SaveLine");
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/Intake/Review/{factory.SessionAId}?handler={handler}");
         request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         request.Headers.Add("RequestVerificationToken", token);
 

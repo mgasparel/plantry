@@ -132,12 +132,12 @@ public sealed class CatalogReadFacadeQueryCountTests(PostgresFixture db) : IAsyn
         Assert.Equal(single, many[variantId]);
     }
 
-    private CatalogDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
+    private PantryDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
     {
-        var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString);
+        var builder = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString);
         if (counter is not null) builder.AddInterceptors(counter);
 
-        var context = new CatalogDbContext(builder.Options);
+        var context = new PantryDbContext(builder.Options);
         context.SetHouseholdId(_household.Value);
         return context;
     }

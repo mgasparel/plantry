@@ -28,7 +28,11 @@ public sealed class ReviewDealsDoneFlyerTests
     private readonly FakeFlyerImportRepository _flyerImports = new();
     private readonly TestClock _clock = new(new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero));
 
-    private ReviewDeals Sut => new(_deals, _products, _stores, _flyerImports, _clock);
+    private ReviewDeals Sut => new(
+        _deals, _products, _stores, _flyerImports, _clock,
+        new PricingQueries(new FakePriceObservationRepository()),
+        new FakePurchaseFrequencyReader(),
+        new FakeUnitPriceCalculator(null));
 
     private static readonly DateOnly Today = new(2026, 7, 1);
 

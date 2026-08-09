@@ -53,6 +53,54 @@ public sealed class PriceObservationRepository(MarketDbContext db) : IPriceObser
             .ThenBy(p => p.Price)
             .FirstOrDefaultAsync(ct);
 
+    public Task<PriceObservation?> ActiveDealForPurchaseAsync(Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default) =>
+        db.PriceObservations
+            .Where(p => p.ProductId == productId
+                && p.Source == PriceSource.Deal
+                && p.StoreId == storeId
+                && p.ValidFrom <= observedDate
+                && p.ValidTo >= observedDate
+                && p.SupersededById == null
+                // Qualification lives in the query so the cheapest QUALIFYING deal is selected, not the
+                // cheapest overall (two pack sizes resolved to one product = two active deals; a purchase
+                // at the dearer deal's price must still match). Multiplication, not division — dividing
+                // purchaseUnitPrice by (1 + tolerance) would introduce rounding this comparison doesn't have.
+                && p.UnitPrice != null
+                && p.UnitPrice * (1m + tolerance) >= purchaseUnitPrice)
+            .OrderBy(p => p.UnitPrice)
+            .ThenBy(p => p.Price)
+            .FirstOrDefaultAsync(ct);
+
+    public async Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default) =>
+        await db.PriceObservations
+            .Where(p => p.ProductId == productId
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById == null)
+            .OrderBy(p => p.ObservedAt)
+            .ToListAsync(ct);
+
+    /// <summary>Batch counterpart to <see cref="HistoryForProductAsync"/> (plantry-gtgl): fetches every
+    /// candidate purchase/manual row for the wanted products in one query, then groups by product
+    /// client-side — mirrors <see cref="LatestForProductsAsync"/>'s materialize-then-group pattern.</summary>
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PriceObservation>>> HistoryForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var idList = productIds.Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<Guid, IReadOnlyList<PriceObservation>>();
+
+        var rows = await db.PriceObservations
+            .Where(p => idList.Contains(p.ProductId)
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById == null)
+            .OrderBy(p => p.ObservedAt)
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(p => p.ProductId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<PriceObservation>)g.ToList());
+    }
+
     public async Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(
         IEnumerable<Guid> productIds, CancellationToken ct = default)
     {
@@ -121,5 +169,35 @@ public sealed class PriceObservationRepository(MarketDbContext db) : IPriceObser
                 .ThenBy(p => p.UnitPrice)
                 .ThenBy(p => p.Price)
                 .First());
+    }
+
+    /// <summary>Batch counterpart to <see cref="ActiveDealForPurchaseAsync"/> (plantry-bb7p): fetches every
+    /// candidate active-deal row for the wanted products at the store/date in one query, then applies the
+    /// qualification predicate client-side — the predicate is identical to the single-product read's SQL
+    /// (<c>unit_price * (1 + tolerance) &gt;= purchase unit price</c>, NULL unit_price and superseded rows
+    /// excluded); only the round-trip count differs. Same materialize-then-group pattern as
+    /// <see cref="LatestForProductsAsync"/>.</summary>
+    public async Task<IReadOnlySet<Guid>> ProductIdsWithQualifyingDealAsync(
+        IReadOnlyDictionary<Guid, decimal> unitPriceByProductId, Guid storeId, DateOnly observedDate,
+        decimal tolerance, CancellationToken ct = default)
+    {
+        if (unitPriceByProductId.Count == 0)
+            return new HashSet<Guid>();
+
+        var idList = unitPriceByProductId.Keys.ToList();
+        var rows = await db.PriceObservations
+            .Where(p => idList.Contains(p.ProductId)
+                && p.Source == PriceSource.Deal
+                && p.StoreId == storeId
+                && p.ValidFrom <= observedDate
+                && p.ValidTo >= observedDate
+                && p.SupersededById == null
+                && p.UnitPrice != null)
+            .ToListAsync(ct);
+
+        return rows
+            .Where(p => p.UnitPrice!.Value * (1m + tolerance) >= unitPriceByProductId[p.ProductId])
+            .Select(p => p.ProductId)
+            .ToHashSet();
     }
 }

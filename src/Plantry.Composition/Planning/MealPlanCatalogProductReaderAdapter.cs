@@ -8,15 +8,15 @@ namespace Plantry.Web.MealPlanning;
 
 /// <summary>
 /// Web-side adapter for <see cref="IMealPlanCatalogProductReader"/> — supplies the MealPlanning
-/// context with catalog product existence checks over <see cref="CatalogDbContext"/>.
+/// context with catalog product existence checks over <see cref="PantryDbContext"/>.
 /// Lives in Plantry.Web (the composition root) to keep MealPlanning free of Catalog dependencies.
 /// </summary>
-public sealed class MealPlanCatalogProductReaderAdapter(CatalogDbContext db) : IMealPlanCatalogProductReader
+public sealed class MealPlanCatalogProductReaderAdapter(PantryDbContext db) : IMealPlanCatalogProductReader
 {
     /// <summary>
     /// Memoised household unit codes (plantry-jefp), populated on first use by
     /// <see cref="GetUnitCodesByIdAsync"/>. This adapter is registered scoped over a scoped
-    /// <see cref="CatalogDbContext"/> (one instance per request), and Postgres RLS pins
+    /// <see cref="PantryDbContext"/> (one instance per request), and Postgres RLS pins
     /// <c>app.household_id</c> for the lifetime of that scope's connection — so the household
     /// cannot change while this field is populated. This field MUST stay a private instance
     /// field: never <c>static</c>, never a singleton, never <c>IMemoryCache</c> — any of those

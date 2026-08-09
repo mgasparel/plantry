@@ -36,4 +36,22 @@ public static partial class DealReviewDisplay
     /// no domain state (the deal is still a normal Pending deal the user can reject).
     /// </summary>
     public static bool IsNoise(decimal price) => price <= 0m;
+
+    /// <summary>
+    /// Renders a purchase-cadence <see cref="TimeSpan"/> as the "every ~3 weeks" copy (plantry-gtgl, Deals
+    /// review purchase context) — intervals under 10 days read in days, under 10 weeks read in weeks,
+    /// otherwise in months (30.44-day average month, matching the "~N months" granularity used elsewhere
+    /// the app speaks in rough calendar terms rather than exact days).
+    /// </summary>
+    public static string FormatPurchaseInterval(TimeSpan interval)
+    {
+        var days = interval.TotalDays;
+        if (days < 10)
+            return Plural(Math.Max(1, (int)Math.Round(days)), "day");
+        if (days < 70)
+            return Plural((int)Math.Round(days / 7), "week");
+        return Plural((int)Math.Round(days / 30.44), "month");
+    }
+
+    private static string Plural(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
 }

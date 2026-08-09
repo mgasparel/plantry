@@ -3,7 +3,7 @@ using Plantry.Pantry.Domain;
 
 namespace Plantry.Pantry.Infrastructure;
 
-public sealed class ProductRepository(CatalogDbContext db) : IProductRepository
+public sealed class ProductRepository(PantryDbContext db) : IProductRepository
 {
     public Task<Product?> FindAsync(ProductId id, CancellationToken ct = default) =>
         db.Products

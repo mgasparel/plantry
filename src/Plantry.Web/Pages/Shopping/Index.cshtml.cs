@@ -24,6 +24,7 @@ public sealed class IndexModel(
     IShoppingCatalogReader catalog,
     IShoppingPantryReader pantry,
     IShoppingListRepository repository,
+    DisplayCurrencyAccessor displayCurrency,
     IClock clock,
     ITenantContext tenant,
     ILogger<AddItemCommand> addItemLogger,
@@ -38,6 +39,13 @@ public sealed class IndexModel(
     // ── View state ────────────────────────────────────────────────────────────
 
     public ShoppingListView? ShoppingList { get; private set; }
+
+    /// <summary>
+    /// The household's display currency (ISO 4217), resolved once per request via
+    /// <see cref="DisplayCurrencyAccessor"/> (plantry-e016) — used by <c>_ShoppingSummary</c> to format the
+    /// basket cost estimate through <see cref="MoneyDisplay"/>.
+    /// </summary>
+    public string DisplayCurrency { get; private set; } = "USD";
 
     public IReadOnlyList<SelectListItem> ProductOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
@@ -93,9 +101,20 @@ public sealed class IndexModel(
 
     public async Task OnGetAsync()
     {
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         Suggestions = await LoadSuggestionsAsync(ShoppingList);
+    }
+
+    /// <summary>
+    /// Reloads <see cref="ShoppingList"/> and <see cref="DisplayCurrency"/> together — every handler that
+    /// re-renders the list or its summary needs both (plantry-e016: the summary's basket cost estimate is
+    /// formatted in the household's display currency).
+    /// </summary>
+    private async Task RefreshListAsync()
+    {
+        ShoppingList = await queryService.GetListAsync();
+        DisplayCurrency = await displayCurrency.GetAsync();
     }
 
     /// <summary>
@@ -246,7 +265,7 @@ public sealed class IndexModel(
     /// </summary>
     private async Task<IActionResult> RenderAddResultAsync(bool updateSuggestions)
     {
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         if (updateSuggestions)
         {
@@ -280,7 +299,7 @@ public sealed class IndexModel(
             return Forbid();
         }
 
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         // CheckOff does not change onListProductIds — do not recompute or re-render suggestions.
         // OOB-swap the summary so checked/to-buy counts refresh (plantry-3dh.2 A).
@@ -307,7 +326,7 @@ public sealed class IndexModel(
             return Forbid();
         }
 
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         // UncheckItem does not change onListProductIds — do not recompute or re-render suggestions.
         // OOB-swap the summary so checked/to-buy counts refresh (plantry-3dh.2 A).
@@ -336,7 +355,7 @@ public sealed class IndexModel(
             return Forbid();
         }
 
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         // DeleteItem changes onListProductIds (for product-backed items) → refresh suggestions via OOB swap.
         Suggestions = await LoadSuggestionsAsync(ShoppingList);
@@ -366,7 +385,7 @@ public sealed class IndexModel(
             return Forbid();
         }
 
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         // EditQuantity does not change onListProductIds — do not recompute or re-render suggestions.
         // OOB-swap the summary to keep totals current (plantry-3dh.2 A).
@@ -394,7 +413,7 @@ public sealed class IndexModel(
             return Forbid();
         }
 
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         // SetNote does not change onListProductIds — do not recompute or re-render suggestions.
         // OOB-swap the summary to keep totals current (plantry-3dh.2 A).
@@ -423,7 +442,7 @@ public sealed class IndexModel(
             return Forbid();
         }
 
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         // Recategorize does not change onListProductIds — do not recompute or re-render suggestions.
         // OOB-swap the summary to keep totals current (plantry-3dh.2 A).
@@ -445,7 +464,7 @@ public sealed class IndexModel(
 
         await cmd.ExecuteAsync();
 
-        ShoppingList = await queryService.GetListAsync();
+        await RefreshListAsync();
         await LoadAddOptionsAsync();
         // ClearChecked removes product-backed items → refresh suggestions via OOB swap.
         Suggestions = await LoadSuggestionsAsync(ShoppingList);
@@ -547,10 +566,12 @@ public sealed record PantrySuggestionsPartialModel(
 /// View model passed to the <c>_ShoppingSummary</c> partial (plantry-3dh.2 A).
 /// <see cref="Oob"/> drives an htmx out-of-band swap of <c>#sl-summary</c> when set,
 /// keeping the header stat box (to buy / checked / total) in sync after every mutation.
+/// <see cref="DisplayCurrency"/> formats the basket cost estimate (plantry-e016) via <see cref="MoneyDisplay"/>.
 /// </summary>
 public sealed record ShoppingSummaryPartialModel(
     ShoppingListView? List,
-    bool Oob);
+    bool Oob,
+    string DisplayCurrency = "USD");
 
 /// <summary>
 /// View model passed to the <c>_ShoppingItem</c> partial — combines the item view with the

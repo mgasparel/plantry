@@ -12,7 +12,7 @@ namespace Plantry.Recipes.Infrastructure;
 /// (plantry-zlwp.1 — one household member's 1-5 star rating of a recipe).
 /// <para>
 /// The Recipe aggregate's child collections (_ingredients list, _tags list, _photo reference) are
-/// wired via backing fields and PropertyAccessMode.Field, mirroring IntakeDbContext / InventoryDbContext.
+/// wired via backing fields and PropertyAccessMode.Field, mirroring IntakeDbContext / PantryDbContext.
 /// </para>
 /// </summary>
 public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options) : DbContext(options)

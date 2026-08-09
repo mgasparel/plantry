@@ -20,7 +20,9 @@ namespace Plantry.Planning.Application;
 /// (the Shopping→Deals ACL port) — both added in plantry-jwyb. Cheapest-active-deal badges are resolved via
 /// <see cref="IShoppingDealReader"/> — the Shopping→<b>Pricing</b> ACL port (P5-9, ADR-010: Shopping reads
 /// Pricing's read model for the badge) — evaluated against <see cref="IClock"/> today so a badge appears and
-/// lapses with the deal's validity window, and never stored.
+/// lapses with the deal's validity window, and never stored. The outstanding-basket cost estimate
+/// (plantry-e016) is computed by <see cref="Plantry.Planning.Domain.ShoppingBasketCostingService"/> over the
+/// same "today", reading raw price observations via the sibling <see cref="IShoppingPriceReader"/> port.
 ///
 /// <para>Ordering: unchecked items first (ordered by <c>created_at</c> ascending), checked items
 /// last (ordered by <c>checked_at</c> ascending, i.e. most-recently-checked last). This gives a
@@ -37,6 +39,7 @@ public sealed class ShoppingListQueryService(
     IMealPlanRepository mealPlans,
     IShoppingDealAttributionReader dealAttribution,
     IShoppingDealReader deals,
+    ShoppingBasketCostingService basketCosting,
     IClock clock,
     ITenantContext tenant)
 {
@@ -184,6 +187,13 @@ public sealed class ShoppingListQueryService(
             .SelectMany(g => g.Items)
             .ToList();
 
+        // Basket cost estimate (plantry-e016): scoped to the outstanding (unchecked) basket — checked items
+        // are already bought. ActiveDealItemCount reuses the badge dictionary above rather than re-deriving
+        // "on an active deal" from the price estimate, since both mean exactly the same thing here.
+        var uncheckedDomainItems = list.Items.Where(i => !i.IsChecked).ToList();
+        var costEstimate = await basketCosting.EstimateAsync(uncheckedDomainItems, ct);
+        var activeDealItemCount = uncheckedItems.Count(v => v.HasDeal);
+
         return new ShoppingListView(
             ListId: list.Id.Value,
             ListName: list.Name,
@@ -191,7 +201,11 @@ public sealed class ShoppingListQueryService(
             UncategorizedItems: uncategorized,
             CheckedItems: checkedItems,
             TotalCount: itemViews.Count,
-            CheckedCount: checkedItems.Count);
+            CheckedCount: checkedItems.Count,
+            EstimatedLow: costEstimate.Low,
+            EstimatedHigh: costEstimate.High,
+            UnpricedItemCount: costEstimate.UnpricedCount,
+            ActiveDealItemCount: activeDealItemCount);
     }
 
     /// <summary>

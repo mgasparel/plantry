@@ -36,6 +36,9 @@ public sealed record ReviewHandlerUrls(
 /// </summary>
 public sealed class IntakeReviewHydrationBuilder
 {
+    private static readonly Dictionary<Guid, decimal> EmptyPriceDeltas = [];
+    private static readonly HashSet<Guid> EmptyDealHitLineIds = [];
+
     /// <summary>
     /// Projects the loaded session + reference data into the island's hydration blob. Pure over
     /// (<paramref name="session"/>, <paramref name="today"/>, <paramref name="now"/>,
@@ -46,11 +49,23 @@ public sealed class IntakeReviewHydrationBuilder
     /// <paramref name="urls"/> carries the pre-computed row-action endpoints, and
     /// <paramref name="currencySymbol"/> is the household display-currency glyph (from
     /// <c>MoneyDisplay.Symbol</c>) the island prefixes its money formatters with.
+    /// <paramref name="priceDeltaPercentByLineId"/>, <paramref name="trailingAverageBasket"/> and
+    /// <paramref name="dealHitLineIds"/> are the intake-review trip-context stats (plantry-bb7p,
+    /// stats-page-prototype.html injection appendix): pre-computed by the caller (a cross-context read into
+    /// Market pricing, so it cannot live in this pure builder) and simply threaded onto the matching
+    /// <see cref="LineSeed"/>/<see cref="SessionHydration"/> fields here. All default to "nothing to show"
+    /// (an empty map/set / null) so existing callers/tests are unaffected.
     /// </summary>
     public SessionHydration Build(
         SessionReviewView session, DateOnly today, DateTimeOffset now, TimeZoneInfo zone,
-        ReviewHandlerUrls urls, string currencySymbol)
+        ReviewHandlerUrls urls, string currencySymbol,
+        IReadOnlyDictionary<Guid, decimal>? priceDeltaPercentByLineId = null,
+        decimal? trailingAverageBasket = null,
+        IReadOnlySet<Guid>? dealHitLineIds = null)
     {
+        priceDeltaPercentByLineId ??= EmptyPriceDeltas;
+        dealHitLineIds ??= EmptyDealHitLineIds;
+
         var reference = session.ReferenceData;
 
         // Products — include defaults so the island can fill empty unit/location/expiry
@@ -126,6 +141,8 @@ public sealed class IntakeReviewHydrationBuilder
                     NewProductName: l.NewProductName,
                     NewProductCategoryId: l.NewProductCategoryId?.ToString(),
                     SuggestedPrice: l.SuggestedPrice,
+                    PriceDeltaPercent: priceDeltaPercentByLineId.TryGetValue(l.LineId, out var delta) ? delta : null,
+                    DealHit: dealHitLineIds.Contains(l.LineId),
                     StagedProductId: l.StagedProductId?.ToString()),
                 Prefill: new PrefillData(
                     ProductId: prefillProductId?.ToString(),
@@ -182,6 +199,7 @@ public sealed class IntakeReviewHydrationBuilder
             Subtotal: session.Subtotal,
             Tax: session.Tax,
             Total: session.Total,
+            TrailingAverageBasket: trailingAverageBasket,
             Payment: NullIfBlank(session.PaymentDescriptor),
             ReceiptNo: NullIfBlank(session.ReceiptNumber),
             // Household display-currency symbol resolved by the caller (Review.cshtml.cs) via MoneyDisplay.Symbol —

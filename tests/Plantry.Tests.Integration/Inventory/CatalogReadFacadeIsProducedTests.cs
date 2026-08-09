@@ -58,11 +58,11 @@ public sealed class CatalogReadFacadeIsProducedTests(PostgresFixture db) : IAsyn
         Assert.False(products.Single(p => p.Name == "Milk").IsProduced);
     }
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString);
+        var builder = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString);
 
-        var context = new CatalogDbContext(builder.Options);
+        var context = new PantryDbContext(builder.Options);
         context.SetHouseholdId(_household.Value);
         return context;
     }

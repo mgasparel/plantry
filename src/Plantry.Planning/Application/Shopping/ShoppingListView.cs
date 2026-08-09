@@ -107,7 +107,42 @@ public sealed record ShoppingListView(
     IReadOnlyList<ShoppingListItemView> UncategorizedItems,
     IReadOnlyList<ShoppingListItemView> CheckedItems,
     int TotalCount,
-    int CheckedCount);
+    int CheckedCount,
+    /// <summary>
+    /// Confident-floor estimated cost of the outstanding (unchecked) basket (plantry-e016), computed by
+    /// <see cref="ShoppingListQueryService"/> via <see cref="Plantry.Planning.Domain.ShoppingBasketCostingService"/>.
+    /// Null when nothing on the list could be priced — never shown as a fabricated $0.
+    /// </summary>
+    decimal? EstimatedLow = null,
+    /// <summary>
+    /// Upper bound of the estimate — equal to <see cref="EstimatedLow"/> when every priced line was exact;
+    /// greater when some priced lines were quantity/unit-uncertain (each contributes its own recorded pack
+    /// price to this bound only). See <see cref="Plantry.Planning.Domain.BasketCostEstimate"/>.
+    /// </summary>
+    decimal? EstimatedHigh = null,
+    /// <summary>
+    /// Count of unchecked items with no price history at all (free-text items always qualify; product-backed
+    /// items with no purchase/manual/deal observation). Footnoted, never folded into the estimate.
+    /// </summary>
+    int UnpricedItemCount = 0,
+    /// <summary>
+    /// Count of unchecked product-backed items currently covered by an active deal (<see cref="ShoppingListItemView.HasDeal"/>) —
+    /// drives the "N items on active deals" chip alongside the estimate.
+    /// </summary>
+    int ActiveDealItemCount = 0)
+{
+    /// <summary>True when at least one item on the list could be priced.</summary>
+    public bool HasEstimate => EstimatedLow.HasValue;
+
+    /// <summary>True when the estimate is a genuine range (some lines were quantity/unit-uncertain).</summary>
+    public bool IsRangeEstimate => HasEstimate && EstimatedHigh.HasValue && EstimatedHigh.Value > EstimatedLow!.Value;
+
+    /// <summary>True when at least one unchecked item has no price history to footnote.</summary>
+    public bool HasUnpriced => UnpricedItemCount > 0;
+
+    /// <summary>True when at least one unchecked item is currently on an active deal.</summary>
+    public bool HasActiveDeals => ActiveDealItemCount > 0;
+}
 
 /// <summary>One category bucket in the grouped shopping list (unchecked items only).</summary>
 public sealed record ShoppingCategoryGroup(

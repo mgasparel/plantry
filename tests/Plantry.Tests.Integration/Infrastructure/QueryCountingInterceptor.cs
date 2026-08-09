@@ -14,8 +14,8 @@ namespace Plantry.Tests.Integration.Infrastructure;
 /// </para>
 /// <code>
 /// var counter = new QueryCountingInterceptor();
-/// var ctx = new CatalogDbContext(
-///     new DbContextOptionsBuilder&lt;CatalogDbContext&gt;()
+/// var ctx = new PantryDbContext(
+///     new DbContextOptionsBuilder&lt;PantryDbContext&gt;()
 ///         .UseNpgsql(db.ConnectionString)
 ///         .AddInterceptors(counter)
 ///         .Options);

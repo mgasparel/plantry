@@ -52,6 +52,10 @@ public sealed record SessionHydration(
     decimal? Subtotal,
     decimal? Tax,
     decimal? Total,
+    // Trip-context stat (plantry-bb7p, stats-page-prototype.html injection appendix): the household's
+    // trailing average committed-basket total, so the island can render "this basket vs your average."
+    // Null when the household has no committed baskets yet (nothing to average against).
+    decimal? TrailingAverageBasket,
     string? Payment,
     string? ReceiptNo,
     // Household display-currency symbol (plantry-2x6e.3), sourced once from MoneyDisplay.Symbol so the island's
@@ -146,6 +150,15 @@ public sealed record LineSeed(
     string? NewProductName,
     string? NewProductCategoryId,
     decimal? SuggestedPrice,
+    // Per-line unit-price delta vs the product's last purchase (plantry-bb7p, stats-page-prototype.html
+    // injection appendix — "▲ 12% vs last time"), e.g. 0.12m for +12%, -0.08m for -8%. Only ever set for a
+    // Confirmed line whose own unit price AND a prior purchase unit price both normalized ("confidently
+    // unit-normalizable"); null otherwise, including for every Pending/Dismissed line.
+    decimal? PriceDeltaPercent,
+    // "You got the deal" marker (plantry-bb7p, now unblocked by plantry-j9q4): true only for a Confirmed
+    // line whose own unit price matched an active Confirmed deal at the session's picked store/purchase
+    // date, using the exact same query + tolerance the commit-time stamp uses (DealHitMatcher).
+    bool DealHit,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? StagedProductId = null);
 

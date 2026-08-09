@@ -6,8 +6,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Plantry.Intake.Application;
 using Plantry.Intake.Domain;
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Tests.Web.Pantry;
 
 namespace Plantry.Tests.Web.Infrastructure;
 
@@ -28,6 +31,21 @@ public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
     public ImportSession SessionA { get; } = ReviewSessionFixture.Build(ReviewSessionFixture.HouseholdAId);
 
     public Guid SessionAId => SessionA.Id.Value;
+
+    /// <summary>
+    /// Fake price-history seam for the review page's trip-context stats (plantry-bb7p): the page now
+    /// injects <see cref="IPriceObservationRepository"/>/<see cref="IUnitPriceCalculator"/> directly (same
+    /// pattern as the Pantry product-detail page), so this factory — which deliberately touches no
+    /// database — must fake them too, or every GET/SaveLine request in this fixture would try to open a
+    /// real Postgres connection. Empty/null by default (no delta ever computed), matching this fixture's
+    /// existing "nothing seeded, nothing surprising" baseline; a test that needs a non-null delta overrides
+    /// these via <c>factory.WithWebHostBuilder(...)</c> rather than mutating this shared instance, since
+    /// xunit reuses one factory across every test in the class.
+    /// </summary>
+    internal FakePriceObservationRepository PriceObservations { get; } = new();
+
+    /// <inheritdoc cref="PriceObservations"/>
+    internal FakeUnitPriceCalculator UnitPriceCalculator { get; } = new(returnValue: null);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -71,6 +89,12 @@ public sealed class ReviewFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<IReviewReferenceDataProvider>();
             services.AddScoped<IReviewReferenceDataProvider>(_ =>
                 new FakeReviewReferenceDataProvider(referenceData));
+
+            // ── Trip-context price seam (plantry-bb7p) — fake, so this DB-free fixture stays DB-free. ──
+            services.RemoveAll<IPriceObservationRepository>();
+            services.AddSingleton<IPriceObservationRepository>(PriceObservations);
+            services.RemoveAll<IUnitPriceCalculator>();
+            services.AddSingleton<IUnitPriceCalculator>(UnitPriceCalculator);
         });
     }
 }

@@ -42,6 +42,47 @@ public interface IPriceObservationRepository
     /// observation never competes for cheapest-active.</summary>
     Task<PriceObservation?> CheapestActiveDealForProductAsync(Guid productId, DateOnly today, CancellationToken ct = default);
 
+    /// <summary>Deal-hit match candidate for a purchase (plantry-j9q4): the cheapest <c>source='deal'</c>
+    /// observation for <paramref name="productId"/> at <paramref name="storeId"/> whose validity window
+    /// covers <paramref name="observedDate"/>. Store-scoped — unlike <see cref="CheapestActiveDealForProductAsync"/>,
+    /// which is deliberately store-agnostic for the "is anything on sale" read model, a purchase can only
+    /// have hit a deal actually offered at the store it was bought from. Only a <b>Confirmed</b> deal ever
+    /// projects a <c>source='deal'</c> row (<c>ConfirmDeal.RecordDealObservationAsync</c>) — a Pending or
+    /// Rejected deal has no row here and can never match, by construction. Also filters
+    /// <c>superseded_by_id IS NULL</c> (ADR-023 A7). Returns the cheapest deal whose unit price
+    /// <b>qualifies</b> the purchase (<c>unit_price * (1 + tolerance) &gt;= purchaseUnitPrice</c>) — the
+    /// qualification lives in the query, not the caller, so that when several confirmed deals are active
+    /// at the same store/window (routine: one flyer line per pack size resolved to the same catalog
+    /// product) a purchase made at a dearer-but-qualifying deal's price still matches instead of being
+    /// compared against the cheapest deal it never claimed. Null when no qualifying deal is active at
+    /// that store for that product/date.</summary>
+    Task<PriceObservation?> ActiveDealForPurchaseAsync(Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default);
+
+    /// <summary>Full purchase/manual observation history for a product (plantry-fuej price sparkline +
+    /// median), ordered oldest-first. Same source filter as <see cref="LatestForProductAsync"/> — a deal
+    /// price never contaminates "what you pay" history — and the same superseded filter as every other
+    /// read here (ADR-023 A7). The caller (<c>PricingQueries.PriceHistoryAsync</c>) further filters to
+    /// observations with a usable <see cref="PriceObservation.UnitPrice"/> before plotting/averaging.</summary>
+    Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default);
+
+    /// <summary>Batch counterpart to <see cref="HistoryForProductAsync"/> (plantry-gtgl, Deals-review
+    /// purchase context): the full purchase/manual observation history for each of the given product ids, in
+    /// one round trip instead of one query per product — the queue's per-card avg price needs every pending
+    /// deal's suggested product's history, not just one. Same source/supersession filtering as the
+    /// single-product read. Products with no history are simply absent from the result.</summary>
+    async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PriceObservation>>> HistoryForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, IReadOnlyList<PriceObservation>>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var history = await HistoryForProductAsync(productId, ct);
+            if (history.Count > 0)
+                result[productId] = history;
+        }
+        return result;
+    }
+
     /// <summary>Batch existence check (Tidy Up D5, tidy-up.md §3): of the given product ids, which have at
     /// least one live (<c>superseded_by_id IS NULL</c>) price observation of any <see cref="PriceSource"/>.
     /// Lets D5 find products with zero price data in one round trip instead of a per-product query — the
@@ -78,6 +119,26 @@ public interface IPriceObservationRepository
             var observation = await CheapestActiveDealForProductAsync(productId, today, ct);
             if (observation is not null)
                 result[productId] = observation;
+        }
+        return result;
+    }
+
+    /// <summary>Batch counterpart to <see cref="ActiveDealForPurchaseAsync"/> (plantry-bb7p): of the given
+    /// products (each paired with its purchase unit price), which have at least one active Confirmed deal at
+    /// <paramref name="storeId"/> covering <paramref name="observedDate"/> that qualifies that unit price
+    /// (<c>unit_price * (1 + tolerance) &gt;= purchase unit price</c>) — in one round trip instead of one
+    /// query per product. Same qualification predicate and filtering as the single-product read; only the
+    /// round-trip count differs. Products with no qualifying deal are simply absent from the result.</summary>
+    async Task<IReadOnlySet<Guid>> ProductIdsWithQualifyingDealAsync(
+        IReadOnlyDictionary<Guid, decimal> unitPriceByProductId, Guid storeId, DateOnly observedDate,
+        decimal tolerance, CancellationToken ct = default)
+    {
+        var result = new HashSet<Guid>();
+        foreach (var (productId, unitPrice) in unitPriceByProductId)
+        {
+            var deal = await ActiveDealForPurchaseAsync(productId, storeId, observedDate, unitPrice, tolerance, ct);
+            if (deal is not null)
+                result.Add(productId);
         }
         return result;
     }

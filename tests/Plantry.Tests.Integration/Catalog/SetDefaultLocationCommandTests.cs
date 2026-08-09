@@ -141,12 +141,12 @@ public sealed class SetDefaultLocationCommandTests(PostgresFixture db) : IAsyncL
         Assert.Null(productA.DefaultLocationId);
     }
 
-    private DbContextOptions<CatalogDbContext> CatalogOptions() =>
-        new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> CatalogOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private CatalogDbContext NewCatalogDb(HouseholdId household)
+    private PantryDbContext NewCatalogDb(HouseholdId household)
     {
-        var ctx = new CatalogDbContext(CatalogOptions());
+        var ctx = new PantryDbContext(CatalogOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

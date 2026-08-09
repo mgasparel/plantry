@@ -151,12 +151,12 @@ public sealed class MealSlotConfigPersistenceTests(PostgresFixture db) : IAsyncL
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private DbContextOptions<MealPlanningDbContext> MealPlanningOptions() =>
-        new DbContextOptionsBuilder<MealPlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> MealPlanningOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private MealPlanningDbContext NewMealPlanningDb(HouseholdId household)
+    private PlanningDbContext NewMealPlanningDb(HouseholdId household)
     {
-        var ctx = new MealPlanningDbContext(MealPlanningOptions());
+        var ctx = new PlanningDbContext(MealPlanningOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

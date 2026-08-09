@@ -146,4 +146,67 @@ public sealed class RecordAmendedObservationCommandTests
         var amendment = repo.Items.Single(o => o.Id == result.Value);
         Assert.Null(amendment.UnitPrice);
     }
+
+    // ── Deal-hit re-evaluation on amendment (plantry-j9q4) ──────────────────────
+
+    private static PriceObservation SeedPurchaseAtStore(FakePriceObservationRepository repo, Guid storeId, decimal unitPrice, Guid? matchedDealId = null) =>
+        Seed(repo, PriceObservation.Record(
+            HouseholdId.From(Household), ProductId, null,
+            price: unitPrice, quantity: 1m, unitId: UnitId,
+            unitPrice: unitPrice, source: PriceSource.Purchase,
+            merchantText: "Superstore", sourceRef: SourceRef, observedAt: Now, userId: UserId,
+            storeId: storeId, matchedDealId: matchedDealId));
+
+    private static PriceObservation SeedDealAtStore(FakePriceObservationRepository repo, Guid storeId, decimal dealUnitPrice, Guid dealId)
+    {
+        var today = DateOnly.FromDateTime(Now.UtcDateTime);
+        return Seed(repo, PriceObservation.Record(
+            HouseholdId.From(Household), ProductId, null,
+            price: dealUnitPrice, quantity: 1m, unitId: UnitId,
+            unitPrice: dealUnitPrice, source: PriceSource.Deal,
+            merchantText: null, sourceRef: dealId, observedAt: Now, userId: UserId,
+            validFrom: today, validTo: today, storeId: storeId));
+    }
+
+    [Fact]
+    public async Task Amendment_Clears_A_Stale_Match_When_The_ReDerived_UnitPrice_Rises_Above_The_Deal()
+    {
+        var repo = new FakePriceObservationRepository();
+        var storeId = Guid.CreateVersion7();
+        var dealId = Guid.CreateVersion7();
+        SeedDealAtStore(repo, storeId, dealUnitPrice: 1.00m, dealId);
+        // Originally matched at unit price 1.00 (3 units for the deal's per-unit price).
+        var original = SeedPurchaseAtStore(repo, storeId, unitPrice: 1.00m, matchedDealId: dealId);
+
+        // Corrected down to 1 unit — the same total cost now lands at a much higher unit price.
+        var calculator = new FakeUnitPriceCalculator(3.00m);
+        var result = await new RecordAmendedObservationCommand(
+            original.Id, correctedQuantity: 1m, UserId, repo, calculator, new FakeTenantContext(Household), NullLogger)
+            .ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var amendment = repo.Items.Single(o => o.Id == result.Value);
+        Assert.Null(amendment.MatchedDealId);
+    }
+
+    [Fact]
+    public async Task Amendment_ReStamps_The_Match_When_The_ReDerived_UnitPrice_Still_Qualifies()
+    {
+        var repo = new FakePriceObservationRepository();
+        var storeId = Guid.CreateVersion7();
+        var dealId = Guid.CreateVersion7();
+        SeedDealAtStore(repo, storeId, dealUnitPrice: 1.00m, dealId);
+        // Not originally matched — entered at a too-high per-unit price (e.g. quantity was understated).
+        var original = SeedPurchaseAtStore(repo, storeId, unitPrice: 3.00m, matchedDealId: null);
+
+        // Corrected up in quantity — the re-derived unit price now qualifies for the same active deal.
+        var calculator = new FakeUnitPriceCalculator(1.00m);
+        var result = await new RecordAmendedObservationCommand(
+            original.Id, correctedQuantity: 3m, UserId, repo, calculator, new FakeTenantContext(Household), NullLogger)
+            .ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var amendment = repo.Items.Single(o => o.Id == result.Value);
+        Assert.Equal(dealId, amendment.MatchedDealId);
+    }
 }

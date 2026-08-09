@@ -282,18 +282,18 @@ public sealed class MealPlanWeekReadModelRlsIsolationTests(PostgresFixture db) :
         return new MealPlanWeekReadModel(db.AppUserConnectionString, tenant, SystemClock.Instance);
     }
 
-    private CatalogDbContext NewCatalogDb(HouseholdId household)
+    private PantryDbContext NewCatalogDb(HouseholdId household)
     {
-        var opts = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new CatalogDbContext(opts);
+        var opts = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new PantryDbContext(opts);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }
 
-    private InventoryDbContext NewInventoryDb(HouseholdId household)
+    private PantryDbContext NewInventoryDb(HouseholdId household)
     {
-        var opts = new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new InventoryDbContext(opts);
+        var opts = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new PantryDbContext(opts);
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

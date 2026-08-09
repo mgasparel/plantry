@@ -27,4 +27,18 @@ public sealed class DealReviewDisplayTests
     [InlineData(4.99, false)]
     public void IsNoise_Flags_NonPositive_Prices(double price, bool expected) =>
         Assert.Equal(expected, DealReviewDisplay.IsNoise((decimal)price));
+
+    // ── FormatPurchaseInterval (plantry-gtgl, Deals-review "you buy this every ~N" cadence copy) ──────────
+
+    [Theory]
+    [InlineData(3.0 / 24, "1 day")]     // 3 hours — rounds up to a minimum of "1 day", singular
+    [InlineData(1, "1 day")]
+    [InlineData(5, "5 days")]
+    [InlineData(10, "1 week")]          // days/7 rounds to 1.4286 → 1 — singular, not "1 weeks"
+    [InlineData(21, "3 weeks")]         // the ticket's canonical "every ~3 weeks" case
+    [InlineData(69, "10 weeks")]
+    [InlineData(70, "2 months")]
+    [InlineData(365, "12 months")]
+    public void FormatPurchaseInterval_Renders_Grammatical_Rough_Cadence(double days, string expected) =>
+        Assert.Equal(expected, DealReviewDisplay.FormatPurchaseInterval(TimeSpan.FromDays(days)));
 }

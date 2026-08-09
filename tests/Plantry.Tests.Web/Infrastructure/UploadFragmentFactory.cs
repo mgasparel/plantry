@@ -75,7 +75,7 @@ public sealed class UploadFragmentFactory : WebApplicationFactory<Program>
             services.AddScoped<ICatalogHintProvider, FakeCatalogHintProvider>();
 
             // The Upload GET now composes the "This month" card, which calls the Inventory count queries.
-            // Those hit InventoryDbContext/Catalog (Postgres) — absent in this DB-free harness — so swap in a
+            // Those hit PantryDbContext/Catalog (Postgres) — absent in this DB-free harness — so swap in a
             // stub that returns fixed counts. Zero here so the page renders the empty-month/no-stock state;
             // the counts themselves are asserted at the model layer (UploadModelStatsTests).
             services.RemoveAll<InventoryQueryService>();

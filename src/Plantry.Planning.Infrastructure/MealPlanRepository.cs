@@ -8,7 +8,7 @@ namespace Plantry.Planning.Infrastructure;
 /// <summary>
 /// EF-backed repository for the <see cref="MealPlan"/> aggregate.
 /// </summary>
-public sealed class MealPlanRepository(MealPlanningDbContext db) : IMealPlanRepository
+public sealed class MealPlanRepository(PlanningDbContext db) : IMealPlanRepository
 {
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default) =>
         db.MealPlans
@@ -61,6 +61,15 @@ public sealed class MealPlanRepository(MealPlanningDbContext db) : IMealPlanRepo
 
         return result;
     }
+
+    public async Task<IReadOnlyList<DateOnly>> PlannedWeekStartsBeforeAsync(
+        HouseholdId householdId, DateOnly notAfter, int maxWeeks, CancellationToken ct = default) =>
+        await db.MealPlans
+            .Where(mp => mp.HouseholdId == householdId && mp.WeekStart <= notAfter && mp.PlannedMeals.Any())
+            .OrderByDescending(mp => mp.WeekStart)
+            .Select(mp => mp.WeekStart)
+            .Take(maxWeeks)
+            .ToListAsync(ct);
 
     public Task SaveChangesAsync(CancellationToken ct = default) =>
         db.SaveChangesAsync(ct);

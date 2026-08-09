@@ -87,17 +87,17 @@ public sealed class UnitCodesAccessorQueryCountTests(PostgresFixture db) : IAsyn
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private CatalogReadFacade NewCatalogReadFacade(CatalogDbContext catalogDb) =>
+    private CatalogReadFacade NewCatalogReadFacade(PantryDbContext catalogDb) =>
         new(
             new ProductRepository(catalogDb), new UnitCodesAccessor(new UnitRepository(catalogDb)),
             new CategoryRepository(catalogDb), new LocationRepository(catalogDb),
             new FakeHouseholdExpiryDefaultsReader());
 
-    private CatalogDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
+    private PantryDbContext NewCatalogDb(QueryCountingInterceptor? counter = null)
     {
-        var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString);
+        var builder = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString);
         if (counter is not null) builder.AddInterceptors(counter);
-        var ctx = new CatalogDbContext(builder.Options);
+        var ctx = new PantryDbContext(builder.Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

@@ -7,7 +7,7 @@ namespace Plantry.Pantry.Application;
 /// consuming write was never fully offset by a compensating undo ADD (plantry-zcbx's eat/undo token
 /// scheme). Kept as its own port (rather than a method on <see cref="Plantry.Pantry.Domain.IProductStockRepository"/>)
 /// because it answers a different, cross-context-facing question — same seam <see cref="IPurchaseJournalReader"/>
-/// plays for the Deals stock-up alerts. Household scoping is enforced by the <c>InventoryDbContext</c> RLS
+/// plays for the Deals stock-up alerts. Household scoping is enforced by the <c>PantryDbContext</c> RLS
 /// query filter, so no household argument is carried.
 /// </summary>
 public interface IJournalEntriesBySourceRefReader

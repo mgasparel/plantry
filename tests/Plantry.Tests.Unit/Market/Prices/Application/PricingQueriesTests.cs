@@ -207,6 +207,71 @@ public sealed class PricingQueriesTests
         Assert.Equal(3.00m, result.UnitPrice);
     }
 
+    // ── EffectiveCostablePricesAsync (plantry-e016 batch costing read: shopping basket estimate) ──────
+
+    [Fact]
+    public async Task EffectiveCostablePrices_Batch_Prefers_Active_Deal_Over_Latest_Purchase_Per_Product()
+    {
+        var productB = Guid.CreateVersion7();
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(4.00m, DateTimeOffset.UtcNow));
+        repo.Items.Add(Deal(2.50m, new(2026, 7, 1), new(2026, 7, 7)));
+        repo.Items.Add(PriceObservation.Record(
+            Household, productB, null, 6.00m, 1m, UnitId, 6.00m,
+            PriceSource.Purchase, "Superstore", SourceRef, DateTimeOffset.UtcNow, UserId)); // no active deal
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectiveCostablePricesAsync([ProductId, productB], Today);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(PriceSource.Deal, result[ProductId].Source);
+        Assert.Equal(2.50m, result[ProductId].UnitPrice);
+        Assert.Equal(PriceSource.Purchase, result[productB].Source);
+        Assert.Equal(6.00m, result[productB].UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectiveCostablePrices_Batch_Falls_Through_To_Purchase_When_The_Active_Deal_Is_Unitless()
+    {
+        // Costing surfaces (plantry-e016 shopping basket estimate) exclude a unitless deal — it has no
+        // usable unit for ShoppingBasketCostingService's conversion — and fall through to the latest
+        // purchase instead, per EffectiveCostablePriceAsync's doc (plantry-pxjp).
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, DateTimeOffset.UtcNow.AddDays(-1)));
+        repo.Items.Add(UnitlessDeal(2.49m, new(2026, 7, 1), new(2026, 7, 7)));
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectiveCostablePricesAsync([ProductId], Today);
+
+        Assert.Equal(PriceSource.Purchase, result[ProductId].Source);
+        Assert.Equal(3.00m, result[ProductId].UnitPrice);
+    }
+
+    [Fact]
+    public async Task EffectiveCostablePrices_Batch_Omits_Products_With_Neither_A_Deal_Nor_A_Purchase()
+    {
+        var unpriced = Guid.CreateVersion7();
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, DateTimeOffset.UtcNow));
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectiveCostablePricesAsync([ProductId, unpriced], Today);
+
+        Assert.True(result.ContainsKey(ProductId));
+        Assert.False(result.ContainsKey(unpriced));
+    }
+
+    [Fact]
+    public async Task EffectiveCostablePrices_Batch_Returns_Empty_For_Empty_Input()
+    {
+        var repo = new FakePriceObservationRepository();
+        var queries = new PricingQueries(repo);
+
+        var result = await queries.EffectiveCostablePricesAsync([], Today);
+
+        Assert.Empty(result);
+    }
+
     // ── ADR-023 A7: PricingQueries never surfaces a superseded observation ──────────────────────────
 
     [Fact]
@@ -265,5 +330,127 @@ public sealed class PricingQueriesTests
         // `newer` row itself must never surface.
         Assert.Equal(amendment.Id, result.Id);
         Assert.Equal(1.00m, result.UnitPrice);
+    }
+
+    // ── PriceHistoryAsync / PriceHistoryStats (plantry-fuej) ────────────────────────────────────
+
+    [Fact]
+    public async Task PriceHistory_Excludes_Deals_And_Unitless_Observations_Orders_Oldest_First()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero)));
+        repo.Items.Add(Manual(2.50m, new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero)));
+        repo.Items.Add(Deal(1.00m, new(2026, 6, 1), new(2026, 6, 7))); // deal — never "what you pay" history
+        // A purchase whose unit price could not be normalized (soft-fail) — excluded from history/median.
+        repo.Items.Add(PriceObservation.Record(
+            Household, ProductId, null, 9.99m, 1m, UnitId, unitPrice: null,
+            PriceSource.Purchase, "Superstore", SourceRef, DateTimeOffset.UtcNow, UserId));
+        var queries = new PricingQueries(repo);
+
+        var history = await queries.PriceHistoryAsync(ProductId);
+
+        Assert.Equal(2, history.Count);
+        Assert.Equal(2.50m, history[0].UnitPrice); // oldest first
+        Assert.Equal(3.00m, history[1].UnitPrice);
+    }
+
+    [Fact]
+    public async Task PriceHistory_Excludes_A_Superseded_Observation()
+    {
+        var repo = new FakePriceObservationRepository();
+        var superseded = Purchase(5.00m, DateTimeOffset.UtcNow.AddDays(-2));
+        repo.Items.Add(superseded);
+        var replacement = PriceObservation.RecordAmendment(superseded, correctedQuantity: 2m, unitPrice: 2.50m, UserId);
+        superseded.Supersede(replacement.Id);
+        repo.Items.Add(replacement);
+        var queries = new PricingQueries(repo);
+
+        var history = await queries.PriceHistoryAsync(ProductId);
+
+        var point = Assert.Single(history);
+        Assert.Equal(2.50m, point.UnitPrice);
+    }
+
+    [Theory]
+    [InlineData(new double[] { 1.0, 2.0, 3.0 }, 2.0)] // odd count — middle value
+    [InlineData(new double[] { 1.0, 2.0, 3.0, 4.0 }, 2.5)] // even count — average of the two middles
+    [InlineData(new double[] { 5.0 }, 5.0)] // single point
+    public void Median_Computes_Middle_Value_Regardless_Of_Input_Order(double[] prices, double expected)
+    {
+        var points = prices
+            .Select((p, i) => new PriceHistoryPoint(new DateOnly(2026, 1, 1).AddDays(i), (decimal)p))
+            .Reverse() // input order must not matter — Median sorts internally
+            .ToList();
+
+        var median = PriceHistoryStats.Median(points);
+
+        Assert.Equal((decimal)expected, median);
+    }
+
+    [Fact]
+    public void Median_Returns_Null_For_Empty_Series()
+    {
+        Assert.Null(PriceHistoryStats.Median([]));
+    }
+
+    // ── Average / batch reads (plantry-gtgl, Deals-review purchase context) ─────────────────────
+
+    [Fact]
+    public void Average_Computes_Mean_Regardless_Of_Input_Order()
+    {
+        var points = new[] { 1.0m, 2.0m, 6.0m }
+            .Select((p, i) => new PriceHistoryPoint(new DateOnly(2026, 1, 1).AddDays(i), p))
+            .Reverse()
+            .ToList();
+
+        Assert.Equal(3.0m, PriceHistoryStats.Average(points));
+    }
+
+    [Fact]
+    public void Average_Returns_Null_For_Empty_Series()
+    {
+        Assert.Null(PriceHistoryStats.Average([]));
+    }
+
+    [Fact]
+    public async Task PriceHistoryForProducts_Batches_History_For_Every_Requested_Product()
+    {
+        var otherProduct = Guid.CreateVersion7();
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero)));
+        repo.Items.Add(PriceObservation.Record(
+            Household, otherProduct, null, 4.00m, 1m, UnitId, 4.00m,
+            PriceSource.Purchase, "Superstore", SourceRef, DateTimeOffset.UtcNow, UserId));
+        var queries = new PricingQueries(repo);
+
+        var histories = await queries.PriceHistoryForProductsAsync([ProductId, otherProduct]);
+
+        Assert.Equal(3.00m, Assert.Single(histories[ProductId]).UnitPrice);
+        Assert.Equal(4.00m, Assert.Single(histories[otherProduct]).UnitPrice);
+    }
+
+    [Fact]
+    public async Task PriceHistoryForProducts_Omits_A_Product_With_No_History()
+    {
+        var otherProduct = Guid.CreateVersion7();
+        var repo = new FakePriceObservationRepository();
+        var queries = new PricingQueries(repo);
+
+        var histories = await queries.PriceHistoryForProductsAsync([ProductId, otherProduct]);
+
+        Assert.Empty(histories);
+    }
+
+    [Fact]
+    public async Task LatestPurchasePrices_Batches_The_Latest_Observation_Per_Product()
+    {
+        var repo = new FakePriceObservationRepository();
+        repo.Items.Add(Purchase(3.00m, new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero)));
+        repo.Items.Add(Purchase(3.50m, new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero))); // latest
+        var queries = new PricingQueries(repo);
+
+        var latest = await queries.LatestPurchasePricesAsync([ProductId]);
+
+        Assert.Equal(3.50m, latest[ProductId].UnitPrice);
     }
 }

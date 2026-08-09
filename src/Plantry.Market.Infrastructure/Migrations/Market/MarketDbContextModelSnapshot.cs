@@ -302,6 +302,10 @@ namespace Plantry.Market.Infrastructure.Migrations.Market
                         .HasColumnType("uuid")
                         .HasColumnName("household_id");
 
+                    b.Property<Guid?>("MatchedDealId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("matched_deal_id");
+
                     b.Property<string>("MerchantText")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")

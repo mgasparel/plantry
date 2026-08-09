@@ -4,7 +4,7 @@ using Plantry.SharedKernel;
 
 namespace Plantry.Planning.Infrastructure;
 
-public sealed class WeekPlanningOverrideRepository(MealPlanningDbContext db)
+public sealed class WeekPlanningOverrideRepository(PlanningDbContext db)
     : IWeekPlanningOverrideRepository
 {
     public Task<WeekPlanningOverride?> FindAsync(

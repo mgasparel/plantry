@@ -4,7 +4,7 @@ using Plantry.SharedKernel;
 
 namespace Plantry.Pantry.Infrastructure;
 
-public sealed class ProductStockRepository(InventoryDbContext db) : IProductStockRepository
+public sealed class ProductStockRepository(PantryDbContext db) : IProductStockRepository
 {
     public async Task<ProductStock?> FindForUpdateAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default)
     {

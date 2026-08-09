@@ -139,6 +139,8 @@ export {
  * @property {SignalLike<string>} stagedProductId
  * @property {AlternativeHydration[]|null} alternatives
  * @property {EstimateHydration|null} estimate
+ * @property {SignalLike<number|null>} priceDeltaPercent   unit-price delta vs the product's last purchase (plantry-bb7p), e.g. 0.12 for "▲ 12%"; null when not shown (not Confirmed, or not confidently unit-normalizable)
+ * @property {SignalLike<boolean>} dealHit   "you got the deal" marker (plantry-bb7p / plantry-j9q4) — true when this Confirmed line's price matched an active confirmed deal at the session's picked store/date
  */
 
 // ── makeLine ─────────────────────────────────────────────────────────────────
@@ -194,6 +196,8 @@ export function makeLine(seed, signalFn) {
     stagedProductId: signalFn(line.stagedProductId ?? ""),
     alternatives: alternatives ?? null,
     estimate: estimate ?? null,
+    priceDeltaPercent: signalFn(typeof line.priceDeltaPercent === "number" ? line.priceDeltaPercent : null),
+    dealHit: signalFn(line.dealHit === true),
   };
 }
 
@@ -613,4 +617,27 @@ export function reconciliation(items, tax, total) {
     reconciles = Math.abs(computed - totalVal) < 0.01;
   }
   return { pantry, undecided, skippedFees, tax: taxVal, total: totalVal, reconciles };
+}
+
+// ── per-line price-delta chip (plantry-bb7p) ─────────────────────────────────────
+
+/**
+ * Display decision for the quiet per-line unit-price-delta chip ("▲ 12% vs last time"). PURE — the
+ * island's `priceDeltaChip` renders the returned model verbatim; all the judgment lives here so it is
+ * testable without a DOM. Returns `null` (render nothing) for a non-number delta or one that rounds to
+ * 0% — a flat price is not worth a chip. A positive delta (dearer than last time) maps to `delta--bad`
+ * with "▲"; a negative one (cheaper) to `delta--good` with "▼".
+ *
+ * @param {number|null|undefined} pct — fractional delta vs last purchase (0.12 = up 12%)
+ * @returns {{ pct: number, cls: "delta--bad" | "delta--good", arrow: "▲" | "▼" } | null}
+ */
+export function priceDeltaChipModel(pct) {
+  if (typeof pct !== "number") return null;
+  const rounded = Math.round(Math.abs(pct) * 100);
+  if (rounded === 0) return null;
+  return {
+    pct: rounded,
+    cls: pct > 0 ? "delta--bad" : "delta--good",
+    arrow: pct > 0 ? "▲" : "▼",
+  };
 }

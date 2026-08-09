@@ -99,6 +99,7 @@ public sealed class TodayReviewBannerOneFactory : WebApplicationFactory<Program>
 
             // ── Deals seams (plantry-bpw) — empty → no deal banner ───────────
             TodayDealsStubs.RegisterEmpty(services);
+            TodayWasteStatsStubs.RegisterEmpty(services);
         });
     }
 }
@@ -173,6 +174,7 @@ public sealed class TodayReviewBannerManyFactory : WebApplicationFactory<Program
 
             // ── Deals seams (plantry-bpw) — empty → no deal banner ───────────
             TodayDealsStubs.RegisterEmpty(services);
+            TodayWasteStatsStubs.RegisterEmpty(services);
         });
     }
 }
@@ -246,6 +248,7 @@ public sealed class TodayReviewBannerNoneFactory : WebApplicationFactory<Program
 
             // ── Deals seams (plantry-bpw) — empty → no deal banner ───────────
             TodayDealsStubs.RegisterEmpty(services);
+            TodayWasteStatsStubs.RegisterEmpty(services);
         });
     }
 }

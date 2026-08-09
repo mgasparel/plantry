@@ -82,7 +82,7 @@ public sealed class FlyerIngestionCycle(IServiceScopeFactory scopeFactory, ILogg
         var id = household.Value;
         sp.GetRequiredService<TenantContext>().Set(id);          // arms Postgres RLS (app.household_id GUC)
         sp.GetRequiredService<MarketDbContext>().SetHouseholdId(id);   // Market EF query filter (pricing + deals)
-        sp.GetRequiredService<CatalogDbContext>().SetHouseholdId(id);  // Catalog: stores, products, units
+        sp.GetRequiredService<PantryDbContext>().SetHouseholdId(id);  // Catalog: stores, products, units
 
         await sp.GetRequiredService<IngestFlyer>().RunAsync(ct);
     }

@@ -12,11 +12,15 @@ namespace Plantry.Web.Deals;
 /// <para>Lives in <c>Plantry.Web</c> (the composition root that already references both Market and Inventory)
 /// so <c>Plantry.Market</c> stays free of any Inventory dependency (ADR-010/DM-3), mirroring
 /// <see cref="DealCatalogProductReaderAdapter"/>. Household scoping is enforced inside Inventory (the
-/// InventoryDbContext RLS query filter), so no household argument crosses this boundary.</para>
+/// PantryDbContext RLS query filter), so no household argument crosses this boundary.</para>
 /// </summary>
 public sealed class PurchaseFrequencyReaderAdapter(IPurchaseJournalReader journal) : IPurchaseFrequencyReader
 {
     public Task<IReadOnlyDictionary<Guid, int>> PurchaseCountsSinceAsync(
         DateTimeOffset since, CancellationToken ct = default) =>
         journal.CountPurchasesSinceAsync(since, ct);
+
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>> PurchaseDatesForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default) =>
+        journal.PurchaseDatesForProductsAsync(productIds, ct);
 }

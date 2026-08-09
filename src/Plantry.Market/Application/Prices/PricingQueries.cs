@@ -53,17 +53,61 @@ public sealed class PricingQueries(IPriceObservationRepository repository)
     private static bool IsCostable(PriceObservation observation) =>
         observation.UnitId != Guid.Empty && observation.UnitPrice.HasValue;
 
+    /// <summary>Full unit-normalized price history for a product (plantry-fuej price sparkline + median):
+    /// live (<c>superseded_by_id IS NULL</c>, ADR-023 A7) Purchase/Manual observations — a deal price never
+    /// contaminates "what you pay" history, same source filter as <see cref="LatestPurchasePriceAsync"/> —
+    /// filtered to those with a usable <see cref="PriceObservation.UnitPrice"/> (a soft-failed normalization
+    /// can't be plotted or averaged), ordered oldest-first.</summary>
+    public async Task<IReadOnlyList<PriceHistoryPoint>> PriceHistoryAsync(Guid productId, CancellationToken ct = default)
+    {
+        var observations = await repository.HistoryForProductAsync(productId, ct);
+        return observations
+            .Where(o => o.UnitPrice.HasValue)
+            .OrderBy(o => o.ObservedAt)
+            .Select(o => new PriceHistoryPoint(DateOnly.FromDateTime(o.ObservedAt.UtcDateTime), o.UnitPrice!.Value))
+            .ToList();
+    }
+
+    /// <summary>Batch counterpart to <see cref="LatestPurchasePriceAsync"/> (plantry-gtgl, Deals-review
+    /// purchase context — "last bought" date): the latest purchase/manual observation for each of the given
+    /// product ids, in one round trip. Products with no purchase history are absent from the result.</summary>
+    public Task<IReadOnlyDictionary<Guid, PriceObservation>> LatestPurchasePricesAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default) =>
+        repository.LatestForProductsAsync(productIds, ct);
+
+    /// <summary>Batch counterpart to <see cref="PriceHistoryAsync"/> (plantry-gtgl, Deals-review "you pay $X
+    /// avg" — needs every pending deal's suggested product's history in one queue render, not one query per
+    /// card). Same unit-normalization filter as the single-product read.</summary>
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PriceHistoryPoint>>> PriceHistoryForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var histories = await repository.HistoryForProductsAsync(productIds, ct);
+        var result = new Dictionary<Guid, IReadOnlyList<PriceHistoryPoint>>();
+        foreach (var (productId, observations) in histories)
+        {
+            var points = observations
+                .Where(o => o.UnitPrice.HasValue)
+                .OrderBy(o => o.ObservedAt)
+                .Select(o => new PriceHistoryPoint(DateOnly.FromDateTime(o.ObservedAt.UtcDateTime), o.UnitPrice!.Value))
+                .ToList();
+            if (points.Count > 0)
+                result[productId] = points;
+        }
+        return result;
+    }
+
     /// <summary>Batch existence check for Tidy Up's D5 detector (tidy-up.md §3): of the given products,
     /// which have any live price observation at all, in one round trip.</summary>
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyPriceAsync(IEnumerable<Guid> productIds, CancellationToken ct = default) =>
         repository.ProductIdsWithAnyObservationAsync(productIds, ct);
 
-    /// <summary>Batch counterpart to <see cref="EffectiveCostablePriceAsync"/> (plantry-hbol): resolves the
-    /// effective, costable (deal-aware) price for every given product in two round trips total (one for
-    /// active deals, one for latest purchases) instead of two-per-product. Same precedence and the same
-    /// unitless-deal exclusion as the single-product method — a deal missing a usable unit/unit-price falls
-    /// through to that product's latest purchase. Products with neither a costable deal nor a purchase are
-    /// simply absent from the result.</summary>
+    /// <summary>Batch counterpart to <see cref="EffectiveCostablePriceAsync"/> (plantry-hbol; also the
+    /// shopping basket estimate's read model, plantry-e016): resolves the effective, costable (deal-aware)
+    /// price for every given product in two round trips total (one for active deals, one for latest
+    /// purchases) instead of two-per-product. Same precedence and the same unitless-deal exclusion as the
+    /// single-product method — a deal missing a usable unit/unit-price falls through to that product's
+    /// latest purchase. Products with neither a costable deal nor a purchase are simply absent from the
+    /// result.</summary>
     public async Task<IReadOnlyDictionary<Guid, PriceObservation>> EffectiveCostablePricesAsync(
         IEnumerable<Guid> productIds, DateOnly today, CancellationToken ct = default)
     {

@@ -30,6 +30,7 @@ import {
   reconciliation,
   filterStores,
   buildCorrectHeaderBody,
+  priceDeltaChipModel,
   // reused deck primitives (deal-deck-logic.js) — covered here for intake's use of them
   buildDeckOrder,
   applySkip,
@@ -344,6 +345,29 @@ describe("makeLine", () => {
     const alts = [{ productId: "p2", productName: "Skim Milk", confidence: 0.85 }];
     const ls = makeLine({ line: lineSeed(), prefill: prefill(), alternatives: alts }, sig);
     assert.deepEqual(ls.alternatives, alts);
+  });
+
+  describe("priceDeltaPercent signal (plantry-bb7p)", () => {
+    it("seeds from line.priceDeltaPercent when present", () => {
+      assert.equal(makeState({ priceDeltaPercent: 0.12 }).priceDeltaPercent.value, 0.12);
+      assert.equal(makeState({ priceDeltaPercent: -0.08 }).priceDeltaPercent.value, -0.08);
+    });
+
+    it("is null when the seed omits it (not Confirmed, or not confidently unit-normalizable)", () => {
+      assert.equal(makeState().priceDeltaPercent.value, null);
+      assert.equal(makeState({ priceDeltaPercent: null }).priceDeltaPercent.value, null);
+    });
+  });
+
+  describe("dealHit signal (plantry-bb7p / plantry-j9q4)", () => {
+    it("is true only when the seed's dealHit is exactly true", () => {
+      assert.equal(makeState({ dealHit: true }).dealHit.value, true);
+      assert.equal(makeState({ dealHit: false }).dealHit.value, false);
+    });
+
+    it("defaults to false when the seed omits it", () => {
+      assert.equal(makeState().dealHit.value, false);
+    });
   });
 });
 
@@ -785,5 +809,33 @@ describe("buildCorrectHeaderBody", () => {
     assert.deepEqual(
       buildCorrectHeaderBody({}),
       { merchantText: null, selectedStoreId: null, purchaseDate: null, purchaseTime: null });
+  });
+});
+
+describe("priceDeltaChipModel (plantry-bb7p)", () => {
+  it("returns null for a non-number delta (chip not shown)", () => {
+    assert.equal(priceDeltaChipModel(null), null);
+    assert.equal(priceDeltaChipModel(undefined), null);
+    // @ts-expect-error — deliberately wrong type: hydration is untrusted input
+    assert.equal(priceDeltaChipModel("0.12"), null);
+  });
+
+  it("maps a positive delta to delta--bad with ▲ and a whole-number percent", () => {
+    assert.deepEqual(priceDeltaChipModel(0.12), { pct: 12, cls: "delta--bad", arrow: "▲" });
+  });
+
+  it("maps a negative delta to delta--good with ▼ and the absolute percent", () => {
+    assert.deepEqual(priceDeltaChipModel(-0.08), { pct: 8, cls: "delta--good", arrow: "▼" });
+  });
+
+  it("suppresses a delta that rounds to 0% in either direction", () => {
+    assert.equal(priceDeltaChipModel(0.004), null);
+    assert.equal(priceDeltaChipModel(-0.004), null);
+    assert.equal(priceDeltaChipModel(0), null);
+  });
+
+  it("rounds to the nearest whole percent", () => {
+    assert.deepEqual(priceDeltaChipModel(0.006), { pct: 1, cls: "delta--bad", arrow: "▲" });
+    assert.deepEqual(priceDeltaChipModel(-0.125), { pct: 13, cls: "delta--good", arrow: "▼" });
   });
 });

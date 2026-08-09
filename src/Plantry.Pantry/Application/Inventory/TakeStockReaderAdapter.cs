@@ -14,7 +14,10 @@ namespace Plantry.Pantry.Application;
 /// <item><see cref="IProductConversionProvider"/> — unit conversion for display-unit aggregation.</item>
 /// </list>
 /// An intra-context Pantry collaboration now that Catalog and Inventory live in one assembly
-/// (ADR-024, plantry-g3da.6) — same pattern as <see cref="CatalogReadFacade"/>.
+/// (ADR-024, plantry-g3da.6) — same pattern as <see cref="CatalogReadFacade"/>. Since plantry-g3da.10
+/// unified <c>CatalogDbContext</c>/<c>InventoryDbContext</c> into one <c>PantryDbContext</c>, every
+/// repository above shares a single scoped DbContext instance — all queries here run strictly
+/// sequentially (EF Core's single-threaded constraint), never "in parallel" via an unawaited Task.
 /// </summary>
 public sealed class TakeStockReaderAdapter(
     IProductStockRepository stocks,
@@ -42,10 +45,9 @@ public sealed class TakeStockReaderAdapter(
 
         var household = HouseholdId.From(householdId);
 
-        // Start the Inventory stock query (different DbContext — safe to run in parallel with Catalog).
-        // The two Catalog queries (products, units) share the scoped CatalogDbContext and must be
-        // sequential — EF Core DbContext is single-threaded (not safe for concurrent async queries).
-        var allStockTask = stocks.ListForHouseholdAsync(household, ct);
+        // All repositories share one scoped PantryDbContext (plantry-g3da.10) — every query below
+        // must run sequentially, not concurrently (EF Core DbContext is single-threaded).
+        var allStock = await stocks.ListForHouseholdAsync(household, ct);
         var allProducts = await products.ListActiveAsync(ct);
         var allUnits = await units.ListAsync(ct);
         var unitCodesById = allUnits.ToDictionary(u => u.Id.Value, u => u.Code);
@@ -55,7 +57,6 @@ public sealed class TakeStockReaderAdapter(
         // see Category.ArchivedAt — and products.category_id is a bare cross-row id with no FK).
         var allCategories = await categories.ListAsync(ct);
         var categoriesById = allCategories.ToDictionary(c => c.Id.Value);
-        var allStock = await allStockTask;
 
         // Indexed for fast lookup.
         var stockByProductId = allStock.ToDictionary(s => s.ProductId);
@@ -157,13 +158,11 @@ public sealed class TakeStockReaderAdapter(
 
         var household = HouseholdId.From(householdId);
 
-        // Inventory stock query runs in parallel (different DbContext).
-        // Catalog queries (products, units) are sequential — shared scoped CatalogDbContext is not
-        // safe for concurrent async operations (EF Core single-threaded constraint).
-        var allStockTask = stocks.ListForHouseholdAsync(household, ct);
+        // All repositories share one scoped PantryDbContext (plantry-g3da.10) — every query below
+        // must run sequentially, not concurrently (EF Core DbContext is single-threaded).
+        var allStock = await stocks.ListForHouseholdAsync(household, ct);
         var allProducts = await products.ListActiveAsync(ct);
         var unitCodesById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
-        var allStock = await allStockTask;
 
         // Only products with no default_location_id assigned.
         var noLocationProductIds = allProducts

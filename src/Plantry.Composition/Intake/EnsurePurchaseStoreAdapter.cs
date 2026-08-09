@@ -12,7 +12,7 @@ namespace Plantry.Web.Intake;
 /// <c>catalog.store</c> identity during intake commit via Catalog's own <see cref="EnsureStoreByNameCommand"/>
 /// (no reimplementation; idempotent find-or-create, P5-1/DM-16). Throws on failure so the per-line commit
 /// aborts that line cleanly (keeping the session resumable), mirroring the Intake create/price adapters.
-/// Intake never touches <c>CatalogDbContext</c> directly (ADR-010).
+/// Intake never touches <c>PantryDbContext</c> directly (ADR-010).
 /// </summary>
 public sealed class EnsurePurchaseStoreAdapter(
     IStoreRepository stores,

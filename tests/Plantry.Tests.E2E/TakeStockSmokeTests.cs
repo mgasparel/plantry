@@ -1053,4 +1053,207 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await context.Tracing.StopAsync(new() { Path = "trace-takestock-expiry.zip" });
         }
     }
+
+    [Fact(DisplayName = "Take Stock: adjuster sheet is a right-side flyout on desktop, a bottom sheet on mobile (plantry-9iag)")]
+    public async Task TakeStockAdjuster_IsRightSideFlyoutOnDesktop_AndBottomSheetOnMobile()
+    {
+        // Regression for plantry-9iag: the adjuster sheet (plantry-vvqt redesign) shipped only
+        // the phone bottom-sheet geometry. The shared .sheet contract is a 440px right-side
+        // flyout at >=768px, matching the .sheet/.bottom-nav boundary (plantry-kdvi) — this test
+        // pins both halves so a future regression to either breakpoint is caught, the way the
+        // original bug slipped past a suite that only ever opened the sheet at one viewport.
+        const int DesktopWidth = 1280;
+        const int DesktopHeight = 800;
+        const int MobileWidth = 390;
+        const int MobileHeight = 844;
+
+        var uniqueEmail = $"ts-flyout-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"TS Flyout {Guid.NewGuid():N}".Substring(0, 18);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions
+            {
+                IgnoreHTTPSErrors = true,
+                ViewportSize = new ViewportSize { Width = DesktopWidth, Height = DesktopHeight }
+            });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household ─────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS Flyout E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS Flyout E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Create a stock-holding product with stock in Pantry ───────────────
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
+            await page.WaitForURLAsync("**/Catalog/Products/Create");
+            await page.FillAsync("[name='Input.Name']", productName);
+            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.ClickAsync("button:has-text('Create Product')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
+            await productSearch.FillAsync(productName);
+            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "200");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            var pantryRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(pantryRow).ToBeVisibleAsync();
+
+            // ── Navigate to Take Stock → open Pantry walk → open the row's adjuster ──
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            var pantryLink = page.Locator(".ts-loc-grid a.ts-loc-card", new() { HasText = "Pantry" });
+            await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pantryLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+
+            var row = page.Locator(".ts-checkrow__main", new() { HasText = productName });
+            await Assertions.Expect(row).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await row.ClickAsync();
+
+            var panel = page.Locator(".ts-adjuster__panel");
+            await Assertions.Expect(panel).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            // The panel slides in via a 220ms CSS transition (translateX) — visibility flips at
+            // the START of the transition, so poll for the settled desktop transform (translateX(0)
+            // computes to this identity matrix) before reading geometry, rather than sleeping a
+            // fixed duration that a loaded CI agent could still lose the race against.
+            await Assertions.Expect(panel).ToHaveCSSAsync("transform", "matrix(1, 0, 0, 1, 0, 0)");
+
+            // ── Desktop (>=768px): 440px panel pinned to the right edge, full height, no grab handle ──
+            var box = await panel.BoundingBoxAsync();
+            Assert.NotNull(box);
+            Assert.Equal(440, box!.Width, 1);
+            Assert.Equal(DesktopWidth, box.X + box.Width, 1);
+            Assert.Equal(DesktopHeight, box.Height, 1);
+            await Assertions.Expect(page.Locator(".ts-adjuster__grab")).ToBeHiddenAsync(new LocatorAssertionsToBeHiddenOptions { Timeout = 10000 });
+
+            // ── Resize to mobile — the same panel reverts to the bottom-sheet geometry ──
+            await page.SetViewportSizeAsync(MobileWidth, MobileHeight);
+            // No transition runs across the breakpoint — the grab handle's display flip is the
+            // auto-retrying proxy that the mobile media query has applied, so there's no timing
+            // gap left to bridge with a sleep.
+            await Assertions.Expect(page.Locator(".ts-adjuster__grab")).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 });
+            box = await panel.BoundingBoxAsync();
+            Assert.NotNull(box);
+            Assert.Equal(MobileWidth, box!.Width, 1);
+            Assert.Equal(MobileHeight, box.Y + box.Height, 1);
+            Assert.True(box.Height < MobileHeight, $"expected the mobile bottom sheet to cap below the viewport height, got {box.Height}");
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-adjuster-flyout.zip" });
+        }
+    }
+
+    [Fact(DisplayName = "Take Stock: check-off row's confirm button is flush inside the card — no UA button border/shadow (plantry-7dv7)")]
+    public async Task TakeStockCheckrow_ConfirmButton_IsFlushInsideCard_NoUaButtonChrome()
+    {
+        // Regression for plantry-7dv7: .ts-checkrow__check only reset border-left, leaving the
+        // browser's default <button> border/appearance/box-shadow on the other three edges. That
+        // UA chrome rendered as a separate raised box poking past the row card's right edge
+        // instead of sitting flush against it. The fix resets border/appearance/box-shadow/
+        // margin/padding explicitly — pin both the computed style (the actual defect) and the
+        // geometry (flush against the row, inside its bounds).
+        var uniqueEmail = $"ts-checkbtn-{Guid.NewGuid():N}@test.local";
+        const string password = "testpass1";
+        var productName = $"TS CheckBtn {Guid.NewGuid():N}".Substring(0, 20);
+
+        await using var context = await _browser.NewContextAsync(
+            new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
+        await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+
+        try
+        {
+            var page = await context.NewPageAsync();
+            page.SetDefaultTimeout((float)TimeSpan.FromMinutes(2).TotalMilliseconds);
+
+            // ── Register a fresh household ─────────────────────────────────────────
+            await page.GotoAsync($"{BaseUrl}/Account/Register");
+            await page.WaitForURLAsync("**/Account/Register");
+            await page.FillAsync("[name='Input.HouseholdName']", "TS CheckBtn E2E Household");
+            await page.FillAsync("[name='Input.Email']", uniqueEmail);
+            await page.FillAsync("[name='Input.DisplayName']", "TS CheckBtn E2E User");
+            await page.FillAsync("[name='Input.Password']", password);
+            await page.ClickAsync("button[type=submit]");
+            await page.WaitForURLAsync("**/Today**");
+
+            // ── Create a stock-holding product with stock in Pantry ───────────────
+            await page.GotoAsync($"{BaseUrl}/Catalog/Products/Create");
+            await page.WaitForURLAsync("**/Catalog/Products/Create");
+            await page.FillAsync("[name='Input.Name']", productName);
+            await page.SelectOptionAsync("[name='Input.DefaultUnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.ClickAsync("button:has-text('Create Product')");
+            await page.WaitForURLAsync("**/Catalog/Products/**");
+
+            await page.GotoAsync($"{BaseUrl}/Pantry");
+            await page.WaitForURLAsync("**/Pantry**");
+            await page.ClickAsync("button:has-text('Add stock')");
+            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
+            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
+            await productSearch.FillAsync(productName);
+            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
+            await Assertions.Expect(productOption).ToBeVisibleAsync();
+            await productOption.ClickAsync();
+            await page.FillAsync("[name='Input.Quantity']", "200");
+            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
+            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
+            await page.ClickAsync("button:has-text('Add to pantry')");
+            var pantryRow = page.Locator("tr", new() { HasText = productName });
+            await Assertions.Expect(pantryRow).ToBeVisibleAsync();
+
+            // ── Navigate to Take Stock → open Pantry walk (no need to open the adjuster) ──
+            await page.GotoAsync($"{BaseUrl}/pantry/take-stock");
+            await page.WaitForURLAsync("**/pantry/take-stock**");
+            var pantryLink = page.Locator(".ts-loc-grid a.ts-loc-card", new() { HasText = "Pantry" });
+            await Assertions.Expect(pantryLink).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            await pantryLink.ClickAsync();
+            await page.WaitForURLAsync("**/pantry/take-stock/**");
+
+            var checkRow = page.Locator(".ts-checkrow", new() { HasText = productName });
+            await Assertions.Expect(checkRow).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+            var checkBtn = checkRow.Locator(".ts-checkrow__check");
+            await Assertions.Expect(checkBtn).ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 30000 });
+
+            // The UA button chrome that plantry-7dv7 fixed: only border-left may be drawn.
+            await Assertions.Expect(checkBtn).ToHaveCSSAsync("border-top-style", "none");
+            await Assertions.Expect(checkBtn).ToHaveCSSAsync("border-right-style", "none");
+            await Assertions.Expect(checkBtn).ToHaveCSSAsync("border-bottom-style", "none");
+            await Assertions.Expect(checkBtn).ToHaveCSSAsync("border-left-style", "solid");
+            await Assertions.Expect(checkBtn).ToHaveCSSAsync("border-left-width", "1px");
+            await Assertions.Expect(checkBtn).ToHaveCSSAsync("box-shadow", "none");
+
+            // Flush inside the row card, not a raised box poking past its right edge.
+            var rowBox = await checkRow.BoundingBoxAsync();
+            var checkBox = await checkBtn.BoundingBoxAsync();
+            Assert.NotNull(rowBox);
+            Assert.NotNull(checkBox);
+            Assert.Equal(46, checkBox!.Width, 1);
+            Assert.Equal(rowBox!.X + rowBox.Width - 1, checkBox.X + checkBox.Width, 1); // row's own 1px border
+            Assert.True(checkBox.Y >= rowBox.Y - 1 && checkBox.Y + checkBox.Height <= rowBox.Y + rowBox.Height + 1,
+                $"check button must sit inside the row card: row=[{rowBox.Y}..{rowBox.Y + rowBox.Height}] check=[{checkBox.Y}..{checkBox.Y + checkBox.Height}]");
+        }
+        finally
+        {
+            await context.Tracing.StopAsync(new() { Path = "trace-takestock-checkbtn-flush.zip" });
+        }
+    }
 }

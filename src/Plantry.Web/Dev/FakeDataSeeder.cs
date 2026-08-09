@@ -33,11 +33,10 @@ public sealed class FakeDataSeeder(
     IHouseholdRepository householdRepo,
     IEnumerable<IReferenceDataSeeder> seeders,
     TenantContext tenant,
-    CatalogDbContext catalogDb,
+    PantryDbContext pantryDb,
     PlantryIdentityDbContext identityDb,
-    InventoryDbContext inventoryDb,
     RecipesDbContext recipesDb,
-    MealPlanningDbContext mealPlanningDb,
+    PlanningDbContext planningDb,
     MarketDbContext marketDb,
     IStoreRepository storeRepo,
     ConfirmDeal confirmDeal,
@@ -162,9 +161,9 @@ public sealed class FakeDataSeeder(
 
     private async Task SeedProductsAsync(HouseholdId householdId, CancellationToken ct)
     {
-        var units = await catalogDb.Units.ToDictionaryAsync(u => u.Code, ct);
-        var categories = await catalogDb.Categories.ToDictionaryAsync(c => c.Name, ct);
-        var locations = await catalogDb.Locations.ToDictionaryAsync(l => l.Name, ct);
+        var units = await pantryDb.Units.ToDictionaryAsync(u => u.Code, ct);
+        var categories = await pantryDb.Categories.ToDictionaryAsync(c => c.Name, ct);
+        var locations = await pantryDb.Locations.ToDictionaryAsync(l => l.Name, ct);
 
         // Build the flat product list first (SKUs + conversions, no variant links yet).
         var allProducts = BuildProducts(householdId, units, categories, locations);
@@ -189,8 +188,8 @@ public sealed class FakeDataSeeder(
 
         if (parents.Count > 0)
         {
-            await catalogDb.Products.AddRangeAsync(parents.Values, ct);
-            await catalogDb.SaveChangesAsync(ct);
+            await pantryDb.Products.AddRangeAsync(parents.Values, ct);
+            await pantryDb.SaveChangesAsync(ct);
         }
 
         // Now link variants. Parents are in the DB so the FK is satisfied.
@@ -207,15 +206,15 @@ public sealed class FakeDataSeeder(
                 parent.SetHasVariants(true, clock);
         }
 
-        await catalogDb.Products.AddRangeAsync(allProducts, ct);
-        await catalogDb.SaveChangesAsync(ct);
+        await pantryDb.Products.AddRangeAsync(allProducts, ct);
+        await pantryDb.SaveChangesAsync(ct);
     }
 
     private async Task SeedRecipesAsync(HouseholdId householdId, CancellationToken ct)
     {
         // Resolve the products + tags this household already has (seeded above / by the reference
         // seeder). Both reads honour the armed query filter, so they only ever see this household.
-        var products = await catalogDb.Products.ToDictionaryAsync(p => p.Name, ct);
+        var products = await pantryDb.Products.ToDictionaryAsync(p => p.Name, ct);
         var tags = await recipesDb.Tags.ToDictionaryAsync(t => t.Name, ct);
 
         var recipes = new List<Recipe>();
@@ -447,7 +446,7 @@ public sealed class FakeDataSeeder(
     private async Task SeedInventoryAsync(HouseholdId householdId, Guid userId, CancellationToken ct)
     {
         // Load only leaf products — parents (HasVariants = true) cannot hold stock directly.
-        var products = await catalogDb.Products
+        var products = await pantryDb.Products
             .Where(p => !p.HasVariants)
             .ToDictionaryAsync(p => p.Name, ct);
 
@@ -499,15 +498,15 @@ public sealed class FakeDataSeeder(
             stocks.Add(stock);
         }
 
-        await inventoryDb.ProductStocks.AddRangeAsync(stocks, ct);
-        await inventoryDb.SaveChangesAsync(ct);
+        await pantryDb.ProductStocks.AddRangeAsync(stocks, ct);
+        await pantryDb.SaveChangesAsync(ct);
     }
 
     private async Task SeedMealPlanAsync(HouseholdId householdId, Guid userId, bool seedAttendees, CancellationToken ct)
     {
         // The slot config (Breakfast/Lunch/Dinner) was created by MealPlanningReferenceDataSeeder
         // during RegisterHouseholdCommand. Load it to resolve slot ids by label.
-        var config = await mealPlanningDb.MealSlotConfigs
+        var config = await planningDb.MealSlotConfigs
             .Include(c => c.Slots)
             .FirstOrDefaultAsync(ct);
         if (config is null) return;
@@ -539,7 +538,7 @@ public sealed class FakeDataSeeder(
             if (Slot("Lunch") is { } lunchSlot)
                 config.SetDefaultAttendees(lunchSlot.Id, morningCrew, clock);
 
-            await mealPlanningDb.SaveChangesAsync(ct);
+            await planningDb.SaveChangesAsync(ct);
         }
 
         // Recipes seeded above, resolved by name.
@@ -582,8 +581,8 @@ public sealed class FakeDataSeeder(
         // Days 6 (Sunday) has no meals — leaves at least one open slot for the "N slots open" insight.
         // The current seed fills 7 of the 21 weekly cells (3 slots × 7 days), so emptyCells > 0 always.
 
-        await mealPlanningDb.MealPlans.AddAsync(plan, ct);
-        await mealPlanningDb.SaveChangesAsync(ct);
+        await planningDb.MealPlans.AddAsync(plan, ct);
+        await planningDb.SaveChangesAsync(ct);
     }
 
     /// <summary>
@@ -598,7 +597,7 @@ public sealed class FakeDataSeeder(
     private async Task SeedPriceObservationsAsync(HouseholdId householdId, Guid userId, CancellationToken ct)
     {
         // Load only leaf products (variants/parents are excluded from costing).
-        var products = await catalogDb.Products
+        var products = await pantryDb.Products
             .Where(p => !p.HasVariants)
             .ToDictionaryAsync(p => p.Name, ct);
 
@@ -818,7 +817,7 @@ public sealed class FakeDataSeeder(
     private async Task<IReadOnlyDictionary<string, Guid>> ResolveSuggestedProductsAsync(
         HouseholdId householdId, DealFixture fixture, CancellationToken ct)
     {
-        var byName = await catalogDb.Products.ToDictionaryAsync(p => p.Name, p => p.Id.Value, ct);
+        var byName = await pantryDb.Products.ToDictionaryAsync(p => p.Name, p => p.Id.Value, ct);
 
         var missing = fixture.Deals
             .Select(d => d.SuggestedProductName)
@@ -830,8 +829,8 @@ public sealed class FakeDataSeeder(
         if (missing.Count == 0)
             return byName;
 
-        var units = await catalogDb.Units.ToDictionaryAsync(u => u.Code, ct);
-        var categories = await catalogDb.Categories.ToDictionaryAsync(c => c.Name, ct);
+        var units = await pantryDb.Units.ToDictionaryAsync(u => u.Code, ct);
+        var categories = await pantryDb.Categories.ToDictionaryAsync(c => c.Name, ct);
         if (!units.TryGetValue("g", out var grams))
             return byName; // reference data missing — leave those deals unmatched rather than fail the seed
 
@@ -844,8 +843,8 @@ public sealed class FakeDataSeeder(
             created.Add(product);
         }
 
-        await catalogDb.Products.AddRangeAsync(created, ct);
-        await catalogDb.SaveChangesAsync(ct);
+        await pantryDb.Products.AddRangeAsync(created, ct);
+        await pantryDb.SaveChangesAsync(ct);
         foreach (var p in created)
             byName[p.Name] = p.Id.Value;
 
@@ -960,17 +959,17 @@ public sealed class FakeDataSeeder(
             {
                 // Inventory first (its rows soft-reference catalog products by Guid, so no FK forces
                 // an order). Delete child-first to avoid the journal→stock_entry FK firing mid-cascade.
-                await inventoryDb.StockJournalEntries.ExecuteDeleteAsync(ct);
-                await inventoryDb.StockEntries.ExecuteDeleteAsync(ct);
-                await inventoryDb.ProductStocks.ExecuteDeleteAsync(ct);
+                await pantryDb.StockJournalEntries.ExecuteDeleteAsync(ct);
+                await pantryDb.StockEntries.ExecuteDeleteAsync(ct);
+                await pantryDb.ProductStocks.ExecuteDeleteAsync(ct);
 
                 // Meal plans + slot config soft-reference recipes/products by Guid (no FK), so order
                 // among contexts is free. Aggregate-root cascades clear PlannedMeals/PlannedDishes and
                 // MealSlots respectively.
-                await mealPlanningDb.MealPlans.ExecuteDeleteAsync(ct);
-                await mealPlanningDb.MealSlotConfigs.ExecuteDeleteAsync(ct);
-                await mealPlanningDb.UserPreferences.ExecuteDeleteAsync(ct);
-                await mealPlanningDb.TagStances.ExecuteDeleteAsync(ct);
+                await planningDb.MealPlans.ExecuteDeleteAsync(ct);
+                await planningDb.MealSlotConfigs.ExecuteDeleteAsync(ct);
+                await planningDb.UserPreferences.ExecuteDeleteAsync(ct);
+                await planningDb.TagStances.ExecuteDeleteAsync(ct);
 
                 // Recipes (their ingredients soft-reference catalog products by Guid). Cook events
                 // first — they FK → recipe; the recipe cascade then clears ingredients/tags/photo.
@@ -992,14 +991,14 @@ public sealed class FakeDataSeeder(
                 await marketDb.StoreSubscriptions.ExecuteDeleteAsync(ct);
 
                 // Product cascade FK handles product_skus and product_conversions.
-                await catalogDb.Products.ExecuteDeleteAsync(ct);
-                await catalogDb.Locations.ExecuteDeleteAsync(ct);
-                await catalogDb.Categories.ExecuteDeleteAsync(ct);
-                await catalogDb.Units.ExecuteDeleteAsync(ct);
+                await pantryDb.Products.ExecuteDeleteAsync(ct);
+                await pantryDb.Locations.ExecuteDeleteAsync(ct);
+                await pantryDb.Categories.ExecuteDeleteAsync(ct);
+                await pantryDb.Units.ExecuteDeleteAsync(ct);
                 // Stores are minted by the deal seed (plantry-q9zr.14). The deals rows that soft-ref a store
                 // by Guid are already deleted above, and nothing in catalog hard-FKs to Store, so ordering is
                 // free — delete them here so /Dev/Reset does not accumulate an orphaned store row per reset.
-                await catalogDb.Stores.ExecuteDeleteAsync(ct);
+                await pantryDb.Stores.ExecuteDeleteAsync(ct);
             }
             finally
             {
@@ -1017,22 +1016,20 @@ public sealed class FakeDataSeeder(
     private void ArmTenant(Guid id)
     {
         tenant.Set(id);
-        catalogDb.SetHouseholdId(id);
+        pantryDb.SetHouseholdId(id);
         identityDb.SetHouseholdId(id);
-        inventoryDb.SetHouseholdId(id);
         recipesDb.SetHouseholdId(id);
-        mealPlanningDb.SetHouseholdId(id);
+        planningDb.SetHouseholdId(id);
         marketDb.SetHouseholdId(id);
     }
 
     private void DisarmTenant()
     {
         tenant.Clear();
-        catalogDb.SetHouseholdId(Guid.Empty);
+        pantryDb.SetHouseholdId(Guid.Empty);
         identityDb.SetHouseholdId(Guid.Empty);
-        inventoryDb.SetHouseholdId(Guid.Empty);
         recipesDb.SetHouseholdId(Guid.Empty);
-        mealPlanningDb.SetHouseholdId(Guid.Empty);
+        planningDb.SetHouseholdId(Guid.Empty);
         marketDb.SetHouseholdId(Guid.Empty);
     }
 

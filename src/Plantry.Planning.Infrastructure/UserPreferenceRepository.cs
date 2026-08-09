@@ -3,7 +3,7 @@ using Plantry.Planning.Domain;
 
 namespace Plantry.Planning.Infrastructure;
 
-public sealed class UserPreferenceRepository(MealPlanningDbContext db) : IUserPreferenceRepository
+public sealed class UserPreferenceRepository(PlanningDbContext db) : IUserPreferenceRepository
 {
     public Task<UserPreference?> FindByUserIdAsync(Guid userId, CancellationToken ct = default) =>
         db.UserPreferences

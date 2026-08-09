@@ -111,6 +111,32 @@ public interface IImportSessionRepository
         HouseholdId householdId, Guid journalId, CancellationToken ct = default);
 
     /// <summary>
+    /// Trailing basket totals for the household's most recently <b>committed</b> sessions (plantry-bb7p
+    /// Intake-review trip context: "this basket vs your average"), newest-first, capped at
+    /// <paramref name="take"/>, lean-projected to just <see cref="ImportSession.Total"/> — no <c>Lines</c>
+    /// include, since the caller only ever averages the totals. A session with a null <c>Total</c> is
+    /// excluded rather than treated as zero (a session that committed with an unknown total shouldn't drag
+    /// the average toward zero).
+    ///
+    /// <para>Default implementation reuses <see cref="ListRecentAsync"/> (same fallback-for-fakes
+    /// precedent as <see cref="FindCommittedLineIdsByJournalIdsAsync"/>) and over-fetches by 4x before
+    /// filtering to Committed, since <see cref="ListRecentAsync"/> mixes Ready/Committed/Failed — a test
+    /// double built against the default rarely has more than a handful of seeded sessions, so exactness
+    /// here doesn't matter; the EF repository overrides this with a precise, Committed-only query.</para>
+    /// </summary>
+    async Task<IReadOnlyList<decimal>> ListRecentCommittedTotalsAsync(
+        HouseholdId householdId, int take, CancellationToken ct = default)
+    {
+        var sessions = await ListRecentAsync(householdId, take: take * 4, ct: ct);
+        return sessions
+            .Where(s => s.Status == ImportStatus.Committed && s.Total is not null)
+            .OrderByDescending(s => s.CommittedAt)
+            .Take(take)
+            .Select(s => s.Total!.Value)
+            .ToList();
+    }
+
+    /// <summary>
     /// Batch form of <see cref="FindCommittedLineByJournalIdAsync"/> (ADR-023 §6) — the Pantry Product
     /// Detail History grid's render pass needs to know, for every Purchase row on the page in one shot,
     /// whether it earns the "Amend" action, rather than issuing one query per row. Returns each matched

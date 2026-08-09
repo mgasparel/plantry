@@ -163,12 +163,28 @@ internal sealed class FakePurchaseFrequencyReader : IPurchaseFrequencyReader
 {
     public Dictionary<Guid, int> Counts { get; } = new();
     public List<DateTimeOffset> SinceCalls { get; } = [];
+    public Dictionary<Guid, IReadOnlyList<DateTimeOffset>> Dates { get; } = new();
+
+    /// <summary>Times <see cref="PurchaseDatesForProductsAsync"/> was called — lets the Deals-review
+    /// batching test prove one whole-queue read, never one per card (plantry-gtgl).</summary>
+    public int PurchaseDatesCalls { get; private set; }
 
     public Task<IReadOnlyDictionary<Guid, int>> PurchaseCountsSinceAsync(
         DateTimeOffset since, CancellationToken ct = default)
     {
         SinceCalls.Add(since);
         IReadOnlyDictionary<Guid, int> result = new Dictionary<Guid, int>(Counts);
+        return Task.FromResult(result);
+    }
+
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>>> PurchaseDatesForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        PurchaseDatesCalls++;
+        var idSet = productIds.ToHashSet();
+        IReadOnlyDictionary<Guid, IReadOnlyList<DateTimeOffset>> result = Dates
+            .Where(kv => idSet.Contains(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
         return Task.FromResult(result);
     }
 }

@@ -7,19 +7,51 @@
     var checkedCount = list?.CheckedCount ?? 0;
     var totalCount = list?.TotalCount ?? 0;
     var oobAttr = Model.Oob ? " hx-swap-oob=\"true\"" : "";
+
+    // Basket cost estimate (plantry-e016): priced from your latest live price observation (Purchase or
+    // Manual; Deal price when an active deal covers it), scoped to the outstanding (unchecked) basket.
+    // A single figure when every priced line was exact; a "$low–$high" range when some lines were
+    // quantity/unit-uncertain. Never shown when nothing on the list could be priced (list.HasEstimate false).
+    var showEstimateLine = list is not null && (list.HasEstimate || list.HasUnpriced || list.HasActiveDeals);
+    string? estimateText = null;
+    if (list is not null && list.HasEstimate)
+    {
+        estimateText = list.IsRangeEstimate
+            ? $"{MoneyDisplay.Format(list.EstimatedLow!.Value, Model.DisplayCurrency)}–{MoneyDisplay.Format(list.EstimatedHigh!.Value, Model.DisplayCurrency)}"
+            : MoneyDisplay.Format(list.EstimatedLow!.Value, Model.DisplayCurrency);
+    }
 }
 
-<div id="sl-summary"@Html.Raw(oobAttr) class="sl-summary">
-    <div class="ss">
-        <div class="n">@activeCount</div>
-        <div class="l">to buy</div>
+<div id="sl-summary"@Html.Raw(oobAttr) class="sl-summary-stack">
+    <div class="sl-summary">
+        <div class="ss">
+            <div class="n">@activeCount</div>
+            <div class="l">to buy</div>
+        </div>
+        <div class="ss done">
+            <div class="n">@checkedCount</div>
+            <div class="l">checked</div>
+        </div>
+        <div class="ss">
+            <div class="n">@totalCount</div>
+            <div class="l">total</div>
+        </div>
     </div>
-    <div class="ss done">
-        <div class="n">@checkedCount</div>
-        <div class="l">checked</div>
-    </div>
-    <div class="ss">
-        <div class="n">@totalCount</div>
-        <div class="l">total</div>
-    </div>
+    @if (showEstimateLine)
+    {
+        <div class="sl-estimate">
+            @if (estimateText is not null)
+            {
+                <span class="chip-stat sl-est-amount">Estimated total <b>@estimateText</b></span>
+            }
+            @if (list!.HasActiveDeals)
+            {
+                <span class="chip-stat sl-est-deals"><b class="delta--good">@list.ActiveDealItemCount item@(list.ActiveDealItemCount == 1 ? "" : "s")</b> on active deals</span>
+            }
+            @if (list.HasUnpriced)
+            {
+                <span class="chip-stat sl-est-unpriced">+@list.UnpricedItemCount unpriced item@(list.UnpricedItemCount == 1 ? "" : "s")</span>
+            }
+        </div>
+    }
 </div>

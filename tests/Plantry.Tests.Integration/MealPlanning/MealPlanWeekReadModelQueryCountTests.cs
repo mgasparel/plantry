@@ -106,10 +106,10 @@ public sealed class MealPlanWeekReadModelQueryCountTests(PostgresFixture db) : I
         return new MealPlanWeekReadModel(db.ConnectionString, tenant, Clock, onCommandExecuting);
     }
 
-    private CatalogDbContext NewCatalogDb()
+    private PantryDbContext NewCatalogDb()
     {
-        var opts = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
-        var ctx = new CatalogDbContext(opts);
+        var opts = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
+        var ctx = new PantryDbContext(opts);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

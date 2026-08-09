@@ -361,10 +361,18 @@ internal sealed class IdentityConversionProvider : IProductConversionProvider
     }
 }
 
+/// <summary>
+/// Always normalizes to <see cref="ReturnValue"/> (mutable — plantry-bb7p — so a shared/singleton-registered
+/// instance, e.g. one held by a WAF fixture across a whole test class, can be reseeded per test without
+/// re-registering DI), regardless of the inputs. Constructor-seeded for callers that just want a fixed
+/// value for one test method.
+/// </summary>
 internal sealed class FakeUnitPriceCalculator(decimal? returnValue) : IUnitPriceCalculator
 {
+    public decimal? ReturnValue { get; set; } = returnValue;
+
     public Task<decimal?> TryNormalizeAsync(decimal price, decimal quantity, Guid unitId, CancellationToken ct = default) =>
-        Task.FromResult(returnValue);
+        Task.FromResult(ReturnValue);
 }
 
 internal sealed class FakeDisplayCurrency : IDisplayCurrency
@@ -403,6 +411,14 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
             .Where(p => p.ProductId == productId && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual))
             .MaxBy(p => p.ObservedAt));
 
+    public Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>(Items
+            .Where(p => p.ProductId == productId
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById is null)
+            .OrderBy(p => p.ObservedAt)
+            .ToList());
+
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
         Task.FromResult(Items
             .Where(p => p.SkuId == skuId && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual))
@@ -413,6 +429,21 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
             .Where(p => p.ProductId == productId && p.Source == PriceSource.Deal
                 && p.ValidFrom <= today && p.ValidTo >= today)
             .OrderBy(p => p.UnitPrice)
+            .ThenBy(p => p.Price)
+            .FirstOrDefault());
+
+    public Task<PriceObservation?> ActiveDealForPurchaseAsync(Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default) =>
+        Task.FromResult(Items
+            .Where(p => p.ProductId == productId && p.Source == PriceSource.Deal
+                && p.StoreId == storeId
+                && p.ValidFrom <= observedDate && p.ValidTo >= observedDate
+                && p.SupersededById is null
+                // Qualification predicate mirrors the production Postgres query: cheapest QUALIFYING deal.
+                && p.UnitPrice.HasValue && p.UnitPrice * (1m + tolerance) >= purchaseUnitPrice)
+            // Nulls-last tiebreak, matching Postgres `ORDER BY unit_price ASC` (LINQ-to-Objects would
+            // otherwise sort a pack-size-less deal's null unit price first).
+            .OrderBy(p => p.UnitPrice.HasValue ? 0 : 1)
+            .ThenBy(p => p.UnitPrice)
             .ThenBy(p => p.Price)
             .FirstOrDefault());
 

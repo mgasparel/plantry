@@ -76,6 +76,46 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("All caught up", html);
     }
 
+    // ── Purchase context (plantry-gtgl) ─────────────────────────────────────────
+
+    [Fact(DisplayName = "A pending deal for a product with purchase history renders the purchase-context chips")]
+    public async Task Renders_Purchase_Context_When_History_Exists()
+    {
+        // Low confidence — step 1's High checklist row is a compact row (_ReviewStep1.cshtml) that never
+        // renders _DealReviewCard at all; the purchase-context injection lives in the full card partial that
+        // step 2/3 use (same reason DealReviewPageTests' own "Did you mean" chip test uses step 2).
+        factory.Reset();
+        var deal = factory.SeedPending(
+            "Milk 2L", MatchConfidence.Low, factory.MilkProduct, price: 4.50m, quantity: 1m, unitId: factory.UnitId);
+        factory.SeedPurchase(factory.MilkProduct, 5.00m, DateTimeOffset.UtcNow.AddDays(-10));
+        factory.SeedPurchase(factory.MilkProduct, 5.00m, DateTimeOffset.UtcNow.AddDays(-31));
+        factory.Frequency.Dates[factory.MilkProduct] =
+        [
+            DateTimeOffset.UtcNow.AddDays(-31),
+            DateTimeOffset.UtcNow.AddDays(-10),
+        ];
+
+        var html = await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+
+        Assert.Contains("You pay", html);
+        Assert.Contains("deal is", html);
+        Assert.Contains("below", html);          // 4.50 is below the 5.00 average
+        Assert.Contains("You buy this every", html);
+        Assert.Contains("Last bought", html);
+    }
+
+    [Fact(DisplayName = "A pending deal for a product with no purchase history renders no purchase-context row (silent skip)")]
+    public async Task No_Purchase_Context_When_No_History()
+    {
+        factory.Reset();
+        factory.SeedPending("Milk 2L", MatchConfidence.Low, factory.MilkProduct);
+
+        var html = await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("You pay", html);
+        Assert.DoesNotContain("You buy this every", html);
+    }
+
     [Fact(DisplayName = "The step views render each confidence treatment + the single-suggestion chip (q9zr.13)")]
     public async Task Renders_Confidence_Treatments()
     {
@@ -1193,6 +1233,7 @@ public class DealReviewFactory : WebApplicationFactory<Program>
     public FakeReviewProductRepo Products { get; } = new();
     public FakeReviewLocationRepo Locations { get; } = new();
     public FakeReviewFlyerImportRepo FlyerImports { get; } = new();
+    public FakeDealFrequency Frequency { get; } = new();
 
     private static readonly IClock Clock = SystemClock.Instance;
 
@@ -1211,11 +1252,23 @@ public class DealReviewFactory : WebApplicationFactory<Program>
         Repo.Items.Clear();
         Memories.Items.Clear();
         Observations.Calls = 0;
+        Observations.Items.Clear();
         Products.Items.Clear();
         ProductReader.MissingProducts.Clear();
         FlyerImports.Refs.Clear();
         FlyerImports.ParsedRefsCalls.Clear();
+        Frequency.Counts.Clear();
+        Frequency.Dates.Clear();
     }
+
+    /// <summary>
+    /// Seeds a purchase/manual price observation for the given product (plantry-gtgl, Deals-review purchase
+    /// context) — the "you pay $X avg" / "last bought" figures are read from this history.
+    /// </summary>
+    public void SeedPurchase(Guid productId, decimal unitPrice, DateTimeOffset observedAt) =>
+        Observations.Items.Add(PriceObservation.Record(
+            HouseholdId.New(), productId, null, unitPrice, 1m, UnitId, unitPrice,
+            PriceSource.Purchase, "SomeStore", null, observedAt, Guid.NewGuid()));
 
     /// <summary>
     /// Seeds a Parsed source-flyer provenance ref matching a seeded deal's (store, validity-window), so the
@@ -1231,9 +1284,11 @@ public class DealReviewFactory : WebApplicationFactory<Program>
         return ValidityWindow.Create(today.AddDays(-1), today.AddDays(6)).Value;
     }
 
-    public Deal SeedPending(string rawName, MatchConfidence confidence, Guid? suggested, decimal price = 4.99m)
+    public Deal SeedPending(
+        string rawName, MatchConfidence confidence, Guid? suggested, decimal price = 4.99m,
+        decimal? quantity = null, Guid? unitId = null)
     {
-        var raw = new RawDeal(rawName, "SomeBrand", null, price, null, null, "Save $1", InWindow());
+        var raw = new RawDeal(rawName, "SomeBrand", null, price, quantity, unitId, "Save $1", InWindow());
         var proposal = suggested is { } s
             ? new MatchProposal(s, confidence, "looks like a match")
             : MatchProposal.Unmatched();
@@ -1315,6 +1370,10 @@ public class DealReviewFactory : WebApplicationFactory<Program>
             services.AddScoped<ILocationRepository>(_ => Locations);
             services.RemoveAll<IFlyerImportRepository>();
             services.AddScoped<IFlyerImportRepository>(_ => FlyerImports);
+            // Deals-review purchase context (plantry-gtgl): fake the Inventory frequency read so no
+            // Postgres/Inventory stack is needed, mirroring DealsPageTests' stock-up-alert fake.
+            services.RemoveAll<IPurchaseFrequencyReader>();
+            services.AddScoped<IPurchaseFrequencyReader>(_ => Frequency);
         });
     }
 }
@@ -1391,13 +1450,29 @@ public sealed class FakeReviewObservationWriter : IPriceObservationRepository
         Task.FromResult<IReadOnlyList<PriceObservation>>([]);
 
     public Task<PriceObservation?> LatestForProductAsync(Guid productId, CancellationToken ct = default) =>
-        Task.FromResult<PriceObservation?>(null);
+        Task.FromResult(Items
+            .Where(p => p.ProductId == productId
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById is null)
+            .MaxBy(p => p.ObservedAt));
 
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
         Task.FromResult<PriceObservation?>(null);
 
+    public Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>(Items
+            .Where(p => p.ProductId == productId
+                && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
+                && p.SupersededById is null)
+            .OrderBy(p => p.ObservedAt)
+            .ToList());
+
     public Task<PriceObservation?> CheapestActiveDealForProductAsync(
         Guid productId, DateOnly today, CancellationToken ct = default) =>
+        Task.FromResult<PriceObservation?>(null);
+
+    public Task<PriceObservation?> ActiveDealForPurchaseAsync(
+        Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default) =>
         Task.FromResult<PriceObservation?>(null);
 
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(

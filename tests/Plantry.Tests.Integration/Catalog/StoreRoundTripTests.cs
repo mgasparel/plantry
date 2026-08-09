@@ -166,7 +166,7 @@ public sealed class StoreRoundTripTests(PostgresFixture db) : IAsyncLifetime
         var tenant = new TenantContext();
         tenant.Set(_household.Value);
         var opts = BuildCatalogOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var catalogDb = new CatalogDbContext(opts);
+        await using var catalogDb = new PantryDbContext(opts);
 
         var stores = await catalogDb.Stores.IgnoreQueryFilters().ToListAsync();
 
@@ -182,7 +182,7 @@ public sealed class StoreRoundTripTests(PostgresFixture db) : IAsyncLifetime
 
         var tenant = new TenantContext(); // never set
         var opts = BuildCatalogOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var catalogDb = new CatalogDbContext(opts);
+        await using var catalogDb = new PantryDbContext(opts);
 
         var stores = await catalogDb.Stores.IgnoreQueryFilters().ToListAsync();
 
@@ -194,24 +194,24 @@ public sealed class StoreRoundTripTests(PostgresFixture db) : IAsyncLifetime
         var tenant = new TenantContext();
         tenant.Set(household.Value);
         var opts = BuildCatalogOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var seedDb = new CatalogDbContext(opts);
+        await using var seedDb = new PantryDbContext(opts);
         await seedDb.Stores.AddAsync(Store.Create(household, name, Clock, externalRef));
         await seedDb.SaveChangesAsync();
     }
 
-    private DbContextOptions<CatalogDbContext> CatalogOptions() =>
-        new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PantryDbContext> CatalogOptions() =>
+        new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private static DbContextOptions<CatalogDbContext> BuildCatalogOptions(string connStr, IInterceptor? interceptor = null)
+    private static DbContextOptions<PantryDbContext> BuildCatalogOptions(string connStr, IInterceptor? interceptor = null)
     {
-        var builder = new DbContextOptionsBuilder<CatalogDbContext>().UseNpgsql(connStr);
+        var builder = new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(connStr);
         if (interceptor is not null) builder.AddInterceptors(interceptor);
         return builder.Options;
     }
 
-    private CatalogDbContext NewCatalogDb(HouseholdId household)
+    private PantryDbContext NewCatalogDb(HouseholdId household)
     {
-        var ctx = new CatalogDbContext(CatalogOptions());
+        var ctx = new PantryDbContext(CatalogOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

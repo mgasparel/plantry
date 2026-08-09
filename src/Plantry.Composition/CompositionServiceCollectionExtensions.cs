@@ -113,6 +113,9 @@ public static class CompositionServiceCollectionExtensions
         // above), both halves being intra-context since the Planning merge (ADR-024, plantry-g3da.5).
         services.AddScoped<IShoppingDealAttributionReader, ShoppingDealAttributionReaderAdapter>();
         services.AddScoped<IShoppingDealReader, ShoppingDealReaderAdapter>();
+        // Basket cost estimate (plantry-e016): same underlying Pricing read model as IShoppingDealReader
+        // above, but returns the raw price/quantity/unit for ShoppingBasketCostingService's line costing.
+        services.AddScoped<IShoppingPriceReader, ShoppingPriceReaderAdapter>();
 
         // Recipes ACLs onto Catalog (read/write + unit conversion), Inventory (stock read + consume),
         // Pricing (latest price), and Shopping (list writer).

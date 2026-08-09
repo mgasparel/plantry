@@ -10,7 +10,7 @@ namespace Plantry.Planning.Infrastructure;
 /// <see cref="IReferenceDataSeeder"/> hook (DM-9), mirroring <c>RecipesReferenceDataSeeder</c>
 /// and <c>CatalogReferenceDataSeeder</c>.
 /// </summary>
-public sealed class MealPlanningReferenceDataSeeder(MealPlanningDbContext db, IClock clock) : IReferenceDataSeeder
+public sealed class MealPlanningReferenceDataSeeder(PlanningDbContext db, IClock clock) : IReferenceDataSeeder
 {
     public async Task SeedAsync(HouseholdId householdId, CancellationToken ct = default)
     {

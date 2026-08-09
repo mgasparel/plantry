@@ -1206,6 +1206,31 @@ button.bottom-nav__item {
 .badge-confidence--low  .icon,
 .badge-confidence--none .icon { width: 0.9em; height: 0.9em; }
 
+/* ── chip-stat — quiet inline stat chip (plantry-bb7p) ──────────────────────
+   A small pill for surfacing a computed stat inline in a flow (a price delta vs history, a
+   basket-vs-average trip comparison) — a quiet aside, not an alert: no icon, no bright border,
+   just a muted pill with a bold value. `.delta--good`/`.delta--bad` color only the bold segment,
+   reusing the existing success/danger tokens (no new colour values). */
+.chip-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.chip-stat b { color: var(--color-text); font-weight: 600; }
+.chip-stat .delta--good { color: var(--color-success); }
+.chip-stat .delta--bad  { color: var(--color-danger); }
+
+/* Canonical wrapper for a row of .chip-stat pills (plantry-h9z9) — flex-wrap so chips reflow on
+   narrow viewports instead of overflowing. Reused wherever multiple chips sit side by side (Today
+   stats widget, product-detail stats panel) instead of each caller repeating the same inline style. */
+.chip-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
 /* ── Catalog sections / lists ──────────────────────────────────────────────── */
 .catalog-section { margin-bottom: var(--space-8); }
 
@@ -4366,6 +4391,16 @@ details.rd-sub-fold[open] .rd-sub-fold__chev { transform: rotate(90deg); }
 .sl-summary .ss .l { font-size: 11.5px; color: var(--color-text-faint); margin-top: 1px; }
 .sl-summary .ss.done .n { color: var(--color-success); }
 
+/* #sl-summary wraps the stat box and the basket cost estimate line (plantry-e016) in a right-aligned
+   column so the estimate's own max-content width (all three chips) never stretches the bordered stat
+   box beside it — the stat box and the estimate size independently, stacked. */
+.sl-summary-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+
+/* Basket cost estimate line (plantry-e016) — composes on the shared .chip-stat primitive (Dev/Index.cshtml);
+   sl-est-* classes are test/selector hooks only, no bespoke styling. */
+.sl-estimate { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12.5px; }
+.sl-est-amount b { font-variant-numeric: tabular-nums; }
+
 /* ---- add item form ------------------------------------------------------ */
 .sl-add {
   background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
@@ -4633,6 +4668,7 @@ button.sadd svg { width: 13px; height: 13px; }
      untouched): let it wrap to its own row and let its three stat boxes
      shrink instead of holding their nowrap intrinsic width. */
   .sl-wrap .page-header__actions { width: 100%; }
+  .sl-wrap .sl-summary-stack { align-items: stretch; width: 100%; }
   .sl-summary { flex-wrap: wrap; white-space: normal; width: 100%; }
   .sl-summary .ss { flex: 1 1 auto; min-width: 0; }
 
@@ -6922,7 +6958,9 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-checkrow__qty .u { font-size: 0.71875rem; font-weight: 600; color: var(--color-text-faint); }
 .ts-checkrow__check {
   flex: none; width: 46px; align-self: stretch; display: grid; place-items: center;
-  border-left: 1px solid var(--color-border); background: none; color: var(--color-text-faint); cursor: pointer;
+  appearance: none; border: none; border-left: 1px solid var(--color-border);
+  border-radius: 0; box-shadow: none; margin: 0; padding: 0;
+  background: none; color: var(--color-text-faint); cursor: pointer;
 }
 .ts-checkrow__check:hover { background: var(--color-success-bg); color: var(--color-success); }
 .ts-checkrow__check .icon { width: 19px; height: 19px; }
@@ -6983,6 +7021,21 @@ tr.line--dismissed .data-grid__cell:first-child {
 .ts-adjuster__rec b { font-variant-numeric: tabular-nums; }
 .ts-adjuster__foot { flex: none; display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--color-border); background: var(--color-surface); }
 .ts-adjuster__foot .btn--primary { flex: 1; }
+
+/* Desktop: right-side flyout, matching the shared .sheet contract (440px panel, same 767px
+   boundary as .sheet/.bottom-nav per plantry-kdvi) — the bottom-sheet rules above stay the
+   phone behaviour (plantry-9iag). The grab handle is a touch affordance; hidden here, its
+   10px top padding moves onto the body. */
+@media (min-width: 768px) {
+  .ts-adjuster__panel {
+    left: auto; top: 0; bottom: 0; width: min(440px, 100%);
+    max-height: none; border-radius: 0; box-shadow: var(--shadow-lg);
+    transform: translateX(105%);
+  }
+  .ts-adjuster.show .ts-adjuster__panel { transform: translateX(0); }
+  .ts-adjuster__grab { display: none; }
+  .ts-adjuster__body { padding-top: var(--space-4); }
+}
 
 /* Big stepper — 64px thumb-sized +/- buttons flanking the count input. */
 .ts-bigstep { display: flex; align-items: stretch; gap: var(--space-2); }
@@ -7508,6 +7561,9 @@ tr.line--dismissed .data-grid__cell:first-child {
   font-size: var(--font-size-xs);
   color: var(--color-warning);
 }
+/* Purchase context (plantry-gtgl) — composes the shared .chip-stat primitive (Dev/Index.cshtml), same
+   flex-wrap row convention as .sl-estimate/.ts-chiprow. */
+.deal-review-row__purchase-context { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .deal-review-row__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .deal-review-row__reject { margin-left: auto; }
 
