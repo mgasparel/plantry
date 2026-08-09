@@ -99,6 +99,20 @@ public sealed class InventoryStockReaderAdapterTests
         var snapshot = result[productId];
         Assert.Equal(5m, snapshot.AvailableQuantity);
         Assert.Equal(new DateOnly(2026, 7, 20), snapshot.SoonestExpiry);
+        Assert.Collection(
+            snapshot.ActiveLots!,
+            first =>
+            {
+                Assert.Equal(3m, first.AvailableQuantity);
+                Assert.Equal(unitId, first.UnitId);
+                Assert.Equal(new DateOnly(2026, 7, 20), first.ExpiryDate);
+            },
+            second =>
+            {
+                Assert.Equal(2m, second.AvailableQuantity);
+                Assert.Equal(unitId, second.UnitId);
+                Assert.Equal(new DateOnly(2026, 7, 25), second.ExpiryDate);
+            });
     }
 
     [Fact(DisplayName = "FindStockBatchAsync omits a product whose lots are all depleted")]

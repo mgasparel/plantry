@@ -27,6 +27,7 @@ public sealed class GeneratePlanService(
     IPendingProposalStore proposalStore,
     MealConstraintResolver constraintResolver,
     ITagReader tagReader,
+    IClock clock,
     ILogger<GeneratePlanService> logger)
 {
     /// <summary>
@@ -155,14 +156,25 @@ public sealed class GeneratePlanService(
         var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 50, ct);
         var ratingSummaries = await recipeReader.GetRatingSummariesAsync(
             recipesReadModels.Select(r => r.RecipeId).ToList(), ct);
+        var today = clock.ToLocalDate(clock.UtcNow);
+        var candidateEvidence = await recipeReader.GetCandidateEvidenceAsync(
+            recipesReadModels
+                .Select(r => new CandidateRecipeEvidenceRequest(r.RecipeId, r.DefaultServings))
+                .ToList(),
+            today,
+            ct);
         var candidates = recipesReadModels
             .Select(r =>
             {
                 var summary = ratingSummaries.GetValueOrDefault(r.RecipeId);
+                var evidence = candidateEvidence.GetValueOrDefault(r.RecipeId);
                 return new CandidateRecipe(
-                    r.RecipeId, r.Name, r.TagIds, r.DefaultServings, null,
+                    r.RecipeId, r.Name, r.TagIds, r.DefaultServings, evidence?.CostPerServing,
                     HouseholdAvgRating: summary?.HouseholdAvg,
-                    RatedCount: summary?.RatedCount ?? 0);
+                    RatedCount: summary?.RatedCount ?? 0,
+                    CostCompleteness: evidence?.CostCompleteness ?? CandidateCostCompleteness.Unknown,
+                    FulfillmentPercent: evidence?.FulfillmentPercent,
+                    HasContributingExpiringStock: evidence?.HasContributingExpiringStock);
             })
             .ToList();
 
@@ -232,7 +244,7 @@ public sealed class GeneratePlanService(
             // HouseholdAvgRating/RatedCount (set once above) as the fallback signal. Soft signal only:
             // this never touches ProposalAcl/HardConflictDetector/UnfulfillabilityDetector, all of which
             // continue to operate on the unscoped `candidates` list above them in this method.
-            var slotCandidates = constraints.EffectiveAttendees.Count == 0
+            IReadOnlyList<CandidateRecipe> slotCandidates = constraints.EffectiveAttendees.Count == 0
                 ? candidates
                 : candidates
                     .Select(c =>
@@ -246,6 +258,7 @@ public sealed class GeneratePlanService(
                         return attendeeStars.Count == 0 ? c : c with { AttendeeStars = attendeeStars };
                     })
                     .ToList();
+            slotCandidates = CandidateRecipeOrdering.Order(slotCandidates, effectiveWeights);
 
             contexts.Add(new PlannerMealSlotContext(
                 Date: date,

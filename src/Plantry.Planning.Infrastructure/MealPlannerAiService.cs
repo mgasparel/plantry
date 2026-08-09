@@ -72,9 +72,13 @@ public sealed class MealPlannerAiService : IMealPlanner
           attendee has not rated, fall back to household_avg_rating for that recipe. A low individual
           rating should weigh against proposing that recipe for the slot but must never exclude it
           outright — a recipe with no rating data at all is judged purely on its other merits.
-        - Use the planning weights (waste/cost/variety) to prioritise: higher waste weight means
-          prefer recipes that use ingredients already on hand; higher cost weight means prefer cheaper
-          recipes; higher variety weight means avoid repeating the same recipe across the week.
+        - Use the planning weights (waste/cost/variety) to prioritise. Waste evidence is present only when
+          expiring_stock=use_soon: a positive amount was allocated from on-hand stock with an expiry today
+          or later inside the horizon. Mere on-hand stock, an expired lot, or a generic fulfillment score
+          is not waste evidence. Cost evidence is exact only when cost_completeness=complete; partial cost
+          is an under-estimate and unknown cost is unresolved. Never treat partial or unknown cost as zero
+          or as cheaper than a recipe with complete evidence. Higher variety weight means avoid repeating
+          the same recipe across the week.
         - The "Already planned this week" list (when present) shows meals the household has already
           planned this week. Treat them as part of the week when applying the variety weight — do not
           unintentionally repeat an already-planned dish. Repeating one is acceptable when the weights
@@ -199,7 +203,17 @@ public sealed class MealPlannerAiService : IMealPlanner
                 var tags = r.TagIds.Count > 0 ? $" tags=[{string.Join(",", r.TagIds)}]" : "";
                 var cost = r.CostPerServing.HasValue
                     ? FormattableString.Invariant($" cost={r.CostPerServing:F2}")
-                    : "";
+                    : " cost=unknown";
+                var costCompleteness = $" cost_completeness={r.CostCompleteness.ToString().ToLowerInvariant()}";
+                var fulfillment = r.FulfillmentPercent.HasValue
+                    ? $" fulfillment={r.FulfillmentPercent.Value}%"
+                    : " fulfillment=unknown";
+                var expiringStock = r.HasContributingExpiringStock switch
+                {
+                    true => " expiring_stock=use_soon",
+                    false => " expiring_stock=none",
+                    null => " expiring_stock=unknown",
+                };
                 // plantry-zlwp.5: attendee_ratings lists THIS slot's attendees' own stars (identity-free —
                 // the AI reasons over the values, not who gave them); household_avg_rating/rated_by are
                 // the household-wide fallback signal. Both soft guidance only — see SystemPrompt rules.
@@ -209,7 +223,7 @@ public sealed class MealPlannerAiService : IMealPlanner
                 var householdRating = r.HouseholdAvgRating.HasValue
                     ? FormattableString.Invariant($" household_avg_rating={r.HouseholdAvgRating:F1} rated_by={r.RatedCount}")
                     : "";
-                sb.AppendLine($"    - [{r.RecipeId}] {r.Name} (servings={r.DefaultServings}{tags}{cost}{attendeeRatings}{householdRating})");
+                sb.AppendLine($"    - [{r.RecipeId}] {r.Name} (servings={r.DefaultServings}{tags}{cost}{costCompleteness}{fulfillment}{expiringStock}{attendeeRatings}{householdRating})");
             }
             sb.AppendLine();
         }

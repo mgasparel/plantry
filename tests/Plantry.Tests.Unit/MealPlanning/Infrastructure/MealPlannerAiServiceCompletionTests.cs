@@ -49,7 +49,10 @@ public sealed class MealPlannerAiServiceCompletionTests
                 new CandidateRecipe(
                     RecipeGuid, "Sheet-Pan Chicken", TagIds: [], DefaultServings: 4, CostPerServing: 3.20m,
                     HouseholdAvgRating: 4.3m, RatedCount: 3,
-                    AttendeeStars: new Dictionary<Guid, int> { [AttendeeGuid] = 5 }),
+                    AttendeeStars: new Dictionary<Guid, int> { [AttendeeGuid] = 5 },
+                    CostCompleteness: CandidateCostCompleteness.Complete,
+                    FulfillmentPercent: 100,
+                    HasContributingExpiringStock: true),
             ]),
     ];
 
@@ -117,6 +120,9 @@ public sealed class MealPlannerAiServiceCompletionTests
         Assert.Contains("waste=60, cost=20, variety=20", call.UserText); // planning weights forwarded
         Assert.Contains("attendee_ratings=[5]", call.UserText);        // attendee's own stars (plantry-zlwp.5)
         Assert.Contains("household_avg_rating=4.3 rated_by=3", call.UserText); // household fallback signal
+        Assert.Contains("cost_completeness=complete", call.UserText);
+        Assert.Contains("fulfillment=100%", call.UserText);
+        Assert.Contains("expiring_stock=use_soon", call.UserText);
     }
 
     [Fact]

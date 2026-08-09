@@ -26,6 +26,14 @@ public sealed class FulfillmentServiceTests
         public void Add(Guid productId, decimal available, Guid defaultUnitId, DateOnly? soonestExpiry = null) =>
             _stock[productId] = new InventoryProductStock(productId, available, defaultUnitId, soonestExpiry);
 
+        public void AddLots(Guid productId, Guid defaultUnitId, params ActiveStockLot[] lots) =>
+            _stock[productId] = new InventoryProductStock(
+                productId,
+                lots.Sum(l => l.AvailableQuantity),
+                defaultUnitId,
+                lots.Select(l => l.ExpiryDate).Where(e => e.HasValue).Min(),
+                lots);
+
         public Task<InventoryProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default) =>
             Task.FromResult(_stock.GetValueOrDefault(productId));
 
@@ -571,6 +579,81 @@ public sealed class FulfillmentServiceTests
         Assert.Equal(-2, line.ExpiresWithinDays);
         // Cookability is not blocked by expiry.
         Assert.True(result.Overall.FullyCookable);
+    }
+
+    [Fact(DisplayName = "FEFO allocation reaches a later in-horizon lot after an insufficient expired lot")]
+    public async Task Expired_First_Then_Tomorrow_Lot_Sets_Contributing_Expiring_Stock()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var milk = h.Catalog.AddTrackedLeaf(unit);
+        h.Stock.AddLots(
+            milk.Id,
+            unit,
+            new ActiveStockLot(1m, unit, Today.AddDays(-1)),
+            new ActiveStockLot(10m, unit, Today.AddDays(1)));
+
+        var result = await h.Service.ComputeAsync(BuildRecipe(milk.Id, 2m, unit), 4, Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStock, line.Status);
+        Assert.Equal(-1, line.ExpiresWithinDays);
+        Assert.True(line.HasContributingExpiringStock);
+    }
+
+    [Fact(DisplayName = "An expired-only FEFO allocation does not provide use-soon evidence")]
+    public async Task Expired_Only_Lot_Does_Not_Set_Contributing_Expiring_Stock()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var milk = h.Catalog.AddTrackedLeaf(unit);
+        h.Stock.AddLots(milk.Id, unit, new ActiveStockLot(10m, unit, Today.AddDays(-1)));
+
+        var result = await h.Service.ComputeAsync(BuildRecipe(milk.Id, 2m, unit), 4, Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStock, line.Status);
+        Assert.False(line.HasContributingExpiringStock);
+    }
+
+    [Fact(DisplayName = "FEFO allocation marks a substitute's later in-horizon lot after an expired lot")]
+    public async Task Substitute_Expired_First_Then_Tomorrow_Lot_Sets_Contributing_Expiring_Stock()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+        h.Stock.AddLots(
+            riceFlour.Id,
+            unit,
+            new ActiveStockLot(1m, unit, Today.AddDays(-1)),
+            new ActiveStockLot(10m, unit, Today.AddDays(1)));
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlour.Id, 1m, unit));
+
+        var result = await h.Service.ComputeAsync(BuildRecipe(flour.Id, 2m, unit), 4, Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.True(line.HasContributingExpiringStock);
+    }
+
+    [Fact(DisplayName = "An expired-only substitute allocation does not provide use-soon evidence")]
+    public async Task Substitute_Expired_Only_Lot_Does_Not_Set_Contributing_Expiring_Stock()
+    {
+        var h = new Harness();
+        var unit = Guid.CreateVersion7();
+        var flour = h.Catalog.AddTrackedLeaf(unit, "Flour");
+        var riceFlour = h.Catalog.AddTrackedLeaf(unit, "Rice Flour");
+        h.Stock.AddLots(riceFlour.Id, unit, new ActiveStockLot(10m, unit, Today.AddDays(-1)));
+        h.Substitutions.Add(new SubstitutionEdge(
+            Guid.CreateVersion7(), flour.Id, 1m, unit, riceFlour.Id, 1m, unit));
+
+        var result = await h.Service.ComputeAsync(BuildRecipe(flour.Id, 2m, unit), 4, Today);
+
+        var line = Assert.Single(result.Lines);
+        Assert.Equal(IngredientStatus.InStockViaSubstitute, line.Status);
+        Assert.False(line.HasContributingExpiringStock);
     }
 
     // ── Parent/variant expiry-soon flag ──────────────────────────────────────

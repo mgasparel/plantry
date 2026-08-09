@@ -105,11 +105,12 @@ public sealed class FulfillmentService(
         var resultLines = new List<ExpandedIngredientFulfillment>(lines.Count);
         foreach (var line in lines)
         {
-            var (status, expires, available, unitMismatch, contributingSubstitutes) = ComputeLineCore(
+            var (status, expires, available, unitMismatch, contributingSubstitutes, hasContributingExpiringStock) = ComputeLineCore(
                 line.ProductId, line.Quantity, line.UnitId,
                 scale, catalogById, stockById, substitutionsByTarget, today, converter, unitFactor, expiringSoonDays);
             resultLines.Add(new ExpandedIngredientFulfillment(
-                line.ProductId, line.UnitId, status, expires, available, unitMismatch, contributingSubstitutes));
+                line.ProductId, line.UnitId, status, expires, available, unitMismatch, contributingSubstitutes,
+                hasContributingExpiringStock));
         }
 
         var overall = BuildOverall(resultLines.Select(l => l.Status));
@@ -193,14 +194,16 @@ public sealed class FulfillmentService(
         IReadOnlyDictionary<Guid, IReadOnlyList<SubstitutionEdge>> substitutionsByTarget,
         CancellationToken ct)
     {
+        // Store a one-unit conversion factor rather than an amount-specific result. Fulfillment allocates
+        // individual FEFO lots, so the same product/unit path must be reusable for every lot quantity.
         var resolved = new Dictionary<(Guid StockRef, Guid FromUnit, Guid ToUnit), Result<decimal>>();
         var resolvedFactors = new Dictionary<(Guid ProductId, Guid FromUnit, Guid ToUnit), Result<decimal>>();
 
-        async Task ResolveExactAsync(Guid stockRef, Guid fromUnit, Guid toUnit, decimal amount)
+        async Task ResolveStockFactorAsync(Guid stockRef, Guid fromUnit, Guid toUnit)
         {
             var key = (stockRef, fromUnit, toUnit);
             if (resolved.ContainsKey(key)) return;
-            resolved[key] = await unitConverter.ConvertAsync(stockRef, amount, fromUnit, toUnit, ct);
+            resolved[key] = await unitConverter.ConvertAsync(stockRef, 1m, fromUnit, toUnit, ct);
         }
 
         async Task ResolveFactorAsync(Guid productId, Guid fromUnit, Guid toUnit)
@@ -219,7 +222,8 @@ public sealed class FulfillmentService(
             foreach (var stockRef in StockRefsFor(catalogProduct, productId))
             {
                 if (!stockById.TryGetValue(stockRef, out var stock)) continue;
-                await ResolveExactAsync(stockRef, stock.DefaultUnitId, unitId.Value, stock.AvailableQuantity);
+                foreach (var sourceUnitId in StockLotsFor(stock).Select(l => l.UnitId).Distinct())
+                    await ResolveStockFactorAsync(stockRef, sourceUnitId, unitId.Value);
             }
 
             // Substitution edges (plantry-aqpa.2) — one hop, no chaining. Pre-resolve each substitute's
@@ -237,8 +241,8 @@ public sealed class FulfillmentService(
                     foreach (var substStockRef in StockRefsFor(substituteCatalogProduct, edge.SubstituteProductId))
                     {
                         if (!stockById.TryGetValue(substStockRef, out var substStock)) continue;
-                        await ResolveExactAsync(
-                            substStockRef, substStock.DefaultUnitId, edge.SubstituteUnitId, substStock.AvailableQuantity);
+                        foreach (var sourceUnitId in StockLotsFor(substStock).Select(l => l.UnitId).Distinct())
+                            await ResolveStockFactorAsync(substStockRef, sourceUnitId, edge.SubstituteUnitId);
                     }
 
                     await ResolveFactorAsync(productId, edge.TargetUnitId, unitId.Value);
@@ -246,8 +250,13 @@ public sealed class FulfillmentService(
             }
         }
 
-        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter = (stockRef, _, fromUnit, toUnit) =>
-            resolved.GetValueOrDefault((stockRef, fromUnit, toUnit), ConversionUnavailable);
+        Func<Guid, decimal, Guid, Guid, Result<decimal>> converter = (stockRef, amount, fromUnit, toUnit) =>
+        {
+            var factor = resolved.GetValueOrDefault((stockRef, fromUnit, toUnit), ConversionUnavailable);
+            return factor.IsSuccess
+                ? Result<decimal>.Success(amount * factor.Value)
+                : factor;
+        };
 
         Func<Guid, Guid, Guid, Result<decimal>> unitFactor = (productId, fromUnit, toUnit) =>
             resolvedFactors.GetValueOrDefault((productId, fromUnit, toUnit), ConversionUnavailable);
@@ -265,6 +274,28 @@ public sealed class FulfillmentService(
     /// </summary>
     private static IReadOnlyList<Guid> StockRefsFor(CatalogProduct catalogProduct, Guid productId) =>
         catalogProduct.IsParent ? catalogProduct.VariantProductIds : [productId];
+
+    /// <summary>
+    /// Returns the active lots exposed by the Recipes stock-read seam. Older callers and test doubles
+    /// may still provide only the aggregate snapshot, so that shape is represented as one synthetic lot.
+    /// Sorting here keeps the pure rule core defensive if an adapter supplies facts that are not already
+    /// FEFO ordered; the stable sort preserves the adapter's deterministic order for equal expiries.
+    /// </summary>
+    private static IReadOnlyList<ActiveStockLot> StockLotsFor(ProductStock stock)
+    {
+        var lots = stock.ActiveLots?
+            .Where(l => l.AvailableQuantity > 0m)
+            .OrderBy(l => l.ExpiryDate is null)
+            .ThenBy(l => l.ExpiryDate ?? DateOnly.MaxValue)
+            .ToList();
+
+        if (lots is { Count: > 0 })
+            return lots;
+
+        return stock.AvailableQuantity > 0m
+            ? [new ActiveStockLot(stock.AvailableQuantity, stock.DefaultUnitId, stock.SoonestExpiry)]
+            : [];
+    }
 
     /// <summary>
     /// Pure overload: computes the <see cref="FulfillmentResult"/> for <paramref name="recipe"/>
@@ -334,10 +365,12 @@ public sealed class FulfillmentService(
         var lines = new List<IngredientFulfillment>(ingredients.Count);
         foreach (var ingredient in ingredients)
         {
-            var (status, expires, available, unitMismatch, contributingSubstitutes) = ComputeLineCore(
+            var (status, expires, available, unitMismatch, contributingSubstitutes, hasContributingExpiringStock) = ComputeLineCore(
                 ingredient.ProductId, ingredient.Quantity, ingredient.UnitId,
                 scale, catalogById, stockById, substitutionsByTarget, today, converter, unitFactor, expiringSoonDays);
-            lines.Add(new IngredientFulfillment(ingredient.Id, status, expires, available, unitMismatch, contributingSubstitutes));
+            lines.Add(new IngredientFulfillment(
+                ingredient.Id, status, expires, available, unitMismatch, contributingSubstitutes,
+                hasContributingExpiringStock));
         }
 
         return new FulfillmentResult(BuildOverall(lines.Select(l => l.Status)), lines);
@@ -357,7 +390,13 @@ public sealed class FulfillmentService(
     /// the cookability rollup — it exists purely so the UI can distinguish "can't compare units" from
     /// "not in pantry". Does no IO.
     /// </summary>
-    private static (IngredientStatus Status, int? ExpiresWithinDays, decimal? AvailableQuantity, bool UnitMismatch, IReadOnlyList<Guid> ContributingSubstituteProductIds) ComputeLineCore(
+    private static (
+        IngredientStatus Status,
+        int? ExpiresWithinDays,
+        decimal? AvailableQuantity,
+        bool UnitMismatch,
+        IReadOnlyList<Guid> ContributingSubstituteProductIds,
+        bool HasContributingExpiringStock) ComputeLineCore(
         Guid productId,
         decimal? quantity,
         Guid? unitId,
@@ -372,19 +411,22 @@ public sealed class FulfillmentService(
     {
         // Unresolvable product → Missing.
         if (!catalogById.TryGetValue(productId, out var catalogProduct))
-            return (IngredientStatus.Missing, null, null, false, []);
+            return (IngredientStatus.Missing, null, null, false, [], false);
 
         // Untracked staple (track_stock = false) is always satisfied (C12) — and, defensively, a null
         // quantity/unit ("to taste") is treated the same even on a tracked product (R5).
         if (!catalogProduct.TrackStock || quantity is null || unitId is null)
-            return (IngredientStatus.Untracked, null, null, false, []);
+            return (IngredientStatus.Untracked, null, null, false, [], false);
 
         var scaledRequired = quantity.Value * scale;
 
         // Roll up available stock (in the line's unit) and soonest expiry across the line's stock refs:
-        // a leaf draws from itself; a parent (DM-19) sums across its live variant children.
+        // a leaf draws from itself; a parent (DM-19) sums across its live variant children. Keep each
+        // converted lot so the waste signal can mirror the actual FEFO quantity consumed instead of
+        // treating one aggregate quantity plus one earliest expiry as evidence for the whole line.
         decimal totalAvailableInLineUnit = 0m;
         DateOnly? soonestExpiry = null;
+        var directLots = new List<ConvertedStockLot>();
         // True when some ref holds real stock (qty > 0) that could not be converted to the line unit —
         // the "can't compare" signal behind the display-only UnitMismatch flag (plantry-z2sr).
         var hadUnconvertibleStock = false;
@@ -393,23 +435,38 @@ public sealed class FulfillmentService(
             if (!stockById.TryGetValue(stockRef, out var stock))
                 continue; // no stock record → contributes 0
 
-            var converted = converter(stockRef, stock.AvailableQuantity, stock.DefaultUnitId, unitId.Value);
-            if (converted.IsSuccess)
-                totalAvailableInLineUnit += converted.Value;
-            else if (stock.AvailableQuantity > 0m)
-                hadUnconvertibleStock = true;
-            // On conversion failure the ref contributes 0 — partial visibility is better than a crash.
-
             if (stock.SoonestExpiry is { } expiry &&
                 (soonestExpiry is null || expiry < soonestExpiry.Value))
                 soonestExpiry = expiry;
+
+            foreach (var lot in StockLotsFor(stock))
+            {
+                if (lot.ExpiryDate is { } lotExpiry &&
+                    (soonestExpiry is null || lotExpiry < soonestExpiry.Value))
+                    soonestExpiry = lotExpiry;
+
+                var converted = converter(stockRef, lot.AvailableQuantity, lot.UnitId, unitId.Value);
+                if (converted.IsSuccess && converted.Value > 0m)
+                {
+                    totalAvailableInLineUnit += converted.Value;
+                    directLots.Add(new ConvertedStockLot(converted.Value, lot.ExpiryDate));
+                }
+                else if (!converted.IsSuccess && lot.AvailableQuantity > 0m)
+                {
+                    hadUnconvertibleStock = true;
+                }
+                // On conversion failure the lot contributes 0 — partial visibility is better than a crash.
+            }
         }
 
         var directAvailable = totalAvailableInLineUnit;
+        var directAllocation = AllocateLots(directLots, Math.Min(directAvailable, scaledRequired), today, expiringSoonDays);
 
         // Substitution (plantry-aqpa.2), pursued only when direct stock (incl. DM-19 rollup) is short —
         // one hop, no chaining: apply every edge whose TARGET is this line's product.
         var substituteContribution = 0m;
+        var remainingSubstituteRequirement = Math.Max(0m, scaledRequired - directAvailable);
+        var hasContributingExpiringStock = directAllocation.HasContributingExpiringStock;
         // Display-only (plantry-aqpa.5): the substitute product ids that actually landed a positive
         // contribution toward this line — surfaced to the UI so a InStockViaSubstitute row can name
         // which product closed the gap, without claiming a precise per-substitute split (the pantry
@@ -425,41 +482,70 @@ public sealed class FulfillmentService(
                     !substituteCatalogProduct.TrackStock)
                     continue; // no substitute stock to draw from
 
-                // Sum the substitute's own available stock — DM-19 rollup applies to the substitute too
-                // (factor 1.0; not a second substitution hop) — converted within its own unit graph to
-                // the edge's substitute unit.
-                var substituteQtyInSubstituteUnit = 0m;
+                // Convert each substitute lot independently — DM-19 rollup applies to the substitute too
+                // (factor 1.0; not a second substitution hop). Keeping the lot expiry attached lets the
+                // allocation below identify whether this edge actually supplies a use-soon quantity.
+                var substituteLots = new List<ConvertedStockLot>();
                 foreach (var substStockRef in StockRefsFor(substituteCatalogProduct, edge.SubstituteProductId))
                 {
                     if (!stockById.TryGetValue(substStockRef, out var substStock))
                         continue;
-
-                    var convertedSubstStock = converter(
-                        substStockRef, substStock.AvailableQuantity, substStock.DefaultUnitId, edge.SubstituteUnitId);
-                    if (convertedSubstStock.IsSuccess)
-                        substituteQtyInSubstituteUnit += convertedSubstStock.Value;
-                    // Conversion failure on a substitute path contributes zero — same partial-visibility
-                    // rule as the line's own stock.
 
                     // Expiry-soon (J1/J3): every contributing substitute stock ref feeds the soonest
                     // expiry too, same as variant rollup.
                     if (substStock.SoonestExpiry is { } substExpiry &&
                         (soonestExpiry is null || substExpiry < soonestExpiry.Value))
                         soonestExpiry = substExpiry;
+
+                    foreach (var lot in StockLotsFor(substStock))
+                    {
+                        if (lot.ExpiryDate is { } lotExpiry &&
+                            (soonestExpiry is null || lotExpiry < soonestExpiry.Value))
+                            soonestExpiry = lotExpiry;
+
+                        var convertedSubstStock = converter(
+                            substStockRef, lot.AvailableQuantity, lot.UnitId, edge.SubstituteUnitId);
+                        if (convertedSubstStock.IsSuccess && convertedSubstStock.Value > 0m)
+                        {
+                            substituteLots.Add(new ConvertedStockLot(convertedSubstStock.Value, lot.ExpiryDate));
+                        }
+                        // Conversion failure on a substitute path contributes zero — same partial-visibility
+                        // rule as the line's own stock.
+                    }
                 }
 
+                var substituteQtyInSubstituteUnit = substituteLots.Sum(l => l.QuantityInTargetUnit);
                 if (substituteQtyInSubstituteUnit <= 0m)
                     continue;
 
-                // Cross the edge ratio: SubstituteQuantity of SubstituteUnit ≡ TargetQuantity of TargetUnit.
-                var qtyInTargetUnit = substituteQtyInSubstituteUnit * (edge.TargetQuantity / edge.SubstituteQuantity);
+                if (edge.SubstituteQuantity <= 0m)
+                    continue;
 
                 // Land in the line's unit via the target product's own unit graph.
                 var factor = unitFactor(productId, edge.TargetUnitId, unitId.Value);
-                if (factor.IsSuccess)
+                if (factor.IsSuccess && factor.Value > 0m)
                 {
-                    substituteContribution += qtyInTargetUnit * factor.Value;
-                    contributingSubstitutes.Add(edge.SubstituteProductId);
+                    var landingFactor = (edge.TargetQuantity / edge.SubstituteQuantity) * factor.Value;
+                    var landedLots = substituteLots
+                        .Select(l => new ConvertedStockLot(l.QuantityInTargetUnit * landingFactor, l.ExpiryDate))
+                        .ToList();
+                    var landedContribution = landedLots.Sum(l => l.QuantityInTargetUnit);
+                    substituteContribution += landedContribution;
+
+                    // Preserve the display contract: every edge that landed a positive contribution is
+                    // named, even when an earlier edge already supplied the remaining cookability gap.
+                    // Waste evidence is narrower and remains allocation-limited below, so surplus stock
+                    // from this edge cannot earn a Waste benefit.
+                    if (landedContribution > 0m)
+                        contributingSubstitutes.Add(edge.SubstituteProductId);
+
+                    if (remainingSubstituteRequirement > 0m)
+                    {
+                        var allocation = AllocateLots(
+                            landedLots, remainingSubstituteRequirement, today, expiringSoonDays);
+                        remainingSubstituteRequirement -= allocation.AllocatedQuantity;
+                        hasContributingExpiringStock |= allocation.HasContributingExpiringStock;
+                    }
                 }
                 // Conversion failure on the landing hop contributes zero — same partial-visibility rule.
             }
@@ -489,7 +575,46 @@ public sealed class FulfillmentService(
                 expiresWithinDays = daysUntilExpiry;
         }
 
-        return (status, expiresWithinDays, combinedAvailable > 0m ? combinedAvailable : null, unitMismatch, contributingSubstitutes);
+        return (
+            status,
+            expiresWithinDays,
+            combinedAvailable > 0m ? combinedAvailable : null,
+            unitMismatch,
+            contributingSubstitutes,
+            hasContributingExpiringStock);
+    }
+
+    private sealed record ConvertedStockLot(decimal QuantityInTargetUnit, DateOnly? ExpiryDate);
+
+    private static (decimal AllocatedQuantity, bool HasContributingExpiringStock) AllocateLots(
+        IReadOnlyList<ConvertedStockLot> lots,
+        decimal requiredQuantity,
+        DateOnly today,
+        int expiringSoonDays)
+    {
+        var remaining = Math.Max(0m, requiredQuantity);
+        var allocated = 0m;
+        var hasContributingExpiringStock = false;
+
+        foreach (var lot in lots)
+        {
+            if (remaining <= 0m) break;
+
+            var amount = Math.Min(remaining, lot.QuantityInTargetUnit);
+            if (amount <= 0m) continue;
+
+            allocated += amount;
+            remaining -= amount;
+
+            if (lot.ExpiryDate is { } expiry)
+            {
+                var daysUntilExpiry = expiry.DayNumber - today.DayNumber;
+                if (daysUntilExpiry >= 0 && daysUntilExpiry <= expiringSoonDays)
+                    hasContributingExpiringStock = true;
+            }
+        }
+
+        return (allocated, hasContributingExpiringStock);
     }
 
     private static FulfillmentOverall BuildOverall(IEnumerable<IngredientStatus> statuses)
@@ -575,13 +700,19 @@ public enum IngredientStatus
 /// row) reads this list only in the <c>InStockViaSubstitute</c> branch; several edges may all
 /// contribute, and the UI names them without claiming a precise per-substitute quantity split.
 /// </param>
+/// <param name="HasContributingExpiringStock">
+/// True only when a positive quantity allocated to satisfy this line came from an active lot whose expiry
+/// is today or later and falls within the configured expiring-soon horizon. Expired stock, or stock that
+/// merely exists but is not needed by the line, never sets this flag.
+/// </param>
 public sealed record IngredientFulfillment(
     IngredientId IngredientId,
     IngredientStatus Status,
     int? ExpiresWithinDays,
     decimal? AvailableQuantity,
     bool UnitMismatch = false,
-    IReadOnlyList<Guid>? ContributingSubstituteProductIds = null);
+    IReadOnlyList<Guid>? ContributingSubstituteProductIds = null,
+    bool HasContributingExpiringStock = false);
 
 /// <summary>
 /// Top-level summary of whether a recipe is fully cookable.
@@ -619,6 +750,10 @@ public sealed record FulfillmentResult(
 /// <param name="ContributingSubstituteProductIds">
 /// Display-only (plantry-aqpa.5): see <see cref="IngredientFulfillment.ContributingSubstituteProductIds"/>.
 /// </param>
+/// <param name="HasContributingExpiringStock">
+/// True only when a positive quantity allocated to satisfy this expanded line came from a non-expired
+/// active lot within the configured expiring-soon horizon.
+/// </param>
 public sealed record ExpandedIngredientFulfillment(
     Guid ProductId,
     Guid? UnitId,
@@ -626,7 +761,8 @@ public sealed record ExpandedIngredientFulfillment(
     int? ExpiresWithinDays,
     decimal? AvailableQuantity,
     bool UnitMismatch = false,
-    IReadOnlyList<Guid>? ContributingSubstituteProductIds = null);
+    IReadOnlyList<Guid>? ContributingSubstituteProductIds = null,
+    bool HasContributingExpiringStock = false);
 
 /// <summary>
 /// The complete cookability computation over a recipe's <b>expanded</b> view at a given serving count

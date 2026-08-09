@@ -19,6 +19,17 @@ namespace Plantry.Planning.Domain;
 /// that stays reserved for Required/Restricted tag stances (<see cref="ProposalAcl"/>).
 /// Null (not empty) when no attendee has rated.
 /// </param>
+/// <param name="CostCompleteness">
+/// Whether the cost is complete, partial, or unknown. Partial and unknown costs are never equivalent to
+/// a free recipe when the planner applies cost weight.
+/// </param>
+/// <param name="FulfillmentPercent">
+/// Snapshot fulfillment percentage from Recipes; null means the evidence was unavailable.
+/// </param>
+/// <param name="HasContributingExpiringStock">
+/// True only when positive FEFO-allocated stock with a non-expired expiry inside the horizon contributes
+/// to this candidate. Null means the evidence was unavailable.
+/// </param>
 public sealed record CandidateRecipe(
     Guid RecipeId,
     string Name,
@@ -27,4 +38,20 @@ public sealed record CandidateRecipe(
     decimal? CostPerServing,
     decimal? HouseholdAvgRating = null,
     int RatedCount = 0,
-    IReadOnlyDictionary<Guid, int>? AttendeeStars = null);
+    IReadOnlyDictionary<Guid, int>? AttendeeStars = null,
+    CandidateCostCompleteness CostCompleteness = CandidateCostCompleteness.Unknown,
+    int? FulfillmentPercent = null,
+    bool? HasContributingExpiringStock = null);
+
+/// <summary>Three-state completeness for a candidate's live cost evidence.</summary>
+public enum CandidateCostCompleteness
+{
+    /// <summary>No usable pricing evidence was returned.</summary>
+    Unknown,
+
+    /// <summary>The amount covers only part of the recipe and is an under-estimate.</summary>
+    Partial,
+
+    /// <summary>The amount covers all priced recipe ingredients.</summary>
+    Complete,
+}

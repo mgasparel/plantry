@@ -31,12 +31,19 @@ public sealed class GeneratePlanServiceTests
             IMealPlanner? planner = null,
             ITagReader? tagReader = null,
             IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null,
-            IMealPlanCatalogProductReader? catalogReader = null)
+            IMealPlanCatalogProductReader? catalogReader = null,
+            IReadOnlyDictionary<Guid, CandidateRecipeEvidence>? evidence = null,
+            Action? evidenceRequested = null,
+            IClock? planningClock = null)
     {
         var config = slotConfig ?? BuildDefaultSlotConfig();
         var slotConfigRepo = new FakeSlotConfigRepo(config);
         var prefRepo = new FakePrefsRepo(prefs ?? []);
-        var recipeReader = new FakeRecipeReader(recipes ?? [], ratings ?? new Dictionary<Guid, RecipeRatingSummary>());
+        var recipeReader = new FakeRecipeReader(
+            recipes ?? [],
+            ratings ?? new Dictionary<Guid, RecipeRatingSummary>(),
+            evidence ?? new Dictionary<Guid, CandidateRecipeEvidence>(),
+            evidenceRequested);
         var mealPlanRepo = new FakeMealPlanRepository();
         var sp = new ServiceCollection().AddDistributedMemoryCache().BuildServiceProvider();
         var memoryCache = sp.GetRequiredService<IDistributedCache>();
@@ -46,12 +53,14 @@ public sealed class GeneratePlanServiceTests
         var fakeTagReader = tagReader ?? new NullTagReader();
         var fakeCatalogReader = catalogReader ?? new FakeCatalogReader();
 
+        var clock = planningClock ?? Clock;
         var generateService = new GeneratePlanService(
             fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, fakeCatalogReader, store, resolver, fakeTagReader,
+            clock,
             NullLogger<GeneratePlanService>.Instance);
 
         var acceptService = new AcceptProposalService(
-            mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, Clock,
+            mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, clock,
             NullLogger<AcceptProposalService>.Instance);
 
         return (generateService, acceptService, store, mealPlanRepo, slotConfigRepo);
@@ -559,6 +568,94 @@ public sealed class GeneratePlanServiceTests
         }
     }
 
+    [Fact(DisplayName = "Execute_CandidateEvidence_CostWeightChangesDeterministicOrder")]
+    public async Task Execute_CostEvidence_ChangesCandidateOrder()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var expensiveId = Guid.NewGuid();
+        var cheapId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel>
+        {
+            new(expensiveId, "Alpha Expensive", [], 4),
+            new(cheapId, "Zulu Cheap", [], 4),
+        };
+        var evidence = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [expensiveId] = new(10m, CandidateCostCompleteness.Complete, 100, false),
+            [cheapId] = new(2m, CandidateCostCompleteness.Complete, 100, false),
+        };
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: recipes,
+            evidence: evidence,
+            planner: planner);
+
+        await generateService.ExecuteAsync(
+            Household,
+            Monday,
+            "cost-evidence-order",
+            new PlanningWeights(0, 100, 0),
+            scopeDate: Monday,
+            scopeSlotId: breakfast.Id);
+
+        var ordered = Assert.Single(planner.SeenContexts).CandidateRecipes;
+        Assert.Equal(cheapId, ordered[0].RecipeId);
+        Assert.Equal(expensiveId, ordered[1].RecipeId);
+    }
+
+    [Fact(DisplayName = "Execute_CandidateEvidence_WasteWeightChangesDeterministicOrder")]
+    public async Task Execute_ExpiringStockEvidence_ChangesCandidateOrder()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var noExpiryId = Guid.NewGuid();
+        var useSoonId = Guid.NewGuid();
+        var recipes = new List<RecipeReadModel>
+        {
+            new(noExpiryId, "Alpha No Expiry", [], 4),
+            new(useSoonId, "Zulu Use Soon", [], 4),
+        };
+        var evidence = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [noExpiryId] = new(null, CandidateCostCompleteness.Unknown, 100, false),
+            [useSoonId] = new(null, CandidateCostCompleteness.Unknown, 100, true),
+        };
+        var planner = new RecordingMealPlanner();
+        var (generateService, _, _, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: recipes,
+            evidence: evidence,
+            planner: planner);
+
+        await generateService.ExecuteAsync(
+            Household,
+            Monday,
+            "waste-evidence-order",
+            new PlanningWeights(100, 0, 0),
+            scopeDate: Monday,
+            scopeSlotId: breakfast.Id);
+
+        var ordered = Assert.Single(planner.SeenContexts).CandidateRecipes;
+        Assert.Equal(useSoonId, ordered[0].RecipeId);
+        Assert.Equal(noExpiryId, ordered[1].RecipeId);
+    }
+
+    [Fact(DisplayName = "Execute_CandidateEvidence_IsRequestedOnceAndReusedAcrossSlots")]
+    public async Task Execute_CandidateEvidence_IsRequestedOnce()
+    {
+        var requested = 0;
+        var recipeId = Guid.NewGuid();
+        var (generateService, _, _, _, _) = BuildStack(
+            recipes: [new RecipeReadModel(recipeId, "Pasta", [], 4)],
+            evidenceRequested: () => requested++);
+
+        await generateService.ExecuteAsync(Household, Monday, "candidate-evidence-once", null);
+
+        Assert.Equal(1, requested);
+    }
+
     // ── Per-slot auto-plan opt-out (plantry-av8z) ─────────────────────────────────
 
     [Fact(DisplayName = "Execute_Bulk_SkipsOptedOutSlots — a slot with IncludeInAutoPlan=false is not dispatched")]
@@ -717,7 +814,9 @@ public sealed class GeneratePlanServiceTests
 
     private sealed class FakeRecipeReader(
         IReadOnlyList<RecipeReadModel> recipes,
-        IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null) : IRecipeReadModel
+        IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null,
+        IReadOnlyDictionary<Guid, CandidateRecipeEvidence>? evidence = null,
+        Action? evidenceRequested = null) : IRecipeReadModel
     {
         public Task<RecipeReadModel?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
             Task.FromResult(recipes.FirstOrDefault(r => r.RecipeId == id));
@@ -727,6 +826,20 @@ public sealed class GeneratePlanServiceTests
 
         public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid id, int servings, DateOnly today, CancellationToken ct = default) =>
             Task.FromResult<RecipeDishEnrichment?>(null);
+
+        public Task<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>> GetCandidateEvidenceAsync(
+            IReadOnlyCollection<CandidateRecipeEvidenceRequest> requests,
+            DateOnly today,
+            CancellationToken ct = default)
+        {
+            evidenceRequested?.Invoke();
+            IReadOnlyDictionary<Guid, CandidateRecipeEvidence> result = requests
+                .Select(r => r.RecipeId)
+                .Distinct()
+                .Where(evidence!.ContainsKey)
+                .ToDictionary(id => id, id => evidence[id]);
+            return Task.FromResult(result);
+        }
 
         public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);

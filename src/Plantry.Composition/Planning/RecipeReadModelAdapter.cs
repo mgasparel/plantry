@@ -133,6 +133,7 @@ public sealed class RecipeReadModelAdapter(
 
         IReadOnlyList<IngredientStatus> statuses;
         bool hasExpiring;
+        bool hasContributingExpiringStock;
         CostPerServing cost;
         if (expandResult.IsSuccess)
         {
@@ -142,6 +143,7 @@ public sealed class RecipeReadModelAdapter(
             cost = await costingService.ComputeExpandedAsync(effectiveLines, recipe.DefaultServings, servings, ct);
             statuses = fulfillment.Lines.Select(l => l.Status).ToList();
             hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+            hasContributingExpiringStock = fulfillment.Lines.Any(l => l.HasContributingExpiringStock);
         }
         else
         {
@@ -149,6 +151,7 @@ public sealed class RecipeReadModelAdapter(
             cost = await costingService.ComputeAsync(recipe, servings, ct);
             statuses = fulfillment.Lines.Select(l => l.Status).ToList();
             hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+            hasContributingExpiringStock = fulfillment.Lines.Any(l => l.HasContributingExpiringStock);
         }
 
         // Compute fulfillment % from the (expanded or flat) line-level results.
@@ -176,7 +179,44 @@ public sealed class RecipeReadModelAdapter(
             pct,
             totalCost,
             cost.Completeness == CostCompleteness.Partial,
-            hasExpiring);
+            hasExpiring,
+            hasContributingExpiringStock);
+    }
+
+    /// <summary>
+    /// Populates the Planning candidate-evidence contract at the composition boundary. Generate-plan
+    /// calls this once for its bounded candidate snapshot and reuses the returned facts across every
+    /// slot; the adapter keeps Recipes/Fulfillment/Costing ownership here rather than letting Planning
+    /// reach into those contexts.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>> GetCandidateEvidenceAsync(
+        IReadOnlyCollection<CandidateRecipeEvidenceRequest> requests,
+        DateOnly today,
+        CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, CandidateRecipeEvidence>();
+        foreach (var request in requests.GroupBy(r => r.RecipeId).Select(g => g.First()))
+        {
+            var enrichment = await GetEnrichmentAsync(request.RecipeId, request.Servings, today, ct);
+            if (enrichment is null) continue;
+
+            var completeness = enrichment.CostIsPartial
+                ? Plantry.Planning.Domain.CandidateCostCompleteness.Partial
+                : enrichment.TotalCost.HasValue
+                    ? Plantry.Planning.Domain.CandidateCostCompleteness.Complete
+                    : Plantry.Planning.Domain.CandidateCostCompleteness.Unknown;
+            decimal? costPerServing = enrichment.TotalCost is { } totalCost && request.Servings > 0
+                ? totalCost / request.Servings
+                : null;
+
+            result[request.RecipeId] = new CandidateRecipeEvidence(
+                costPerServing,
+                completeness,
+                enrichment.FulfillmentPercent,
+                enrichment.HasContributingExpiringStock);
+        }
+
+        return result;
     }
 
     /// <inheritdoc />
