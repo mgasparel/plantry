@@ -1,5 +1,6 @@
 @model Plantry.Web.Pages.MealPlan.IndexModel.PlanBarNavVm
 @using Plantry.Planning.Domain
+@using System.Text.Json
 @{
     // When rendered out-of-band (alongside a grid swap or cell-targeted mutation), the nav
     // elements carry hx-swap-oob so htmx replaces the live plan-bar pieces in place.
@@ -41,6 +42,23 @@
     // Alpine literals for the :class binding (emitted as boolean literals, not C# booleans)
     var confirmedOverBudgetLiteral = Model.ConfirmedOverBudget ? "true" : "false";
     var projectedOverBudgetLiteral = Model.ProjectedOverBudget ? "true" : "false";
+
+    // The auto-fill fragment owns its complete hydration payload. It is serialized here from the
+    // already-resolved request model so every full-page, htmx, and cell-mutation replacement carries
+    // the settings for the week it represents instead of consulting a stale page-global snapshot.
+    var weights = Model.WeekPlanningWeights ?? PlanningWeights.Default;
+    var planTuneConfig = new
+    {
+        budget = Model.WeekBudgetTarget ?? 0m,
+        buckets = new[]
+        {
+            new { key = "waste", label = "Waste", color = "oklch(0.62 0.13 150)", defaultWeight = weights.Waste, appDefault = PlanningWeights.Default.Waste },
+            new { key = "cost", label = "Cost", color = "oklch(0.62 0.13 70)", defaultWeight = weights.Cost, appDefault = PlanningWeights.Default.Cost },
+            new { key = "variety", label = "Variety", color = "oklch(0.62 0.13 255)", defaultWeight = weights.Variety, appDefault = PlanningWeights.Default.Variety }
+        }
+    };
+    var planTuneConfigJson = JsonSerializer.Serialize(planTuneConfig);
+    var weightsOverrideLiteral = Model.HasWeekPlanningWeightsOverride ? "true" : "false";
 }
 
 @* Week nav: prev/next buttons + week label + This-week button.
@@ -102,13 +120,11 @@ else
     </span>
 }
 
-@* Auto-fill split button wrapper — re-emitted OOB so HasEmptyCells state tracks real grid
-   state after a cell mutation fills or empties the last open cell.
-   The af-split inside carries Alpine state (tuning popover). Replacing this outer wrapper
-   re-inits Alpine (tuneOpen=false, weights=defaults), which is acceptable: cell mutations
-   (assign/clear) should close the tune popover, and nav swaps move to a different week. *@
-<div id="plan-bar-autofill" class="af-split-host" hx-swap-oob="@oob">
-    <div class="af-split" x-data="planTune(window.__planTuneCfg)">
+@* Auto-fill split button wrapper — re-emitted OOB so HasEmptyCells state and the effective
+   planning settings track the real grid after any cell mutation or week navigation. The fragment
+   carries a complete, server-rendered planTune config so Alpine never hydrates from page-global state. *@
+<div id="plan-bar-autofill" class="af-split-host" data-plan-tune-override="@weightsOverrideLiteral" hx-swap-oob="@oob">
+    <div class="af-split" x-data="planTune(@planTuneConfigJson)">
         <button type="button" class="btn btn--soft"
                 hx-post="/MealPlan?handler=Generate&amp;week=@Model.WeekStart.ToString("yyyy-MM-dd")"
                 hx-target="#plan-main-content"
@@ -132,6 +148,10 @@ else
         <div x-show="tuneOpen" x-cloak @@click.outside="tuneOpen = false" class="tune-pop" role="dialog" aria-label="Tune auto-fill">
             <div class="tune-head"><h4>Tune the auto-fill</h4></div>
             <p class="tune-sub">Optional. Plantry leans on using up expiring stock by default.</p>
+            @if (Model.HasWeekPlanningWeightsOverride)
+            {
+                <p class="tune-sub tune-sub--override" role="status">Using priorities saved for this week.</p>
+            }
 
             <div class="tune-sect-label">
                 Planning priorities

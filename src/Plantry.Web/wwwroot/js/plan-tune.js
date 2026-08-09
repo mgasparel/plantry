@@ -3,7 +3,7 @@
 // Generalised from the meal-planner tune popover (plantry-izgn.4).
 // Alpine.data component pattern (ADR-013 §5).
 //
-// Config object (passed from Razor via x-data="planTune(cfg)" where cfg = window.__planTuneCfg):
+// Config object (passed from the server-rendered caller via x-data="planTune(cfg)"):
 //   buckets  — array of { key, label, color, defaultWeight } describing each slider bucket.
 //              The three values always sum to 100; rebalance() maintains that invariant.
 //
@@ -40,9 +40,9 @@ document.addEventListener('alpine:init', function () {
 
         return {
             tuneOpen: false,
-            // Seed from persisted resolved value (0 when not set). cfg.budget is a numeric decimal
-            // injected by the Razor page (window.__planTuneCfg.budget) so the popover reflects the
-            // persisted budget on every render rather than always opening at 0.
+            // Seed from the persisted resolved value (0 when not set). cfg.budget is a numeric decimal
+            // emitted by the current server-rendered fragment so the popover reflects the persisted
+            // budget on every render rather than always opening at 0.
             budget: (typeof cfg.budget === 'number' ? cfg.budget : 0),
             scope: 'week',
             buckets: buckets,
@@ -61,23 +61,20 @@ document.addEventListener('alpine:init', function () {
 
             // Persist the current budget + weights as a per-week override via SetPlanningSettings.
             // Fired on slider change (@@change) and budget input change (@@change). Uses htmx to
-            // POST the hidden inputs inside the component root and swaps the grid + bar from the response.
+            // POST the current Alpine state and swap the grid + bar from the response.
             persistSettings: function (rootEl) {
                 // Collect the antiforgery token from the page (all Razor Pages forms include it).
                 var token = document.querySelector('input[name="__RequestVerificationToken"]');
                 if (!token) return; // no token = test or non-form page; skip gracefully.
 
-                // Build the form data from the hidden inputs inside the component.
+                // Build the form data from Alpine's current state. The slider input event can
+                // reach this handler before x-model has flushed the hidden input bindings.
                 var form = new FormData();
                 form.append('__RequestVerificationToken', token.value);
-                var wasteEl = rootEl.querySelector('input[name="wasteWeight"]');
-                var costEl  = rootEl.querySelector('input[name="costWeight"]');
-                var varEl   = rootEl.querySelector('input[name="varietyWeight"]');
-                var budgEl  = rootEl.querySelector('input[name="budget"]');
-                if (wasteEl) form.append('wasteWeight', wasteEl.value);
-                if (costEl)  form.append('costWeight',  costEl.value);
-                if (varEl)   form.append('varietyWeight', varEl.value);
-                if (budgEl)  form.append('budget',      budgEl.value);
+                form.append('wasteWeight', String(this.weights.waste));
+                form.append('costWeight', String(this.weights.cost));
+                form.append('varietyWeight', String(this.weights.variety));
+                form.append('budget', String(this.budget));
 
                 // Derive the week from the Generate button's URL on the page.
                 var genBtn = rootEl.querySelector('[hx-post*="handler=Generate"]');

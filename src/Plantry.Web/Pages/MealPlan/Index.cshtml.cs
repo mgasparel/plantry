@@ -161,6 +161,13 @@ public sealed class IndexModel(
     /// </summary>
     public PlanningWeights? WeekPlanningWeights { get; private set; }
 
+    /// <summary>
+    /// True when the viewed week's effective planning weights come from a persisted week override
+    /// rather than the household default. A budget-only week override does not set this flag because
+    /// the displayed weights still come from the household-level fallback.
+    /// </summary>
+    public bool HasWeekPlanningWeightsOverride { get; private set; }
+
     /// <summary>Builds the store key for the pending proposal store: {householdId}_{weekStart:yyyyMMdd}_{sessionId}.</summary>
     private string BuildStoreKey(HouseholdId householdId) =>
         $"{householdId.Value:N}_{WeekStart:yyyyMMdd}_{HttpContext.Session.Id}";
@@ -1696,6 +1703,7 @@ public sealed class IndexModel(
         // household display currency the cost figures use.
         WeekBudgetCurrency = budget?.Currency;
         WeekPlanningWeights = weights;
+        HasWeekPlanningWeightsOverride = weekOverride?.WeightsOverride is not null;
 
         // Household display currency for every bare-decimal cost figure on the page — resolved once here (the
         // universal load path for GET + all OOB refreshes) and cached for the request by the accessor.
@@ -2030,7 +2038,9 @@ public sealed class IndexModel(
         ConfirmedOverBudget: WeekBudgetTarget.HasValue && WeekTotalCost > WeekBudgetTarget,
         ProjectedOverBudget: WeekBudgetTarget.HasValue && ProjectedWeekCost > WeekBudgetTarget,
         DisplayCurrency: CurrentDisplayCurrency,
-        BudgetCurrency: WeekBudgetCurrency);
+        BudgetCurrency: WeekBudgetCurrency,
+        WeekPlanningWeights: WeekPlanningWeights,
+        HasWeekPlanningWeightsOverride: HasWeekPlanningWeightsOverride);
 
     private async Task<MealSlot?> GetSlotAsync(HouseholdId householdId, MealSlotId slotId, CancellationToken ct)
     {
@@ -2305,6 +2315,10 @@ public sealed class IndexModel(
     /// <param name="ProjectedOverBudget">True when projected cost exceeds the budget target (plantry-gx34).</param>
     /// <param name="DisplayCurrency">Household display currency for the cost figures (plantry-2x6e.2).</param>
     /// <param name="BudgetCurrency">The saved budget's own currency (plantry-2x6e.2); null when no budget set.</param>
+    /// <param name="WeekPlanningWeights">Resolved planning weights for this week's auto-fill control;
+    /// null means the partial must use <see cref="PlanningWeights.Default"/>.</param>
+    /// <param name="HasWeekPlanningWeightsOverride">True when the displayed weights are a persisted
+    /// override for this week rather than the household default.</param>
     public sealed record PlanBarNavVm(
         DateOnly WeekStart,
         DateOnly PrevWeekStart,
@@ -2322,7 +2336,9 @@ public sealed class IndexModel(
         bool ConfirmedOverBudget = false,
         bool ProjectedOverBudget = false,
         string DisplayCurrency = "USD",
-        string? BudgetCurrency = null);
+        string? BudgetCurrency = null,
+        PlanningWeights? WeekPlanningWeights = null,
+        bool HasWeekPlanningWeightsOverride = false);
     /// <summary>
     /// View model for the editor rollup footer (_EditorRollup.cshtml) — ADR-013 §4/§5.
     /// Returned by OnPostRollupJsonAsync; the island parses the JSON and injects the HTML.
