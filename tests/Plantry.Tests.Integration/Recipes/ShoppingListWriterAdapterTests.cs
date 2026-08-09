@@ -205,10 +205,10 @@ public sealed class ShoppingListWriterAdapterTests(PostgresFixture db) : IAsyncL
         return new ShoppingListWriterAdapter(repo, NullShoppingCatalogReader.Instance, Clock, tenant);
     }
 
-    private ShoppingDbContext NewShoppingDb()
+    private PlanningDbContext NewShoppingDb()
     {
-        var ctx = new ShoppingDbContext(
-            new DbContextOptionsBuilder<ShoppingDbContext>().UseNpgsql(db.ConnectionString).Options);
+        var ctx = new PlanningDbContext(
+            new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options);
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

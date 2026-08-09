@@ -340,27 +340,23 @@ builder.Services.AddScoped<ISubstitutionRepository, SubstitutionRepository>();
 builder.Services.AddScoped<ISubstitutionReader, SubstitutionReader>();
 builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
 
-// Planning context (Meal Planning + Shopping, ADR-024). Plantry.Planning merges the former MealPlanning
-// and Shopping bounded contexts into one assembly (plantry-g3da.5) — MealPlanningDbContext and
-// ShoppingDbContext survive unchanged (separate schemas, separate migration histories; the DbContext-level
-// squash into one PlanningDbContext is explicitly a later follow-up phase, not this merge).
-
-// Shopping half. Mutable working-state context (P2-S) — items edited in place and hard-deleted
-// on clear (shopping.md resolved call 2). ShoppingReferenceDataSeeder seeds one list per household.
-builder.Services.AddDbContext<ShoppingDbContext>((sp, opts) =>
+// Planning context (Meal Planning + Shopping, ADR-024). A single PlanningDbContext spans both the
+// shopping and meal_planning schemas (unified plantry-g3da.8) — the schemas themselves did not move
+// or merge. PlanningDbContext MUST be wired into RlsMiddleware (see Tenancy/RlsMiddleware.cs) — the
+// known P2-0/P3-0 gotcha: omit it and every Planning query filter returns nothing while writes
+// silently succeed.
+builder.Services.AddDbContext<PlanningDbContext>((sp, opts) =>
     opts.UseNpgsql(appUserConnStr,
             npgsql => npgsql.MigrationsAssembly("Plantry.Planning.Infrastructure"))
         .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+
+// Shopping half. Mutable working-state context (P2-S) — items edited in place and hard-deleted
+// on clear (shopping.md resolved call 2). ShoppingReferenceDataSeeder seeds one list per household.
 builder.Services.AddScoped<IShoppingListRepository, ShoppingListRepository>();
 builder.Services.AddScoped<IReferenceDataSeeder, ShoppingReferenceDataSeeder>();
 
 // Meal Planning half (Phase 3 / P3-0). MealPlanningReferenceDataSeeder seeds Breakfast/Lunch/Dinner
-// default slots at household creation (DM-9). MealPlanningDbContext MUST be wired into RlsMiddleware
-// (see Tenancy/RlsMiddleware.cs) — the known P3-0 gotcha (see also bd memory rls-middleware-...).
-builder.Services.AddDbContext<MealPlanningDbContext>((sp, opts) =>
-    opts.UseNpgsql(appUserConnStr,
-            npgsql => npgsql.MigrationsAssembly("Plantry.Planning.Infrastructure"))
-        .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
+// default slots at household creation (DM-9).
 builder.Services.AddScoped<IMealSlotConfigRepository, MealSlotConfigRepository>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 

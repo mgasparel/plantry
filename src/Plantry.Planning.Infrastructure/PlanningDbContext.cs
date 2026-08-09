@@ -5,18 +5,32 @@ using Plantry.SharedKernel;
 namespace Plantry.Planning.Infrastructure;
 
 /// <summary>
-/// EF DbContext for the Meal Planning bounded context (<c>meal_planning</c> schema).
-/// Owns nine tables across five aggregates: MealPlan (+ PlannedMeal + PlannedDish),
-/// MealSlotConfig (+ MealSlot), UserPreference (+ TagStance),
-/// HouseholdPlanningSettings, and WeekPlanningOverride.
+/// The single EF DbContext for the Planning bounded context (ADR-024 Phase A). Unifies what were
+/// formerly two separate DbContexts — <c>MealPlanningDbContext</c> and <c>ShoppingDbContext</c> — kept
+/// apart only during the interim (plantry-g3da.5) merge to avoid touching migration history. This
+/// context owns both physical schemas unchanged (plantry-g3da.8 does not move data — see ADR-024
+/// §"Physical schemas do not move on day one"):
+/// <list type="bullet">
+/// <item><b>meal_planning</b> — five aggregates: <see cref="MealPlan"/> (+ <see cref="PlannedMeal"/> +
+/// <see cref="PlannedDish"/> children), <see cref="MealSlotConfig"/> (+ <see cref="MealSlot"/>
+/// children), <see cref="UserPreference"/> (+ <see cref="TagStance"/> children),
+/// <see cref="HouseholdPlanningSettings"/>, and <see cref="WeekPlanningOverride"/>.</item>
+/// <item><b>shopping</b> — <see cref="ShoppingList"/> aggregate root + <see cref="ShoppingListItem"/>
+/// children + <see cref="ShoppingListItemContribution"/> grandchildren (plantry-9scq). Mutable working
+/// state (not append-only): items edited in place, hard-deleted on clear (shopping.md).</item>
+/// </list>
+/// The EF migrations-history table (<c>__EFMigrationsHistory</c>) lives in the <c>shopping</c> schema —
+/// this context's default schema — reusing the location the old <c>ShoppingDbContext</c> already used,
+/// rather than introducing a third schema purely for bookkeeping.
 /// <para>
 /// The RlsMiddleware MUST call <see cref="SetHouseholdId"/> on this context for every authenticated
-/// request, exactly as it does for all other bounded-context DbContexts (the known P2-0 gotcha:
-/// omitting it leaves _householdId as Guid.Empty and every EF query filter returns nothing).
+/// request, exactly as for the other bounded-context DbContexts (the known P2-0/P3-0 gotcha: omitting
+/// it leaves _householdId as Guid.Empty and every EF query filter returns nothing).
 /// </para>
 /// </summary>
-public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext> options) : DbContext(options)
+public sealed class PlanningDbContext(DbContextOptions<PlanningDbContext> options) : DbContext(options)
 {
+    // ── Meal Planning ────────────────────────────────────────────────────────
     public DbSet<MealPlan> MealPlans => Set<MealPlan>();
     public DbSet<PlannedMeal> PlannedMeals => Set<PlannedMeal>();
     public DbSet<PlannedDish> PlannedDishes => Set<PlannedDish>();
@@ -27,14 +41,21 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
     public DbSet<HouseholdPlanningSettings> HouseholdPlanningSettings => Set<HouseholdPlanningSettings>();
     public DbSet<WeekPlanningOverride> WeekPlanningOverrides => Set<WeekPlanningOverride>();
 
+    // ── Shopping ─────────────────────────────────────────────────────────────
+    public DbSet<ShoppingList> ShoppingLists => Set<ShoppingList>();
+    public DbSet<ShoppingListItem> ShoppingListItems => Set<ShoppingListItem>();
+    public DbSet<ShoppingListItemContribution> ShoppingListItemContributions => Set<ShoppingListItemContribution>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
-        builder.HasDefaultSchema("meal_planning");
+        // Default schema covers Shopping; Meal Planning entities are schema-qualified explicitly below —
+        // there is no single default schema for a context spanning two physical schemas.
+        builder.HasDefaultSchema("shopping");
 
-        // ── MealPlan aggregate root ─────────────────────────────────────────────
+        // ── MealPlan aggregate root (meal_planning schema) ──────────────────────
         builder.Entity<MealPlan>(b =>
         {
-            b.ToTable("meal_plan");
+            b.ToTable("meal_plan", "meal_planning");
             b.HasKey(m => m.Id);
             b.Property(m => m.Id)
                 .HasConversion(id => id.Value, v => MealPlanId.From(v))
@@ -70,10 +91,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.HasQueryFilter(m => m.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── PlannedMeal ─────────────────────────────────────────────────────────
+        // ── PlannedMeal (meal_planning schema) ──────────────────────────────────
         builder.Entity<PlannedMeal>(b =>
         {
-            b.ToTable("planned_meal");
+            b.ToTable("planned_meal", "meal_planning");
             b.HasKey(pm => pm.Id);
             b.Property(pm => pm.Id)
                 .HasConversion(id => id.Value, v => PlannedMealId.From(v))
@@ -126,10 +147,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.HasQueryFilter(pm => pm.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── PlannedDish ─────────────────────────────────────────────────────────
+        // ── PlannedDish (meal_planning schema) ──────────────────────────────────
         builder.Entity<PlannedDish>(b =>
         {
-            b.ToTable("planned_dish", t => t.HasCheckConstraint(
+            b.ToTable("planned_dish", "meal_planning", t => t.HasCheckConstraint(
                 "ck_planned_dish_shape",
                 "((recipe_id IS NOT NULL AND product_id IS NULL AND servings IS NOT NULL AND servings >= 1 AND quantity IS NULL AND unit_id IS NULL) OR " +
                 "(recipe_id IS NULL AND product_id IS NOT NULL AND servings IS NULL AND quantity IS NOT NULL AND quantity > 0 AND unit_id IS NOT NULL AND unit_id <> '00000000-0000-0000-0000-000000000000'))"));
@@ -161,10 +182,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.HasQueryFilter(pd => pd.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── MealSlotConfig aggregate root ───────────────────────────────────────
+        // ── MealSlotConfig aggregate root (meal_planning schema) ────────────────
         builder.Entity<MealSlotConfig>(b =>
         {
-            b.ToTable("meal_slot_config");
+            b.ToTable("meal_slot_config", "meal_planning");
             b.HasKey(c => c.Id);
             b.Property(c => c.Id)
                 .HasConversion(id => id.Value, v => MealSlotConfigId.From(v))
@@ -199,10 +220,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.HasQueryFilter(c => c.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── MealSlot ────────────────────────────────────────────────────────────
+        // ── MealSlot (meal_planning schema) ──────────────────────────────────────
         builder.Entity<MealSlot>(b =>
         {
-            b.ToTable("meal_slot");
+            b.ToTable("meal_slot", "meal_planning");
             b.HasKey(s => s.Id);
             b.Property(s => s.Id)
                 .HasConversion(id => id.Value, v => MealSlotId.From(v))
@@ -236,10 +257,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── UserPreference aggregate root ───────────────────────────────────────
+        // ── UserPreference aggregate root (meal_planning schema) ────────────────
         builder.Entity<UserPreference>(b =>
         {
-            b.ToTable("user_preference");
+            b.ToTable("user_preference", "meal_planning");
             b.HasKey(up => up.Id);
             b.Property(up => up.Id)
                 .HasConversion(id => id.Value, v => UserPreferenceId.From(v))
@@ -275,10 +296,10 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.HasQueryFilter(up => up.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── TagStance ───────────────────────────────────────────────────────────
+        // ── TagStance (meal_planning schema) ─────────────────────────────────────
         builder.Entity<TagStance>(b =>
         {
-            b.ToTable("tag_stance");
+            b.ToTable("tag_stance", "meal_planning");
             b.HasKey(ts => ts.Id);
             b.Property(ts => ts.Id)
                 .HasConversion(id => id.Value, v => TagStanceId.From(v))
@@ -303,13 +324,13 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.HasQueryFilter(ts => ts.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── HouseholdPlanningSettings aggregate root ────────────────────────────
+        // ── HouseholdPlanningSettings aggregate root (meal_planning schema) ─────
         // One row per household. Seeded lazily on first write (null = no target).
         // HouseholdId is both the PK and the aggregate identity (mirrors the pattern used
         // by single-per-household aggregates in this context).
         builder.Entity<HouseholdPlanningSettings>(b =>
         {
-            b.ToTable("household_planning_settings");
+            b.ToTable("household_planning_settings", "meal_planning");
             b.HasKey(s => s.HouseholdId);
             b.Property(s => s.HouseholdId)
                 .HasConversion(id => id.Value, v => HouseholdId.From(v))
@@ -335,12 +356,12 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });
 
-        // ── WeekPlanningOverride ────────────────────────────────────────────────
+        // ── WeekPlanningOverride (meal_planning schema) ─────────────────────────
         // One row per (household, weekStart). A row exists only when the user has
         // overridden something for that specific week.
         builder.Entity<WeekPlanningOverride>(b =>
         {
-            b.ToTable("week_planning_override");
+            b.ToTable("week_planning_override", "meal_planning");
             b.HasKey(o => new { HouseholdId = o.HouseholdId, WeekStart = o.WeekStart });
             b.Property(o => o.HouseholdId)
                 .HasConversion(id => id.Value, v => HouseholdId.From(v))
@@ -361,6 +382,119 @@ public sealed class MealPlanningDbContext(DbContextOptions<MealPlanningDbContext
             });
 
             b.HasQueryFilter(o => o.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── ShoppingList aggregate root (shopping schema) ───────────────────────
+        builder.Entity<ShoppingList>(b =>
+        {
+            b.ToTable("shopping_list");
+            b.HasKey(l => l.Id);
+            b.Property(l => l.Id)
+                .HasConversion(id => id.Value, v => ShoppingListId.From(v))
+                .HasColumnName("shopping_list_id")
+                .ValueGeneratedNever();
+            b.Property(l => l.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(l => l.Name)
+                .HasColumnName("name")
+                .IsRequired();
+            b.Property(l => l.CreatedAt).HasColumnName("created_at");
+            b.Property(l => l.UpdatedAt).HasColumnName("updated_at");
+
+            // Child item collection — backed by _items field (mirrors IntakeDbContext / RecipesDbContext pattern).
+            b.HasMany(l => l.Items)
+                .WithOne()
+                .HasForeignKey(i => i.ShoppingListId)
+                .HasPrincipalKey(l => l.Id)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(l => l.Items)
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .HasField("_items");
+
+            // Composite UNIQUE so child FK can reference (household_id, shopping_list_id) — per G6-2 convention.
+            b.HasIndex(l => new { l.HouseholdId, l.Id })
+                .IsUnique()
+                .HasDatabaseName("uq_shopping_list_household_list");
+
+            b.HasQueryFilter(l => l.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── ShoppingListItem (shopping schema) ──────────────────────────────────
+        builder.Entity<ShoppingListItem>(b =>
+        {
+            b.ToTable("shopping_list_item");
+            b.HasKey(i => i.Id);
+            b.Property(i => i.Id)
+                .HasConversion(id => id.Value, v => ShoppingListItemId.From(v))
+                .HasColumnName("shopping_list_item_id")
+                .ValueGeneratedNever();
+            b.Property(i => i.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(i => i.ShoppingListId)
+                .HasConversion(id => id.Value, v => ShoppingListId.From(v))
+                .HasColumnName("shopping_list_id")
+                .IsRequired();
+            b.Property(i => i.ProductId).HasColumnName("product_id");
+            b.Property(i => i.FreeText).HasColumnName("free_text");
+            // Quantity is derived (SUM of contributions) — not stored on the item row.
+            b.Ignore(i => i.Quantity);
+            b.Property(i => i.UnitId).HasColumnName("unit_id");
+            b.Property(i => i.CategoryId).HasColumnName("category_id");
+            b.Property(i => i.Note).HasColumnName("note");
+            b.Property(i => i.CheckedAt).HasColumnName("checked_at");
+            b.Property(i => i.CheckedBy).HasColumnName("checked_by");
+            // source and source_ref have moved to shopping_list_item_contribution (plantry-9scq).
+            b.Property(i => i.CreatedAt).HasColumnName("created_at");
+            b.Property(i => i.UpdatedAt).HasColumnName("updated_at");
+
+            // Contribution grandchildren — cascade-delete with parent item.
+            b.HasMany(i => i.Contributions)
+                .WithOne()
+                .HasForeignKey(c => c.ItemId)
+                .HasPrincipalKey(i => i.Id)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation(i => i.Contributions)
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .HasField("_contributions");
+
+            // Backing index for the list view (household_id, shopping_list_id) — shopping.md.
+            b.HasIndex(i => new { i.HouseholdId, i.ShoppingListId })
+                .HasDatabaseName("ix_shopping_list_item_household_list");
+
+            b.HasQueryFilter(i => i.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── ShoppingListItemContribution (shopping schema) ──────────────────────
+        builder.Entity<ShoppingListItemContribution>(b =>
+        {
+            b.ToTable("shopping_list_item_contribution");
+            b.HasKey(c => c.Id);
+            b.Property(c => c.Id)
+                .HasConversion(id => id.Value, v => ShoppingListItemContributionId.From(v))
+                .HasColumnName("contribution_id")
+                .ValueGeneratedNever();
+            b.Property(c => c.ItemId)
+                .HasConversion(id => id.Value, v => ShoppingListItemId.From(v))
+                .HasColumnName("shopping_list_item_id")
+                .IsRequired();
+            b.Property(c => c.Source)
+                .HasConversion(s => s.ToDbValue(), v => ItemSourceExtensions.Parse(v))
+                .HasColumnName("source")
+                .HasMaxLength(20)
+                .IsRequired();
+            b.Property(c => c.SourceRef).HasColumnName("source_ref");
+            b.Property(c => c.Quantity)
+                .HasColumnName("quantity")
+                .HasPrecision(12, 3);
+            b.Property(c => c.UnitId).HasColumnName("unit_id");
+
+            // Index for per-item contribution lookup.
+            b.HasIndex(c => c.ItemId)
+                .HasDatabaseName("ix_shopping_list_item_contribution_item");
         });
     }
 

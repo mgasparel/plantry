@@ -12,7 +12,7 @@ namespace Plantry.Tests.Integration.Shopping;
 
 /// <summary>
 /// L3 integration tests for AddItemCommand, CheckOffCommand, and ClearCheckedCommand
-/// against the real ShoppingDbContext + Postgres schema (shopping.md resolved calls 4/5,
+/// against the real PlanningDbContext + Postgres schema (shopping.md resolved calls 4/5,
 /// SPEC §3b/§3c/§3e, DM-18).
 ///
 /// Focus: reconcile rule against real persistence (plantry-wxho) — proves that after SaveAsync
@@ -225,12 +225,12 @@ public sealed class ShoppingCommandsIntegrationTests(PostgresFixture db) : IAsyn
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private DbContextOptions<ShoppingDbContext> ShoppingOptions() =>
-        new DbContextOptionsBuilder<ShoppingDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> ShoppingOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private ShoppingDbContext NewShoppingDb()
+    private PlanningDbContext NewShoppingDb()
     {
-        var ctx = new ShoppingDbContext(ShoppingOptions());
+        var ctx = new PlanningDbContext(ShoppingOptions());
         ctx.SetHouseholdId(_household.Value);
         return ctx;
     }

@@ -8,7 +8,7 @@ namespace Plantry.Planning.Infrastructure;
 /// <summary>
 /// EF-backed repository for the <see cref="MealPlan"/> aggregate.
 /// </summary>
-public sealed class MealPlanRepository(MealPlanningDbContext db) : IMealPlanRepository
+public sealed class MealPlanRepository(PlanningDbContext db) : IMealPlanRepository
 {
     public Task<MealPlan?> FindByWeekAsync(HouseholdId householdId, DateOnly weekStart, CancellationToken ct = default) =>
         db.MealPlans

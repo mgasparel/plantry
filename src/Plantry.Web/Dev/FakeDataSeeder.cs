@@ -36,7 +36,7 @@ public sealed class FakeDataSeeder(
     PantryDbContext pantryDb,
     PlantryIdentityDbContext identityDb,
     RecipesDbContext recipesDb,
-    MealPlanningDbContext mealPlanningDb,
+    PlanningDbContext planningDb,
     MarketDbContext marketDb,
     IStoreRepository storeRepo,
     ConfirmDeal confirmDeal,
@@ -506,7 +506,7 @@ public sealed class FakeDataSeeder(
     {
         // The slot config (Breakfast/Lunch/Dinner) was created by MealPlanningReferenceDataSeeder
         // during RegisterHouseholdCommand. Load it to resolve slot ids by label.
-        var config = await mealPlanningDb.MealSlotConfigs
+        var config = await planningDb.MealSlotConfigs
             .Include(c => c.Slots)
             .FirstOrDefaultAsync(ct);
         if (config is null) return;
@@ -538,7 +538,7 @@ public sealed class FakeDataSeeder(
             if (Slot("Lunch") is { } lunchSlot)
                 config.SetDefaultAttendees(lunchSlot.Id, morningCrew, clock);
 
-            await mealPlanningDb.SaveChangesAsync(ct);
+            await planningDb.SaveChangesAsync(ct);
         }
 
         // Recipes seeded above, resolved by name.
@@ -581,8 +581,8 @@ public sealed class FakeDataSeeder(
         // Days 6 (Sunday) has no meals — leaves at least one open slot for the "N slots open" insight.
         // The current seed fills 7 of the 21 weekly cells (3 slots × 7 days), so emptyCells > 0 always.
 
-        await mealPlanningDb.MealPlans.AddAsync(plan, ct);
-        await mealPlanningDb.SaveChangesAsync(ct);
+        await planningDb.MealPlans.AddAsync(plan, ct);
+        await planningDb.SaveChangesAsync(ct);
     }
 
     /// <summary>
@@ -966,10 +966,10 @@ public sealed class FakeDataSeeder(
                 // Meal plans + slot config soft-reference recipes/products by Guid (no FK), so order
                 // among contexts is free. Aggregate-root cascades clear PlannedMeals/PlannedDishes and
                 // MealSlots respectively.
-                await mealPlanningDb.MealPlans.ExecuteDeleteAsync(ct);
-                await mealPlanningDb.MealSlotConfigs.ExecuteDeleteAsync(ct);
-                await mealPlanningDb.UserPreferences.ExecuteDeleteAsync(ct);
-                await mealPlanningDb.TagStances.ExecuteDeleteAsync(ct);
+                await planningDb.MealPlans.ExecuteDeleteAsync(ct);
+                await planningDb.MealSlotConfigs.ExecuteDeleteAsync(ct);
+                await planningDb.UserPreferences.ExecuteDeleteAsync(ct);
+                await planningDb.TagStances.ExecuteDeleteAsync(ct);
 
                 // Recipes (their ingredients soft-reference catalog products by Guid). Cook events
                 // first — they FK → recipe; the recipe cascade then clears ingredients/tags/photo.
@@ -1019,7 +1019,7 @@ public sealed class FakeDataSeeder(
         pantryDb.SetHouseholdId(id);
         identityDb.SetHouseholdId(id);
         recipesDb.SetHouseholdId(id);
-        mealPlanningDb.SetHouseholdId(id);
+        planningDb.SetHouseholdId(id);
         marketDb.SetHouseholdId(id);
     }
 
@@ -1029,7 +1029,7 @@ public sealed class FakeDataSeeder(
         pantryDb.SetHouseholdId(Guid.Empty);
         identityDb.SetHouseholdId(Guid.Empty);
         recipesDb.SetHouseholdId(Guid.Empty);
-        mealPlanningDb.SetHouseholdId(Guid.Empty);
+        planningDb.SetHouseholdId(Guid.Empty);
         marketDb.SetHouseholdId(Guid.Empty);
     }
 

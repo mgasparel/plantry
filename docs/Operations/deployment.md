@@ -320,6 +320,53 @@ loud on the `CREATE TABLE ... already exists` error (ADR-017's fail-loud contrac
 old web container keeps serving, no data is at risk. Re-run the reconciliation script and
 retry the migrator.
 
+### plantry-g3da.8 — Planning DbContext unification (Meal Planning + Shopping)
+
+**What changed:** `ShoppingDbContext` and `MealPlanningDbContext` (two DbContexts sharing
+`Plantry.Planning.Infrastructure`, each with its own migration history in its own schema)
+are unified into one `PlanningDbContext` with a single squashed baseline migration —
+`Migrations/Planning/20260808180000_InitialPlanningSchema.cs`. The `shopping.*` and
+`meal_planning.*` schemas and their data are **untouched** (ADR-024 §"Physical schemas do
+not move on day one") — only the EF migrations bookkeeping changes: PlanningDbContext's
+history table lives in `shopping.__EFMigrationsHistory` (its EF default schema);
+`meal_planning.__EFMigrationsHistory` is retired.
+
+**Run once, with owner credentials, before deploying a build that ships PlanningDbContext:**
+
+```bash
+cd ~/plantry
+
+# 0. Take a backup first (see "Pre-migration backup" above) — this touches the
+#    migrations bookkeeping table directly, outside the migrator's normal path.
+POSTGRES_USER=plantry_owner POSTGRES_PASSWORD=<secret> ./deploy/backup.sh
+
+# 1. Apply the reconciliation script (guarded — aborts loudly if the database is not at the tip
+#    of both former histories; a no-op once already reconciled)
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  env PGPASSWORD=<owner-password> \
+  psql -U plantry_owner -d plantrydb -v ON_ERROR_STOP=1 \
+  < deploy/reconcile-planning-dbcontext.sql
+
+# 2. Verify: exactly one row in shopping.__EFMigrationsHistory for the new baseline,
+#    and meal_planning.__EFMigrationsHistory is gone.
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  env PGPASSWORD=<owner-password> \
+  psql -U plantry_owner -d plantrydb -c \
+    "SELECT \"MigrationId\" FROM shopping.\"__EFMigrationsHistory\";"
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  env PGPASSWORD=<owner-password> \
+  psql -U plantry_owner -d plantrydb -c \
+    "SELECT to_regclass('meal_planning.\"__EFMigrationsHistory\"');"  # expect NULL
+
+# 3. Proceed with the normal deploy procedure (step 3, `migrator`, is then a no-op
+#    for the Planning baseline — it sees the row from step 1 as already applied).
+```
+
+If the reconciliation script has not been run and the migrator runs anyway, it fails
+loud on the `CREATE TABLE ... already exists` error (ADR-017's fail-loud contract) — the
+old web container keeps serving, no data is at risk. Re-run the reconciliation script and
+retry the migrator.
+
 ---
 
 ## Restore procedure

@@ -10,7 +10,7 @@ namespace Plantry.Planning.Infrastructure;
 /// Items and their contributions are loaded eagerly so the aggregate is always in a consistent
 /// state and per-source upsert logic can read the existing contributions (plantry-9scq).
 /// </summary>
-public sealed class ShoppingListRepository(ShoppingDbContext db) : IShoppingListRepository
+public sealed class ShoppingListRepository(PlanningDbContext db) : IShoppingListRepository
 {
     public async Task<ShoppingList?> GetForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         await db.ShoppingLists

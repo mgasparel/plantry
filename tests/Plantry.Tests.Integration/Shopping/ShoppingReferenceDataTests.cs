@@ -83,12 +83,12 @@ public sealed class ShoppingReferenceDataTests(PostgresFixture db) : IAsyncLifet
         Assert.Equal(2, count);
     }
 
-    private DbContextOptions<ShoppingDbContext> ShoppingOptions() =>
-        new DbContextOptionsBuilder<ShoppingDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> ShoppingOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private ShoppingDbContext NewShoppingDb(HouseholdId household)
+    private PlanningDbContext NewShoppingDb(HouseholdId household)
     {
-        var ctx = new ShoppingDbContext(ShoppingOptions());
+        var ctx = new PlanningDbContext(ShoppingOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

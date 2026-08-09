@@ -37,12 +37,12 @@ public sealed class MealPlanPersistenceTests(PostgresFixture db) : IAsyncLifetim
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private DbContextOptions<MealPlanningDbContext> MealPlanningOptions() =>
-        new DbContextOptionsBuilder<MealPlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> MealPlanningOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private MealPlanningDbContext NewDb(HouseholdId household)
+    private PlanningDbContext NewDb(HouseholdId household)
     {
-        var ctx = new MealPlanningDbContext(MealPlanningOptions());
+        var ctx = new PlanningDbContext(MealPlanningOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }
@@ -54,7 +54,7 @@ public sealed class MealPlanPersistenceTests(PostgresFixture db) : IAsyncLifetim
     private async Task SeedSlotConfigAsync(HouseholdId household, MealSlotId slotId)
     {
         var configId = Guid.NewGuid();
-        await using var seedDb = new MealPlanningDbContext(MealPlanningOptions());
+        await using var seedDb = new PlanningDbContext(MealPlanningOptions());
         // Use raw SQL to bypass EF query filter (which would block writes with Guid.Empty household)
         await seedDb.Database.ExecuteSqlRawAsync(@"
             INSERT INTO meal_planning.meal_slot_config (meal_slot_config_id, household_id, created_at, updated_at)
@@ -410,7 +410,7 @@ public sealed class MealPlanPersistenceTests(PostgresFixture db) : IAsyncLifetim
         // Attempt to insert a second row with the same (meal_plan_id, date, meal_slot_id, ordinal=1)
         // directly via raw SQL to prove the DB-level unique index ux_planned_meal_plan_date_slot_ordinal
         // enforces uniqueness at the persistence layer.
-        await using var rawDb = new MealPlanningDbContext(MealPlanningOptions());
+        await using var rawDb = new PlanningDbContext(MealPlanningOptions());
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
             rawDb.Database.ExecuteSqlRawAsync(@"
                 INSERT INTO meal_planning.planned_meal

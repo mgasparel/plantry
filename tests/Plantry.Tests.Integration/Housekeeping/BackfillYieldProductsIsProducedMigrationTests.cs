@@ -173,13 +173,11 @@ public sealed class BackfillYieldProductsIsProducedMigrationTests : IAsyncLifeti
             .UseNpgsql(_container.GetConnectionString(), npgsql => npgsql.MigrationsAssembly("Plantry.Recipes.Infrastructure")).Options,
             o => new RecipesDbContext(o));
 
-        await MigrateAsync(new DbContextOptionsBuilder<ShoppingDbContext>()
+        // Shopping and MealPlanning were two migration targets pre-plantry-g3da.8; PlanningDbContext now
+        // owns both schemas via a single migration history, so one MigrateAsync call covers both.
+        await MigrateAsync(new DbContextOptionsBuilder<PlanningDbContext>()
             .UseNpgsql(_container.GetConnectionString(), npgsql => npgsql.MigrationsAssembly("Plantry.Planning.Infrastructure")).Options,
-            o => new ShoppingDbContext(o));
-
-        await MigrateAsync(new DbContextOptionsBuilder<MealPlanningDbContext>()
-            .UseNpgsql(_container.GetConnectionString(), npgsql => npgsql.MigrationsAssembly("Plantry.Planning.Infrastructure")).Options,
-            o => new MealPlanningDbContext(o));
+            o => new PlanningDbContext(o));
     }
 
     private static async Task MigrateAsync<TContext>(DbContextOptions<TContext> options, Func<DbContextOptions<TContext>, TContext> factory)

@@ -26,7 +26,7 @@ public sealed class RlsMiddleware(RequestDelegate next)
     public async Task InvokeAsync(
         HttpContext context, TenantContext tenant, PantryDbContext pantryDb,
         PlantryIdentityDbContext identityDb, IntakeDbContext intakeDb,
-        RecipesDbContext recipesDb, ShoppingDbContext shoppingDb, MealPlanningDbContext mealPlanningDb,
+        RecipesDbContext recipesDb, PlanningDbContext planningDb,
         MarketDbContext marketDb, HousekeepingDbContext housekeepingDb)
     {
         if (context.User.Identity?.IsAuthenticated == true)
@@ -40,8 +40,7 @@ public sealed class RlsMiddleware(RequestDelegate next)
                 identityDb.SetHouseholdId(id);        // feeds the Household EF query filter
                 intakeDb.SetHouseholdId(id);          // feeds the Intake EF query filter
                 recipesDb.SetHouseholdId(id);         // feeds the Recipes EF query filter
-                shoppingDb.SetHouseholdId(id);        // feeds the Shopping EF query filter
-                mealPlanningDb.SetHouseholdId(id);    // feeds the MealPlanning EF query filter
+                planningDb.SetHouseholdId(id);         // feeds the Planning (shopping + meal_planning) EF query filter
                 marketDb.SetHouseholdId(id);           // feeds the Market (pricing + deals) EF query filter (P5-0, plantry-g3da.7)
                 housekeepingDb.SetHouseholdId(id);    // feeds the Housekeeping EF query filter (tidy-up.md)
             }

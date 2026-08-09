@@ -38,15 +38,15 @@ public sealed class PlanningSettingsPersistenceTests(PostgresFixture db) : IAsyn
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private DbContextOptions<MealPlanningDbContext> Options() =>
-        new DbContextOptionsBuilder<MealPlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> Options() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private DbContextOptions<MealPlanningDbContext> AppUserOptions() =>
-        new DbContextOptionsBuilder<MealPlanningDbContext>().UseNpgsql(db.AppUserConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> AppUserOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.AppUserConnectionString).Options;
 
-    private MealPlanningDbContext NewDb(HouseholdId household, bool asAppUser = false)
+    private PlanningDbContext NewDb(HouseholdId household, bool asAppUser = false)
     {
-        var ctx = new MealPlanningDbContext(asAppUser ? AppUserOptions() : Options());
+        var ctx = new PlanningDbContext(asAppUser ? AppUserOptions() : Options());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

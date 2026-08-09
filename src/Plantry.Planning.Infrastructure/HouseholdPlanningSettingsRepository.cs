@@ -4,7 +4,7 @@ using Plantry.SharedKernel;
 
 namespace Plantry.Planning.Infrastructure;
 
-public sealed class HouseholdPlanningSettingsRepository(MealPlanningDbContext db)
+public sealed class HouseholdPlanningSettingsRepository(PlanningDbContext db)
     : IHouseholdPlanningSettingsRepository
 {
     public Task<HouseholdPlanningSettings?> FindByHouseholdAsync(

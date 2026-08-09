@@ -90,7 +90,7 @@ public sealed class MealPlanningRlsIsolationTests(PostgresFixture db) : IAsyncLi
         tenant.Set(_householdA.Value);
 
         var opts = BuildMealPlanningOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var mpDb = new MealPlanningDbContext(opts);
+        await using var mpDb = new PlanningDbContext(opts);
 
         var slots = await mpDb.MealSlots.IgnoreQueryFilters().ToListAsync();
 
@@ -105,7 +105,7 @@ public sealed class MealPlanningRlsIsolationTests(PostgresFixture db) : IAsyncLi
         var tenant = new TenantContext(); // never set
 
         var opts = BuildMealPlanningOptions(db.AppUserConnectionString, new HouseholdRlsConnectionInterceptor(tenant));
-        await using var mpDb = new MealPlanningDbContext(opts);
+        await using var mpDb = new PlanningDbContext(opts);
 
         var slots = await mpDb.MealSlots.IgnoreQueryFilters().ToListAsync();
 
@@ -128,19 +128,19 @@ public sealed class MealPlanningRlsIsolationTests(PostgresFixture db) : IAsyncLi
         Assert.DoesNotContain(seenIds, id => id == forbiddenHouseholdId);
     }
 
-    private DbContextOptions<MealPlanningDbContext> MealPlanningOptions() =>
-        new DbContextOptionsBuilder<MealPlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> MealPlanningOptions() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private static DbContextOptions<MealPlanningDbContext> BuildMealPlanningOptions(string connStr, IInterceptor? interceptor = null)
+    private static DbContextOptions<PlanningDbContext> BuildMealPlanningOptions(string connStr, IInterceptor? interceptor = null)
     {
-        var builder = new DbContextOptionsBuilder<MealPlanningDbContext>().UseNpgsql(connStr);
+        var builder = new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(connStr);
         if (interceptor is not null) builder.AddInterceptors(interceptor);
         return builder.Options;
     }
 
-    private MealPlanningDbContext NewMealPlanningDb(HouseholdId household)
+    private PlanningDbContext NewMealPlanningDb(HouseholdId household)
     {
-        var ctx = new MealPlanningDbContext(MealPlanningOptions());
+        var ctx = new PlanningDbContext(MealPlanningOptions());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }

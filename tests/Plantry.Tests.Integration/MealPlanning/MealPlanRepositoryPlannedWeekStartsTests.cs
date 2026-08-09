@@ -13,7 +13,7 @@ namespace Plantry.Tests.Integration.MealPlanning;
 /// — the single scalar-only query <see cref="Plantry.Planning.Application.MealPlanStreakQuery"/> uses
 /// instead of one full-aggregate load per week. Proves, against a real Postgres schema, that it: returns
 /// only weeks with at least one planned meal, excludes weeks after the cutoff, orders descending, respects
-/// the <c>maxWeeks</c> cap, and is scoped to the signed-in household by the <c>MealPlanningDbContext</c>
+/// the <c>maxWeeks</c> cap, and is scoped to the signed-in household by the <c>PlanningDbContext</c>
 /// RLS query filter.
 /// </summary>
 [Collection(nameof(PostgresCollection))]
@@ -35,12 +35,12 @@ public sealed class MealPlanRepositoryPlannedWeekStartsTests(PostgresFixture db)
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private DbContextOptions<MealPlanningDbContext> Options() =>
-        new DbContextOptionsBuilder<MealPlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
+    private DbContextOptions<PlanningDbContext> Options() =>
+        new DbContextOptionsBuilder<PlanningDbContext>().UseNpgsql(db.ConnectionString).Options;
 
-    private MealPlanningDbContext NewDb(HouseholdId household)
+    private PlanningDbContext NewDb(HouseholdId household)
     {
-        var ctx = new MealPlanningDbContext(Options());
+        var ctx = new PlanningDbContext(Options());
         ctx.SetHouseholdId(household.Value);
         return ctx;
     }
@@ -48,7 +48,7 @@ public sealed class MealPlanRepositoryPlannedWeekStartsTests(PostgresFixture db)
     private async Task SeedSlotConfigAsync(HouseholdId household, MealSlotId slotId)
     {
         var configId = Guid.NewGuid();
-        await using var seedDb = new MealPlanningDbContext(Options());
+        await using var seedDb = new PlanningDbContext(Options());
         await seedDb.Database.ExecuteSqlRawAsync(@"
             INSERT INTO meal_planning.meal_slot_config (meal_slot_config_id, household_id, created_at, updated_at)
             VALUES ({0}, {1}, NOW(), NOW());
