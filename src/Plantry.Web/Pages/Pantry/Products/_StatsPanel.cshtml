@@ -23,7 +23,10 @@
                               fill="none" stroke="var(--color-text-faint)" stroke-width="2"
                               stroke-linejoin="round" stroke-linecap="round" />
                 </svg>
-                <span class="chip-stat">You pay <b>@Plantry.Web.MoneyDisplay.Format(stats.MedianUnitPrice!.Value, stats.Currency)</b> median</span>
+                @if (stats.DisplayMedianUnitPrice is { } median && !string.IsNullOrWhiteSpace(stats.DisplayMedianUnitCode))
+                {
+                    <span class="chip-stat">You pay <b>@Plantry.Web.MoneyDisplay.Format(median, stats.Currency)/@stats.DisplayMedianUnitCode</b> median</span>
+                }
             }
             @if (stats.DaysOfSupply is { } days)
             {
