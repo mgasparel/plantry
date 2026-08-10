@@ -120,6 +120,42 @@ public sealed class WeekGridFragmentTests : IClassFixture<MealPlanFragmentFactor
         Assert.Contains("slot-band", html);
     }
 
+    [Fact(DisplayName = "GET /MealPlan defaults to the household-local week across a UTC Monday boundary")]
+    public async Task Get_MealPlan_Defaults_To_HouseholdLocal_Week()
+    {
+        var westZone = TimeZoneInfo.CreateCustomTimeZone(
+            "MealPlan boundary -05:00",
+            TimeSpan.FromHours(-5),
+            "MealPlan boundary -05:00",
+            "MealPlan boundary -05:00");
+        var boundaryClock = new FixedClock(
+            new DateTimeOffset(2026, 8, 10, 0, 30, 0, TimeSpan.Zero),
+            westZone);
+
+        await using var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IClock>();
+                services.AddSingleton<IClock>(boundaryClock);
+            }));
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        AddHouseholdHeader(client);
+
+        var response = await client.GetAsync("/MealPlan");
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync();
+        var document = await new HtmlParser().ParseDocumentAsync(html);
+
+        var todayAutoFill = document.QuerySelector(".day-head.is-today .dh-auto");
+        Assert.NotNull(todayAutoFill);
+        Assert.Contains("week=2026-08-09", todayAutoFill!.GetAttribute("hx-post"));
+
+        var dayAutoFills = document.QuerySelectorAll(".day-head .dh-auto");
+        Assert.Equal(7, dayAutoFills.Length);
+        Assert.Contains("week=2026-08-03", dayAutoFills[0].GetAttribute("hx-post"));
+        Assert.Contains("week=2026-08-09", dayAutoFills[^1].GetAttribute("hx-post"));
+    }
+
     // ── No slots empty state ──────────────────────────────────────────────────
 
     [Fact(DisplayName = "GET /MealPlan with no slots shows configure message")]

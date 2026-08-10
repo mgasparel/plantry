@@ -149,8 +149,6 @@ public sealed class UnfulfillableCellFactory : MealPlanFragmentFactory
     // Tag reader: returns the Vegetarian tag so it can be resolved to a name in-cell.
     protected override ITagReader TagReader => new UnfulfillableTagReader();
 
-    // Planner stays the base default (NullMealPlanner) — never called because all cells are
-    // unfulfillable.
 }
 
 // ── UnfulfillableCellFixture ──────────────────────────────────────────────────

@@ -6,6 +6,9 @@
 		</div>
 	</div>
 	<div class="card__body">
+		<p class="alert alert--info" data-metadata-gap="" style="margin-top:0">
+			Missing Protein and Cuisine metadata.                         Choose tags below or confirm a suggestion; suggestions are not applied until you save.
+		</p>
 		<template x-for="(tag, ti) in tags" :key="tag.id"><input type="hidden" name="Input.TagIds" :value="tag.id"></template>
 		<template x-for="(nt, ni) in newTags" :key="'newtag-' + ni"><span>
 				<input type="hidden" :name="'Input.NewTags[' + ni + '].Name'" :value="nt.name">

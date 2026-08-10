@@ -85,8 +85,8 @@ public static class Extensions
                     // Registering the source here causes those spans to appear nested under
                     // the EF Core command span, giving the full wire-level waterfall.
                     .AddSource("Npgsql")
-                    // AI pipeline spans: receipt_parse (GeminiReceiptParser), meal_plan_propose
-                    // (MealPlannerAiService), and deal_match (DealMatcher). All carry ai.model and
+                    // AI pipeline spans: receipt_parse (GeminiReceiptParser) and deal_match
+                    // (DealMatcher). All carry ai.model and
                     // ai.usage.input_tokens / ai.usage.output_tokens attributes.
                     // Error-status spans + LogError fire on failure, timeout, or empty response.
                     .AddSource(AiTelemetry.SourceName)

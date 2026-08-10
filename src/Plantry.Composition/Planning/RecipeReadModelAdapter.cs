@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -33,6 +34,15 @@ public sealed class RecipeReadModelAdapter(
     IRecipeRatingRepository ratings,
     ICatalogProductReader catalog) : IRecipeReadModel
 {
+    public async Task<IReadOnlyList<RecipeReadModel>> LoadActiveCorpusAsync(CancellationToken ct = default)
+    {
+        var rows = await db.Recipes.Where(r => r.ArchivedAt == null).OrderBy(r => r.Id)
+            .Select(r => new { r.Id, r.Name, TagIds = r.Tags.Select(t => t.TagId.Value).ToList(), ProductIds = r.Ingredients.Select(i => i.ProductId).ToList(), r.DefaultServings, HasPhoto = r.Photo != null, r.CookTimeMinutes })
+            .ToListAsync(ct);
+        var models = await BuildReadModelsAsync(rows.Select(r => new RecipeProjection(r.Id.Value, r.Name, r.TagIds, r.ProductIds, r.DefaultServings, r.HasPhoto, r.CookTimeMinutes)).ToList(), ct);
+        return rows.Select(r => models[r.Id.Value]).ToList();
+    }
+
     public async Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
     {
         // Use the strongly-typed RecipeId so EF Core's value converter can translate the predicate.
@@ -48,6 +58,7 @@ public sealed class RecipeReadModelAdapter(
                 r.Id,
                 r.Name,
                 TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                ProductIds = r.Ingredients.Select(i => i.ProductId).ToList(),
                 r.DefaultServings,
                 HasPhoto = r.Photo != null,
                 r.CookTimeMinutes,
@@ -56,8 +67,18 @@ public sealed class RecipeReadModelAdapter(
 
         if (row is null) return null;
 
-        return new RecipeReadModel(
-            row.Id.Value, row.Name, row.TagIds, row.DefaultServings, row.HasPhoto, row.CookTimeMinutes);
+        var models = await BuildReadModelsAsync(
+        [
+            new RecipeProjection(
+                row.Id.Value,
+                row.Name,
+                row.TagIds,
+                row.ProductIds,
+                row.DefaultServings,
+                row.HasPhoto,
+                row.CookTimeMinutes),
+        ], ct);
+        return models.GetValueOrDefault(row.Id.Value);
     }
 
     /// <inheritdoc />
@@ -77,15 +98,21 @@ public sealed class RecipeReadModelAdapter(
                 r.Id,
                 r.Name,
                 TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                ProductIds = r.Ingredients.Select(i => i.ProductId).ToList(),
                 r.DefaultServings,
                 HasPhoto = r.Photo != null,
                 r.CookTimeMinutes,
             })
             .ToListAsync(ct);
 
-        return rows.ToDictionary(
-            r => r.Id.Value,
-            r => new RecipeReadModel(r.Id.Value, r.Name, r.TagIds, r.DefaultServings, r.HasPhoto, r.CookTimeMinutes));
+        return await BuildReadModelsAsync(rows.Select(r => new RecipeProjection(
+            r.Id.Value,
+            r.Name,
+            r.TagIds,
+            r.ProductIds,
+            r.DefaultServings,
+            r.HasPhoto,
+            r.CookTimeMinutes)).ToList(), ct);
     }
 
     public async Task<IReadOnlyList<RecipeReadModel>> SearchAsync(
@@ -103,13 +130,22 @@ public sealed class RecipeReadModelAdapter(
                 r.Id,
                 r.Name,
                 TagIds = r.Tags.Select(t => t.TagId.Value).ToList(),
+                ProductIds = r.Ingredients.Select(i => i.ProductId).ToList(),
                 r.DefaultServings,
                 HasPhoto = r.Photo != null,
+                r.CookTimeMinutes,
             })
             .ToListAsync(ct);
 
-        return rows.Select(r => new RecipeReadModel(
-            r.Id.Value, r.Name, r.TagIds, r.DefaultServings, r.HasPhoto)).ToList();
+        var models = await BuildReadModelsAsync(rows.Select(r => new RecipeProjection(
+            r.Id.Value,
+            r.Name,
+            r.TagIds,
+            r.ProductIds,
+            r.DefaultServings,
+            r.HasPhoto,
+            r.CookTimeMinutes)).ToList(), ct);
+        return rows.Select(r => models[r.Id.Value]).ToList();
     }
 
     /// <inheritdoc />
@@ -133,6 +169,7 @@ public sealed class RecipeReadModelAdapter(
 
         IReadOnlyList<IngredientStatus> statuses;
         bool hasExpiring;
+        bool hasContributingExpiringStock;
         CostPerServing cost;
         if (expandResult.IsSuccess)
         {
@@ -142,6 +179,7 @@ public sealed class RecipeReadModelAdapter(
             cost = await costingService.ComputeExpandedAsync(effectiveLines, recipe.DefaultServings, servings, ct);
             statuses = fulfillment.Lines.Select(l => l.Status).ToList();
             hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+            hasContributingExpiringStock = fulfillment.Lines.Any(l => l.HasContributingExpiringStock);
         }
         else
         {
@@ -149,6 +187,7 @@ public sealed class RecipeReadModelAdapter(
             cost = await costingService.ComputeAsync(recipe, servings, ct);
             statuses = fulfillment.Lines.Select(l => l.Status).ToList();
             hasExpiring = fulfillment.Lines.Any(l => l.ExpiresWithinDays.HasValue);
+            hasContributingExpiringStock = fulfillment.Lines.Any(l => l.HasContributingExpiringStock);
         }
 
         // Compute fulfillment % from the (expanded or flat) line-level results.
@@ -172,11 +211,55 @@ public sealed class RecipeReadModelAdapter(
         // TotalCost = CostPerServing.Amount × servings (Amount is per-serving; we want the total).
         decimal? totalCost = cost.Amount.HasValue ? cost.Amount.Value * servings : null;
 
+        // No tracked line means there was no expiry-bearing inventory fact to evaluate. Preserve
+        // that as unknown for planning rather than collapsing it to "no expiring stock"; a tracked
+        // line with no qualifying allocation is the distinct, known-false state.
+        bool? planningHasContributingExpiringStock = statuses.Any(s => s != IngredientStatus.Untracked)
+            ? hasContributingExpiringStock
+            : null;
+
         return new RecipeDishEnrichment(
             pct,
             totalCost,
-            cost.Completeness == CostCompleteness.Partial,
-            hasExpiring);
+            cost.Completeness == Plantry.Recipes.Domain.CostCompleteness.Partial,
+            hasExpiring,
+            planningHasContributingExpiringStock);
+    }
+
+    /// <summary>
+    /// Populates the Planning candidate-evidence contract at the composition boundary. Generate-plan
+    /// calls this once for its bounded candidate snapshot and reuses the returned facts across every
+    /// slot; the adapter keeps Recipes/Fulfillment/Costing ownership here rather than letting Planning
+    /// reach into those contexts.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>> GetCandidateEvidenceAsync(
+        IReadOnlyCollection<CandidateRecipeEvidenceRequest> requests,
+        DateOnly today,
+        CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, CandidateRecipeEvidence>();
+        foreach (var request in requests.GroupBy(r => r.RecipeId).Select(g => g.First()))
+        {
+            var enrichment = await GetEnrichmentAsync(request.RecipeId, request.Servings, today, ct);
+            if (enrichment is null) continue;
+
+            var completeness = enrichment.CostIsPartial
+                ? Plantry.Planning.Domain.CandidateCostCompleteness.Partial
+                : enrichment.TotalCost.HasValue
+                    ? Plantry.Planning.Domain.CandidateCostCompleteness.Complete
+                    : Plantry.Planning.Domain.CandidateCostCompleteness.Unknown;
+            decimal? costPerServing = enrichment.TotalCost is { } totalCost && request.Servings > 0
+                ? totalCost / request.Servings
+                : null;
+
+            result[request.RecipeId] = new CandidateRecipeEvidence(
+                costPerServing,
+                completeness,
+                enrichment.FulfillmentPercent,
+                enrichment.HasContributingExpiringStock);
+        }
+
+        return result;
     }
 
     /// <inheritdoc />
@@ -294,4 +377,96 @@ public sealed class RecipeReadModelAdapter(
                     HouseholdAvg: Math.Round(g.Average(r => (decimal)r.Stars), 1),
                     RatedCount: g.Count()));
     }
+
+    /// <summary>
+    /// Enriches one bounded recipe projection set with semantic tag facts and compact diversity profiles.
+    /// Tag vocabulary and Catalog ingredient names are each loaded once for the whole set; no LLM is called
+    /// and no classification is persisted. Planning receives only its own contract types.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<Guid, RecipeReadModel>> BuildReadModelsAsync(
+        IReadOnlyList<RecipeProjection> rows,
+        CancellationToken ct)
+    {
+        if (rows.Count == 0) return new Dictionary<Guid, RecipeReadModel>();
+
+        // Household tags are small reference data. Load once so applied archived tags still retain their
+        // display/category facts, while only active tags participate in a missing-facet fallback match.
+        var tagRows = await db.Tags
+            .Select(t => new
+            {
+                Id = t.Id.Value,
+                t.Name,
+                t.Category,
+                IsArchived = t.ArchivedAt != null,
+            })
+            .ToListAsync(ct);
+        var tagsById = tagRows.ToDictionary(t => t.Id);
+        var activeVocabulary = tagRows
+            .Where(t => !t.IsArchived)
+            .Select(t => new RecipeSemanticTagFact(t.Id, t.Name, MapCategory(t.Category)))
+            .OrderBy(t => t.TagId)
+            .ToList();
+
+        var productIds = rows
+            .SelectMany(r => r.ProductIds)
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+        var productsById = await catalog.ResolveSummariesAsync(productIds, ct);
+
+        return rows.ToDictionary(
+            row => row.RecipeId,
+            row =>
+            {
+                var tagFacts = row.TagIds
+                    .Distinct()
+                    .Where(tagsById.ContainsKey)
+                    .Select(id => tagsById[id])
+                    .Select(t => new RecipeSemanticTagFact(t.Id, t.Name, MapCategory(t.Category)))
+                    .OrderBy(t => t.TagId)
+                    .ToList();
+                var ingredientFacts = row.ProductIds
+                    .Distinct()
+                    .Where(productsById.ContainsKey)
+                    .Select(id => productsById[id])
+                    .Select(p => new RecipeIngredientFact(p.Id, p.Name))
+                    .OrderBy(p => p.ProductId)
+                    .ToList();
+                var profile = RecipeDiversityProfile.Create(
+                    row.RecipeId,
+                    row.Name,
+                    tagFacts,
+                    activeVocabulary,
+                    ingredientFacts);
+
+                return new RecipeReadModel(
+                    row.RecipeId,
+                    row.Name,
+                    row.TagIds,
+                    row.DefaultServings,
+                    row.HasPhoto,
+                    row.CookTimeMinutes,
+                    tagFacts,
+                    profile);
+            });
+    }
+
+    private static RecipeSemanticTagCategory? MapCategory(TagCategory? category) => category switch
+    {
+        TagCategory.Diet => RecipeSemanticTagCategory.Diet,
+        TagCategory.Protein => RecipeSemanticTagCategory.Protein,
+        TagCategory.Flavor => RecipeSemanticTagCategory.Flavor,
+        TagCategory.Cuisine => RecipeSemanticTagCategory.Cuisine,
+        null => null,
+        _ => throw new ArgumentOutOfRangeException(nameof(category), category, null),
+    };
+
+    private sealed record RecipeProjection(
+        Guid RecipeId,
+        string Name,
+        IReadOnlyList<Guid> TagIds,
+        IReadOnlyList<Guid> ProductIds,
+        int DefaultServings,
+        bool HasPhoto,
+        int? CookTimeMinutes);
 }

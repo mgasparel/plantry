@@ -196,8 +196,8 @@
              this.tagDropOpen = false;
              this.$nextTick(() => this.$refs.tagInput.focus());
          },
-         // AI tag suggestions (plantry-qll2.2, timing settled by plantry-5xeg) — create-moment only.
-         // Fires ONCE per create (not on every save; the contradiction nudge covers edits), but NOT the
+         // AI tag suggestions are staged proposals for new recipes and existing recipes with a missing
+         // Protein or Cuisine facet. They fire once per eligible editor session, but NOT the
          // instant the first ingredient lands — that fired mid-entry, before the author had a chance to
          // finish the list (plantry-5xeg). Instead, every ingredient add/edit (re)schedules a debounced
          // call via scheduleTagSuggest(): the fetch only actually runs once tagSuggestDebounceMs has
@@ -205,6 +205,7 @@
          // paused. The server gate check + LLM call live behind SuggestTags; a suggestion NEVER
          // auto-applies — acceptSuggestion runs only on a tap.
          isCreate: @(Model.IsCreate ? "true" : "false"),
+         tagSuggestEligible: @(Model.TagSuggestionEligible ? "true" : "false"),
          tagSuggestFetched: false,
          tagSuggestDismissed: false,
          tagSuggestions: [],   // [{ name, category, existingTagId, isNew }]
@@ -217,12 +218,12 @@
          // applicable — the early-return in maybeSuggestTags still guards the eventual fetch, but bailing
          // here too avoids scheduling a timer that can only ever no-op.
          scheduleTagSuggest() {
-             if (!this.isCreate || this.tagSuggestFetched || this.tagSuggestDismissed) return;
+             if (!this.tagSuggestEligible || this.tagSuggestFetched || this.tagSuggestDismissed) return;
              clearTimeout(this._tagSuggestTimer);
              this._tagSuggestTimer = setTimeout(() => this.maybeSuggestTags(), this.tagSuggestDebounceMs);
          },
          async maybeSuggestTags() {
-             if (!this.isCreate || this.tagSuggestFetched || this.tagSuggestDismissed) return;
+             if (!this.tagSuggestEligible || this.tagSuggestFetched || this.tagSuggestDismissed) return;
              const productIds = this.rows.map(r => r.productId).filter(id => id);
              if (productIds.length === 0) return;
              this.tagSuggestFetched = true; // fire-once latch, set before await so re-entry is a no-op
@@ -855,6 +856,9 @@
                      this.draft.unitId = '';
                  }
              });
+             // Existing recipes flagged by metadata maintenance already have a settled ingredient list.
+             // Schedule their one proposal fetch on load; create mode still waits for an ingredient edit.
+             if (!this.isCreate && this.tagSuggestEligible) this.scheduleTagSuggest();
          },
      }">
 
@@ -1018,6 +1022,14 @@
                 </div>
             </div>
             <div class="card__body">
+                @if (!Model.IsCreate && Model.MissingDiversityCategories.Count > 0)
+                {
+                    <p class="alert alert--info" data-metadata-gap style="margin-top:0">
+                        Missing @string.Join(" and ", Model.MissingDiversityCategories) metadata.
+                        Choose tags below or confirm a suggestion; suggestions are not applied until you save.
+                    </p>
+                }
+
                 @* Hidden inputs post the selected TagIds array (one input per chip) *@
                 <template x-for="(tag, ti) in tags" :key="tag.id">
                     <input type="hidden" name="Input.TagIds" :value="tag.id" />
@@ -1084,10 +1096,9 @@
                         </div>
                     </div>
 
-                    @* ── AI tag suggestions row (plantry-qll2.2, timing settled by plantry-5xeg) ─────
-                       Sits directly under the tag editor. Populated once per create, after the ingredient
-                       list has sat quiet for tagSuggestDebounceMs (scheduleTagSuggest/maybeSuggestTags) —
-                       not the instant the first ingredient lands, so it doesn't interrupt active entry.
+                    @* ── AI tag suggestions row (staged/untrusted) ────────────────────────────────
+                       Sits directly under the tag editor. New recipes wait until the ingredient list has
+                       sat quiet; existing recipes are eligible only when Protein/Cuisine metadata is missing.
                        Renders nothing when there are no suggestions or the user dismissed them (no
                        empty-state noise). Each chip applies ONLY on tap — never auto-applied. Dashed
                        .ai-chip--new chips would mint a new tag. *@

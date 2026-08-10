@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Plantry.Planning.Application;
+using Plantry.Planning.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.Recipes.Infrastructure;
@@ -176,6 +178,97 @@ public sealed class RecipeReadModelAdapterExpandedTests(PostgresFixture db) : IA
         var line = Assert.Single(missing);
         Assert.Equal(flourId, line.ProductId);
         Assert.DoesNotContain(missing, m => m.ProductId == gardenTomatoesId);
+    }
+
+    [Fact(DisplayName = "GetCandidateEvidenceAsync carries complete cost, fulfillment, and FEFO waste evidence")]
+    public async Task GetCandidateEvidenceAsync_Projects_Complete_Cost_And_Fefo_Evidence()
+    {
+        var recipeId = await SeedFlatRecipeAsync(_cheeseProductId, qty: 2m, _unitId);
+
+        await using var ctx = NewContext();
+        var adapter = BuildAdapter(ctx,
+            catalog: FakeCatalog.WithTrackedLeaf(_cheeseProductId, _unitId),
+            stock: new FakeStock().AddLots(
+                _cheeseProductId,
+                _unitId,
+                new ActiveStockLot(1m, _unitId, Today.AddDays(-1)),
+                new ActiveStockLot(10m, _unitId, Today.AddDays(1))),
+            prices: FakePrices.With(_cheeseProductId, 0.01m, _unitId));
+
+        var evidence = await adapter.GetCandidateEvidenceAsync(
+            [new CandidateRecipeEvidenceRequest(recipeId.Value, Servings: 2)], Today);
+
+        var candidate = Assert.Single(evidence).Value;
+        Assert.Equal(0.01m, candidate.CostPerServing);
+        Assert.Equal(CandidateCostCompleteness.Complete, candidate.CostCompleteness);
+        Assert.Equal(100, candidate.FulfillmentPercent);
+        Assert.True(candidate.HasContributingExpiringStock);
+    }
+
+    [Fact(DisplayName = "GetCandidateEvidenceAsync marks an under-estimated partial cost without treating it as zero")]
+    public async Task GetCandidateEvidenceAsync_Projects_Partial_Cost()
+    {
+        var pricedProductId = Guid.CreateVersion7();
+        var unpricedProductId = Guid.CreateVersion7();
+        var recipeId = await SeedFlatRecipeWithTwoIngredientsAsync(
+            pricedProductId, qty1: 2m, unpricedProductId, qty2: 2m, _unitId);
+
+        await using var ctx = NewContext();
+        var adapter = BuildAdapter(ctx,
+            catalog: FakeCatalog.WithTrackedLeaf(pricedProductId, _unitId)
+                .AddTrackedLeaf(unpricedProductId, _unitId, "Unpriced Product"),
+            stock: new FakeStock()
+                .Add(pricedProductId, 2m, _unitId)
+                .Add(unpricedProductId, 2m, _unitId),
+            prices: FakePrices.With(pricedProductId, 1m, _unitId));
+
+        var evidence = await adapter.GetCandidateEvidenceAsync(
+            [new CandidateRecipeEvidenceRequest(recipeId.Value, Servings: 2)], Today);
+
+        var candidate = Assert.Single(evidence).Value;
+        Assert.Equal(CandidateCostCompleteness.Partial, candidate.CostCompleteness);
+        Assert.Equal(1m, candidate.CostPerServing);
+        Assert.NotEqual(0m, candidate.CostPerServing);
+    }
+
+    [Fact(DisplayName = "GetCandidateEvidenceAsync leaves an unpriced cost unknown rather than zero")]
+    public async Task GetCandidateEvidenceAsync_Projects_Unknown_Cost()
+    {
+        var productId = Guid.CreateVersion7();
+        var recipeId = await SeedFlatRecipeAsync(productId, qty: 2m, _unitId);
+
+        await using var ctx = NewContext();
+        var adapter = BuildAdapter(ctx,
+            catalog: FakeCatalog.WithTrackedLeaf(productId, _unitId),
+            stock: new FakeStock().Add(productId, 2m, _unitId),
+            prices: new FakePrices());
+
+        var evidence = await adapter.GetCandidateEvidenceAsync(
+            [new CandidateRecipeEvidenceRequest(recipeId.Value, Servings: 2)], Today);
+
+        var candidate = Assert.Single(evidence).Value;
+        Assert.Equal(CandidateCostCompleteness.Unknown, candidate.CostCompleteness);
+        Assert.Null(candidate.CostPerServing);
+    }
+
+    [Fact(DisplayName = "GetCandidateEvidenceAsync preserves unknown expiry for an untracked-only recipe")]
+    public async Task GetCandidateEvidenceAsync_Projects_Unknown_Expiry_For_UntrackedOnlyRecipe()
+    {
+        var productId = Guid.CreateVersion7();
+        var recipeId = await SeedFlatRecipeAsync(productId, qty: 2m, _unitId);
+
+        await using var ctx = NewContext();
+        var adapter = BuildAdapter(ctx,
+            catalog: new FakeCatalog().AddUntrackedLeaf(productId, _unitId),
+            stock: new FakeStock(),
+            prices: new FakePrices());
+
+        var evidence = await adapter.GetCandidateEvidenceAsync(
+            [new CandidateRecipeEvidenceRequest(recipeId.Value, Servings: 2)], Today);
+
+        var candidate = Assert.Single(evidence).Value;
+        Assert.Equal(100, candidate.FulfillmentPercent);
+        Assert.Null(candidate.HasContributingExpiringStock);
     }
 
     // ── Seeding ──────────────────────────────────────────────────────────────────

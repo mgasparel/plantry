@@ -16,8 +16,8 @@
              this.tagDropOpen = false;
              this.$nextTick(() => this.$refs.tagInput.focus());
          },
-         // AI tag suggestions (plantry-qll2.2, timing settled by plantry-5xeg) — create-moment only.
-         // Fires ONCE per create (not on every save; the contradiction nudge covers edits), but NOT the
+         // AI tag suggestions are staged proposals for new recipes and existing recipes with a missing
+         // Protein or Cuisine facet. They fire once per eligible editor session, but NOT the
          // instant the first ingredient lands — that fired mid-entry, before the author had a chance to
          // finish the list (plantry-5xeg). Instead, every ingredient add/edit (re)schedules a debounced
          // call via scheduleTagSuggest(): the fetch only actually runs once tagSuggestDebounceMs has
@@ -25,6 +25,7 @@
          // paused. The server gate check + LLM call live behind SuggestTags; a suggestion NEVER
          // auto-applies — acceptSuggestion runs only on a tap.
          isCreate: true,
+         tagSuggestEligible: true,
          tagSuggestFetched: false,
          tagSuggestDismissed: false,
          tagSuggestions: [],   // [{ name, category, existingTagId, isNew }]
@@ -37,12 +38,12 @@
          // applicable — the early-return in maybeSuggestTags still guards the eventual fetch, but bailing
          // here too avoids scheduling a timer that can only ever no-op.
          scheduleTagSuggest() {
-             if (!this.isCreate || this.tagSuggestFetched || this.tagSuggestDismissed) return;
+             if (!this.tagSuggestEligible || this.tagSuggestFetched || this.tagSuggestDismissed) return;
              clearTimeout(this._tagSuggestTimer);
              this._tagSuggestTimer = setTimeout(() => this.maybeSuggestTags(), this.tagSuggestDebounceMs);
          },
          async maybeSuggestTags() {
-             if (!this.isCreate || this.tagSuggestFetched || this.tagSuggestDismissed) return;
+             if (!this.tagSuggestEligible || this.tagSuggestFetched || this.tagSuggestDismissed) return;
              const productIds = this.rows.map(r => r.productId).filter(id => id);
              if (productIds.length === 0) return;
              this.tagSuggestFetched = true; // fire-once latch, set before await so re-entry is a no-op
@@ -675,6 +676,9 @@
                      this.draft.unitId = '';
                  }
              });
+             // Existing recipes flagged by metadata maintenance already have a settled ingredient list.
+             // Schedule their one proposal fetch on load; create mode still waits for an ingredient edit.
+             if (!this.isCreate &amp;&amp; this.tagSuggestEligible) this.scheduleTagSuggest();
          },
      }">
 	<form method="post" enctype="multipart/form-data" class="form-stack">

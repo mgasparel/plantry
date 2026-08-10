@@ -258,7 +258,7 @@ accept / reject / regenerate / edit, all on one screen. (J4 / J8)
   default leans Waste, C14; optional budget target; ad-hoc tag prefer/exclude); gathers context
   (candidate recipes + tags + fulfillment + cost via `IRecipeReadModel`; expiring stock via
   `IInventoryStockReader`; recent cook/plan history for the Variety lever; per-meal `MealConstraints`);
-  invokes the **untrusted `IMealPlanner`** (ADR-007); **pre-flight conflict detection** (`HardConflictDetector`
+  runs deterministic whole-week selection after **pre-flight conflict detection** (`HardConflictDetector`
   per cell — irreconcilable cells C6 are flagged in-cell and skipped, no auto-split in P3); **validates
   the raw output in a transient ACL step** (reject malformed, drop Restricted dishes, per-attendee
   Required satisfaction check, leave impossible cells unfilled); writes validated `ProposedMeal`s to a
@@ -269,9 +269,8 @@ accept / reject / regenerate / edit, all on one screen. (J4 / J8)
 - `AcceptProposal` (J4): commit confirmed suggestions into `MealPlan` — **accept-all** via
   `ApplyProposal` (one transaction), **per-cell** via `AssignMeal(source: ai)` — re-validating each
   (the accept POST is the trust boundary); reject drops an entry, discard clears the store.
-- `IMealPlanner` implemented in `Plantry.Planning.Infrastructure` over the **household AI key**
-  (DM-7), wrapping the `ChatClient` exactly as Intake does (slice 6c) — key set via user-secrets,
-  never sent to the client.
+- `DeterministicWeekMealOptimizer` owns recipe identity in trusted application code; any future AI
+  explanation adapter receives only selected IDs and structured evidence.
 - **Inline review UI** (J4 / J8, no separate screen): the `PlanningWeights` sliders + budget + scope
   buttons; in-scope empty cells render as **ghost cells** (dishes + reasoning snippet + rolled-up
   fulfillment/cost from P3-4) visually distinct from confirmed meals; per-cell ✓ accept / ✗ reject /
@@ -281,7 +280,7 @@ accept / reject / regenerate / edit, all on one screen. (J4 / J8)
 
 **Tests / done-when.** L1 `MealConstraintResolver` (attendee resolution, hard union / soft average) +
 the ACL validation (reject nonexistent recipe, hard-conflict split per C6, unfilled on no-match);
-L2 `GeneratePlan` / `AcceptProposal` with a **faked `IMealPlanner`** (deterministic payloads):
+L2 `GeneratePlan` / `AcceptProposal` with deterministic server-owned selections:
 empty-only targeting, accept-all atomicity, per-cell accept re-validation, regenerate touches only the
 one pending cell, weights never relax a hard stance (M5/M11); L4 ghost-cell + sliders fragments;
 L5 generate week → accept some / regenerate one / discard → confirmed meals persist, suggestions don't
@@ -324,9 +323,8 @@ preferences (P3-2), and reuses the P3-4 roll-ups and P3-5 insights for ghost cel
   calls it with `source="meal_plan"` (DM-18).
 - **`IRecipeReadModel` / `ITagReader`** — Recipes' `FulfillmentResult` / `CostPerServing` / candidate
   list / `cook_event` history and the tag vocabulary (DM-20).
-- **The Intake AI pattern** — `IMealPlanner` wraps a `ChatClient` over the per-household encrypted AI
-  key (DM-7), exactly as Intake's receipt parser (slice 6c). Quarantine-then-confirm (ADR-007) is the
-  shared discipline, with Meal Planning's staging **transient** rather than a persisted session.
+- **Deterministic selection** — Meal Planning selects recipe IDs in trusted application code and keeps
+  staging **transient** rather than a persisted session.
 
 ---
 

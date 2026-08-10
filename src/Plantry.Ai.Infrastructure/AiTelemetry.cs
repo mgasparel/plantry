@@ -6,8 +6,8 @@ namespace Plantry.Ai.Infrastructure;
 /// <summary>
 /// Shared, generic telemetry primitives for the Plantry AI pipeline.
 /// <para>
-/// Every AI adapter — <c>GeminiReceiptParser</c> (Intake), <c>MealPlannerAiService</c>
-/// (MealPlanning), and <c>DealMatcher</c> (Deals) — emits its spans through <see cref="ActivitySource"/>
+/// Every AI adapter — such as <c>GeminiReceiptParser</c> (Intake) and <c>DealMatcher</c> (Deals) —
+/// emits its spans through <see cref="ActivitySource"/>
 /// and records its metrics on a histogram created against <see cref="Meter"/>, so all AI telemetry
 /// appears under a single, consistently-named source that the OTEL SDK subscribes to with one
 /// <c>AddSource</c> / <c>AddMeter</c> call in <c>ServiceDefaults.ConfigureOpenTelemetry</c>.
@@ -35,7 +35,7 @@ public static class AiTelemetry
     /// <summary>
     /// <see cref="ActivitySource"/> that emits one <see cref="Activity"/> span per AI call.
     /// Use <see cref="ActivitySource.StartActivity(string)"/> from each AI adapter
-    /// (receipt_parse, meal_plan_propose, deal_match).
+    /// (receipt_parse, deal_match).
     /// </summary>
     public static readonly ActivitySource ActivitySource = new(SourceName, "1.0.0");
 

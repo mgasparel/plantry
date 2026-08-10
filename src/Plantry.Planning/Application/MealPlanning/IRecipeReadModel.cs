@@ -1,3 +1,5 @@
+using Plantry.Planning.Domain;
+
 namespace Plantry.Planning.Application;
 
 /// <summary>
@@ -20,6 +22,12 @@ public interface IRecipeReadModel
     /// </summary>
     Task<IReadOnlyList<RecipeReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default);
 
+    /// <summary>Loads the complete active household recipe corpus for generation feasibility and shortlisting.</summary>
+    async Task<IReadOnlyList<RecipeReadModel>> LoadActiveCorpusAsync(CancellationToken ct = default) =>
+        await SearchAsync(string.Empty, int.MaxValue, ct);
+
+
+
     /// <summary>
     /// Returns live fulfillment and cost facts for a recipe at the given serving count.
     /// Computed fresh by Recipes' domain services (FulfillmentService / CostingService) via the
@@ -31,6 +39,43 @@ public interface IRecipeReadModel
         int servings,
         DateOnly today,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns one bounded snapshot of the live evidence used to rank a candidate recipe set. The
+    /// caller invokes this once per generate request and reuses the result for every empty slot, so
+    /// candidate enrichment is not repeated per slot. The default implementation preserves compatibility
+    /// with existing read-model doubles by adapting the existing enrichment port; a composition adapter
+    /// may override it when it can batch the underlying Recipes/Pricing/Inventory reads.
+    /// </summary>
+    async Task<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>> GetCandidateEvidenceAsync(
+        IReadOnlyCollection<CandidateRecipeEvidenceRequest> requests,
+        DateOnly today,
+        CancellationToken ct = default)
+    {
+        var result = new Dictionary<Guid, CandidateRecipeEvidence>();
+        foreach (var request in requests.GroupBy(r => r.RecipeId).Select(g => g.First()))
+        {
+            var enrichment = await GetEnrichmentAsync(request.RecipeId, request.Servings, today, ct);
+            if (enrichment is null) continue;
+
+            var completeness = enrichment.CostIsPartial
+                ? CandidateCostCompleteness.Partial
+                : enrichment.TotalCost.HasValue
+                    ? CandidateCostCompleteness.Complete
+                    : CandidateCostCompleteness.Unknown;
+            decimal? costPerServing = enrichment.TotalCost is { } totalCost && request.Servings > 0
+                ? totalCost / request.Servings
+                : null;
+
+            result[request.RecipeId] = new CandidateRecipeEvidence(
+                costPerServing,
+                completeness,
+                enrichment.FulfillmentPercent,
+                enrichment.HasContributingExpiringStock);
+        }
+
+        return result;
+    }
 
     /// <summary>
     /// Returns the ingredients that are Missing or Low at <paramref name="servings"/> for a recipe.
@@ -126,13 +171,38 @@ public interface IRecipeReadModel
 /// the port's contract is "minimal facts needed to display and validate a recipe dish"
 /// (see this interface's summary), and cook time is such a fact. Defaults to null so existing
 /// positional construction sites keep compiling; the adapter always supplies the resolved value.</param>
+/// <param name="TagFacts">
+/// Stable id + display-name + category facts for the recipe's tags. These are additive to
+/// <paramref name="TagIds"/>: hard constraints continue to validate against ids, while selection can
+/// reason over names/categories without reaching through this port into Recipes persistence.
+/// </param>
+/// <param name="DiversityProfile">
+/// Compact confirmed/fallback semantic facts for deterministic recipe comparison. Null is the graceful
+/// compatibility state for a read-model implementation that has not supplied profile facts.
+/// </param>
 public sealed record RecipeReadModel(
     Guid RecipeId,
     string Name,
     IReadOnlyList<Guid> TagIds,
     int DefaultServings,
     bool HasPhoto = false,
-    int? CookTimeMinutes = null);
+    int? CookTimeMinutes = null,
+    IReadOnlyList<RecipeSemanticTagFact>? TagFacts = null,
+    RecipeDiversityProfile? DiversityProfile = null);
+
+/// <summary>One recipe/serving request in a candidate evidence snapshot.</summary>
+public sealed record CandidateRecipeEvidenceRequest(Guid RecipeId, int Servings);
+
+/// <summary>
+/// Planning-owned live evidence for one candidate. Cost is per serving; partial cost is explicitly marked
+/// as an under-estimate and unknown cost remains null. The expiring-stock flag is already allocated at the
+/// Recipes boundary, so on-hand stock that would not be consumed does not masquerade as waste evidence.
+/// </summary>
+public sealed record CandidateRecipeEvidence(
+    decimal? CostPerServing,
+    CandidateCostCompleteness CostCompleteness,
+    int FulfillmentPercent,
+    bool? HasContributingExpiringStock);
 
 /// <summary>
 /// Live fulfillment and cost enrichment for a recipe dish at a given serving count.
@@ -151,11 +221,18 @@ public sealed record RecipeReadModel(
 /// <param name="HasExpiringIngredients">
 /// True when any tracked ingredient has stock expiring within 4 days ("Use soon" flag, J1 step 4).
 /// </param>
+/// <param name="HasContributingExpiringStock">
+/// True only when positive stock allocated to satisfy a tracked ingredient has a non-expired expiry
+/// within the configured horizon. False means tracked lines were evaluated but no such allocation was
+/// found. Null means the recipe had no tracked line from which expiry evidence could be obtained (for
+/// example, an all-untracked recipe); the planner renders that state as unknown rather than none.
+/// </param>
 public sealed record RecipeDishEnrichment(
     int FulfillmentPercent,
     decimal? TotalCost,
     bool CostIsPartial,
-    bool HasExpiringIngredients);
+    bool HasExpiringIngredients,
+    bool? HasContributingExpiringStock = null);
 
 /// <summary>
 /// One missing (or low-stock) ingredient for a recipe at a given serving count, for the ShopForWeek flow.

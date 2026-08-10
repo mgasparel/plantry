@@ -13,9 +13,12 @@ namespace Plantry.Web.Pages.Settings;
 /// without a full page reload.
 /// </summary>
 [Authorize]
-public sealed class TagsModel(ManageTagsService service) : PageModel
+public sealed class TagsModel(
+    ManageTagsService service,
+    RecipeDiversityMetadataQuery metadataQuery) : PageModel
 {
     public IReadOnlyList<TagViewModel> Tags { get; private set; } = [];
+    public IReadOnlyList<RecipeDiversityMetadataGap> MetadataGaps { get; private set; } = [];
     public string? ErrorMessage { get; private set; }
 
     public sealed record TagViewModel(
@@ -111,6 +114,7 @@ public sealed class TagsModel(ManageTagsService service) : PageModel
     {
         var all = await service.ListAllAsync(ct);
         Tags = all.Select(t => new TagViewModel(t.Id, t.Name, t.Category, t.IsArchived)).ToList();
+        MetadataGaps = await metadataQuery.ExecuteAsync(ct);
     }
 
     private static TagCategory? ParseCategory(string? value) =>

@@ -6,8 +6,8 @@ namespace Plantry.Tests.Unit.Ai.Infrastructure;
 
 /// <summary>
 /// Unit tests for the shared <see cref="AiFunction"/> taxonomy and <see cref="AiUsageTelemetry"/>
-/// helper (plantry-df6p) — the single <c>RecordTokenUsage</c> lifted out of the six AI adapters
-/// (GeminiReceiptParser, DealMatcher, MealPlannerAiService, IngredientConversionInferrer,
+/// helper (plantry-df6p) — the single <c>RecordTokenUsage</c> lifted out of the AI adapters
+/// (GeminiReceiptParser, DealMatcher, IngredientConversionInferrer,
 /// RecipeTagSuggester, DietTagContradictionChecker).
 /// </summary>
 public sealed class AiUsageTelemetryTests
@@ -19,7 +19,6 @@ public sealed class AiUsageTelemetryTests
     {
         Assert.Equal("receipt_parse", AiFunction.ReceiptParse);
         Assert.Equal("deal_match", AiFunction.DealMatch);
-        Assert.Equal("meal_plan_propose", AiFunction.MealPlanPropose);
         Assert.Equal("recipe_conversion_seed", AiFunction.RecipeConversionSeed);
         Assert.Equal("recipe_tag_suggest", AiFunction.RecipeTagSuggest);
         Assert.Equal("recipe_diet_nudge", AiFunction.RecipeDietNudge);
@@ -77,8 +76,8 @@ public sealed class AiUsageTelemetryTests
         using var _2 = listener;
 
         using var activity = AiTelemetry.ActivitySource.StartActivity("test_span");
+        AiUsageTelemetry.RecordTokenUsage(activity, null, AiFunction.DealMatch, "test-model");
 
-        AiUsageTelemetry.RecordTokenUsage(activity, null, AiFunction.MealPlanPropose, "test-model");
 
         Assert.Null(activity!.GetTagItem("ai.usage.input_tokens"));
         Assert.Null(activity.GetTagItem("ai.usage.output_tokens"));

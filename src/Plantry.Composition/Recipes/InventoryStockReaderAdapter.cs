@@ -10,7 +10,7 @@ namespace Plantry.Web.Recipes;
 
 /// <summary>
 /// Web-side adapter for <see cref="IInventoryStockReader"/> — supplies <c>FulfillmentService</c>
-/// with live stock snapshots (available quantity + soonest expiry) by calling directly into
+/// with live stock snapshots (available quantity + FEFO active-lot facts + soonest expiry) by calling directly into
 /// Inventory's persistence layer (<see cref="IProductStockRepository"/>) and Catalog's conversion
 /// layer (<see cref="IProductConversionProvider"/>). Lives in Plantry.Web, the composition root
 /// that already references both contexts, so the Recipes projects stay <c>→ SharedKernel only</c>.
@@ -105,7 +105,10 @@ public sealed class InventoryStockReaderAdapter(
                 productStock.ProductId,
                 total,
                 defaultUnitId,
-                soonestExpiry);
+                soonestExpiry,
+                activeLots
+                    .Select(l => new ActiveStockLot(l.Quantity, l.UnitId, l.ExpiryDate))
+                    .ToList());
         }
 
         return result;

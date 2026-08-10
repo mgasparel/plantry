@@ -36,9 +36,41 @@
         }
     </div>
 }
-@if (!string.IsNullOrWhiteSpace(reason))
+@if (!string.IsNullOrWhiteSpace(reason) || Model.Proposal.Dishes.Any(d => d.ScoreBreakdown is not null))
 {
-    <div class="gh-reason" title="@reason">@reason</div>
+    <details class="gh-reason-fold">
+        <summary class="gh-reason-summary">Why this?</summary>
+        @if (!string.IsNullOrWhiteSpace(reason))
+        {
+            <div class="gh-reason" title="@reason">@reason</div>
+        }
+        @if (Model.Proposal.Dishes.Any(d => d.ScoreBreakdown is not null))
+        {
+            <ul class="gh-evidence" aria-label="Objective evidence">
+                @foreach (var dish in Model.Proposal.Dishes)
+                {
+                    var score = dish.ScoreBreakdown;
+                    if (score is null) { continue; }
+                    <li>Waste contribution: @score.WasteContribution.ToString("0.##")</li>
+                    <li>Cost contribution: @score.CostContribution.ToString("0.##") (@(score.CostCompleteness == Plantry.Planning.Domain.CandidateCostCompleteness.Complete ? "complete" : score.CostCompleteness == Plantry.Planning.Domain.CandidateCostCompleteness.Partial ? "partial estimate" : "estimate unknown"))</li>
+                    <li>Variety contribution: @score.VarietyContribution.ToString("0.##")</li>
+                    @foreach (var gap in score.VarietyContributions.Where(c => c.Confidence != Plantry.Planning.Domain.RecipeDiversityConfidence.Confirmed))
+                    {
+                        var facet = gap.Facet.ToString();
+                        var values = gap.MatchedValues.Count > 0 ? $" {string.Join(", ", gap.MatchedValues)}" : "";
+                        if (gap.Confidence == Plantry.Planning.Domain.RecipeDiversityConfidence.Missing)
+                        {
+                            <li>@facet: metadata missing</li>
+                        }
+                        else
+                        {
+                            <li>@facet: fallback value@values</li>
+                        }
+                    }
+                }
+            </ul>
+        }
+    </details>
 }
 <div class="gh-acts">
     <button type="button" class="gh-btn accept"

@@ -10,23 +10,24 @@ namespace Plantry.Planning.Application;
 /// Orchestrates: load week plan → find empty cells → resolve constraints →
 /// load candidates → detect irreconcilable hard-stance conflicts (C6) →
 /// detect unfulfillable cells (no recipes for a Required tag in the full corpus) →
-/// call IMealPlanner (untrusted) → validate via ProposalAcl → stage in IPendingProposalStore.
-/// The AI output is never persisted directly — it goes to the pending store for user review.
+/// select an exact deterministic week → validate via ProposalAcl → stage in IPendingProposalStore.
+/// Server selection is never persisted directly — it always goes to the pending store for user review.
 /// Irreconcilable cells (C6: no single candidate satisfies every attendee) are skipped from
 /// the planner request, counted as unfilled, and recorded in GeneratePlanResult.Conflicts.
 /// Unfulfillable cells (an attendee's Required tag has no recipes in the full corpus) are
 /// similarly skipped from the planner request and recorded in GeneratePlanResult.UnfulfillableCells.
 /// </summary>
 public sealed class GeneratePlanService(
-    IMealPlanner planner,
     IMealPlanRepository mealPlanRepo,
     IMealSlotConfigRepository slotConfigRepo,
     IUserPreferenceRepository prefsRepo,
     IRecipeReadModel recipeReader,
+    IRecentMealHistoryReader historyReader,
     IMealPlanCatalogProductReader catalogReader,
     IPendingProposalStore proposalStore,
     MealConstraintResolver constraintResolver,
     ITagReader tagReader,
+    IClock clock,
     ILogger<GeneratePlanService> logger)
 {
     /// <summary>
@@ -148,21 +149,38 @@ public sealed class GeneratePlanService(
         // what else is planned elsewhere in the week. Duplicates remain allowed downstream (no ACL
         // change) — this list is purely informational context for the AI's variety weighting.
         var alreadyPlanned = await BuildAlreadyPlannedSummaryAsync(plan, slotConfig, ct);
+        var today = clock.ToLocalDate(clock.UtcNow);
 
-        // 5. Load candidate recipes (up to 50), plus their household-wide rating signal in one batched
-        // round-trip (plantry-zlwp.5) — attendee-scoping happens per cell below, since DefaultAttendees
-        // varies per slot but the underlying rating data is invariant across cells within one generate call.
-        var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 50, ct);
+        // Retained plan/cook history is a separate, softer novelty input. The reader excludes this
+        // plan's week so accepted meals cannot be double-counted against alreadyPlanned above.
+        var recentHistory = await historyReader.ReadAsync(householdId, today, monday, ct);
+
+        // 5. Load the full active household corpus for feasibility and evidence. The optimizer receives
+        // a deterministic working set below; never let alphabetical ordering decide which recipes exist.
+        // The read adapter still bounds the defensive query at 10,000 rows.
+        var recipesReadModels = await recipeReader.LoadActiveCorpusAsync(ct);
         var ratingSummaries = await recipeReader.GetRatingSummariesAsync(
             recipesReadModels.Select(r => r.RecipeId).ToList(), ct);
+        var candidateEvidence = await recipeReader.GetCandidateEvidenceAsync(
+            recipesReadModels
+                .Select(r => new CandidateRecipeEvidenceRequest(r.RecipeId, r.DefaultServings))
+                .ToList(),
+            today,
+            ct);
         var candidates = recipesReadModels
             .Select(r =>
             {
                 var summary = ratingSummaries.GetValueOrDefault(r.RecipeId);
+                var evidence = candidateEvidence.GetValueOrDefault(r.RecipeId);
                 return new CandidateRecipe(
-                    r.RecipeId, r.Name, r.TagIds, r.DefaultServings, null,
+                    r.RecipeId, r.Name, r.TagIds, r.DefaultServings, evidence?.CostPerServing,
                     HouseholdAvgRating: summary?.HouseholdAvg,
-                    RatedCount: summary?.RatedCount ?? 0);
+                    RatedCount: summary?.RatedCount ?? 0,
+                    CostCompleteness: evidence?.CostCompleteness ?? CandidateCostCompleteness.Unknown,
+                    FulfillmentPercent: evidence?.FulfillmentPercent,
+                    HasContributingExpiringStock: evidence?.HasContributingExpiringStock,
+                    TagFacts: r.TagFacts,
+                    DiversityProfile: r.DiversityProfile);
             })
             .ToList();
 
@@ -232,7 +250,7 @@ public sealed class GeneratePlanService(
             // HouseholdAvgRating/RatedCount (set once above) as the fallback signal. Soft signal only:
             // this never touches ProposalAcl/HardConflictDetector/UnfulfillabilityDetector, all of which
             // continue to operate on the unscoped `candidates` list above them in this method.
-            var slotCandidates = constraints.EffectiveAttendees.Count == 0
+            IReadOnlyList<CandidateRecipe> slotCandidates = constraints.EffectiveAttendees.Count == 0
                 ? candidates
                 : candidates
                     .Select(c =>
@@ -246,6 +264,19 @@ public sealed class GeneratePlanService(
                         return attendeeStars.Count == 0 ? c : c with { AttendeeStars = attendeeStars };
                     })
                     .ToList();
+            slotCandidates = CandidateRecipeShortlisting.Select(slotCandidates, constraints, effectiveWeights);
+
+            // Required/Restricted filtering is a hard gate. Preserve the requested cell in the result
+            // accounting even when the 50-candidate snapshot leaves no feasible recipe; it must not
+            // silently disappear before the optimizer or pending-proposal staging.
+            if (!slotCandidates.Any(candidate =>
+                    !candidate.TagIds.Any(constraints.RestrictedTagIds.Contains)
+                    && constraints.AttendeeStances.All(attendee =>
+                        attendee.RequiredTagIds.All(candidate.TagIds.Contains))))
+            {
+                unfilledCount++;
+                continue;
+            }
 
             contexts.Add(new PlannerMealSlotContext(
                 Date: date,
@@ -256,10 +287,10 @@ public sealed class GeneratePlanService(
                 CandidateRecipes: slotCandidates));
         }
 
-        // 8. Invoke IMealPlanner (UNTRUSTED — output always goes through ACL)
-        var rawProposals = contexts.Count > 0
-            ? await planner.ProposeWeekAsync(contexts, alreadyPlanned, effectiveWeights, ct)
-            : new List<ProposedMeal>();
+        // 8. Server-owned exact week selection. Recipe identity and objective evidence never leave this
+        //    boundary for an external planner, so model latency/cost cannot affect plan selection.
+        var rawProposals = DeterministicWeekMealOptimizer.Select(
+            contexts, alreadyPlanned, recentHistory, effectiveWeights, ct);
 
         // 9. Validate each proposal through ProposalAcl
         var validatedProposals = new List<ProposedMeal>();
@@ -272,19 +303,19 @@ public sealed class GeneratePlanService(
             var cellKey = CellKey(raw.Date, raw.MealSlotId);
             if (!contextLookup.TryGetValue(cellKey, out var ctx))
             {
-                // AI proposed a cell we didn't ask about — discard
+            // A proposal outside the requested generation scope is discarded.
                 unfilledCount++;
                 continue;
             }
 
             var result = ProposalAcl.Validate(raw, ctx.CandidateRecipes, ctx.Constraints);
             if (result.IsValid && result.ValidatedProposal is not null)
-                validatedProposals.Add(result.ValidatedProposal);
+                validatedProposals.Add(BuildEvidenceBackedProposal(result.ValidatedProposal, ctx));
             else
                 unfilledCount++;
         }
 
-        // Count cells that got no proposal at all
+        // Count cells that had no server-owned feasible proposal at all.
         var proposedCellKeys = rawProposals.Select(p => CellKey(p.Date, p.MealSlotId)).ToHashSet();
         unfilledCount += contexts.Count(c => !proposedCellKeys.Contains(CellKey(c.Date, c.MealSlotId)));
 
@@ -357,7 +388,14 @@ public sealed class GeneratePlanService(
             if (dishNames.Count == 0) continue; // every dish unresolvable — nothing to tell the AI
 
             var slotLabel = slotLabels.GetValueOrDefault(meal.MealSlotId, meal.MealSlotId.Value.ToString());
-            summaries.Add(new PlannedMealSummary(meal.Date, slotLabel, dishNames));
+            var recipeChoices = meal.PlannedDishes
+                .Where(d => d.RecipeId.HasValue)
+                .Select(d => recipeNames.GetValueOrDefault(d.RecipeId!.Value))
+                .Where(recipe => recipe is not null)
+                .Select(recipe => new PlannedRecipeSummary(recipe!.RecipeId, recipe.DiversityProfile))
+                .ToList();
+
+            summaries.Add(new PlannedMealSummary(meal.Date, slotLabel, dishNames, recipeChoices));
         }
 
         return summaries;
@@ -365,6 +403,59 @@ public sealed class GeneratePlanService(
 
     private static string CellKey(DateOnly date, MealSlotId slotId) =>
         $"{date:yyyy-MM-dd}_{slotId.Value:N}";
+
+    /// <summary>
+    /// Replaces the model-authored explanation at the trust boundary. The rationale is deliberately
+    /// derived only from the candidate snapshot that survived ACL validation, so unsupported cost or
+    /// waste claims cannot be staged even when the model ignores the prompt instructions.
+    /// </summary>
+    private static ProposedMeal BuildEvidenceBackedProposal(
+        ProposedMeal validated,
+        PlannerMealSlotContext context)
+    {
+        var candidatesById = context.CandidateRecipes.ToDictionary(c => c.RecipeId);
+        var selectedCandidates = validated.Dishes
+            .Select(d => candidatesById.GetValueOrDefault(d.RecipeId))
+            .Where(c => c is not null)
+            .Select(c => c!)
+            .ToList();
+
+        var evidenceClaims = new List<string>();
+        if (selectedCandidates.Any(c => c.CostCompleteness is CandidateCostCompleteness.Partial or CandidateCostCompleteness.Unknown)
+            || selectedCandidates.Any(c => !c.CostPerServing.HasValue))
+            evidenceClaims.Add("Cost estimate incomplete");
+        else if (selectedCandidates.Any(c => c.CostCompleteness == CandidateCostCompleteness.Complete))
+            evidenceClaims.Add("complete cost evidence is available");
+        if (selectedCandidates.Any(c => c.HasContributingExpiringStock == true))
+            evidenceClaims.Add("some stock is due to expire soon");
+
+        var repetitions = validated.Dishes
+            .Select(d => d.ScoreBreakdown)
+            .Where(score => score is not null)
+            .SelectMany(score => score!.VarietyContributions)
+            .Where(contribution => contribution.PriorUse > 0m)
+            .Select(contribution => contribution.Facet)
+            .Distinct()
+            .OrderBy(facet => facet)
+            .ToList();
+        if (repetitions.Count > 0)
+            evidenceClaims.Add($"a repeat in {string.Join(", ", repetitions)} remains the best feasible weighted choice");
+
+        // Keep the compact card to at most two short, evidence-backed reasons. The expandable
+        // breakdown remains available for users who need the complete deterministic score evidence.
+        var compactClaims = evidenceClaims.Take(2).ToList();
+        var rationale = compactClaims.Count == 0
+            ? "Selected recipes satisfy the slot's hard constraints; no additional benefit is claimed without supporting evidence."
+            : $"Selected recipes satisfy the slot's hard constraints; {string.Join(" and ", compactClaims)}.";
+        if (evidenceClaims.Count > compactClaims.Count)
+            rationale += " More detail is available below.";
+
+        // A generated proposal must never carry model-authored prose into the review UI.
+        // All displayed claims above are derived from the validated candidate snapshot.
+
+
+        return validated with { Reasoning = rationale };
+    }
 }
 
 /// <summary>Result of <see cref="GeneratePlanService.ExecuteAsync"/>.</summary>

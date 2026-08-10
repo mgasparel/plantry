@@ -5,15 +5,14 @@ using Xunit;
 namespace Plantry.Tests.E2E;
 
 /// <summary>
-/// L5 E2E journey tests (Playwright) for P3-6a: AI Generate Plan.
+/// L5 E2E journey tests (Playwright) for P3-6a: deterministic Generate Plan.
 ///
 /// Tests the full user journey:
 ///   1. Login → /MealPlan → click Auto-fill → pending-bar appears
 ///   2. Accept-all → proposals committed, grid shows filled cells, pending-bar gone
 ///   3. Discard → grid returns to empty state, pending-bar gone
 ///
-/// These tests require <c>AI:UseFakePlanner=true</c> (or no API key configured)
-/// so the FakeMealPlanner is used — no real AI calls, deterministic output.
+/// Recipe selection is server-owned and deterministic; no AI configuration is required.
 ///
 /// Boots the full Aspire stack via AppHostFixture.
 /// Run with: dotnet test --filter "Category=E2E"
@@ -77,7 +76,7 @@ public sealed class GeneratePlanE2ETests(AppHostFixture appHost) : IAsyncLifetim
             Assert.Equal("200", parts[0]);
 
             // Response is _WeekGrid partial — if any proposals were generated the
-            // pending-bar should appear (FakeMealPlanner returns proposals when recipes exist)
+            // pending-bar appears when server-owned selection finds a feasible recipe.
             // Recipes only exist after seeding, which happens at household creation.
             // We check wkgrid renders correctly regardless:
             Assert.Contains("wkgrid", parts[1]);
@@ -108,7 +107,7 @@ public sealed class GeneratePlanE2ETests(AppHostFixture appHost) : IAsyncLifetim
             await RegisterAndGoToMealPlan(page, uniqueEmail, password);
 
             // ── Step 1: Seed a recipe via /Recipes/New ────────────────────────────
-            // First create a recipe so the FakeMealPlanner has a candidate to propose
+            // First create a recipe so server-owned selection has a candidate to propose.
             var recipeId = await CreateMinimalRecipeAsync(page);
             if (recipeId is null)
             {
@@ -143,7 +142,7 @@ public sealed class GeneratePlanE2ETests(AppHostFixture appHost) : IAsyncLifetim
             await page.WaitForURLAsync("**/MealPlan**");
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
 
-            // If FakeMealPlanner produced proposals, pending-bar must be visible;
+            // If server-owned selection produced proposals, pending-bar must be visible;
             // otherwise the grid is still valid (empty state is acceptable)
             var pendingBar = page.Locator(".pending-bar");
             var pendingBarVisible = await pendingBar.IsVisibleAsync();

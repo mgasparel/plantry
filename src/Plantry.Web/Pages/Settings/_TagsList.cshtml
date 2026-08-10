@@ -114,6 +114,47 @@
     </div>
 </div>
 
+<div class="card" style="margin-top: var(--spacing-4)">
+    <div class="card__head">
+        <div class="card__head-titlerow">
+            <h3 class="card__head-title">Recipe metadata</h3>
+            <span class="count">@Model.MetadataGaps.Count incomplete</span>
+        </div>
+    </div>
+    <div class="card__body">
+        @if (Model.MetadataGaps.Count == 0)
+        {
+            <div class="empty-state">
+                <div class="empty-state__title">Protein and cuisine metadata are covered</div>
+                <div class="empty-state__body">Every active recipe has both diversity facets.</div>
+            </div>
+        }
+        else
+        {
+            <p style="margin-top:0;color:var(--color-text-muted)">
+                Add the missing facets so meal planning can compare recipes meaningfully. The recipe editor
+                may offer AI suggestions, but nothing is applied until you choose it and save.
+            </p>
+            <ul class="tag-admin-list" role="list">
+                @foreach (var gap in Model.MetadataGaps)
+                {
+                    <li class="tag-admin-row" data-recipe-id="@gap.RecipeId.Value">
+                        <span class="tag-name-static">@gap.Name</span>
+                        <span class="tag-cat-badge">
+                            Missing @string.Join(" and ", gap.MissingCategories)
+                        </span>
+                        <div class="tag-admin-acts">
+                            <a class="btn btn--ghost btn--sm" href="/Recipes/@gap.RecipeId.Value/Edit">
+                                Edit recipe
+                            </a>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+
 @* Archived tags (collapsible) *@
 @if (archivedTags.Count > 0)
 {

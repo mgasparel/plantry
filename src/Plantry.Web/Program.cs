@@ -338,7 +338,9 @@ builder.Services.AddScoped<IRecipeRatingRepository, RecipeRatingRepository>();
 // Ingredient substitutions (plantry-aqpa.1) — the Substitution aggregate's repository + read seam.
 builder.Services.AddScoped<ISubstitutionRepository, SubstitutionRepository>();
 builder.Services.AddScoped<ISubstitutionReader, SubstitutionReader>();
-builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
+builder.Services.AddScoped<RecipesReferenceDataSeeder>();
+builder.Services.AddScoped<IReferenceDataSeeder>(sp => sp.GetRequiredService<RecipesReferenceDataSeeder>());
+builder.Services.AddSingleton<RecipesReferenceDataRollout>();
 
 // Planning context (Meal Planning + Shopping, ADR-024). A single PlanningDbContext spans both the
 // shopping and meal_planning schemas (unified plantry-g3da.8) — the schemas themselves did not move
@@ -587,9 +589,9 @@ builder.Services.AddScoped<IMealPlanWeekReadModel>(sp =>
         sp.GetRequiredService<ITenantContext>(),
         sp.GetRequiredService<IClock>()));
 
-// Meal Planning — P3-6a AI generate plan (plantry-o0z).
+// Meal Planning — deterministic generate plan.
 // GeneratePlanService orchestrates slot discovery, constraint resolution, candidate loading,
-// IMealPlanner call (untrusted), ProposalAcl validation, and IPendingProposalStore staging.
+// server-owned selection, ProposalAcl validation, and IPendingProposalStore staging.
 // AcceptProposalService handles user acceptance/rejection of staged proposals.
 // IPendingProposalStore is keyed by {householdId}_{weekStart}_{sessionId} (session must be wired above).
 builder.Services.AddScoped<GeneratePlanService>();
@@ -602,13 +604,6 @@ builder.Services.AddScoped<IPendingProposalStore, DistributedCachePendingProposa
 builder.Services.AddScoped<IHouseholdPlanningSettingsRepository, HouseholdPlanningSettingsRepository>();
 builder.Services.AddScoped<IWeekPlanningOverrideRepository, WeekPlanningOverrideRepository>();
 builder.Services.AddScoped<SetPlanningSettingsService>();
-
-// IMealPlanner: FakeMealPlanner for test/no-key, real AI otherwise.
-if (builder.Configuration.GetValue<bool>($"{MealPlanningAiOptions.SectionName}:UseFakePlanner")
-    || string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
-    builder.Services.AddScoped<IMealPlanner, FakeMealPlanner>();
-else
-    builder.Services.AddScoped<IMealPlanner, MealPlannerAiService>();
 
 // Shopping ACL adapters → Plantry.Composition (AddCrossContextAdapters): IShoppingCatalogReader (→ Catalog,
 // P2-Sc), IShoppingPantryReader (→ Inventory, plantry-juh), IShoppingRecipeReader (→ Recipes, plantry-26g),
@@ -663,6 +658,7 @@ builder.Services.AddScoped<RecipeExpansionService>();
 // Tag management application service (plantry-7ju). Drives the /Settings/Tags admin page:
 // create/rename/set-category/archive/unarchive over the ITagRepository.
 builder.Services.AddScoped<ManageTagsService>();
+builder.Services.AddScoped<RecipeDiversityMetadataQuery>();
 
 // Edit-moment AI tag suggestions (plantry-qll2.2). SuggestRecipeTags orchestrates the gate check +
 // ingredient-name resolution + vocabulary load over the Recipes ACL ports; IRecipeTagSuggester is the
@@ -864,6 +860,7 @@ if (app.Environment.IsDevelopment())
         await queue.EnqueueAsync(static (sp, ct) => sp.GetRequiredService<RecipeConversionBackfillCycle>().RunAsync(ct));
         return Results.Accepted();
     }, "Queue AI-suggested conversions for existing recipes' cross-dimension unit gaps across every household (plantry-qll2.4; idempotent, re-runnable); runs in the background (202).");
+
 }
 
 app.MapStaticAssets();
@@ -881,6 +878,8 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     app.Lifetime.ApplicationStarted.Register(() =>
     {
+        _ = app.Services.GetRequiredService<RecipesReferenceDataRollout>()
+            .RunAsync(app.Lifetime.ApplicationStopping);
         _ = app.Services.GetRequiredService<TidyUpBadgeWarmup>().RunAsync(app.Lifetime.ApplicationStopping);
     });
 }

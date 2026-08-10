@@ -174,7 +174,7 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{name=~\"receipt_parse|deal_match|meal_plan_propose|recipe_conversion_seed|recipe_tag_suggest|recipe_diet_nudge\"}",
+          "query": "{name=~\"receipt_parse|deal_match|recipe_conversion_seed|recipe_tag_suggest|recipe_diet_nudge\"}",
           "limit": 20
         }
       ]
@@ -280,7 +280,7 @@
     {
       "type": "timeseries",
       "title": "AI calls per function (rate, sanity check)",
-      "description": "Call rate of AI spans by function name (span names = the AiFunction taxonomy: receipt_parse, deal_match, meal_plan_propose, recipe_conversion_seed, recipe_tag_suggest, recipe_diet_nudge), sourced from Tempo's span-metrics generator remote-writing traces_spanmetrics_calls_total into the bundled Prometheus. Cross-check against the token/cost panels — a function with cost but no call-rate (or vice versa) means one of the two pipelines is broken.",
+      "description": "Call rate of AI spans by function name (span names = the AiFunction taxonomy: receipt_parse, deal_match, recipe_conversion_seed, recipe_tag_suggest, recipe_diet_nudge), sourced from Tempo's span-metrics generator remote-writing traces_spanmetrics_calls_total into the bundled Prometheus. Cross-check against the token/cost panels — a function with cost but no call-rate (or vice versa) means one of the two pipelines is broken.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
       "fieldConfig": {
@@ -290,7 +290,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{span_name=~\"receipt_parse|deal_match|meal_plan_propose|recipe_conversion_seed|recipe_tag_suggest|recipe_diet_nudge\"}[$__rate_interval]))",
+          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{span_name=~\"receipt_parse|deal_match|recipe_conversion_seed|recipe_tag_suggest|recipe_diet_nudge\"}[$__rate_interval]))",
           "legendFormat": "{{span_name}}"
         }
       ]

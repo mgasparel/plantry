@@ -86,6 +86,11 @@ public sealed class EditModel(
 
     public IReadOnlyList<SelectListItem> UnitOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> TagOptions { get; private set; } = [];
+    public IReadOnlyList<TagCategory> MissingDiversityCategories { get; private set; } = [];
+    public bool TagSuggestionEligible => IsCreate || MissingDiversityCategories.Count > 0;
+
+    private IReadOnlyDictionary<TagId, TagCategory?> _tagCategories =
+        new Dictionary<TagId, TagCategory?>();
 
     /// <summary>
     /// The household's seeded "serving" count unit (code <c>srv</c>), if present — resolved for the
@@ -165,6 +170,7 @@ public sealed class EditModel(
             Input.TagNames = recipe.Tags
                 .Select(rt => tagNameLookup.GetValueOrDefault(rt.TagId) ?? rt.TagId.Value.ToString("N")[..8])
                 .ToList();
+            UpdateDiversityMetadataGaps();
 
             // Pre-populate ingredient rows
             var productIds = recipe.Ingredients.Select(i => i.ProductId).Distinct().ToList();
@@ -529,6 +535,7 @@ public sealed class EditModel(
         // ProductName and TagNames are not posted (display-only fields omitted from hidden inputs).
         // Repopulate them here so any Page() re-render has the ingredient names and tag chips intact.
         await RestoreTagNamesAsync(ct);
+        UpdateDiversityMetadataGaps();
 
         // D13 — recompute includer info so the fixed-mode servings warning survives a failed-save re-render.
         if (Id is { } editIdForIncluders)
@@ -841,10 +848,12 @@ public sealed class EditModel(
         // — matches the AddServingUnit backfill migration's match rule. Null if absent.
         ServingUnitId = unitOptions.FirstOrDefault(u => string.Equals(u.Code, "srv", StringComparison.OrdinalIgnoreCase))?.Id;
 
-        // Active tag options — activeOnly:true so archived tags are excluded from the picker dropdown.
-        // Tags are a small set (dozens, not thousands) — list all and filter client-side in Alpine.
-        var activeTags = await tags.ListAllAsync(activeOnly: true, ct);
-        TagOptions = activeTags
+        // Load the small household vocabulary once. Archived tags stay out of the picker but retain their
+        // category for metadata-coverage checks when already applied to a recipe.
+        var allTags = await tags.ListAllAsync(activeOnly: false, ct);
+        _tagCategories = allTags.ToDictionary(t => t.Id, t => t.Category);
+        TagOptions = allTags
+            .Where(t => !t.IsArchived)
             .Select(t => new SelectListItem(t.Name, t.Id.Value.ToString()))
             .ToList();
 
@@ -861,6 +870,24 @@ public sealed class EditModel(
         var categoryOptions = await products.ListCategoriesAsync(ct);
         CategoryOptions = categoryOptions
             .Select(c => new SelectListItem(c.Name, c.Id.ToString()))
+            .ToList();
+    }
+
+    private void UpdateDiversityMetadataGaps()
+    {
+        if (IsCreate)
+        {
+            MissingDiversityCategories = [];
+            return;
+        }
+
+        var present = Input.TagIds
+            .Select(id => _tagCategories.GetValueOrDefault(TagId.From(id)))
+            .Where(category => category.HasValue)
+            .Select(category => category!.Value)
+            .ToHashSet();
+        MissingDiversityCategories = new[] { TagCategory.Protein, TagCategory.Cuisine }
+            .Where(category => !present.Contains(category))
             .ToList();
     }
 

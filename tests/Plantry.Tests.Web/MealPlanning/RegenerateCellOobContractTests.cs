@@ -370,8 +370,7 @@ public sealed class RegenerateCellFactory : MealPlanFragmentFactory
 {
     protected override IRecipeReadModel RecipeReadModel => new GhostCellRecipeReader();
 
-    // Pre-seeded proposal store; base default NullMealPlanner leaves re-generation producing no
-    // proposal (empty result is valid — the cell simply becomes empty after regenerate).
+    // Pre-seeded proposal store lets re-generation replace the selected pending choice.
     protected override IPendingProposalStore ProposalStore => new PrimedPendingProposalStore();
 }
 

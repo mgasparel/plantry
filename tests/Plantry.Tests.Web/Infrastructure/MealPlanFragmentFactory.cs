@@ -90,11 +90,11 @@ public class MealPlanFragmentFactory : WebApplicationFactory<Program>
     /// </summary>
     protected virtual IMealPlanEatWriter? EatWriter => null;
 
-    /// <summary>P3-6a AI planner.</summary>
-    protected virtual IMealPlanner Planner => new NullMealPlanner();
-
     /// <summary>P3-6a pending-proposal store.</summary>
     protected virtual IPendingProposalStore ProposalStore => new NullPendingProposalStore();
+
+    /// <summary>Retained meal history — empty by default; no DB connection in WAF tests.</summary>
+    protected virtual IRecentMealHistoryReader RecentMealHistoryReader => new NullRecentMealHistoryReader();
 
     /// <summary>plantry-so5.3 household-default planning settings.</summary>
     protected virtual IHouseholdPlanningSettingsRepository PlanningSettingsRepo => new NullPlanningSettingsRepo();
@@ -184,11 +184,11 @@ public class MealPlanFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<ShopForWeekService>();
             services.AddScoped<ShopForWeekService>();
 
-            // P3-6a: AI planner, proposal store, and application services.
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton(Planner);
+            // P3-6a: proposal store and application services.
             services.RemoveAll<IPendingProposalStore>();
             services.AddSingleton(ProposalStore);
+            services.RemoveAll<IRecentMealHistoryReader>();
+            services.AddSingleton(RecentMealHistoryReader);
             services.RemoveAll<GeneratePlanService>();
             services.AddScoped<GeneratePlanService>();
             services.RemoveAll<AcceptProposalService>();

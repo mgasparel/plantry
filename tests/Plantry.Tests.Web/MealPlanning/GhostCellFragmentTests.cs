@@ -23,6 +23,37 @@ public sealed class GhostCellFragmentTests(GhostCellFactory factory)
         return client;
     }
 
+    [Fact(DisplayName = "GET /MealPlan ghost cell exposes accessible evidence disclosure")]
+    public async Task Grid_GhostCell_ShowsEvidenceDisclosure()
+    {
+        var client = CreateClient();
+        var response = await client.GetAsync("/MealPlan?handler=Grid");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("Why this?", html);
+        Assert.Contains("Objective evidence", html);
+        Assert.Contains("aria-label=\"Objective evidence\"", html);
+        Assert.Contains("Cost contribution", html);
+        Assert.Contains("estimate unknown", html);
+        Assert.Contains("fallback value", html);
+        Assert.Contains("metadata missing", html);
+    }
+
+    [Fact(DisplayName = "GET /MealPlan ghost cell keeps structured evidence when reasoning is blank")]
+    public async Task Grid_GhostCell_ShowsEvidenceWithoutReasoning()
+    {
+        var client = CreateClient();
+        GhostCellFixture.ReasoningOverride = " ";
+        try
+        {
+            var response = await client.GetAsync("/MealPlan?handler=Grid");
+            var html = await response.Content.ReadAsStringAsync();
+            Assert.Contains("Why this?", html);
+            Assert.Contains("Waste contribution", html);
+        }
+        finally { GhostCellFixture.ReasoningOverride = null; }
+    }
+
     // ── Ghost cells render when proposals are pending ─────────────────────────
 
     [Fact(DisplayName = "GET /MealPlan grid fragment shows gh-tag Suggested badge when proposals pending")]
@@ -180,6 +211,7 @@ internal static class GhostCellFixture
 
     public static readonly Guid RecipeId = Guid.Parse("dddddddd-0000-0000-0000-000000000001");
     public const string RecipeName = "Test Ghost Recipe";
+    public static string? ReasoningOverride { get; set; }
 
     /// <summary>The slot used for the seeded pending proposal.</summary>
     public static MealSlot GhostSlot =>
@@ -189,8 +221,15 @@ internal static class GhostCellFixture
         Date: WeekStart,
         MealSlotId: GhostSlot.Id,
         EffectiveAttendees: [],
-        Dishes: [new ProposedDish(RecipeId, 4, 1)],
-        Reasoning: "AI test reasoning");
+        Dishes: [new ProposedDish(RecipeId, 4, 1, new RecipeScoreBreakdown(
+            RecipeId, .75m, .5m, .25m, .8m, .3m, .15m, .3m,
+            [
+                new RecipeFacetContribution(RecipeDiversityFacet.Cuisine, .8m, 0m, RecipeDiversityConfidence.Confirmed, ["Mediterranean"]),
+                new RecipeFacetContribution(RecipeDiversityFacet.Protein, .2m, 1m, RecipeDiversityConfidence.Fallback, ["Tofu"]),
+                new RecipeFacetContribution(RecipeDiversityFacet.Flavor, 0m, 0m, RecipeDiversityConfidence.Missing, [])
+            ],
+            new RecipeTieBreakSignals(0m, 0m, 1, 1)))],
+        Reasoning: ReasoningOverride ?? "Selected recipes satisfy hard requirements; a repeat remains the best feasible weighted choice.");
 }
 
 /// <summary>

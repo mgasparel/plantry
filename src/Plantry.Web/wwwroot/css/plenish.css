@@ -5830,6 +5830,11 @@ button.sadd svg { width: 13px; height: 13px; }
   margin-top: 1px;
 }
 
+.gh-reason-fold { margin-top: 8px; }
+.gh-reason-summary { cursor: pointer; color: var(--color-text-faint); font-size: 12px; font-weight: 600; }
+.gh-evidence { margin: 6px 0 0; padding-left: 18px; color: var(--color-text-faint); font-size: 11px; }
+.tune-help { margin: 0 0 14px; color: var(--color-text-faint); font-size: 12px; line-height: 1.45; max-width: 60ch; }
+
 .gh-reason {
   font-size: 11px;
   line-height: 1.35;

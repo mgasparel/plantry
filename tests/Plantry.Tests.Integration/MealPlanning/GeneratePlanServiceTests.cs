@@ -20,6 +20,10 @@ public sealed class GeneratePlanServiceTests
     private static readonly HouseholdId Household = HouseholdId.New();
     private static readonly IClock Clock = SystemClock.Instance;
     private static readonly DateOnly Monday = MealPlan.NormalizeToMonday(new DateOnly(2026, 6, 16));
+    private static readonly Guid ExpensiveCandidateId = Guid.Parse("0193b4a0-4444-7000-8000-000000000001");
+    private static readonly Guid CheapCandidateId = Guid.Parse("0193b4a0-4444-7000-8000-000000000002");
+    private static readonly Guid NoExpiryCandidateId = Guid.Parse("0193b4a0-4444-7000-8000-000000000003");
+    private static readonly Guid UseSoonCandidateId = Guid.Parse("0193b4a0-4444-7000-8000-000000000004");
 
     // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -28,30 +32,39 @@ public sealed class GeneratePlanServiceTests
             MealSlotConfig? slotConfig = null,
             IReadOnlyList<UserPreference>? prefs = null,
             IReadOnlyList<RecipeReadModel>? recipes = null,
-            IMealPlanner? planner = null,
             ITagReader? tagReader = null,
             IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null,
-            IMealPlanCatalogProductReader? catalogReader = null)
+            IMealPlanCatalogProductReader? catalogReader = null,
+            IReadOnlyDictionary<Guid, CandidateRecipeEvidence>? evidence = null,
+            IReadOnlyList<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>>? evidenceSnapshots = null,
+            IRecentMealHistoryReader? historyReader = null,
+            IClock? planningClock = null)
     {
         var config = slotConfig ?? BuildDefaultSlotConfig();
         var slotConfigRepo = new FakeSlotConfigRepo(config);
         var prefRepo = new FakePrefsRepo(prefs ?? []);
-        var recipeReader = new FakeRecipeReader(recipes ?? [], ratings ?? new Dictionary<Guid, RecipeRatingSummary>());
+        var recipeReader = new FakeRecipeReader(
+            recipes ?? [],
+            ratings ?? new Dictionary<Guid, RecipeRatingSummary>(),
+            evidence ?? new Dictionary<Guid, CandidateRecipeEvidence>(),
+            evidenceSnapshots);
         var mealPlanRepo = new FakeMealPlanRepository();
         var sp = new ServiceCollection().AddDistributedMemoryCache().BuildServiceProvider();
         var memoryCache = sp.GetRequiredService<IDistributedCache>();
         var store = new DistributedCachePendingProposalStore(memoryCache);
         var resolver = new MealConstraintResolver();
-        var fakePlanner = planner ?? new FakeMealPlanner();
         var fakeTagReader = tagReader ?? new NullTagReader();
         var fakeCatalogReader = catalogReader ?? new FakeCatalogReader();
 
+        var clock = planningClock ?? Clock;
         var generateService = new GeneratePlanService(
-            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, fakeCatalogReader, store, resolver, fakeTagReader,
+            mealPlanRepo, slotConfigRepo, prefRepo, recipeReader,
+            historyReader ?? new FakeRecentMealHistoryReader(), fakeCatalogReader, store, resolver, fakeTagReader,
+            clock,
             NullLogger<GeneratePlanService>.Instance);
 
         var acceptService = new AcceptProposalService(
-            mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, Clock,
+            mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, store, resolver, clock,
             NullLogger<AcceptProposalService>.Instance);
 
         return (generateService, acceptService, store, mealPlanRepo, slotConfigRepo);
@@ -119,8 +132,6 @@ public sealed class GeneratePlanServiceTests
         pref.SetStance(restrictedTag, "Restricted", Clock);
         prefs.Add(pref);
 
-        // The planner returns the restricted recipe (simulating a bad AI response)
-        var badPlanner = new SingleRecipeFakePlanner(recipeId);
         var recipes = new List<RecipeReadModel>
         {
             new(recipeId, "RestrictedDish", [restrictedTag], DefaultServings: 4)
@@ -129,8 +140,7 @@ public sealed class GeneratePlanServiceTests
         var (generateService, _, store, _, _) = BuildStack(
             slotConfig: config,
             prefs: prefs,
-            recipes: recipes,
-            planner: badPlanner);
+            recipes: recipes);
 
         var storeKey = "test-key";
         await generateService.ExecuteAsync(Household, Monday, storeKey, null);
@@ -258,6 +268,63 @@ public sealed class GeneratePlanServiceTests
         Assert.Contains(bobId, firstConflict.AttendeeIds);
     }
 
+    [Fact(DisplayName = "Execute_RequiredVeganCandidate_CarriesSemanticProfileWithIndependentMissingFacets")]
+    public async Task Execute_RequiredVeganCandidate_CarriesSemanticProfile()
+    {
+        var userId = Guid.Parse("60000000-0000-0000-0000-000000000001");
+        var veganTagId = Guid.Parse("60000000-0000-0000-0000-000000000002");
+        var recipeId = Guid.Parse("60000000-0000-0000-0000-000000000003");
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var slot in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(slot.Id, [userId], Clock);
+
+        var preference = UserPreference.Create(Household, userId, Clock);
+        preference.SetStance(veganTagId, "Required", Clock);
+        var veganFact = new RecipeSemanticTagFact(
+            veganTagId,
+            "Vegan",
+            RecipeSemanticTagCategory.Diet);
+        var profile = RecipeDiversityProfile.Create(
+            recipeId,
+            "Garden supper",
+            [veganFact],
+            [veganFact],
+            []);
+        var recipes = new[]
+        {
+            new RecipeReadModel(
+                recipeId,
+                "Garden supper",
+                [veganTagId],
+                DefaultServings: 4,
+                TagFacts: [veganFact],
+                DiversityProfile: profile),
+        };
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [preference],
+            recipes: recipes);
+
+        await generateService.ExecuteAsync(Household, Monday, "semantic-profile", null);
+
+        var staged = await store.GetAsync("semantic-profile");
+        Assert.NotEmpty(staged);
+        foreach (var proposal in staged)
+        {
+            var breakdown = Assert.Single(proposal.Dishes).ScoreBreakdown!;
+            Assert.Contains(breakdown.VarietyContributions, contribution =>
+                contribution.Facet == RecipeDiversityFacet.Diet
+                && contribution.Confidence == RecipeDiversityConfidence.Confirmed
+                && contribution.MatchedValues.Single() == "Vegan");
+            Assert.Contains(breakdown.VarietyContributions, contribution =>
+                contribution.Facet == RecipeDiversityFacet.Protein
+                && contribution.Confidence == RecipeDiversityConfidence.Missing);
+            Assert.Contains(breakdown.VarietyContributions, contribution =>
+                contribution.Facet == RecipeDiversityFacet.Cuisine
+                && contribution.Confidence == RecipeDiversityConfidence.Missing);
+        }
+    }
+
     // ── Execute_UnfulfillableCell_DetectedAndExcluded ─────────────────────────────
 
     [Fact(DisplayName = "Execute_UnfulfillableCell — vegetarian attendee + no vegetarian recipes in corpus → cell in UnfulfillableCells, AI NOT called")]
@@ -282,15 +349,12 @@ public sealed class GeneratePlanServiceTests
             new(meatRecipeId, "Beef Stew", [meatTag], DefaultServings: 4),
         };
 
-        // Track whether ProposeWeekAsync was called (it should NOT be for unfulfillable cells).
-        var trackingPlanner = new TrackingMealPlanner();
         var tagReader = new NamedTagReader(vegetarianTag, "Vegetarian");
 
         var (generateService, _, store, _, _) = BuildStack(
             slotConfig: config,
             prefs: [pref],
             recipes: recipes,
-            planner: trackingPlanner,
             tagReader: tagReader);
 
         var storeKey = "unfulfillable-test-key";
@@ -302,9 +366,6 @@ public sealed class GeneratePlanServiceTests
         Assert.True(result.UnfulfillableCells.Count > 0, "Expected at least one unfulfillable cell");
         Assert.Equal(0, result.ProposedCount);
         Assert.Empty(result.Conflicts); // Not a HardConflict — it's an Unfulfillable (corpus gap)
-
-        // AI was NOT called — no token spend for a provably-unfillable cell.
-        Assert.False(trackingPlanner.WasCalled, "AI planner should NOT be called for unfulfillable cells");
 
         // No proposals were staged.
         var pending = await store.GetAsync(storeKey);
@@ -361,7 +422,7 @@ public sealed class GeneratePlanServiceTests
         Assert.Equal(0, result.ProposedCount);
     }
 
-    [Fact(DisplayName = "Execute_NormalCell_NotUnfulfillable — attendee has Required tag and a matching recipe → cell goes to planner")]
+    [Fact(DisplayName = "Execute_NormalCell_NotUnfulfillable — attendee has Required tag and a matching recipe → server stages a proposal")]
     public async Task Execute_NormalCell_IsProposed()
     {
         // Arrange: one attendee with vegetarian Required tag AND a vegetarian recipe in corpus.
@@ -392,10 +453,10 @@ public sealed class GeneratePlanServiceTests
         // Act
         var result = await generateService.ExecuteAsync(Household, Monday, storeKey, null);
 
-        // Assert: no unfulfillable, no conflict — cells reach the planner.
+        // Assert: no unfulfillable, no conflict — server selection stages every feasible cell.
         Assert.Empty(result.UnfulfillableCells);
         Assert.Empty(result.Conflicts);
-        // ProposedCount may be 0 if the FakeMealPlanner returns nothing, but cells WERE submitted.
+        Assert.True(result.ProposedCount > 0);
     }
 
     // ── Attendee-aware rating enrichment (plantry-zlwp.5) ─────────────────────────
@@ -423,28 +484,16 @@ public sealed class GeneratePlanServiceTests
                 RatedCount: 2),
         };
 
-        var planner = new RecordingMealPlanner();
-        var (generateService, _, _, _, _) = BuildStack(
-            slotConfig: config, recipes: recipes, ratings: ratings, planner: planner);
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config, recipes: recipes, ratings: ratings);
 
         // Act
         await generateService.ExecuteAsync(Household, Monday, "rating-enrichment-key", null);
 
-        // Assert: every dispatched cell's candidate carries Alice's own 5-star rating (she's an
-        // attendee and has rated), NOT Bob's (he's an attendee but hasn't rated — absent from the
-        // dictionary, not a zero/default entry), and the household-wide avg/count regardless of
-        // who the attendees are.
-        Assert.NotEmpty(planner.SeenContexts);
-        foreach (var ctx in planner.SeenContexts)
-        {
-            var candidate = Assert.Single(ctx.CandidateRecipes, c => c.RecipeId == recipeId);
-            Assert.NotNull(candidate.AttendeeStars);
-            Assert.Equal(5, candidate.AttendeeStars![aliceId]);
-            Assert.False(candidate.AttendeeStars.ContainsKey(bobId));
-            Assert.False(candidate.AttendeeStars.ContainsKey(otherMemberId)); // not an attendee of this slot
-            Assert.Equal(4.0m, candidate.HouseholdAvgRating);
-            Assert.Equal(2, candidate.RatedCount);
-        }
+        // Alice's attendee-specific 5-star signal, rather than the household 4.0 fallback, is retained
+        // as the tie-break signal on each server-owned proposal.
+        Assert.All(await store.GetAsync("rating-enrichment-key"), proposal =>
+            Assert.Equal(5m, Assert.Single(proposal.Dishes).ScoreBreakdown!.TieBreakSignals.RatingSignal));
     }
 
     [Fact(DisplayName = "Execute_RatingEnrichment_NoRatings — an unrated candidate carries null AttendeeStars/HouseholdAvgRating and zero RatedCount")]
@@ -459,24 +508,17 @@ public sealed class GeneratePlanServiceTests
 
         var recipes = new List<RecipeReadModel> { new(recipeId, "Pasta", [], DefaultServings: 4) };
 
-        var planner = new RecordingMealPlanner();
-        var (generateService, _, _, _, _) = BuildStack(
-            slotConfig: config, recipes: recipes, planner: planner); // no ratings passed
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config, recipes: recipes); // no ratings passed
 
         await generateService.ExecuteAsync(Household, Monday, "no-ratings-key", null);
 
-        Assert.NotEmpty(planner.SeenContexts);
-        foreach (var ctx in planner.SeenContexts)
-        {
-            var candidate = Assert.Single(ctx.CandidateRecipes, c => c.RecipeId == recipeId);
-            Assert.Null(candidate.AttendeeStars);
-            Assert.Null(candidate.HouseholdAvgRating);
-            Assert.Equal(0, candidate.RatedCount);
-        }
+        Assert.All(await store.GetAsync("no-ratings-key"), proposal =>
+            Assert.Equal(0m, Assert.Single(proposal.Dishes).ScoreBreakdown!.TieBreakSignals.RatingSignal));
     }
 
-    [Fact(DisplayName = "Execute_RatingEnrichment_LowRatingIsSoftSignal — a 1-star candidate still reaches the planner alongside a 5-star one, never filtered out")]
-    public async Task Execute_LowRatedCandidate_StillDispatchedToPlanner()
+    [Fact(DisplayName = "Execute_RatingEnrichment_LowRatingIsSoftSignal — a 5-star candidate wins only an objective tie")]
+    public async Task Execute_LowRatedCandidate_RemainsSoftTieBreak()
     {
         // Arrange: two candidates for the same slot, rated 1 and 5 stars respectively by the sole
         // attendee. The ticket's load-bearing distinction is "soft signal, NOT a hard filter" — a low
@@ -488,6 +530,7 @@ public sealed class GeneratePlanServiceTests
         var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
         foreach (var s in config.Slots.Where(s => s.IsActive))
             config.SetDefaultAttendees(s.Id, [userId], Clock);
+        var breakfast = config.Slots.First(slot => slot.IsActive);
 
         var recipes = new List<RecipeReadModel>
         {
@@ -502,24 +545,15 @@ public sealed class GeneratePlanServiceTests
                 StarsByUserId: new Dictionary<Guid, int> { [userId] = 5 }, HouseholdAvg: 5.0m, RatedCount: 1),
         };
 
-        var planner = new RecordingMealPlanner();
-        var (generateService, _, _, _, _) = BuildStack(
-            slotConfig: config, recipes: recipes, ratings: ratings, planner: planner);
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config, recipes: recipes, ratings: ratings);
 
         // Act
-        await generateService.ExecuteAsync(Household, Monday, "low-rating-soft-signal-key", null);
+        await generateService.ExecuteAsync(
+            Household, Monday, "low-rating-soft-signal-key", null, scopeDate: Monday, scopeSlotId: breakfast.Id);
 
-        // Assert: both candidates are STILL dispatched to the planner for every cell — the 1-star
-        // rating is carried as data on the candidate, never used to drop it from the list.
-        Assert.NotEmpty(planner.SeenContexts);
-        foreach (var ctx in planner.SeenContexts)
-        {
-            Assert.Contains(ctx.CandidateRecipes, c => c.RecipeId == lowRatedRecipeId);
-            Assert.Contains(ctx.CandidateRecipes, c => c.RecipeId == highRatedRecipeId);
-
-            var lowRated = ctx.CandidateRecipes.Single(c => c.RecipeId == lowRatedRecipeId);
-            Assert.Equal(1, lowRated.AttendeeStars![userId]);
-        }
+        Assert.All(await store.GetAsync("low-rating-soft-signal-key"), proposal =>
+            Assert.Equal(highRatedRecipeId, Assert.Single(proposal.Dishes).RecipeId));
     }
 
     [Fact(DisplayName = "Execute_RatingEnrichment_DuplicateAttendee — a repeated attendee id does not throw when building AttendeeStars")]
@@ -542,21 +576,168 @@ public sealed class GeneratePlanServiceTests
                 StarsByUserId: new Dictionary<Guid, int> { [userId] = 4 }, HouseholdAvg: 4.0m, RatedCount: 1),
         };
 
-        var planner = new RecordingMealPlanner();
-        var (generateService, _, _, _, _) = BuildStack(
-            slotConfig: config, recipes: recipes, ratings: ratings, planner: planner);
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config, recipes: recipes, ratings: ratings);
 
         // Act — must not throw ArgumentException from a duplicate-key ToDictionary.
         await generateService.ExecuteAsync(Household, Monday, "duplicate-attendee-key", null);
 
-        // Assert: the duplicate collapses to a single AttendeeStars entry for that user.
-        Assert.NotEmpty(planner.SeenContexts);
-        foreach (var ctx in planner.SeenContexts)
+        // The duplicate collapses before the deterministic signal is calculated.
+        Assert.All(await store.GetAsync("duplicate-attendee-key"), proposal =>
+            Assert.Equal(4m, Assert.Single(proposal.Dishes).ScoreBreakdown!.TieBreakSignals.RatingSignal));
+    }
+
+    [Fact(DisplayName = "Execute_CandidateEvidence_CostWeightStagesTheLowestCompleteCost")]
+    public async Task Execute_CostEvidence_SelectsTheLowestCompleteCost()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var expensiveId = ExpensiveCandidateId;
+        var cheapId = CheapCandidateId;
+        var recipes = new List<RecipeReadModel>
         {
-            var candidate = Assert.Single(ctx.CandidateRecipes, c => c.RecipeId == recipeId);
-            Assert.Equal(4, candidate.AttendeeStars![userId]);
-            Assert.Single(candidate.AttendeeStars);
-        }
+            new(expensiveId, "Alpha Expensive", [], 4),
+            new(cheapId, "Zulu Cheap", [], 4),
+        };
+        var evidence = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [expensiveId] = new(10m, CandidateCostCompleteness.Complete, 100, false),
+            [cheapId] = new(2m, CandidateCostCompleteness.Complete, 100, false),
+        };
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: recipes,
+            evidence: evidence);
+
+        await generateService.ExecuteAsync(
+            Household,
+            Monday,
+            "cost-evidence-order",
+            new PlanningWeights(0, 100, 0),
+            scopeDate: Monday,
+            scopeSlotId: breakfast.Id);
+
+        var selected = Assert.Single(await store.GetAsync("cost-evidence-order"));
+        Assert.Equal(cheapId, Assert.Single(selected.Dishes).RecipeId);
+        Assert.Equal(1m, selected.Dishes.Single().ScoreBreakdown!.CostScore);
+    }
+
+    [Fact(DisplayName = "Execute_CandidateEvidence_WasteWeightStagesTheUseSoonRecipe")]
+    public async Task Execute_ExpiringStockEvidence_SelectsTheUseSoonRecipe()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var noExpiryId = NoExpiryCandidateId;
+        var useSoonId = UseSoonCandidateId;
+        var recipes = new List<RecipeReadModel>
+        {
+            new(noExpiryId, "Alpha No Expiry", [], 4),
+            new(useSoonId, "Zulu Use Soon", [], 4),
+        };
+        var evidence = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [noExpiryId] = new(null, CandidateCostCompleteness.Unknown, 100, false),
+            [useSoonId] = new(null, CandidateCostCompleteness.Unknown, 100, true),
+        };
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: recipes,
+            evidence: evidence);
+
+        await generateService.ExecuteAsync(
+            Household,
+            Monday,
+            "waste-evidence-order",
+            new PlanningWeights(100, 0, 0),
+            scopeDate: Monday,
+            scopeSlotId: breakfast.Id);
+
+        var selected = Assert.Single(await store.GetAsync("waste-evidence-order"));
+        Assert.Equal(useSoonId, Assert.Single(selected.Dishes).RecipeId);
+        Assert.Equal(1m, selected.Dishes.Single().ScoreBreakdown!.WasteScore);
+    }
+
+    [Fact(DisplayName = "Execute_CandidateEvidence_IsRequestedOnceAndReusedAcrossSlots")]
+    public async Task Execute_CandidateEvidence_IsRequestedOnce()
+    {
+        var recipeId = Guid.NewGuid();
+        var firstSnapshot = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [recipeId] = new(2m, CandidateCostCompleteness.Complete, 100, false),
+        };
+        var secondSnapshot = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [recipeId] = new(99m, CandidateCostCompleteness.Complete, 100, true),
+        };
+        var (generateService, _, store, _, _) = BuildStack(
+            recipes: [new RecipeReadModel(recipeId, "Pasta", [], 4)],
+            evidenceSnapshots: [firstSnapshot, secondSnapshot]);
+
+        await generateService.ExecuteAsync(Household, Monday, "candidate-evidence-once", null);
+
+        Assert.All(await store.GetAsync("candidate-evidence-once"), proposal =>
+        {
+            var score = Assert.Single(proposal.Dishes).ScoreBreakdown!;
+            Assert.Equal(1m, score.CostScore);
+            Assert.Equal(0m, score.WasteScore);
+        });
+    }
+
+    [Fact(DisplayName = "Execute_ProposalRationale_UnknownEvidence_ReplacesUnsupportedPlannerReasoning")]
+    public async Task Execute_ProposalRationale_UnknownEvidence_ReplacesUnsupportedPlannerReasoning()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var recipeId = Guid.NewGuid();
+        const string unsupportedReasoning = "This is the cheapest option and prevents food waste.";
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(recipeId, "Pasta", [], 4)]);
+
+        await generateService.ExecuteAsync(
+            Household,
+            Monday,
+            "unknown-evidence-rationale",
+            null,
+            scopeDate: Monday,
+            scopeSlotId: breakfast.Id);
+
+        var proposal = Assert.Single(await store.GetAsync("unknown-evidence-rationale"));
+        Assert.NotEqual(unsupportedReasoning, proposal.Reasoning);
+        Assert.Equal(
+            "Selected recipes satisfy the slot's hard constraints; Cost estimate incomplete.",
+            proposal.Reasoning);
+    }
+
+    [Fact(DisplayName = "Execute_ProposalRationale_CompleteCostAndUseSoonEvidence_ReplacesUnsupportedPlannerReasoning")]
+    public async Task Execute_ProposalRationale_CompleteCostAndUseSoonEvidence_ReplacesUnsupportedPlannerReasoning()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var recipeId = Guid.NewGuid();
+        const string unsupportedReasoning = "This is the cheapest option and prevents food waste.";
+        var evidence = new Dictionary<Guid, CandidateRecipeEvidence>
+        {
+            [recipeId] = new(2m, CandidateCostCompleteness.Complete, 100, true),
+        };
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(recipeId, "Pasta", [], 4)],
+            evidence: evidence);
+
+        await generateService.ExecuteAsync(
+            Household,
+            Monday,
+            "complete-evidence-rationale",
+            null,
+            scopeDate: Monday,
+            scopeSlotId: breakfast.Id);
+
+        var proposal = Assert.Single(await store.GetAsync("complete-evidence-rationale"));
+        Assert.NotEqual(unsupportedReasoning, proposal.Reasoning);
+        Assert.Equal(
+            "Selected recipes satisfy the slot's hard constraints; complete cost evidence is available and some stock is due to expire soon.",
+            proposal.Reasoning);
     }
 
     // ── Per-slot auto-plan opt-out (plantry-av8z) ─────────────────────────────────
@@ -569,16 +750,18 @@ public sealed class GeneratePlanServiceTests
         var lunch = config.Slots.First(s => s.Label == "Lunch");
         config.SetAutoPlanEnabled(breakfast.Id, enabled: false, Clock);
 
-        var planner = new RecordingMealPlanner();
-        var (generateService, _, _, _, _) = BuildStack(slotConfig: config, planner: planner);
+        var recipeId = Guid.NewGuid();
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(recipeId, "Scoped recipe", [], 4)]);
 
         // Bulk pass: scopeSlotId stays null → the opt-out filter applies.
         await generateService.ExecuteAsync(Household, Monday, "opt-out-bulk", null);
 
-        // The opted-out Breakfast slot was never dispatched to the planner …
-        Assert.DoesNotContain(planner.SeenContexts, c => c.MealSlotId == breakfast.Id);
-        // … but the still-eligible Lunch slot was.
-        Assert.Contains(planner.SeenContexts, c => c.MealSlotId == lunch.Id);
+        var staged = await store.GetAsync("opt-out-bulk");
+        // The opted-out Breakfast slot is absent from server-owned staging, while Lunch is included.
+        Assert.DoesNotContain(staged, proposal => proposal.MealSlotId == breakfast.Id);
+        Assert.Contains(staged, proposal => proposal.MealSlotId == lunch.Id);
     }
 
     [Fact(DisplayName = "Execute_ScopeSlotId_TargetsSingleCell_IgnoresOptOut — explicit per-cell gesture bypasses the flag")]
@@ -589,52 +772,62 @@ public sealed class GeneratePlanServiceTests
         // Breakfast is opted OUT of bulk — but an explicit per-cell target must still generate it.
         config.SetAutoPlanEnabled(breakfast.Id, enabled: false, Clock);
 
-        var planner = new RecordingMealPlanner();
-        var (generateService, _, _, _, _) = BuildStack(slotConfig: config, planner: planner);
+        var recipeId = Guid.NewGuid();
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(recipeId, "Scoped recipe", [], 4)]);
 
         await generateService.ExecuteAsync(
             Household, Monday, "opt-out-cell", null, scopeDate: Monday, scopeSlotId: breakfast.Id);
 
-        // Exactly one cell — Monday Breakfast — was dispatched, despite the opt-out (decision 1),
-        // and no throwaway proposals for the date's other slots.
-        Assert.Single(planner.SeenContexts);
-        Assert.Equal(breakfast.Id, planner.SeenContexts[0].MealSlotId);
-        Assert.Equal(Monday, planner.SeenContexts[0].Date);
+        // Exactly one server-owned proposal — Monday Breakfast — is staged despite the opt-out.
+        var staged = Assert.Single(await store.GetAsync("opt-out-cell"));
+        Assert.Equal(breakfast.Id, staged.MealSlotId);
+        Assert.Equal(Monday, staged.Date);
     }
 
-    [Fact(DisplayName = "Execute_AllSlotsOptedOut_ReturnsZero_WithoutCallingPlanner — no eligible slots short-circuits")]
+    [Fact(DisplayName = "Execute_AllSlotsOptedOut_ReturnsZeroWithoutStaging — no eligible slots short-circuits")]
     public async Task Execute_AllSlotsOptedOut_ReturnsZero_WithoutCallingPlanner()
     {
         var config = BuildDefaultSlotConfig();
         foreach (var slot in config.Slots.Where(s => s.IsActive).ToList())
             config.SetAutoPlanEnabled(slot.Id, enabled: false, Clock);
 
-        var planner = new TrackingMealPlanner();
-        var (generateService, _, _, _, _) = BuildStack(slotConfig: config, planner: planner);
+        var (generateService, _, _, _, _) = BuildStack(slotConfig: config);
 
         var result = await generateService.ExecuteAsync(Household, Monday, "opt-out-all", null);
 
         Assert.Equal(0, result.ProposedCount);
-        Assert.False(planner.WasCalled);
     }
 
-    // ── Already-planned meal summary (plantry-6mux) ───────────────────────────────
+    // ── Existing-week and retained-history variety inputs ──────────────────────────
 
-    [Fact(DisplayName = "Execute_AlreadyPlanned_NoExistingPlan — planner receives an empty already-planned list")]
-    public async Task Execute_AlreadyPlanned_NoExistingPlan()
+    [Fact(DisplayName = "Execute_EmptyWeek_RetainedHistoryContributesToTheStagedVarietyBreakdown")]
+    public async Task Execute_EmptyWeek_RetainedHistoryContributesToTheStagedVarietyBreakdown()
     {
         var recipeId = Guid.NewGuid();
-        var recipes = new List<RecipeReadModel> { new(recipeId, "Pasta", [], DefaultServings: 4) };
-        var planner = new RecordingMealPlanner();
+        var snapshot = new RecentMealHistorySnapshot(
+        [
+            new RecentRecipeHistory(
+                recipeId,
+                "Recent pasta",
+                IsArchived: false,
+                [new RecentMealOccurrence(Monday.AddDays(-7), RecentMealOccurrenceSource.CookEvent, 0.20m)],
+                [])
+        ]);
+        var (generateService, _, store, _, _) = BuildStack(
+            recipes: [new RecipeReadModel(recipeId, "Recent pasta", [], DefaultServings: 4)],
+            historyReader: new FakeRecentMealHistoryReader(snapshot));
 
-        var (generateService, _, _, _, _) = BuildStack(recipes: recipes, planner: planner);
+        await generateService.ExecuteAsync(Household, Monday, "history-empty-week", null);
 
-        await generateService.ExecuteAsync(Household, Monday, "already-planned-empty", null);
-
-        Assert.Empty(planner.SeenAlreadyPlanned);
+        var staged = await store.GetAsync("history-empty-week");
+        Assert.All(staged, proposal => Assert.Contains(
+            Assert.Single(proposal.Dishes).ScoreBreakdown!.VarietyContributions,
+            contribution => contribution.Facet == RecipeDiversityFacet.ExactRecipe && contribution.PriorUse >= 0.20m));
     }
 
-    [Fact(DisplayName = "Execute_AlreadyPlanned_WithExistingPlan — planner receives a summary of every planned meal in the week, and unresolvable dish names are skipped")]
+    [Fact(DisplayName = "Execute_AlreadyPlanned_WithExistingPlan — resolved planned recipes contribute to the next staged choice")]
     public async Task Execute_AlreadyPlanned_WithExistingPlan()
     {
         var config = BuildDefaultSlotConfig();
@@ -668,9 +861,8 @@ public sealed class GeneratePlanServiceTests
         plan.AssignMeal(thursday, orphanSlotId, [new DishSpec(DishKind.Recipe, knownRecipeId, 4)],
             null, "manual", Guid.NewGuid(), Clock);
 
-        var planner = new RecordingMealPlanner();
-        var (generateService, _, _, mealPlanRepo, _) = BuildStack(
-            slotConfig: config, recipes: recipes, planner: planner, catalogReader: catalogReader);
+        var (generateService, _, store, mealPlanRepo, _) = BuildStack(
+            slotConfig: config, recipes: recipes, catalogReader: catalogReader);
         mealPlanRepo.SetPlan(plan);
 
         // Scoped run (per-cell Regenerate): targets ONLY Wednesday's breakfast — an empty cell
@@ -681,20 +873,52 @@ public sealed class GeneratePlanServiceTests
         await generateService.ExecuteAsync(
             Household, Monday, "already-planned-scoped", null, scopeDate: wednesday, scopeSlotId: breakfast.Id);
 
-        Assert.Equal(3, planner.SeenAlreadyPlanned.Count);
+        var staged = Assert.Single(await store.GetAsync("already-planned-scoped"));
+        var exact = Assert.Single(Assert.Single(staged.Dishes).ScoreBreakdown!.VarietyContributions,
+            contribution => contribution.Facet == RecipeDiversityFacet.ExactRecipe);
+        // The two resolvable recipe dishes in the existing week count; deleted/product dishes do not
+        // fabricate recipe identity into the optimizer's historical usage.
+        Assert.Equal(2m, exact.PriorUse);
+    }
 
-        var mondayBreakfast = Assert.Single(planner.SeenAlreadyPlanned, s => s.Date == Monday);
-        Assert.Equal(breakfast.Label, mondayBreakfast.SlotLabel);
-        Assert.Equal(["Known Recipe"], mondayBreakfast.DishNames);
+    [Fact(DisplayName = "Execute_OnlyFeasibleRepeat_StagesScoreBreakdownAndExplainsRepeat — deterministic selection still uses the normal ACL/review path")]
+    public async Task Execute_OnlyFeasibleRepeat_StagesScoreBreakdownAndExplainsRepeat()
+    {
+        var recipeId = Guid.Parse("0193b4a0-5555-7000-8000-000000000001");
+        var veganTagId = Guid.Parse("0193b4a0-5555-7000-8000-000000000002");
+        var proteinTagId = Guid.Parse("0193b4a0-5555-7000-8000-000000000003");
+        var cuisineTagId = Guid.Parse("0193b4a0-5555-7000-8000-000000000004");
+        var profile = RecipeDiversityProfile.Create(
+            recipeId,
+            "Only vegan dinner",
+            [
+                new RecipeSemanticTagFact(veganTagId, "Vegan", RecipeSemanticTagCategory.Diet),
+                new RecipeSemanticTagFact(proteinTagId, "Tofu", RecipeSemanticTagCategory.Protein),
+                new RecipeSemanticTagFact(cuisineTagId, "Thai", RecipeSemanticTagCategory.Cuisine),
+            ],
+            [],
+            []);
+        var config = BuildDefaultSlotConfig();
+        var attendeeId = config.Slots.First(slot => slot.IsActive).DefaultAttendees.Single();
+        var preference = UserPreference.Create(Household, attendeeId, Clock);
+        preference.SetStance(veganTagId, "Required", Clock);
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [preference],
+            recipes: [new RecipeReadModel(recipeId, "Only vegan dinner", [veganTagId], 4, DiversityProfile: profile)]);
 
-        var tuesdayDinner = Assert.Single(planner.SeenAlreadyPlanned, s => s.Date == tuesday);
-        Assert.Equal(dinner.Label, tuesdayDinner.SlotLabel);
-        // The deleted recipe's dish is skipped — only the resolvable product dish name survives.
-        Assert.Equal(["Known Product"], tuesdayDinner.DishNames);
+        var result = await generateService.ExecuteAsync(
+            Household, Monday, "optimizer-repeat", new PlanningWeights(0, 0, 100));
+        var staged = await store.GetAsync("optimizer-repeat");
 
-        var orphan = Assert.Single(planner.SeenAlreadyPlanned, s => s.Date == thursday);
-        // The slot itself was deleted from config — label falls back to the raw slot id string.
-        Assert.Equal(orphanSlotId.Value.ToString(), orphan.SlotLabel);
+        Assert.Equal(21, result.ProposedCount);
+        Assert.Equal(21, staged.Count);
+        var repeated = staged.Skip(1).First();
+        var breakdown = Assert.Single(repeated.Dishes).ScoreBreakdown;
+        Assert.NotNull(breakdown);
+        Assert.Contains(breakdown!.VarietyContributions, contribution =>
+            contribution.Facet == RecipeDiversityFacet.ExactRecipe && contribution.PriorUse > 0m);
+        Assert.Contains("repeat", repeated.Reasoning!, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── Test doubles ──────────────────────────────────────────────────────────────
@@ -717,8 +941,12 @@ public sealed class GeneratePlanServiceTests
 
     private sealed class FakeRecipeReader(
         IReadOnlyList<RecipeReadModel> recipes,
-        IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null) : IRecipeReadModel
+        IReadOnlyDictionary<Guid, RecipeRatingSummary>? ratings = null,
+        IReadOnlyDictionary<Guid, CandidateRecipeEvidence>? evidence = null,
+        IReadOnlyList<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>>? evidenceSnapshots = null) : IRecipeReadModel
     {
+        private int _evidenceSnapshotIndex;
+
         public Task<RecipeReadModel?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
             Task.FromResult(recipes.FirstOrDefault(r => r.RecipeId == id));
 
@@ -727,6 +955,23 @@ public sealed class GeneratePlanServiceTests
 
         public Task<RecipeDishEnrichment?> GetEnrichmentAsync(Guid id, int servings, DateOnly today, CancellationToken ct = default) =>
             Task.FromResult<RecipeDishEnrichment?>(null);
+
+        public Task<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>> GetCandidateEvidenceAsync(
+            IReadOnlyCollection<CandidateRecipeEvidenceRequest> requests,
+            DateOnly today,
+            CancellationToken ct = default)
+        {
+            var snapshot = evidenceSnapshots is { Count: > 0 }
+                ? evidenceSnapshots[Math.Min(_evidenceSnapshotIndex, evidenceSnapshots.Count - 1)]
+                : evidence ?? new Dictionary<Guid, CandidateRecipeEvidence>();
+            _evidenceSnapshotIndex++;
+            IReadOnlyDictionary<Guid, CandidateRecipeEvidence> result = requests
+                .Select(r => r.RecipeId)
+                .Distinct()
+                .Where(snapshot.ContainsKey)
+                .ToDictionary(id => id, id => snapshot[id]);
+            return Task.FromResult(result);
+        }
 
         public Task<IReadOnlyList<RecipeMissingIngredient>> GetMissingIngredientsAsync(Guid id, int servings, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<RecipeMissingIngredient>>([]);
@@ -788,42 +1033,6 @@ public sealed class GeneratePlanServiceTests
         }
     }
 
-    /// <summary>Records every context ProposeWeekAsync was asked to plan (proposes nothing).</summary>
-    private sealed class RecordingMealPlanner : IMealPlanner
-    {
-        public List<PlannerMealSlotContext> SeenContexts { get; } = [];
-
-        /// <summary>Snapshot of the alreadyPlanned list from the MOST RECENT ProposeWeekAsync call (plantry-6mux).</summary>
-        public IReadOnlyList<PlannedMealSummary> SeenAlreadyPlanned { get; private set; } = [];
-
-        public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
-            IReadOnlyList<PlannerMealSlotContext> contexts,
-            IReadOnlyList<PlannedMealSummary> alreadyPlanned,
-            PlanningWeights weights,
-            CancellationToken ct = default)
-        {
-            SeenContexts.AddRange(contexts);
-            SeenAlreadyPlanned = alreadyPlanned;
-            return Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
-        }
-    }
-
-    /// <summary>A planner that records whether ProposeWeekAsync was called.</summary>
-    private sealed class TrackingMealPlanner : IMealPlanner
-    {
-        public bool WasCalled { get; private set; }
-
-        public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
-            IReadOnlyList<PlannerMealSlotContext> contexts,
-            IReadOnlyList<PlannedMealSummary> alreadyPlanned,
-            PlanningWeights weights,
-            CancellationToken ct = default)
-        {
-            WasCalled = true;
-            return Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
-        }
-    }
-
     private sealed class FakeMealPlanRepository : IMealPlanRepository
     {
     public Task<IReadOnlyDictionary<Guid, PlannedMealSlotInfo>> FindSlotLabelsAsync(
@@ -847,22 +1056,15 @@ public sealed class GeneratePlanServiceTests
         public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    /// <summary>A planner that always proposes the given recipe for every slot, ignoring constraints.</summary>
-    private sealed class SingleRecipeFakePlanner(Guid recipeId) : IMealPlanner
+    private sealed class FakeRecentMealHistoryReader(
+        RecentMealHistorySnapshot? snapshot = null) : IRecentMealHistoryReader
     {
-        public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
-            IReadOnlyList<PlannerMealSlotContext> contexts,
-            IReadOnlyList<PlannedMealSummary> alreadyPlanned,
-            PlanningWeights weights,
-            CancellationToken ct = default)
-        {
-            var proposals = contexts.Select(ctx => new ProposedMeal(
-                ctx.Date, ctx.MealSlotId, ctx.EffectiveAttendees,
-                [new ProposedDish(recipeId, 4, 1)],
-                "Bad planner")).ToList();
-
-            return Task.FromResult<IReadOnlyList<ProposedMeal>>(proposals);
-        }
+        public Task<RecentMealHistorySnapshot> ReadAsync(
+            HouseholdId householdId,
+            DateOnly asOfDate,
+            DateOnly excludedWeekStart,
+            CancellationToken ct = default) =>
+            Task.FromResult(snapshot ?? RecentMealHistorySnapshot.Empty);
     }
 
 }

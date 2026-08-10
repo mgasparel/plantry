@@ -22,6 +22,17 @@ internal sealed class FakeStock : IInventoryStockReader
         _stock[productId] = new ProductStock(productId, available, unitId, null);
         return this;
     }
+
+    public FakeStock AddLots(Guid productId, Guid defaultUnitId, params ActiveStockLot[] lots)
+    {
+        _stock[productId] = new ProductStock(
+            productId,
+            lots.Sum(l => l.AvailableQuantity),
+            defaultUnitId,
+            lots.Select(l => l.ExpiryDate).Where(e => e.HasValue).Min(),
+            lots);
+        return this;
+    }
     public Task<ProductStock?> FindStockAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(_stock.GetValueOrDefault(productId));
     public Task<IReadOnlyDictionary<Guid, ProductStock>> FindStockBatchAsync(
@@ -43,6 +54,12 @@ internal sealed class FakeCatalog : ICatalogProductReader
         var c = new FakeCatalog();
         c._products[productId] = new CatalogProduct(productId, "Cheese", TrackStock: true, unitId, null, false, []);
         return c;
+    }
+
+    public FakeCatalog AddUntrackedLeaf(Guid productId, Guid unitId, string name = "Staple")
+    {
+        _products[productId] = new CatalogProduct(productId, name, TrackStock: false, unitId, null, false, []);
+        return this;
     }
 
     /// <summary>Adds an additional tracked leaf product, fluent-chainable — for a scenario needing more

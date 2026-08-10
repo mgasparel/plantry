@@ -124,9 +124,10 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
             await page.WaitForURLAsync("**/MealPlan**");
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
 
-            // Find the first empty cell for today (today's date in ISO yyyy-MM-dd format)
-            var todayIso = DateTime.Today.ToString("yyyy-MM-dd");
-            var (date, slotId) = await GetCellForTodayAsync(page, todayIso);
+            // Resolve today from the default MealPlan grid itself. This keeps the journey on the
+            // same injected clock/timezone seam as the running app and makes the cross-surface
+            // contract explicit: MealPlan's default week must contain the day Today will query.
+            var (date, slotId) = await GetCellForTodayAsync(page);
 
             // ── 4. Assign the recipe to today's slot via AssignJson (same as editor Save) ──
             var token = await GetAntiforgeryTokenAsync(page);
@@ -170,13 +171,19 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Finds the first empty-add button whose onclick contains today's date.
-    /// Falls back to the first empty-add button if today's date is not visible in the grid
-    /// (e.g., the test is running on Sunday and the grid starts on Monday).
+    /// Finds the first empty-add button for the day MealPlan marks as today.
+    /// The default grid must contain exactly one such day; there is deliberately no fallback to a
+    /// different date because that would bypass the MealPlan-to-Today contract this smoke verifies.
     /// </summary>
-    private static async Task<(string date, string slotId)> GetCellForTodayAsync(IPage page, string todayIso)
+    private static async Task<(string date, string slotId)> GetCellForTodayAsync(IPage page)
     {
-        // Collect all empty-add onclicks and find one for today
+        var todayHeader = page.Locator(".day-head.is-today");
+        await Assertions.Expect(todayHeader).ToHaveCountAsync(1);
+        var autoFillUrl = await todayHeader.Locator(".dh-auto").GetAttributeAsync("hx-post") ?? "";
+        var todayMatch = Regex.Match(autoFillUrl, @"[?&]week=(\d{4}-\d{2}-\d{2})(?:&|$)");
+        Assert.True(todayMatch.Success, $"Could not resolve MealPlan's today from hx-post: {autoFillUrl}");
+        var todayIso = todayMatch.Groups[1].Value;
+
         var onclicks = await page.Locator(".empty-add").EvaluateAllAsync<string[]>(
             "els => els.map(el => el.getAttribute('onclick') ?? '')");
 
@@ -189,14 +196,8 @@ public sealed class TodayPlannedMealsSmokeTests(AppHostFixture appHost) : IAsync
                 return (m.Groups[1].Value, m.Groups[2].Value);
         }
 
-        // Fallback: use the first empty cell (may be a different day if today = weekend before plan week)
-        var firstOnclick = onclicks.FirstOrDefault(o => !string.IsNullOrEmpty(o)) ?? "";
-        Assert.False(string.IsNullOrEmpty(firstOnclick),
-            "No empty-add buttons found on MealPlan page. Cannot assign a meal for Today test.");
-        var fallback = System.Text.RegularExpressions.Regex.Match(firstOnclick,
-            @"openEditor\('([^']+)',\s*'([^']+)',\s*null\)");
-        Assert.True(fallback.Success, $"Could not parse openEditor from onclick: {firstOnclick}");
-        return (fallback.Groups[1].Value, fallback.Groups[2].Value);
+        throw new Xunit.Sdk.XunitException(
+            $"No empty MealPlan cell found for the grid's today date {todayIso}.");
     }
 
     private static async Task<string> GetAntiforgeryTokenAsync(IPage page)
