@@ -1676,7 +1676,6 @@ public sealed class IndexModel(
             allCells,
             weekTotalCost: WeekTotalCost,
             budgetTarget: WeekBudgetTarget, // user-entered from tune popover (null when not provided)
-            priorPlans: null,               // prior plan history not loaded — suppresses vs-history repetition rule
             today,
             ct);
 

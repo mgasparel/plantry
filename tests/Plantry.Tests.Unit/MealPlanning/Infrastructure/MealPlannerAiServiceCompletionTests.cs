@@ -76,8 +76,14 @@ public sealed class MealPlannerAiServiceCompletionTests
         MealPlannerAiService planner,
         IReadOnlyList<PlannerMealSlotContext>? slots = null,
         IReadOnlyList<PlannedMealSummary>? alreadyPlanned = null,
+        RecentMealHistorySnapshot? recentHistory = null,
         CancellationToken ct = default) =>
-        planner.ProposeWeekAsync(slots ?? Slots, alreadyPlanned ?? [], PlanningWeights.Default, ct);
+        planner.ProposeWeekAsync(
+            slots ?? Slots,
+            alreadyPlanned ?? [],
+            recentHistory ?? RecentMealHistorySnapshot.Empty,
+            PlanningWeights.Default,
+            ct);
 
     [Fact]
     public async Task No_Slots_Returns_Early_Without_Crossing_The_Completion_Boundary()
@@ -178,6 +184,36 @@ public sealed class MealPlannerAiServiceCompletionTests
         var call = Assert.Single(chat.Calls);
         Assert.Contains("Already planned this week", call.UserText);
         Assert.Contains("2026-06-15 Brunch: Leftover Chili, Garlic Bread", call.UserText);
+    }
+
+    [Fact]
+    public async Task Recent_History_Section_Carries_Recency_Facets_And_Archived_Identity_As_Soft_Context()
+    {
+        var chat = new ScriptedChatClient((_, _) => ScriptedChatClient.Completion(ValidResponse));
+        var recipeId = Guid.Parse("0193b4a0-7777-7000-8000-000000000001");
+        var tagId = Guid.Parse("0193b4a0-7777-7000-8000-000000000002");
+        var cookedAt = new DateTimeOffset(2026, 6, 14, 18, 30, 0, TimeSpan.Zero);
+        var history = new RecentMealHistorySnapshot(
+        [
+            new RecentRecipeHistory(
+                recipeId,
+                "Retired tofu bowl",
+                IsArchived: true,
+                [new RecentMealOccurrence(new DateOnly(2026, 6, 14), RecentMealOccurrenceSource.CookEvent, 0.20m, cookedAt)],
+                [new RecentRecipeFacet(tagId, "Tofu", "Protein")])
+        ]);
+
+        await Propose(Planner(chat), recentHistory: history);
+
+        var call = Assert.Single(chat.Calls);
+        Assert.Contains("Recent retained history (soft novelty signal; never exclude)", call.UserText);
+        Assert.Contains($"[{recipeId}] Retired tofu bowl recency_score=0.200", call.UserText);
+        Assert.Contains("occurrences=[2026-06-14:0.200]", call.UserText);
+        Assert.Contains("facets=[Protein:Tofu] archived=true", call.UserText);
+
+        var systemText = Assert.IsType<SystemChatMessage>(call.Messages[0]).Content[0].Text;
+        Assert.Contains("history NEVER excludes a candidate", systemText);
+        Assert.Contains("Archived history is identity/context only", systemText);
     }
 
     [Fact]

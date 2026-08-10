@@ -16,6 +16,7 @@ public interface IMealPlanner
     Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
         IReadOnlyList<PlannerMealSlotContext> slotsContext,
         IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+        RecentMealHistorySnapshot recentHistory,
         PlanningWeights weights,
         CancellationToken ct = default);
 }

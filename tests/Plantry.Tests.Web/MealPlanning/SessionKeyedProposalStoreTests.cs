@@ -260,6 +260,7 @@ internal sealed class SingleProposalPlanner : IMealPlanner
     public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
         IReadOnlyList<PlannerMealSlotContext> slots,
         IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+        RecentMealHistorySnapshot recentHistory,
         PlanningWeights weights,
         CancellationToken ct = default)
     {
@@ -296,6 +297,7 @@ internal sealed class TwoProposalPlanner : IMealPlanner
     public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
         IReadOnlyList<PlannerMealSlotContext> slots,
         IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+        RecentMealHistorySnapshot recentHistory,
         PlanningWeights weights,
         CancellationToken ct = default)
     {

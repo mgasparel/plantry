@@ -23,6 +23,7 @@ public sealed class GeneratePlanService(
     IMealSlotConfigRepository slotConfigRepo,
     IUserPreferenceRepository prefsRepo,
     IRecipeReadModel recipeReader,
+    IRecentMealHistoryReader historyReader,
     IMealPlanCatalogProductReader catalogReader,
     IPendingProposalStore proposalStore,
     MealConstraintResolver constraintResolver,
@@ -149,6 +150,11 @@ public sealed class GeneratePlanService(
         // what else is planned elsewhere in the week. Duplicates remain allowed downstream (no ACL
         // change) — this list is purely informational context for the AI's variety weighting.
         var alreadyPlanned = await BuildAlreadyPlannedSummaryAsync(plan, slotConfig, ct);
+        var today = clock.ToLocalDate(clock.UtcNow);
+
+        // Retained plan/cook history is a separate, softer novelty input. The reader excludes this
+        // plan's week so accepted meals cannot be double-counted against alreadyPlanned above.
+        var recentHistory = await historyReader.ReadAsync(householdId, today, monday, ct);
 
         // 5. Load candidate recipes (up to 50), plus their household-wide rating signal in one batched
         // round-trip (plantry-zlwp.5) — attendee-scoping happens per cell below, since DefaultAttendees
@@ -156,7 +162,6 @@ public sealed class GeneratePlanService(
         var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 50, ct);
         var ratingSummaries = await recipeReader.GetRatingSummariesAsync(
             recipesReadModels.Select(r => r.RecipeId).ToList(), ct);
-        var today = clock.ToLocalDate(clock.UtcNow);
         var candidateEvidence = await recipeReader.GetCandidateEvidenceAsync(
             recipesReadModels
                 .Select(r => new CandidateRecipeEvidenceRequest(r.RecipeId, r.DefaultServings))
@@ -273,7 +278,7 @@ public sealed class GeneratePlanService(
 
         // 8. Invoke IMealPlanner (UNTRUSTED — output always goes through ACL)
         var rawProposals = contexts.Count > 0
-            ? await planner.ProposeWeekAsync(contexts, alreadyPlanned, effectiveWeights, ct)
+            ? await planner.ProposeWeekAsync(contexts, alreadyPlanned, recentHistory, effectiveWeights, ct)
             : new List<ProposedMeal>();
 
         // 9. Validate each proposal through ProposalAcl

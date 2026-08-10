@@ -132,6 +132,7 @@ internal sealed class NullMealPlanner : IMealPlanner
     public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
         IReadOnlyList<PlannerMealSlotContext> slotsContext,
         IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+        RecentMealHistorySnapshot recentHistory,
         PlanningWeights weights,
         CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
@@ -147,6 +148,16 @@ internal sealed class NullPendingProposalStore : IPendingProposalStore
         => Task.CompletedTask;
     public Task ClearAsync(string storeKey, CancellationToken ct = default)
         => Task.CompletedTask;
+}
+
+internal sealed class NullRecentMealHistoryReader : IRecentMealHistoryReader
+{
+    public Task<RecentMealHistorySnapshot> ReadAsync(
+        HouseholdId householdId,
+        DateOnly asOfDate,
+        DateOnly excludedWeekStart,
+        CancellationToken ct = default)
+        => Task.FromResult(RecentMealHistorySnapshot.Empty);
 }
 
 internal sealed class NullPrefsRepo : IUserPreferenceRepository

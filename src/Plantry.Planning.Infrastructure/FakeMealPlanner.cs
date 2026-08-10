@@ -14,6 +14,7 @@ public sealed class FakeMealPlanner : IMealPlanner
     public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
         IReadOnlyList<PlannerMealSlotContext> slotsContext,
         IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+        RecentMealHistorySnapshot recentHistory,
         PlanningWeights weights,
         CancellationToken ct = default)
     {

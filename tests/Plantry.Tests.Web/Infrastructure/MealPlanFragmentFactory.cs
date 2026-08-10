@@ -96,6 +96,9 @@ public class MealPlanFragmentFactory : WebApplicationFactory<Program>
     /// <summary>P3-6a pending-proposal store.</summary>
     protected virtual IPendingProposalStore ProposalStore => new NullPendingProposalStore();
 
+    /// <summary>Retained meal history — empty by default; no DB connection in WAF tests.</summary>
+    protected virtual IRecentMealHistoryReader RecentMealHistoryReader => new NullRecentMealHistoryReader();
+
     /// <summary>plantry-so5.3 household-default planning settings.</summary>
     protected virtual IHouseholdPlanningSettingsRepository PlanningSettingsRepo => new NullPlanningSettingsRepo();
 
@@ -189,6 +192,8 @@ public class MealPlanFragmentFactory : WebApplicationFactory<Program>
             services.AddSingleton(Planner);
             services.RemoveAll<IPendingProposalStore>();
             services.AddSingleton(ProposalStore);
+            services.RemoveAll<IRecentMealHistoryReader>();
+            services.AddSingleton(RecentMealHistoryReader);
             services.RemoveAll<GeneratePlanService>();
             services.AddScoped<GeneratePlanService>();
             services.RemoveAll<AcceptProposalService>();

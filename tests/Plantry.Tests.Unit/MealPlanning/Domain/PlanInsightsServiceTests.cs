@@ -27,11 +27,13 @@ public sealed class PlanInsightsServiceTests
     private static PlanInsightsService BuildService(
         IMealPlanExpiringStockReader? expiringReader = null,
         IRecipeReadModel? recipeReader = null,
+        RecentMealHistorySnapshot? history = null,
         int horizonDays = 7)
         => new(
             expiringReader ?? new FakeExpiringStockReader([]),
             recipeReader ?? new FakeNoOpRecipeReader(),
-            new FakeExpiringSoonHorizonReader(horizonDays));
+            new FakeExpiringSoonHorizonReader(horizonDays),
+            new FakeRecentMealHistoryReader(history ?? RecentMealHistorySnapshot.Empty));
 
     /// <summary>
     /// Builds the all-cell list for a 7-day plan with the given slots.
@@ -62,7 +64,7 @@ public sealed class PlanInsightsServiceTests
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignNote(Monday, SlotA, "Takeout", null, "manual", UserId, Clock);
 
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
+        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, Today);
 
         var insight = Assert.Single(result.Insights, i => i.Kind == InsightKind.UnusedExpiring);
         Assert.Equal("warn", insight.Tone);
@@ -84,7 +86,7 @@ public sealed class PlanInsightsServiceTests
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, recipeId, 2)], null, "manual", UserId, Clock);
 
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
+        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, Today);
 
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.UnusedExpiring);
     }
@@ -95,7 +97,7 @@ public sealed class PlanInsightsServiceTests
         var svc = BuildService(new FakeExpiringStockReader([]));
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
 
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
+        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, Today);
 
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.UnusedExpiring);
     }
@@ -109,7 +111,7 @@ public sealed class PlanInsightsServiceTests
         var svc = BuildService(expiringReader, horizonDays: horizonDays);
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
 
-        await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
+        await svc.InspectAsync(plan, AllCells([SlotA]), null, null, Today);
 
         Assert.Equal(horizonDays, expiringReader.LastWithinDays);
     }
@@ -122,7 +124,7 @@ public sealed class PlanInsightsServiceTests
         var svc = BuildService();
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
 
-        var result = await svc.InspectAsync(plan, [], weekTotalCost: 120m, budgetTarget: 80m, null, Today);
+        var result = await svc.InspectAsync(plan, [], weekTotalCost: 120m, budgetTarget: 80m, Today);
 
         var insight = Assert.Single(result.Insights, i => i.Kind == InsightKind.OverBudget);
         Assert.Equal("warn", insight.Tone);
@@ -137,7 +139,7 @@ public sealed class PlanInsightsServiceTests
         var svc = BuildService();
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
 
-        var result = await svc.InspectAsync(plan, [], weekTotalCost: 60m, budgetTarget: 80m, null, Today);
+        var result = await svc.InspectAsync(plan, [], weekTotalCost: 60m, budgetTarget: 80m, Today);
 
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.OverBudget);
     }
@@ -148,7 +150,7 @@ public sealed class PlanInsightsServiceTests
         var svc = BuildService();
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
 
-        var result = await svc.InspectAsync(plan, [], weekTotalCost: 200m, budgetTarget: null, null, Today);
+        var result = await svc.InspectAsync(plan, [], weekTotalCost: 200m, budgetTarget: null, Today);
 
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.OverBudget);
     }
@@ -164,7 +166,7 @@ public sealed class PlanInsightsServiceTests
         plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, recipeId, 2)], null, "manual", UserId, Clock);
         plan.AssignMeal(Monday.AddDays(1), SlotA, [new DishSpec(DishKind.Recipe, recipeId, 2)], null, "manual", UserId, Clock);
 
-        var result = await svc.InspectAsync(plan, AllCells([SlotA, SlotB]), null, null, null, Today);
+        var result = await svc.InspectAsync(plan, AllCells([SlotA, SlotB]), null, null, Today);
 
         Assert.Contains(result.Insights, i => i.Kind == InsightKind.RepetitionThisWeek);
     }
@@ -177,33 +179,37 @@ public sealed class PlanInsightsServiceTests
         plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, Guid.NewGuid(), 2)], null, "manual", UserId, Clock);
         plan.AssignMeal(Monday.AddDays(1), SlotA, [new DishSpec(DishKind.Recipe, Guid.NewGuid(), 2)], null, "manual", UserId, Clock);
 
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
+        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, Today);
 
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.RepetitionThisWeek);
     }
 
     // ── Rule 4: RepetitionVsHistory ───────────────────────────────────────────
 
-    [Fact(DisplayName = "Rule 4 — recipe in current plan also in prior plan → RepetitionVsHistory callout")]
+    [Fact(DisplayName = "Rule 4 — recipe in current plan also in shared cook history → RepetitionVsHistory callout")]
     public async Task Rule4_RepetitionVsHistory_AppearsWhenRecipeRepeatsVsHistory()
     {
         var sharedRecipeId = Guid.NewGuid();
-        var svc = BuildService();
+        var history = new RecentMealHistorySnapshot(
+        [
+            new RecentRecipeHistory(
+                sharedRecipeId,
+                "Shared recipe",
+                IsArchived: false,
+                [new RecentMealOccurrence(Today.AddDays(-7), RecentMealOccurrenceSource.CookEvent, 0.20m)],
+                [])
+        ]);
+        var svc = BuildService(history: history);
 
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, sharedRecipeId, 2)], null, "manual", UserId, Clock);
 
-        // Prior plan from last week
-        var lastMonday = Monday.AddDays(-7);
-        var priorPlan = MealPlan.Start(HouseholdId, lastMonday, Clock);
-        priorPlan.AssignMeal(lastMonday, SlotA, [new DishSpec(DishKind.Recipe, sharedRecipeId, 2)], null, "manual", UserId, Clock);
-
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, [priorPlan], Today);
+        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, Today);
 
         Assert.Contains(result.Insights, i => i.Kind == InsightKind.RepetitionVsHistory);
     }
 
-    [Fact(DisplayName = "Rule 4 — no prior plans provided → RepetitionVsHistory rule suppressed")]
+    [Fact(DisplayName = "Rule 4 — empty shared history → RepetitionVsHistory rule suppressed")]
     public async Task Rule4_RepetitionVsHistory_SuppressedWhenNoPriorPlans()
     {
         var recipeId = Guid.NewGuid();
@@ -212,7 +218,7 @@ public sealed class PlanInsightsServiceTests
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, recipeId, 2)], null, "manual", UserId, Clock);
 
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, priorPlans: null, Today);
+        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, Today);
 
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.RepetitionVsHistory);
     }
@@ -228,7 +234,7 @@ public sealed class PlanInsightsServiceTests
         plan.AssignNote(Monday, SlotA, "Takeout", null, "manual", UserId, Clock);
 
         var allCells = AllCells([SlotA]);
-        var result = await svc.InspectAsync(plan, allCells, null, null, null, Today);
+        var result = await svc.InspectAsync(plan, allCells, null, null, Today);
 
         var insight = Assert.Single(result.Insights, i => i.Kind == InsightKind.UnfilledSlot);
         Assert.Equal("info", insight.Tone);
@@ -245,7 +251,7 @@ public sealed class PlanInsightsServiceTests
             plan.AssignNote(Monday.AddDays(i), SlotA, $"Note {i}", null, "manual", UserId, Clock);
 
         var allCells = AllCells([SlotA]);
-        var result = await svc.InspectAsync(plan, allCells, null, null, null, Today);
+        var result = await svc.InspectAsync(plan, allCells, null, null, Today);
 
         Assert.DoesNotContain(result.Insights, i => i.Kind == InsightKind.UnfilledSlot);
     }
@@ -262,7 +268,11 @@ public sealed class PlanInsightsServiceTests
         var recipeReader = new FakeEnrichmentRecipeReader(recipeId,
             new RecipeDishEnrichment(80, null, false, HasExpiringIngredients: false));
 
-        var svc = new PlanInsightsService(expiringReader, recipeReader, new FakeExpiringSoonHorizonReader(7));
+        var svc = new PlanInsightsService(
+            expiringReader,
+            recipeReader,
+            new FakeExpiringSoonHorizonReader(7),
+            new FakeRecentMealHistoryReader(RecentMealHistorySnapshot.Empty));
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
 
         // Assign the recipe twice (triggers RepetitionThisWeek)
@@ -275,7 +285,6 @@ public sealed class PlanInsightsServiceTests
         var result = await svc.InspectAsync(
             plan, allCells,
             weekTotalCost: 100m, budgetTarget: 80m, // triggers OverBudget
-            priorPlans: null,
             Today);
 
         // Should have UnusedExpiring (expiring product not used by planned recipe), OverBudget,
@@ -299,7 +308,7 @@ public sealed class PlanInsightsServiceTests
             plan.AssignNote(Monday.AddDays(i), SlotA, $"Note {i}", null, "manual", UserId, Clock);
 
         var allCells = AllCells([SlotA]);
-        var result = await svc.InspectAsync(plan, allCells, null, null, null, Today);
+        var result = await svc.InspectAsync(plan, allCells, null, null, Today);
 
         Assert.True(result.IsClean);
     }
@@ -326,7 +335,7 @@ public sealed class PlanInsightsServiceTests
         var plan = MealPlan.Start(HouseholdId, Monday, Clock);
         plan.AssignMeal(Monday, SlotA, [new DishSpec(DishKind.Recipe, recipeId, 2)], null, "manual", UserId, Clock);
 
-        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, null, Today);
+        var result = await svc.InspectAsync(plan, AllCells([SlotA]), null, null, Today);
 
         // The enrichment reader received today=Today (not default), so HasExpiringIngredients=true,
         // which suppresses the UnusedExpiring callout.
@@ -352,6 +361,16 @@ internal sealed class FakeExpiringStockReader(IReadOnlyList<Guid> productIds) : 
         LastWithinDays = withinDays;
         return Task.FromResult(productIds);
     }
+}
+
+internal sealed class FakeRecentMealHistoryReader(
+    RecentMealHistorySnapshot snapshot) : IRecentMealHistoryReader
+{
+    public Task<RecentMealHistorySnapshot> ReadAsync(
+        HouseholdId householdId,
+        DateOnly asOfDate,
+        DateOnly excludedWeekStart,
+        CancellationToken ct = default) => Task.FromResult(snapshot);
 }
 
 /// <summary>Fake <see cref="IRecipeReadModel"/> that returns no enrichment for any recipe (default stub).</summary>

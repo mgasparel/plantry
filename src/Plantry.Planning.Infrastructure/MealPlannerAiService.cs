@@ -87,6 +87,10 @@ public sealed class MealPlannerAiService : IMealPlanner
           planned this week. Treat them as part of the week when applying the variety weight — do not
           unintentionally repeat an already-planned dish. Repeating one is acceptable when the weights
           and constraints clearly favour it; explain the repeat in the reasoning.
+        - "Recent retained history" is a softer novelty signal than meals already planned this week.
+          recency_score sums distinct occurrences using the household's retained-history decay policy.
+          It may weigh against a repeat when variety matters, but history NEVER excludes a candidate.
+          Archived history is identity/context only and is not a selectable candidate.
         - Choose only recipe_ids from the candidate_recipes list. Do not invent new recipe IDs.
         - Set servings to the recipe's default_servings unless you have a strong reason to differ.
         - Provide a short reasoning (1-2 sentences) for each proposal.
@@ -107,6 +111,7 @@ public sealed class MealPlannerAiService : IMealPlanner
     public async Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
         IReadOnlyList<PlannerMealSlotContext> slotsContext,
         IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+        RecentMealHistorySnapshot recentHistory,
         PlanningWeights weights,
         CancellationToken ct = default)
     {
@@ -125,7 +130,7 @@ public sealed class MealPlannerAiService : IMealPlanner
 
         try
         {
-            var userMessage = BuildUserMessage(slotsContext, alreadyPlanned, weights);
+            var userMessage = BuildUserMessage(slotsContext, alreadyPlanned, recentHistory, weights);
             var response = await _chat.CompleteChatAsync(
                 [new SystemChatMessage(SystemPrompt), new UserChatMessage(userMessage)],
                 cancellationToken: ct);
@@ -167,6 +172,7 @@ public sealed class MealPlannerAiService : IMealPlanner
     private static string BuildUserMessage(
         IReadOnlyList<PlannerMealSlotContext> contexts,
         IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+        RecentMealHistorySnapshot recentHistory,
         PlanningWeights weights)
     {
         var sb = new StringBuilder();
@@ -180,6 +186,23 @@ public sealed class MealPlannerAiService : IMealPlanner
             sb.AppendLine("Already planned this week:");
             foreach (var meal in alreadyPlanned)
                 sb.AppendLine($"  - {meal.Date:yyyy-MM-dd} {meal.SlotLabel}: {string.Join(", ", meal.DishNames)}");
+            sb.AppendLine();
+        }
+
+        if (recentHistory.Recipes.Count > 0)
+        {
+            sb.AppendLine("Recent retained history (soft novelty signal; never exclude):");
+            foreach (var recipe in recentHistory.Recipes)
+            {
+                var occurrences = string.Join(",", recipe.Occurrences.Select(occurrence =>
+                    FormattableString.Invariant($"{occurrence.OccurredOn:yyyy-MM-dd}:{occurrence.NoveltyWeight:F3}")));
+                var facets = recipe.Facets.Count == 0
+                    ? ""
+                    : $" facets=[{string.Join(",", recipe.Facets.Select(facet => $"{facet.Category ?? "Uncategorised"}:{facet.Name}"))}]";
+                var archived = recipe.IsArchived ? " archived=true" : "";
+                sb.AppendLine(FormattableString.Invariant(
+                    $"  - [{recipe.RecipeId}] {recipe.Name} recency_score={recipe.RecencyScore:F3} occurrences=[{occurrences}]{facets}{archived}"));
+            }
             sb.AppendLine();
         }
 

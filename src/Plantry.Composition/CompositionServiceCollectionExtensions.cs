@@ -95,6 +95,9 @@ public static class CompositionServiceCollectionExtensions
         // Cook-status read port (plantry-0eut): joins Recipes CookEvent + Inventory journal — neither
         // context depends on the other or on MealPlanning (Gate 2); this is the composition-root join.
         services.AddScoped<IMealPlanCookStatusReader, MealPlanCookStatusReaderAdapter>();
+        // Shared retained-history snapshot (plan + cook join): generation and repetition insights read
+        // the same Planning-owned semantics without persisting a second history copy.
+        services.AddScoped<IRecentMealHistoryReader, RecentMealHistoryReaderAdapter>();
         // Product-dish Eat/Undo write port (plantry-zcbx): consumes/compensates via Inventory's
         // single consumption primitive, stamped SourceType.Eat + SourceRef = plannedDishId — the
         // journal rows IMealPlanCookStatusReader nets to derive the eaten state above.

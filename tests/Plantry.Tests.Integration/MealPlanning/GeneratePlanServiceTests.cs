@@ -38,6 +38,7 @@ public sealed class GeneratePlanServiceTests
             IMealPlanCatalogProductReader? catalogReader = null,
             IReadOnlyDictionary<Guid, CandidateRecipeEvidence>? evidence = null,
             IReadOnlyList<IReadOnlyDictionary<Guid, CandidateRecipeEvidence>>? evidenceSnapshots = null,
+            IRecentMealHistoryReader? historyReader = null,
             IClock? planningClock = null)
     {
         var config = slotConfig ?? BuildDefaultSlotConfig();
@@ -59,7 +60,8 @@ public sealed class GeneratePlanServiceTests
 
         var clock = planningClock ?? Clock;
         var generateService = new GeneratePlanService(
-            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader, fakeCatalogReader, store, resolver, fakeTagReader,
+            fakePlanner, mealPlanRepo, slotConfigRepo, prefRepo, recipeReader,
+            historyReader ?? new FakeRecentMealHistoryReader(), fakeCatalogReader, store, resolver, fakeTagReader,
             clock,
             NullLogger<GeneratePlanService>.Instance);
 
@@ -867,6 +869,34 @@ public sealed class GeneratePlanServiceTests
         Assert.Empty(planner.SeenAlreadyPlanned);
     }
 
+    [Fact(DisplayName = "Execute_EmptyWeek — planner receives retained history as a separate soft input")]
+    public async Task Execute_EmptyWeek_ReceivesRecentHistory()
+    {
+        var recipeId = Guid.NewGuid();
+        var snapshot = new RecentMealHistorySnapshot(
+        [
+            new RecentRecipeHistory(
+                recipeId,
+                "Recent pasta",
+                IsArchived: false,
+                [new RecentMealOccurrence(Monday.AddDays(-7), RecentMealOccurrenceSource.CookEvent, 0.20m)],
+                [])
+        ]);
+        var planner = new RecordingMealPlanner();
+
+        var (generateService, _, _, _, _) = BuildStack(
+            recipes: [new RecipeReadModel(recipeId, "Recent pasta", [], DefaultServings: 4)],
+            planner: planner,
+            historyReader: new FakeRecentMealHistoryReader(snapshot));
+
+        await generateService.ExecuteAsync(Household, Monday, "history-empty-week", null);
+
+        Assert.Empty(planner.SeenAlreadyPlanned);
+        var recent = Assert.Single(planner.SeenRecentHistory.Recipes);
+        Assert.Equal(recipeId, recent.RecipeId);
+        Assert.Equal(0.20m, recent.RecencyScore);
+    }
+
     [Fact(DisplayName = "Execute_AlreadyPlanned_WithExistingPlan — planner receives a summary of every planned meal in the week, and unresolvable dish names are skipped")]
     public async Task Execute_AlreadyPlanned_WithExistingPlan()
     {
@@ -1049,15 +1079,18 @@ public sealed class GeneratePlanServiceTests
 
         /// <summary>Snapshot of the alreadyPlanned list from the MOST RECENT ProposeWeekAsync call (plantry-6mux).</summary>
         public IReadOnlyList<PlannedMealSummary> SeenAlreadyPlanned { get; private set; } = [];
+        public RecentMealHistorySnapshot SeenRecentHistory { get; private set; } = RecentMealHistorySnapshot.Empty;
 
         public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
             IReadOnlyList<PlannerMealSlotContext> contexts,
             IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+            RecentMealHistorySnapshot recentHistory,
             PlanningWeights weights,
             CancellationToken ct = default)
         {
             SeenContexts.AddRange(contexts);
             SeenAlreadyPlanned = alreadyPlanned;
+            SeenRecentHistory = recentHistory;
             return Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
         }
     }
@@ -1070,6 +1103,7 @@ public sealed class GeneratePlanServiceTests
         public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
             IReadOnlyList<PlannerMealSlotContext> contexts,
             IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+            RecentMealHistorySnapshot recentHistory,
             PlanningWeights weights,
             CancellationToken ct = default)
         {
@@ -1083,6 +1117,7 @@ public sealed class GeneratePlanServiceTests
         public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
             IReadOnlyList<PlannerMealSlotContext> contexts,
             IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+            RecentMealHistorySnapshot recentHistory,
             PlanningWeights weights,
             CancellationToken ct = default)
         {
@@ -1127,6 +1162,7 @@ public sealed class GeneratePlanServiceTests
         public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
             IReadOnlyList<PlannerMealSlotContext> contexts,
             IReadOnlyList<PlannedMealSummary> alreadyPlanned,
+            RecentMealHistorySnapshot recentHistory,
             PlanningWeights weights,
             CancellationToken ct = default)
         {
@@ -1137,6 +1173,17 @@ public sealed class GeneratePlanServiceTests
 
             return Task.FromResult<IReadOnlyList<ProposedMeal>>(proposals);
         }
+    }
+
+    private sealed class FakeRecentMealHistoryReader(
+        RecentMealHistorySnapshot? snapshot = null) : IRecentMealHistoryReader
+    {
+        public Task<RecentMealHistorySnapshot> ReadAsync(
+            HouseholdId householdId,
+            DateOnly asOfDate,
+            DateOnly excludedWeekStart,
+            CancellationToken ct = default) =>
+            Task.FromResult(snapshot ?? RecentMealHistorySnapshot.Empty);
     }
 
 }

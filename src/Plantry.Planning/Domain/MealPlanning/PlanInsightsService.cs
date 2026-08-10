@@ -14,7 +14,7 @@ namespace Plantry.Planning.Domain;
 ///   1. <see cref="InsightKind.UnusedExpiring"/>  — expiring stock not consumed by any planned dish.
 ///   2. <see cref="InsightKind.OverBudget"/>       — week cost exceeds the household budget target.
 ///   3. <see cref="InsightKind.RepetitionThisWeek"/> — same recipe appears 2+ times this week.
-///   4. <see cref="InsightKind.RepetitionVsHistory"/> — same recipe appears in a retained prior plan.
+///   4. <see cref="InsightKind.RepetitionVsHistory"/> — same recipe appears in shared retained history.
 ///   5. <see cref="InsightKind.UnfilledSlot"/>     — one or more (date × slot) cells have no meal.
 ///
 /// Note: HardConflictResolved has been removed (so5.4). Hard-stance conflicts (C6) are now a
@@ -24,7 +24,8 @@ namespace Plantry.Planning.Domain;
 public sealed class PlanInsightsService(
     IMealPlanExpiringStockReader expiringStockReader,
     IRecipeReadModel recipeReader,
-    IExpiringSoonHorizonReader horizonReader)
+    IExpiringSoonHorizonReader horizonReader,
+    IRecentMealHistoryReader historyReader)
 {
     /// <summary>
     /// Inspects <paramref name="plan"/> and returns advisory insights.
@@ -40,9 +41,6 @@ public sealed class PlanInsightsService(
     /// <param name="budgetTarget">
     /// Household budget target for the week; null means "no target" — suppresses the over-budget rule.
     /// </param>
-    /// <param name="priorPlans">
-    /// Recently retained prior plans (for repetition-vs-history rule). Null or empty suppresses the rule.
-    /// </param>
     /// <param name="today">Today's date (used for the expiry window calculation).</param>
     /// <param name="ct">Cancellation token.</param>
     /// </summary>
@@ -51,7 +49,6 @@ public sealed class PlanInsightsService(
         IReadOnlyList<string> allCells,
         decimal? weekTotalCost,
         decimal? budgetTarget,
-        IReadOnlyList<MealPlan>? priorPlans,
         DateOnly today,
         CancellationToken ct = default)
     {
@@ -81,12 +78,9 @@ public sealed class PlanInsightsService(
         var thisWeekRepetitions = GetRepetitionThisWeek(plan);
         callouts.AddRange(thisWeekRepetitions);
 
-        // ── Rule 4: Repetition vs prior plans ─────────────────────────────────
-        if (priorPlans is { Count: > 0 })
-        {
-            var historyRepetitions = GetRepetitionVsHistory(plan, priorPlans);
-            callouts.AddRange(historyRepetitions);
-        }
+        // ── Rule 4: Repetition vs shared retained history ─────────────────────
+        var recentHistory = await historyReader.ReadAsync(plan.HouseholdId, today, plan.WeekStart, ct);
+        callouts.AddRange(GetRepetitionVsHistory(plan, recentHistory));
 
         // ── Rule 5: Unfilled slots ─────────────────────────────────────────────
         var filledCells = plan.PlannedMeals
@@ -210,7 +204,7 @@ public sealed class PlanInsightsService(
 
     private static IReadOnlyList<PlanInsight> GetRepetitionVsHistory(
         MealPlan plan,
-        IReadOnlyList<MealPlan> priorPlans)
+        RecentMealHistorySnapshot recentHistory)
     {
         // Recipe IDs in the current week.
         var thisWeekRecipeIds = plan.PlannedMeals
@@ -221,13 +215,7 @@ public sealed class PlanInsightsService(
 
         if (thisWeekRecipeIds.Count == 0) return [];
 
-        // Recipe IDs in prior plans.
-        var priorRecipeIds = priorPlans
-            .SelectMany(p => p.PlannedMeals)
-            .SelectMany(m => m.PlannedDishes)
-            .Where(d => d.RecipeId.HasValue)
-            .Select(d => d.RecipeId!.Value)
-            .ToHashSet();
+        var priorRecipeIds = recentHistory.Recipes.Select(recipe => recipe.RecipeId).ToHashSet();
 
         var repeated = thisWeekRecipeIds.Intersect(priorRecipeIds).Count();
         if (repeated == 0) return [];
@@ -237,8 +225,8 @@ public sealed class PlanInsightsService(
             new PlanInsight(
                 InsightKind.RepetitionVsHistory,
                 "info", "swap",
-                $"{repeated} recipe{(repeated == 1 ? "" : "s")} from recent weeks repeated",
-                "These recipes also appeared in recent weeks. Consider mixing in something new.",
+                $"{repeated} recent recipe{(repeated == 1 ? "" : "s")} repeated",
+                "These recipes also appeared in retained plan or cook history. Consider mixing in something new.",
                 ActionUrl: null)
         ];
     }
@@ -260,7 +248,7 @@ public enum InsightKind
     /// <summary>Same recipe appears 2+ times in the current week's plan.</summary>
     RepetitionThisWeek,
 
-    /// <summary>Recipe from the current plan also appears in a retained prior week.</summary>
+    /// <summary>Recipe from the current plan also appears in retained plan/cook history.</summary>
     RepetitionVsHistory,
 
     /// <summary>One or more (date × slot) cells have no meal assigned.</summary>
