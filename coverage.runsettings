@@ -37,7 +37,8 @@
             **/Recipes/DisabledDietTagContradictionChecker.cs,
             **/Recipes/DisabledRecipeTagSuggester.cs,
             **/FlippOptions.cs,
-            **/IntakeAiOptions.cs
+            **/IntakeAiOptions.cs,
+            **/obj/**/System.Text.RegularExpressions.Generator/**/*.g.cs
           </ExcludeByFile>
         </Configuration>
       </DataCollector>
