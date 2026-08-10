@@ -158,7 +158,7 @@ public sealed class GeneratePlanService(
         // 5. Load the full active household corpus for feasibility and evidence. The optimizer receives
         // a deterministic working set below; never let alphabetical ordering decide which recipes exist.
         // The read adapter still bounds the defensive query at 10,000 rows.
-        var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 10_000, ct);
+        var recipesReadModels = await recipeReader.LoadActiveCorpusAsync(ct);
         var ratingSummaries = await recipeReader.GetRatingSummariesAsync(
             recipesReadModels.Select(r => r.RecipeId).ToList(), ct);
         var candidateEvidence = await recipeReader.GetCandidateEvidenceAsync(

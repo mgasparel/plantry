@@ -25,7 +25,8 @@ public static class CandidateRecipeOrdering
             {
                 Candidate = candidate,
                 Score = weights.Waste * WasteScore(candidate) + weights.Cost * CostScore(
-                    candidate, completeCosts.Count > 0, minCost, maxCost),
+                    candidate, completeCosts.Count > 0, minCost, maxCost) +
+                    weights.Variety * VarietyScore(candidate),
             })
             .OrderByDescending(x => x.Score)
             // Recipe name is presentation data, never a ranking input. Identity is the stable final tie-break.
@@ -36,6 +37,17 @@ public static class CandidateRecipeOrdering
 
     private static decimal WasteScore(CandidateRecipe candidate) =>
         candidate.HasContributingExpiringStock == true ? 1m : 0m;
+
+    private static decimal VarietyScore(CandidateRecipe candidate)
+    {
+        var profile = candidate.DiversityProfile;
+        if (profile is null) return 0m;
+        var confirmed = new[] { RecipeDiversityFacet.Protein, RecipeDiversityFacet.Cuisine,
+            RecipeDiversityFacet.Flavor, RecipeDiversityFacet.Diet }
+            .Count(f => profile.Confidence(f) == RecipeDiversityConfidence.Confirmed);
+        return confirmed / 4m;
+    }
+
 
     private static decimal CostScore(
         CandidateRecipe candidate,

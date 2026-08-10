@@ -22,6 +22,12 @@ public interface IRecipeReadModel
     /// </summary>
     Task<IReadOnlyList<RecipeReadModel>> SearchAsync(string nameQuery, int maxResults = 20, CancellationToken ct = default);
 
+    /// <summary>Loads the complete active household recipe corpus for generation feasibility and shortlisting.</summary>
+    async Task<IReadOnlyList<RecipeReadModel>> LoadActiveCorpusAsync(CancellationToken ct = default) =>
+        await SearchAsync(string.Empty, int.MaxValue, ct);
+
+
+
     /// <summary>
     /// Returns live fulfillment and cost facts for a recipe at the given serving count.
     /// Computed fresh by Recipes' domain services (FulfillmentService / CostingService) via the

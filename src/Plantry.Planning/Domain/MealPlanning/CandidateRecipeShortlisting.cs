@@ -26,24 +26,29 @@ public static class CandidateRecipeShortlisting
                 selected.Add(candidate);
         }
 
-        // Hard constraints always win over the soft working-set limit.
-        foreach (var candidate in candidates.Where(IsHardEligible).OrderBy(c => c.RecipeId))
-            Add(candidate);
-
-        // Preserve one representative for each confirmed semantic facet before soft ranking.
+        // Reserve confirmed facet representatives first. This guarantees coverage even when a large
+        // required-eligible set would otherwise consume the cap.
         foreach (var facet in new[] { RecipeDiversityFacet.Protein, RecipeDiversityFacet.Cuisine,
                                       RecipeDiversityFacet.Flavor, RecipeDiversityFacet.Diet })
         {
-            foreach (var candidate in candidates
-                         .Where(c => c.DiversityProfile?.Confidence(facet) == RecipeDiversityConfidence.Confirmed)
-                         .OrderBy(c => c.RecipeId))
+            var values = candidates.SelectMany(c => c.DiversityProfile?.Values(facet) ?? [])
+                .Where(v => v.Source == RecipeDiversityEvidenceSource.ConfirmedTag)
+                .GroupBy(v => v.Key, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal);
+            foreach (var value in values)
             {
-                var values = candidate.DiversityProfile!.Values(facet);
-                if (values.Any(v => selected.All(s => s.DiversityProfile is null ||
-                        !s.DiversityProfile.Values(facet).Any(existing => existing.Key == v.Key))))
-                    Add(candidate);
+                var representative = CandidateRecipeOrdering.Order(
+                    candidates.Where(c => c.DiversityProfile?.Values(facet).Any(v => v.Key == value.Key) == true).ToList(), weights)
+                    .FirstOrDefault();
+                if (representative is not null) Add(representative);
             }
         }
+
+        // Hard constraints reserve the remaining capacity only when a restrictive stance exists.
+        var hasHardConstraint = constraints.RestrictedTagIds.Count > 0 ||
+            constraints.AttendeeStances.Any(a => a.RequiredTagIds.Count > 0);
+        if (hasHardConstraint)
+            foreach (var candidate in CandidateRecipeOrdering.Order(candidates.Where(IsHardEligible).ToList(), weights))
+                Add(candidate);
 
         foreach (var candidate in CandidateRecipeOrdering.Order(candidates, weights))
             Add(candidate);

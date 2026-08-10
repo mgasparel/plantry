@@ -34,6 +34,15 @@ public sealed class RecipeReadModelAdapter(
     IRecipeRatingRepository ratings,
     ICatalogProductReader catalog) : IRecipeReadModel
 {
+    public async Task<IReadOnlyList<RecipeReadModel>> LoadActiveCorpusAsync(CancellationToken ct = default)
+    {
+        var rows = await db.Recipes.Where(r => r.ArchivedAt == null).OrderBy(r => r.Id)
+            .Select(r => new { r.Id, r.Name, TagIds = r.Tags.Select(t => t.TagId.Value).ToList(), ProductIds = r.Ingredients.Select(i => i.ProductId).ToList(), r.DefaultServings, HasPhoto = r.Photo != null, r.CookTimeMinutes })
+            .ToListAsync(ct);
+        var models = await BuildReadModelsAsync(rows.Select(r => new RecipeProjection(r.Id.Value, r.Name, r.TagIds, r.ProductIds, r.DefaultServings, r.HasPhoto, r.CookTimeMinutes)).ToList(), ct);
+        return rows.Select(r => models[r.Id.Value]).ToList();
+    }
+
     public async Task<RecipeReadModel?> GetByIdAsync(Guid recipeId, CancellationToken ct = default)
     {
         // Use the strongly-typed RecipeId so EF Core's value converter can translate the predicate.
