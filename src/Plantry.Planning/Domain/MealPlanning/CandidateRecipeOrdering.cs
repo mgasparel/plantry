@@ -28,7 +28,7 @@ public static class CandidateRecipeOrdering
                     candidate, completeCosts.Count > 0, minCost, maxCost),
             })
             .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.Candidate.Name, StringComparer.Ordinal)
+            // Recipe name is presentation data, never a ranking input. Identity is the stable final tie-break.
             .ThenBy(x => x.Candidate.RecipeId)
             .Select(x => x.Candidate)
             .ToList();

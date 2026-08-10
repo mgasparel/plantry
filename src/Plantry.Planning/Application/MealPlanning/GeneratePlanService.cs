@@ -155,10 +155,10 @@ public sealed class GeneratePlanService(
         // plan's week so accepted meals cannot be double-counted against alreadyPlanned above.
         var recentHistory = await historyReader.ReadAsync(householdId, today, monday, ct);
 
-        // 5. Load candidate recipes (up to 50), plus their household-wide rating signal in one batched
-        // round-trip (plantry-zlwp.5) — attendee-scoping happens per cell below, since DefaultAttendees
-        // varies per slot but the underlying rating data is invariant across cells within one generate call.
-        var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 50, ct);
+        // 5. Load the full active household corpus for feasibility and evidence. The optimizer receives
+        // a deterministic working set below; never let alphabetical ordering decide which recipes exist.
+        // The read adapter still bounds the defensive query at 10,000 rows.
+        var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 10_000, ct);
         var ratingSummaries = await recipeReader.GetRatingSummariesAsync(
             recipesReadModels.Select(r => r.RecipeId).ToList(), ct);
         var candidateEvidence = await recipeReader.GetCandidateEvidenceAsync(
@@ -264,7 +264,7 @@ public sealed class GeneratePlanService(
                         return attendeeStars.Count == 0 ? c : c with { AttendeeStars = attendeeStars };
                     })
                     .ToList();
-            slotCandidates = CandidateRecipeOrdering.Order(slotCandidates, effectiveWeights);
+            slotCandidates = CandidateRecipeShortlisting.Select(slotCandidates, constraints, effectiveWeights);
 
             // Required/Restricted filtering is a hard gate. Preserve the requested cell in the result
             // accounting even when the 50-candidate snapshot leaves no feasible recipe; it must not
