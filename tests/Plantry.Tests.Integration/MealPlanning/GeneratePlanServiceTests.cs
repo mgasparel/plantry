@@ -705,7 +705,7 @@ public sealed class GeneratePlanServiceTests
         var proposal = Assert.Single(await store.GetAsync("unknown-evidence-rationale"));
         Assert.NotEqual(unsupportedReasoning, proposal.Reasoning);
         Assert.Equal(
-            "Selected recipes satisfy the slot's hard constraints; no additional cost or waste benefit is claimed without supporting evidence.",
+            "Selected recipes satisfy the slot's hard constraints; Cost estimate incomplete.",
             proposal.Reasoning);
     }
 

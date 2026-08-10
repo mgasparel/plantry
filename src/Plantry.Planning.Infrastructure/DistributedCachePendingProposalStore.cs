@@ -112,7 +112,8 @@ public class DistributedCachePendingProposalStore(IDistributedCache cache) : IPe
         decimal CostContribution,
         decimal VarietyContribution,
         List<RecipeFacetContributionDto> VarietyContributions,
-        RecipeTieBreakSignalsDto TieBreakSignals)
+        RecipeTieBreakSignalsDto TieBreakSignals,
+        CandidateCostCompleteness CostCompleteness = CandidateCostCompleteness.Unknown)
     {
         public static RecipeScoreBreakdownDto? FromDomain(RecipeScoreBreakdown? score) => score is null
             ? null
@@ -126,7 +127,8 @@ public class DistributedCachePendingProposalStore(IDistributedCache cache) : IPe
                 score.CostContribution,
                 score.VarietyContribution,
                 score.VarietyContributions.Select(RecipeFacetContributionDto.FromDomain).ToList(),
-                RecipeTieBreakSignalsDto.FromDomain(score.TieBreakSignals));
+                RecipeTieBreakSignalsDto.FromDomain(score.TieBreakSignals),
+                score.CostCompleteness);
 
         public RecipeScoreBreakdown ToDomain() => new(
             RecipeId,
@@ -138,7 +140,8 @@ public class DistributedCachePendingProposalStore(IDistributedCache cache) : IPe
             CostContribution,
             VarietyContribution,
             VarietyContributions.Select(contribution => contribution.ToDomain()).ToList(),
-            TieBreakSignals.ToDomain());
+            TieBreakSignals.ToDomain(),
+            CostCompleteness);
     }
 
     private sealed record RecipeFacetContributionDto(

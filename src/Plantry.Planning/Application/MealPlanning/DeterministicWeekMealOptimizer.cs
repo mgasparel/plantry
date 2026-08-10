@@ -252,7 +252,8 @@ public static class DeterministicWeekMealOptimizer
                 costContribution,
                 varietyContribution,
                 facetContributions,
-                tieBreakSignals),
+                tieBreakSignals,
+                candidate.CostCompleteness),
             tieBreakSignals);
     }
 

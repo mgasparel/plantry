@@ -31,22 +31,30 @@
             <button type="button" class="reset" @@click="reset()">Reset</button>
         </div>
 
+        <p class="tune-help" id="planning-priorities-help">
+            These soft objectives guide recipe selection after hard dietary requirements are applied.
+            Waste favours using stock that expires soon; Cost favours lower estimated cost when pricing is complete;
+            Variety diversifies recipes, proteins, cuisines, flavours, and recent meals. Dietary requirements always apply outside these sliders.
+        </p>
         @foreach (var bucket in new[] {
-            new { Key = "waste",   Label = "Waste",   Color = "oklch(0.62 0.13 150)" },
-            new { Key = "cost",    Label = "Cost",     Color = "oklch(0.62 0.13 70)"  },
-            new { Key = "variety", Label = "Variety",  Color = "oklch(0.62 0.13 255)" }
+            new { Key = "waste",   Label = "Waste",   Help = "Favour meals that use stock expiring soon.", Color = "oklch(0.62 0.13 150)" },
+            new { Key = "cost",    Label = "Cost",    Help = "Favour lower estimated cost when pricing is sufficiently complete.", Color = "oklch(0.62 0.13 70)"  },
+            new { Key = "variety", Label = "Variety", Help = "Diversify recipes, proteins, cuisines, flavours, and recent meals.", Color = "oklch(0.62 0.13 255)" }
         })
         {
+            var helpId = $"planning-{bucket.Key}-help";
             <div class="wt-row">
-                <span class="wt-name">
+                <label class="wt-name" for="planning-@bucket.Key">
                     <span class="wt-dot" style="background:@bucket.Color"></span>
                     @bucket.Label
-                </span>
-                <input type="range" min="0" max="100"
+                </label>
+                <input id="planning-@bucket.Key" type="range" min="0" max="100"
+                       aria-describedby="planning-priorities-help @helpId"
                        :value="weights['@bucket.Key']"
                        :style="'background:linear-gradient(90deg, @bucket.Color ' + weights['@bucket.Key'] + '%, var(--color-surface-2) ' + weights['@bucket.Key'] + '%)'"
                        @@input="rebalance('@bucket.Key', $event.target.value)" />
-                <span class="wt-val" x-text="weights['@bucket.Key']"></span>
+                <span class="wt-val" aria-live="polite" x-text="weights['@bucket.Key']"></span>
+                <span class="sr-only" id="@helpId">@bucket.Help</span>
             </div>
         }
 

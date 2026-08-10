@@ -34,7 +34,8 @@ public sealed record RecipeScoreBreakdown(
     decimal CostContribution,
     decimal VarietyContribution,
     IReadOnlyList<RecipeFacetContribution> VarietyContributions,
-    RecipeTieBreakSignals TieBreakSignals)
+    RecipeTieBreakSignals TieBreakSignals,
+    CandidateCostCompleteness CostCompleteness = CandidateCostCompleteness.Unknown)
 {
     /// <summary>Alias used by callers that describe the weighted objective as the objective score.</summary>
     public decimal ObjectiveScore => WeightedScore;

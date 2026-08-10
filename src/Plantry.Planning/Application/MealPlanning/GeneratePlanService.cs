@@ -421,8 +421,10 @@ public sealed class GeneratePlanService(
             .ToList();
 
         var evidenceClaims = new List<string>();
-        if (selectedCandidates.Any(c =>
-                c.CostCompleteness == CandidateCostCompleteness.Complete && c.CostPerServing.HasValue))
+        if (selectedCandidates.Any(c => c.CostCompleteness is CandidateCostCompleteness.Partial or CandidateCostCompleteness.Unknown)
+            || selectedCandidates.Any(c => !c.CostPerServing.HasValue))
+            evidenceClaims.Add("Cost estimate incomplete");
+        else if (selectedCandidates.Any(c => c.CostCompleteness == CandidateCostCompleteness.Complete))
             evidenceClaims.Add("complete cost evidence is available");
         if (selectedCandidates.Any(c => c.HasContributingExpiringStock == true))
             evidenceClaims.Add("some stock is due to expire soon");
@@ -439,9 +441,18 @@ public sealed class GeneratePlanService(
         if (repetitions.Count > 0)
             evidenceClaims.Add($"a repeat in {string.Join(", ", repetitions)} remains the best feasible weighted choice");
 
-        var rationale = evidenceClaims.Count == 0
-            ? "Selected recipes satisfy the slot's hard constraints; no additional cost or waste benefit is claimed without supporting evidence."
-            : $"Selected recipes satisfy the slot's hard constraints; {string.Join(" and ", evidenceClaims)}.";
+        // Keep the compact card to at most two short, evidence-backed reasons. The expandable
+        // breakdown remains available for users who need the complete deterministic score evidence.
+        var compactClaims = evidenceClaims.Take(2).ToList();
+        var rationale = compactClaims.Count == 0
+            ? "Selected recipes satisfy the slot's hard constraints; no additional benefit is claimed without supporting evidence."
+            : $"Selected recipes satisfy the slot's hard constraints; {string.Join(" and ", compactClaims)}.";
+        if (evidenceClaims.Count > compactClaims.Count)
+            rationale += " More detail is available below.";
+
+        // A generated proposal must never carry model-authored prose into the review UI.
+        // All displayed claims above are derived from the validated candidate snapshot.
+
 
         return validated with { Reasoning = rationale };
     }
