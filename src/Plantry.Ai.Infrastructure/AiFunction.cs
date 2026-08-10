@@ -16,9 +16,6 @@ public static class AiFunction
     /// <summary>Flyer deal matching (Market/Deals) — span <c>deal_match</c>.</summary>
     public const string DealMatch = "deal_match";
 
-    /// <summary>Meal plan proposal (Planning) — span <c>meal_plan_propose</c>.</summary>
-    public const string MealPlanPropose = "meal_plan_propose";
-
     /// <summary>Ingredient unit-conversion seeding (Recipes) — span <c>recipe_conversion_seed</c>.</summary>
     public const string RecipeConversionSeed = "recipe_conversion_seed";
 

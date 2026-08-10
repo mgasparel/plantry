@@ -589,9 +589,9 @@ builder.Services.AddScoped<IMealPlanWeekReadModel>(sp =>
         sp.GetRequiredService<ITenantContext>(),
         sp.GetRequiredService<IClock>()));
 
-// Meal Planning — P3-6a AI generate plan (plantry-o0z).
+// Meal Planning — deterministic generate plan.
 // GeneratePlanService orchestrates slot discovery, constraint resolution, candidate loading,
-// IMealPlanner call (untrusted), ProposalAcl validation, and IPendingProposalStore staging.
+// server-owned selection, ProposalAcl validation, and IPendingProposalStore staging.
 // AcceptProposalService handles user acceptance/rejection of staged proposals.
 // IPendingProposalStore is keyed by {householdId}_{weekStart}_{sessionId} (session must be wired above).
 builder.Services.AddScoped<GeneratePlanService>();
@@ -604,13 +604,6 @@ builder.Services.AddScoped<IPendingProposalStore, DistributedCachePendingProposa
 builder.Services.AddScoped<IHouseholdPlanningSettingsRepository, HouseholdPlanningSettingsRepository>();
 builder.Services.AddScoped<IWeekPlanningOverrideRepository, WeekPlanningOverrideRepository>();
 builder.Services.AddScoped<SetPlanningSettingsService>();
-
-// IMealPlanner: FakeMealPlanner for test/no-key, real AI otherwise.
-if (builder.Configuration.GetValue<bool>($"{MealPlanningAiOptions.SectionName}:UseFakePlanner")
-    || string.IsNullOrWhiteSpace(builder.Configuration[$"{AiOptions.SectionName}:ApiKey"]))
-    builder.Services.AddScoped<IMealPlanner, FakeMealPlanner>();
-else
-    builder.Services.AddScoped<IMealPlanner, MealPlannerAiService>();
 
 // Shopping ACL adapters → Plantry.Composition (AddCrossContextAdapters): IShoppingCatalogReader (→ Catalog,
 // P2-Sc), IShoppingPantryReader (→ Inventory, plantry-juh), IShoppingRecipeReader (→ Recipes, plantry-26g),

@@ -130,7 +130,6 @@ public sealed class ConflictCellFactory : MealPlanFragmentFactory
 
     // Tag reader stays the base default (NullTagReader): both VeganTag and MeatTag have recipes, so
     // no cell is Unfulfillable — only HardConflict — and UnfulfillabilityDetector never needs a name.
-    // Planner stays NullMealPlanner (base default) — never called because all cells conflict.
 }
 
 // ── ConflictCellFixture ───────────────────────────────────────────────────────

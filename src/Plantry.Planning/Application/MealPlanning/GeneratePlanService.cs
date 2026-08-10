@@ -10,15 +10,14 @@ namespace Plantry.Planning.Application;
 /// Orchestrates: load week plan → find empty cells → resolve constraints →
 /// load candidates → detect irreconcilable hard-stance conflicts (C6) →
 /// detect unfulfillable cells (no recipes for a Required tag in the full corpus) →
-/// call IMealPlanner (untrusted) → validate via ProposalAcl → stage in IPendingProposalStore.
-/// The AI output is never persisted directly — it goes to the pending store for user review.
+/// select an exact deterministic week → validate via ProposalAcl → stage in IPendingProposalStore.
+/// Server selection is never persisted directly — it always goes to the pending store for user review.
 /// Irreconcilable cells (C6: no single candidate satisfies every attendee) are skipped from
 /// the planner request, counted as unfilled, and recorded in GeneratePlanResult.Conflicts.
 /// Unfulfillable cells (an attendee's Required tag has no recipes in the full corpus) are
 /// similarly skipped from the planner request and recorded in GeneratePlanResult.UnfulfillableCells.
 /// </summary>
 public sealed class GeneratePlanService(
-    IMealPlanner planner,
     IMealPlanRepository mealPlanRepo,
     IMealSlotConfigRepository slotConfigRepo,
     IUserPreferenceRepository prefsRepo,
@@ -267,6 +266,18 @@ public sealed class GeneratePlanService(
                     .ToList();
             slotCandidates = CandidateRecipeOrdering.Order(slotCandidates, effectiveWeights);
 
+            // Required/Restricted filtering is a hard gate. Preserve the requested cell in the result
+            // accounting even when the 50-candidate snapshot leaves no feasible recipe; it must not
+            // silently disappear before the optimizer or pending-proposal staging.
+            if (!slotCandidates.Any(candidate =>
+                    !candidate.TagIds.Any(constraints.RestrictedTagIds.Contains)
+                    && constraints.AttendeeStances.All(attendee =>
+                        attendee.RequiredTagIds.All(candidate.TagIds.Contains))))
+            {
+                unfilledCount++;
+                continue;
+            }
+
             contexts.Add(new PlannerMealSlotContext(
                 Date: date,
                 MealSlotId: slot.Id,
@@ -276,10 +287,10 @@ public sealed class GeneratePlanService(
                 CandidateRecipes: slotCandidates));
         }
 
-        // 8. Invoke IMealPlanner (UNTRUSTED — output always goes through ACL)
-        var rawProposals = contexts.Count > 0
-            ? await planner.ProposeWeekAsync(contexts, alreadyPlanned, recentHistory, effectiveWeights, ct)
-            : new List<ProposedMeal>();
+        // 8. Server-owned exact week selection. Recipe identity and objective evidence never leave this
+        //    boundary for an external planner, so model latency/cost cannot affect plan selection.
+        var rawProposals = DeterministicWeekMealOptimizer.Select(
+            contexts, alreadyPlanned, recentHistory, effectiveWeights, ct);
 
         // 9. Validate each proposal through ProposalAcl
         var validatedProposals = new List<ProposedMeal>();
@@ -292,7 +303,7 @@ public sealed class GeneratePlanService(
             var cellKey = CellKey(raw.Date, raw.MealSlotId);
             if (!contextLookup.TryGetValue(cellKey, out var ctx))
             {
-                // AI proposed a cell we didn't ask about — discard
+            // A proposal outside the requested generation scope is discarded.
                 unfilledCount++;
                 continue;
             }
@@ -304,7 +315,7 @@ public sealed class GeneratePlanService(
                 unfilledCount++;
         }
 
-        // Count cells that got no proposal at all
+        // Count cells that had no server-owned feasible proposal at all.
         var proposedCellKeys = rawProposals.Select(p => CellKey(p.Date, p.MealSlotId)).ToHashSet();
         unfilledCount += contexts.Count(c => !proposedCellKeys.Contains(CellKey(c.Date, c.MealSlotId)));
 
@@ -377,7 +388,14 @@ public sealed class GeneratePlanService(
             if (dishNames.Count == 0) continue; // every dish unresolvable — nothing to tell the AI
 
             var slotLabel = slotLabels.GetValueOrDefault(meal.MealSlotId, meal.MealSlotId.Value.ToString());
-            summaries.Add(new PlannedMealSummary(meal.Date, slotLabel, dishNames));
+            var recipeChoices = meal.PlannedDishes
+                .Where(d => d.RecipeId.HasValue)
+                .Select(d => recipeNames.GetValueOrDefault(d.RecipeId!.Value))
+                .Where(recipe => recipe is not null)
+                .Select(recipe => new PlannedRecipeSummary(recipe!.RecipeId, recipe.DiversityProfile))
+                .ToList();
+
+            summaries.Add(new PlannedMealSummary(meal.Date, slotLabel, dishNames, recipeChoices));
         }
 
         return summaries;
@@ -408,6 +426,18 @@ public sealed class GeneratePlanService(
             evidenceClaims.Add("complete cost evidence is available");
         if (selectedCandidates.Any(c => c.HasContributingExpiringStock == true))
             evidenceClaims.Add("some stock is due to expire soon");
+
+        var repetitions = validated.Dishes
+            .Select(d => d.ScoreBreakdown)
+            .Where(score => score is not null)
+            .SelectMany(score => score!.VarietyContributions)
+            .Where(contribution => contribution.PriorUse > 0m)
+            .Select(contribution => contribution.Facet)
+            .Distinct()
+            .OrderBy(facet => facet)
+            .ToList();
+        if (repetitions.Count > 0)
+            evidenceClaims.Add($"a repeat in {string.Join(", ", repetitions)} remains the best feasible weighted choice");
 
         var rationale = evidenceClaims.Count == 0
             ? "Selected recipes satisfy the slot's hard constraints; no additional cost or waste benefit is claimed without supporting evidence."

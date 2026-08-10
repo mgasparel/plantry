@@ -125,19 +125,6 @@ internal sealed class FakeProductReader(IReadOnlyList<MealPlanProductReadModel> 
     }
 }
 
-// ── P3-6a null stubs (no-op implementations for WAF factories that don't test AI generation) ────
-
-internal sealed class NullMealPlanner : IMealPlanner
-{
-    public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
-        IReadOnlyList<PlannerMealSlotContext> slotsContext,
-        IReadOnlyList<PlannedMealSummary> alreadyPlanned,
-        RecentMealHistorySnapshot recentHistory,
-        PlanningWeights weights,
-        CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
-}
-
 internal sealed class NullPendingProposalStore : IPendingProposalStore
 {
     public Task<IReadOnlyList<ProposedMeal>> GetAsync(string storeKey, CancellationToken ct = default)

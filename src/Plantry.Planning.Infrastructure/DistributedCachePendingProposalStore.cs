@@ -80,16 +80,98 @@ public class DistributedCachePendingProposalStore(IDistributedCache cache) : IPe
             m.Date.ToString("yyyy-MM-dd"),
             m.MealSlotId.Value.ToString("N"),
             [..m.EffectiveAttendees],
-            m.Dishes.Select(d => new ProposedDishDto(d.RecipeId, d.Servings, d.Ordinal)).ToList(),
+            m.Dishes.Select(d => new ProposedDishDto(
+                d.RecipeId, d.Servings, d.Ordinal, RecipeScoreBreakdownDto.FromDomain(d.ScoreBreakdown))).ToList(),
             m.Reasoning);
 
         public ProposedMeal ToDomain() => new(
             DateOnly.Parse(Date),
             Domain.MealSlotId.From(Guid.Parse(MealSlotId)),
             EffectiveAttendees,
-            Dishes.Select(d => new ProposedDish(d.RecipeId, d.Servings, d.Ordinal)).ToList(),
+            Dishes.Select(d => new ProposedDish(d.RecipeId, d.Servings, d.Ordinal, d.ScoreBreakdown?.ToDomain())).ToList(),
             Reasoning);
     }
 
-    private sealed record ProposedDishDto(Guid RecipeId, int Servings, int Ordinal);
+    private sealed record ProposedDishDto(
+        Guid RecipeId,
+        int Servings,
+        int Ordinal,
+        RecipeScoreBreakdownDto? ScoreBreakdown);
+
+    /// <summary>
+    /// Explicit cache shape for server-owned objective evidence. Keeping it alongside the pending proposal
+    /// makes review/reload faithful while still accepting older pending entries that have no breakdown.
+    /// </summary>
+    private sealed record RecipeScoreBreakdownDto(
+        Guid RecipeId,
+        decimal WeightedScore,
+        decimal WasteScore,
+        decimal CostScore,
+        decimal VarietyScore,
+        decimal WasteContribution,
+        decimal CostContribution,
+        decimal VarietyContribution,
+        List<RecipeFacetContributionDto> VarietyContributions,
+        RecipeTieBreakSignalsDto TieBreakSignals)
+    {
+        public static RecipeScoreBreakdownDto? FromDomain(RecipeScoreBreakdown? score) => score is null
+            ? null
+            : new RecipeScoreBreakdownDto(
+                score.RecipeId,
+                score.WeightedScore,
+                score.WasteScore,
+                score.CostScore,
+                score.VarietyScore,
+                score.WasteContribution,
+                score.CostContribution,
+                score.VarietyContribution,
+                score.VarietyContributions.Select(RecipeFacetContributionDto.FromDomain).ToList(),
+                RecipeTieBreakSignalsDto.FromDomain(score.TieBreakSignals));
+
+        public RecipeScoreBreakdown ToDomain() => new(
+            RecipeId,
+            WeightedScore,
+            WasteScore,
+            CostScore,
+            VarietyScore,
+            WasteContribution,
+            CostContribution,
+            VarietyContribution,
+            VarietyContributions.Select(contribution => contribution.ToDomain()).ToList(),
+            TieBreakSignals.ToDomain());
+    }
+
+    private sealed record RecipeFacetContributionDto(
+        RecipeDiversityFacet Facet,
+        decimal MarginalScore,
+        decimal PriorUse,
+        RecipeDiversityConfidence Confidence,
+        List<string> MatchedValues)
+    {
+        public static RecipeFacetContributionDto FromDomain(RecipeFacetContribution contribution) => new(
+            contribution.Facet,
+            contribution.MarginalScore,
+            contribution.PriorUse,
+            contribution.Confidence,
+            [..contribution.MatchedValues]);
+
+        public RecipeFacetContribution ToDomain() => new(
+            Facet, MarginalScore, PriorUse, Confidence, MatchedValues);
+    }
+
+    private sealed record RecipeTieBreakSignalsDto(
+        decimal PreferredTagSignal,
+        decimal RatingSignal,
+        int CostEvidenceRank,
+        int WasteEvidenceRank)
+    {
+        public static RecipeTieBreakSignalsDto FromDomain(RecipeTieBreakSignals signals) => new(
+            signals.PreferredTagSignal,
+            signals.RatingSignal,
+            signals.CostEvidenceRank,
+            signals.WasteEvidenceRank);
+
+        public RecipeTieBreakSignals ToDomain() => new(
+            PreferredTagSignal, RatingSignal, CostEvidenceRank, WasteEvidenceRank);
+    }
 }

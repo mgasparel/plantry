@@ -37,8 +37,7 @@
             **/Recipes/DisabledDietTagContradictionChecker.cs,
             **/Recipes/DisabledRecipeTagSuggester.cs,
             **/FlippOptions.cs,
-            **/IntakeAiOptions.cs,
-            **/MealPlanningAiOptions.cs
+            **/IntakeAiOptions.cs
           </ExcludeByFile>
         </Configuration>
       </DataCollector>

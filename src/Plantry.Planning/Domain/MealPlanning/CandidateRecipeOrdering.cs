@@ -1,9 +1,9 @@
 namespace Plantry.Planning.Domain;
 
 /// <summary>
-/// Deterministic pre-ordering for the bounded candidate snapshot sent to the AI planner. Hard
-/// constraints and ACL validation remain separate; this is only a soft evidence signal that makes the
-/// configured Cost/Waste weights observable even when an AI implementation preserves input order.
+/// Deterministic pre-ordering for the bounded candidate snapshot. Hard constraints and ACL validation
+/// remain separate; this is a soft evidence signal that makes the configured Cost/Waste weights
+/// observable in the candidate list order.
 /// </summary>
 public static class CandidateRecipeOrdering
 {

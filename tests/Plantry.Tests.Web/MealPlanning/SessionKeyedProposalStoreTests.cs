@@ -148,8 +148,12 @@ public sealed class SessionKeyedProposalStoreTests(SessionKeyedStoreFactory fact
         // The pending-bar should have 0 proposals; the meal-card should appear.
         var afterAcceptHtml = await (await client.GetAsync($"/MealPlan?week={week}")).Content.ReadAsStringAsync();
 
-        // No more ghost cells — the proposal was accepted.
-        Assert.DoesNotContain("gh-tag", afterAcceptHtml);
+        // The accepted cell is no longer a ghost. Week generation now deliberately stages the complete
+        // feasible scope, so unrelated pending cells may still be ghosts and must not invalidate this
+        // per-cell review assertion.
+        Assert.DoesNotMatch(
+            $"id=\"cell-{slot.Id.Value:N}-{date}\"\\s+class=\"mcell ghost\"",
+            afterAcceptHtml);
 
         // Accepted meal renders as a real meal-card.
         Assert.Contains("meal-card", afterAcceptHtml);
@@ -191,6 +195,8 @@ public sealed class SessionKeyedProposalStoreTests(SessionKeyedStoreFactory fact
         var beforeHtml = await (await client.GetAsync($"/MealPlan?week={week}")).Content.ReadAsStringAsync();
         Assert.Contains(SessionKeyedTwoProposalFixture.RecipeDay0Name, beforeHtml);
         Assert.Contains(SessionKeyedTwoProposalFixture.RecipeDay1Name, beforeHtml);
+        var pendingBeforeAccept = System.Text.RegularExpressions.Regex.Matches(beforeHtml, "class=\"gh-tag\"").Count;
+        Assert.True(pendingBeforeAccept >= 2);
 
         // Get fresh token.
         var acceptToken = ExtractAntiforgeryToken(beforeHtml);
@@ -212,9 +218,11 @@ public sealed class SessionKeyedProposalStoreTests(SessionKeyedStoreFactory fact
         // Day1's ghost recipe must still appear.
         Assert.Contains(SessionKeyedTwoProposalFixture.RecipeDay1Name, afterHtml);
 
-        // Day0 is now a real meal-card (no longer a ghost cell with that recipe as a ghost).
-        // We verify the pending-bar still shows exactly 1 suggestion.
-        Assert.Contains("1 suggestion", afterHtml);
+        // Day0 is now a real meal-card and every other staged proposal survives. This deliberately
+        // asserts the review-store contract without assuming a partial (AI-selected) generation scope.
+        Assert.Equal(
+            pendingBeforeAccept - 1,
+            System.Text.RegularExpressions.Regex.Matches(afterHtml, "class=\"gh-tag\"").Count);
     }
 }
 
@@ -247,86 +255,6 @@ internal static class SessionKeyedTwoProposalFixture
 
     public const string RecipeDay0Name = "Session Day0 Recipe";
     public const string RecipeDay1Name = "Session Day1 Survivor Recipe";
-}
-
-// ── Planners for the tests ────────────────────────────────────────────────────
-
-/// <summary>
-/// Planner that returns one proposal on the first active slot of <see cref="SessionKeyedStoreFixture.WeekStart"/>.
-/// Used by <see cref="SessionKeyedStoreFactory"/> to stage a single proposal via POST Generate.
-/// </summary>
-internal sealed class SingleProposalPlanner : IMealPlanner
-{
-    public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
-        IReadOnlyList<PlannerMealSlotContext> slots,
-        IReadOnlyList<PlannedMealSummary> alreadyPlanned,
-        RecentMealHistorySnapshot recentHistory,
-        PlanningWeights weights,
-        CancellationToken ct = default)
-    {
-        var slot = WeekGridFixture.SharedConfig.Slots
-            .Where(s => s.IsActive)
-            .OrderBy(s => s.Ordinal)
-            .First();
-
-        // Propose only for the first slot on WeekStart — a single ghost cell.
-        var ctx = slots.FirstOrDefault(s => s.Date == SessionKeyedStoreFixture.WeekStart && s.MealSlotId == slot.Id);
-        if (ctx is null)
-            return Task.FromResult<IReadOnlyList<ProposedMeal>>([]);
-
-        var proposals = new List<ProposedMeal>
-        {
-            new(
-                Date: ctx.Date,
-                MealSlotId: ctx.MealSlotId,
-                EffectiveAttendees: ctx.EffectiveAttendees,
-                Dishes: [new ProposedDish(SessionKeyedStoreFixture.RecipeId, 4, 1)],
-                Reasoning: "session-key-test")
-        };
-        return Task.FromResult<IReadOnlyList<ProposedMeal>>(proposals);
-    }
-}
-
-/// <summary>
-/// Planner that returns two proposals — one on Day0 (Monday) and one on Day1 (Tuesday) —
-/// both on the first active slot. Used by <see cref="SessionKeyedTwoProposalFactory"/>
-/// to stage two proposals via POST Generate.
-/// </summary>
-internal sealed class TwoProposalPlanner : IMealPlanner
-{
-    public Task<IReadOnlyList<ProposedMeal>> ProposeWeekAsync(
-        IReadOnlyList<PlannerMealSlotContext> slots,
-        IReadOnlyList<PlannedMealSummary> alreadyPlanned,
-        RecentMealHistorySnapshot recentHistory,
-        PlanningWeights weights,
-        CancellationToken ct = default)
-    {
-        var slot = WeekGridFixture.SharedConfig.Slots
-            .Where(s => s.IsActive)
-            .OrderBy(s => s.Ordinal)
-            .First();
-
-        var proposals = new List<ProposedMeal>();
-        foreach (var ctx in slots)
-        {
-            if (ctx.MealSlotId != slot.Id) continue;
-            if (ctx.Date == SessionKeyedTwoProposalFixture.Day0)
-            {
-                proposals.Add(new ProposedMeal(
-                    ctx.Date, ctx.MealSlotId, ctx.EffectiveAttendees,
-                    [new ProposedDish(SessionKeyedTwoProposalFixture.RecipeDay0Id, 4, 1)],
-                    "day0"));
-            }
-            else if (ctx.Date == SessionKeyedTwoProposalFixture.Day1)
-            {
-                proposals.Add(new ProposedMeal(
-                    ctx.Date, ctx.MealSlotId, ctx.EffectiveAttendees,
-                    [new ProposedDish(SessionKeyedTwoProposalFixture.RecipeDay1Id, 4, 1)],
-                    "day1"));
-            }
-        }
-        return Task.FromResult<IReadOnlyList<ProposedMeal>>(proposals);
-    }
 }
 
 // ── Recipe readers ────────────────────────────────────────────────────────────
@@ -394,8 +322,7 @@ internal sealed class SessionKeyedTwoProposalRecipeReader : IRecipeReadModel
 /// WAF factory for session-key stability tests.
 /// Critical difference from all other planner WAF factories: registers the REAL
 /// <see cref="DistributedCachePendingProposalStore"/> backed by an in-memory distributed cache,
-/// so the actual session-keyed read/write path is exercised. The planner is a controllable fake
-/// that returns a single known proposal.
+/// so the actual session-keyed read/write path is exercised.
 /// </summary>
 public sealed class SessionKeyedStoreFactory : MealPlanFragmentFactory
 {
@@ -406,9 +333,6 @@ public sealed class SessionKeyedStoreFactory : MealPlanFragmentFactory
 
     protected override IMealPlanRepository MealPlanRepo => _repo;
     protected override IRecipeReadModel RecipeReadModel => new SessionKeyedRecipeReader();
-
-    // The single-proposal planner gives a controlled, deterministic result.
-    protected override IMealPlanner Planner => new SingleProposalPlanner();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -432,8 +356,8 @@ public sealed class SessionKeyedStoreFactory : MealPlanFragmentFactory
 
 /// <summary>
 /// Variant factory for the two-proposal "other proposal survives" test.
-/// Same as <see cref="SessionKeyedStoreFactory"/> but wires <see cref="TwoProposalPlanner"/>
-/// and <see cref="SessionKeyedTwoProposalRecipeReader"/>.
+/// Same as <see cref="SessionKeyedStoreFactory"/> but uses
+/// <see cref="SessionKeyedTwoProposalRecipeReader"/>.
 /// </summary>
 public sealed class SessionKeyedTwoProposalFactory : MealPlanFragmentFactory
 {
@@ -443,7 +367,6 @@ public sealed class SessionKeyedTwoProposalFactory : MealPlanFragmentFactory
 
     protected override IMealPlanRepository MealPlanRepo => _repo;
     protected override IRecipeReadModel RecipeReadModel => new SessionKeyedTwoProposalRecipeReader();
-    protected override IMealPlanner Planner => new TwoProposalPlanner();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

@@ -6,8 +6,8 @@ namespace Plantry.Ai.Infrastructure;
 
 /// <summary>
 /// Shared token-usage recording for every AI adapter (plantry-df6p). Was previously copy-pasted as a
-/// private <c>RecordTokenUsage(Activity?, ChatTokenUsage?)</c> in all six adapters
-/// (<c>GeminiReceiptParser</c>, <c>DealMatcher</c>, <c>MealPlannerAiService</c>,
+/// private <c>RecordTokenUsage(Activity?, ChatTokenUsage?)</c> in the AI adapters
+/// (<c>GeminiReceiptParser</c>, <c>DealMatcher</c>,
 /// <c>IngredientConversionInferrer</c>, <c>RecipeTagSuggester</c>, <c>DietTagContradictionChecker</c>) —
 /// lifted here so the span-tag shape and the metric can never drift between adapters, and so any future
 /// adapter gets both for free by calling this one method.

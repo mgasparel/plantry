@@ -90,9 +90,6 @@ public class MealPlanFragmentFactory : WebApplicationFactory<Program>
     /// </summary>
     protected virtual IMealPlanEatWriter? EatWriter => null;
 
-    /// <summary>P3-6a AI planner.</summary>
-    protected virtual IMealPlanner Planner => new NullMealPlanner();
-
     /// <summary>P3-6a pending-proposal store.</summary>
     protected virtual IPendingProposalStore ProposalStore => new NullPendingProposalStore();
 
@@ -187,9 +184,7 @@ public class MealPlanFragmentFactory : WebApplicationFactory<Program>
             services.RemoveAll<ShopForWeekService>();
             services.AddScoped<ShopForWeekService>();
 
-            // P3-6a: AI planner, proposal store, and application services.
-            services.RemoveAll<IMealPlanner>();
-            services.AddSingleton(Planner);
+            // P3-6a: proposal store and application services.
             services.RemoveAll<IPendingProposalStore>();
             services.AddSingleton(ProposalStore);
             services.RemoveAll<IRecentMealHistoryReader>();

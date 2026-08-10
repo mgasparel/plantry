@@ -176,7 +176,7 @@ public sealed class TuneAndRegenerateJourneyTests(AppHostFixture appHost) : IAsy
 
             await RegisterAndGoToMealPlan(page, uniqueEmail, password);
 
-            // Seed a recipe so FakeMealPlanner has a candidate
+            // Seed a recipe so server-owned selection has a candidate.
             var recipeId = await CreateMinimalRecipeAsync(page);
             if (recipeId is null) return;
 
@@ -204,7 +204,7 @@ public sealed class TuneAndRegenerateJourneyTests(AppHostFixture appHost) : IAsy
             var pendingBar = page.Locator(".pending-bar");
             if (!await pendingBar.IsVisibleAsync())
             {
-                // No proposals (FakeMealPlanner may not have produced any) — skip gracefully
+                // No proposals were feasible — skip gracefully.
                 return;
             }
 

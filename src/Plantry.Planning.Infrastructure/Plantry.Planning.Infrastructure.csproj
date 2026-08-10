@@ -27,9 +27,4 @@
     <ProjectReference Include="..\Plantry.Ai.Infrastructure\Plantry.Ai.Infrastructure.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Exposes MealPlannerAiService.MapResponse for L1 fixture-based tests (no live API). -->
-    <InternalsVisibleTo Include="Plantry.Tests.Unit" />
-  </ItemGroup>
-
 </Project>
