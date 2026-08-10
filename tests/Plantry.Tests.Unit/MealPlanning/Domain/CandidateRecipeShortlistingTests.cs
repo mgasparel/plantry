@@ -44,12 +44,14 @@ public sealed class CandidateRecipeShortlistingTests
     public void Hard_Eligible_Corpus_Does_Not_Crowd_Out_All_Confirmed_Facets()
     {
         var candidates = Enumerable.Range(0, 220).Select(Candidate).ToList();
+        var required = Guid.NewGuid();
+        candidates[0] = candidates[0] with { TagIds = [required] };
         candidates.AddRange([
             FacetCandidate(1000, ProteinB, CuisineB, FlavorB, DietB),
             FacetCandidate(1001, ProteinA, CuisineA, FlavorA, DietA)]);
-        var required = Guid.NewGuid();
         var constraints = new GenerationConstraints([], [new AttendeeHardStances(Guid.NewGuid(), [required], [])], new Dictionary<Guid, float>());
         var result = CandidateRecipeShortlisting.Select(candidates, constraints, DefaultWeights);
+        Assert.Contains(result, c => c.RecipeId == candidates[0].RecipeId);
         Assert.Contains(result, c => c.DiversityProfile?.Protein.Any(v => v.TagId == ProteinB) == true);
         Assert.Contains(result, c => c.DiversityProfile?.Cuisine.Any(v => v.TagId == CuisineB) == true);
         Assert.Contains(result, c => c.DiversityProfile?.Flavor.Any(v => v.TagId == FlavorB) == true);
