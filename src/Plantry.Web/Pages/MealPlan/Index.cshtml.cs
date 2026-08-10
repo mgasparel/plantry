@@ -260,7 +260,7 @@ public sealed class IndexModel(
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
         var weekStart = week is not null && DateOnly.TryParse(week, out var parsed)
             ? DomainMealPlan.NormalizeToMonday(parsed)
-            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(clock.UtcNow.UtcDateTime));
+            : DefaultWeekStart();
 
         // Ensure session is started and cookie issued so Session.Id is stable across requests.
         await EnsureSessionStartedAsync(ct);
@@ -281,7 +281,7 @@ public sealed class IndexModel(
         DateOnly? scopeDate = null;
         if (scope == "today")
         {
-            scopeDate = (week is not null && DateOnly.TryParse(week, out var sd)) ? sd : DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+            scopeDate = (week is not null && DateOnly.TryParse(week, out var sd)) ? sd : LocalToday();
         }
 
         var storeKey = BuildStoreKey(householdId);
@@ -373,7 +373,7 @@ public sealed class IndexModel(
         // Normalise week so the override targets the correct Monday.
         var weekStart = week is not null && DateOnly.TryParse(week, out var parsed)
             ? DomainMealPlan.NormalizeToMonday(parsed)
-            : DomainMealPlan.NormalizeToMonday(DateOnly.FromDateTime(clock.UtcNow.UtcDateTime));
+            : DefaultWeekStart();
 
         // Resolve the submitted budget: positive value → Money stamped with the household's display
         // currency (plantry-2x6e.1); zero or null → clear.
@@ -732,8 +732,7 @@ public sealed class IndexModel(
     public async Task<IActionResult> OnPostShopAsync(CancellationToken ct = default)
     {
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
-        var weekStart = DomainMealPlan.NormalizeToMonday(today);
+        var weekStart = DefaultWeekStart();
 
         // Allow the week query param to be forwarded so "shop for another week" works too.
         // The week comes from the form's hidden field emitted by the grid.
@@ -775,7 +774,7 @@ public sealed class IndexModel(
             var meal = plan?.PlannedMeals.FirstOrDefault(m => m.Id.Value == mealId.Value);
             if (meal is not null)
             {
-                var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+                var today = LocalToday();
                 var dishes = new List<EditorDishVm>();
 
                 // Batch-resolve product dish names/unit codes up front — never per-dish inside the
@@ -895,7 +894,7 @@ public sealed class IndexModel(
             initialRollupHtml = await RenderPartialToStringAsync("_EditorRollup", rollupVm, ct);
         }
 
-        var today2 = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var today2 = LocalToday();
         var dow = parsedDate.DayOfWeek.ToString()[..3];
         var monthDay = parsedDate.ToString("MMM d");
 
@@ -1077,7 +1076,7 @@ public sealed class IndexModel(
         // Build a transient in-memory meal for rollup projection only.
         // No SaveChangesAsync → no DB write.
         var householdId = HouseholdId.From(tenant.HouseholdId ?? Guid.Empty);
-        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var today = LocalToday();
         // Use today as date for the rollup (not date-specific since we just need fulfillment)
         var rollupDate = today;
         var rollupSid = MealSlotId.From(Guid.NewGuid()); // ephemeral slot id — rollup only
@@ -1110,7 +1109,7 @@ public sealed class IndexModel(
     /// </summary>
     public async Task<IActionResult> OnGetSearchJsonAsync(string q, CancellationToken ct = default)
     {
-        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var today = LocalToday();
         var recipes = await recipeReader.SearchAsync(q, 6, ct);
 
         var hits = new List<object>(recipes.Count);
@@ -1160,7 +1159,7 @@ public sealed class IndexModel(
 
     private async Task LoadWeekAsync(string? weekParam, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var today = LocalToday();
         ThisWeekStart = DomainMealPlan.NormalizeToMonday(today);
 
         WeekStart = weekParam is not null && DateOnly.TryParse(weekParam, out var parsed)
@@ -1671,7 +1670,7 @@ public sealed class IndexModel(
             WeekStart,
             clock);
 
-        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var today = LocalToday();
         var insights = await planInsightsService.InspectAsync(
             effectivePlan,
             allCells,
@@ -1739,7 +1738,7 @@ public sealed class IndexModel(
         GhostEnrichments = [];
         if (PendingProposals.Count == 0) return;
 
-        var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var today = LocalToday();
         foreach (var (key, proposal) in PendingProposals)
         {
             var enrichment = await BuildGhostEnrichmentFromBagAsync(enricher, proposal, today, ct);
@@ -1824,7 +1823,7 @@ public sealed class IndexModel(
             var tempMeal = tempPlan.PlannedMeals.FirstOrDefault(m => m.Date == pending.Date && m.MealSlotId == pending.MealSlotId);
             if (tempMeal is null) return null;
 
-            var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+            var today = LocalToday();
             var fulfillment = await fulfillmentService.RollUpMealAsync(tempMeal, today, ct);
             var mealCost = await costingService.RollUpMealAsync(tempMeal, ct);
             return new MealFulfillmentVm(
@@ -2053,6 +2052,10 @@ public sealed class IndexModel(
         var user = await userManager.GetUserAsync(User);
         return user is not null ? Guid.Parse(user.Id) : Guid.Empty;
     }
+
+    private DateOnly LocalToday() => clock.ToLocalDate(clock.UtcNow);
+
+    private DateOnly DefaultWeekStart() => DomainMealPlan.NormalizeToMonday(LocalToday());
 
     public static string CellKey(DateOnly date, MealSlotId slotId) => $"{date:yyyy-MM-dd}_{slotId.Value:N}";
 

@@ -4,9 +4,10 @@ namespace Plantry.Tests.Web.Infrastructure;
 
 /// <summary>A pinned IClock double so a WAF-hosted SUT and its fixture resolve the identical instant,
 /// eliminating the midnight-tick race that occurs when both independently read the real system clock.</summary>
-internal sealed class FixedClock(DateTimeOffset now) : IClock
+internal sealed class FixedClock(DateTimeOffset now, TimeZoneInfo? zone = null) : IClock
 {
     public DateTimeOffset UtcNow { get; } = now;
+    public TimeZoneInfo Zone { get; } = zone ?? TimeZoneInfo.Utc;
 }
 
 /// <summary>The single fixed instant every MealPlanning fragment-test WAF factory and fixture pins its
