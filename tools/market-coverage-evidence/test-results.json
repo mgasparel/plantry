@@ -2,7 +2,8 @@
   "Unit": {"executed": 2889, "passed": 2889, "skipped": 0},
   "Integration": {"executed": 634, "passed": 634, "skipped": 0},
   "E2E": {"executed": 92, "passed": 92, "skipped": 0},
-  "Architecture": {"executed": 47, "passed": 47, "skipped": 0},
+  "Architecture": {"executed": 47, "passed": 47, "skipped": 0},`r`n  "Web": {"executed": 1441, "passed": 1441, "skipped": 0},
   "islandJs": {"executed": 298, "passed": 298, "skipped": 0},
   "source": "Synchronous full solution pre-flight run"
 }
+
