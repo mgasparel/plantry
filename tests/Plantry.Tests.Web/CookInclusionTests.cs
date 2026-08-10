@@ -1,4 +1,5 @@
 using System.Net;
+using AngleSharp.Html.Parser;
 using Plantry.Tests.Web.Infrastructure;
 
 namespace Plantry.Tests.Web;
@@ -92,8 +93,12 @@ public sealed class CookInclusionTests : IDisposable
         Assert.Contains("Choose variant", html, StringComparison.Ordinal);
         Assert.Contains("Oat Milk", html, StringComparison.Ordinal);
         Assert.Contains("Soy Milk", html, StringComparison.Ordinal);
-        Assert.Contains($"name=\"InclusionPickerSelections[{_factory.LineKeyFor(CookInclusionFixture.MilkParentId)}]\"",
-            html, StringComparison.Ordinal);
+        var inclusionName = $"name=\"InclusionPickerSelections[{_factory.LineKeyFor(CookInclusionFixture.MilkParentId)}]\"";
+        Assert.Contains(inclusionName, html, StringComparison.Ordinal);
+        var parser = new HtmlParser();
+        var doc = parser.ParseDocument(html);
+        var inclusionInput = doc.QuerySelector($"input[form='cook-confirm-form'][name='{inclusionName[6..^1]}']");
+        Assert.NotNull(inclusionInput);
     }
 
     /// <summary>

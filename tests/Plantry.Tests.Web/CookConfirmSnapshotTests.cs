@@ -95,6 +95,22 @@ public sealed class CookConfirmSnapshotTests(CookConfirmFragmentFactory factory)
     }
 
     [Fact]
+    public async Task Cook_variant_picker_hidden_inputs_belong_to_confirm_form()
+    {
+        var doc = Parser.ParseDocument(await GetCookPageAsync());
+        var form = doc.QuerySelector("form#cook-confirm-form");
+        Assert.NotNull(form);
+
+        var ingredientId = doc.QuerySelector("input[name^=\"PickerSelections[\"][name$=\"].IngredientId\"]");
+        var variantId = doc.QuerySelector("input[name^=\"PickerSelections[\"][name$=\"].VariantId\"]");
+        Assert.NotNull(ingredientId);
+        Assert.NotNull(variantId);
+        Assert.Equal("cook-confirm-form", ingredientId!.GetAttribute("form"));
+        Assert.Equal("cook-confirm-form", variantId!.GetAttribute("form"));
+    }
+
+
+    [Fact]
     public async Task Cook_variant_picker_fresh_garlic_auto_selected()
     {
         var html = await GetCookPageAsync();

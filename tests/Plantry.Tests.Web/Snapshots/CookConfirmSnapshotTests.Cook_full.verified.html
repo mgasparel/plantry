@@ -189,8 +189,8 @@
 											<span class="rk cook-picker__incompat">unit mismatch</span>
 										</button>
 									</div>
-									<input type="hidden" name="PickerSelections[Guid_3].IngredientId" value="Guid_3">
-									<input type="hidden" name="PickerSelections[Guid_3].VariantId" :value="pickerVariant('Guid_3') ?? 'Guid_4'">
+									<input type="hidden" form="cook-confirm-form" name="PickerSelections[Guid_3].IngredientId" value="Guid_3">
+									<input type="hidden" form="cook-confirm-form" name="PickerSelections[Guid_3].VariantId" :value="pickerVariant('Guid_3') ?? 'Guid_4'">
 								</div>
 							</div>
 							<div class="cook-ing-row__actions">
@@ -263,7 +263,7 @@
 						</div>
 					</div>
 					<div class="card__body">
-						<form method="post" action="/Recipes/Guid_5/Cook?Servings=4">
+						<form id="cook-confirm-form" method="post" action="/Recipes/Guid_5/Cook?Servings=4">
 							<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
 							<template x-for="ingId in directSkips" :key="ingId"><input type="hidden" name="SkippedIngredientIds" :value="ingId"></template>
 							<template x-for="m in directModifiedQuantities" :key="m.id"><input type="hidden" :name="`QuantityOverrides[${m.id}]`" :value="m.qty"></template>

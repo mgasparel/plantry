@@ -289,15 +289,18 @@ else
                     @if (!line.IsInclusion)
                     {
                         <input type="hidden"
+                               form="cook-confirm-form"
                                name="PickerSelections[@line.IngredientId].IngredientId"
                                value="@line.IngredientId" />
                         <input type="hidden"
+                               form="cook-confirm-form"
                                name="PickerSelections[@line.IngredientId].VariantId"
                                :value="pickerVariant('@key') ?? '@defaultVariant'" />
                     }
                     else
                     {
                         <input type="hidden"
+                               form="cook-confirm-form"
                                name="InclusionPickerSelections[@key]"
                                :value="pickerVariant('@key') ?? '@defaultVariant'" />
                     }
