@@ -26,7 +26,19 @@ public static class CandidateRecipeShortlisting
                 selected.Add(candidate);
         }
 
-        // Reserve confirmed facet representatives first. This guarantees coverage even when a large
+        // Reserve only the minimum hard-feasibility witness before soft coverage. A restrictive
+        // required stance needs one eligible candidate to remain feasible; reserving the entire
+        // eligible corpus would crowd out confirmed diversity facets.
+        var hasHardConstraint = constraints.RestrictedTagIds.Count > 0 ||
+            constraints.AttendeeStances.Any(a => a.RequiredTagIds.Count > 0);
+        if (hasHardConstraint)
+        {
+            var hardRepresentative = CandidateRecipeOrdering.Order(
+                candidates.Where(IsHardEligible).ToList(), weights).FirstOrDefault();
+            if (hardRepresentative is not null) Add(hardRepresentative);
+        }
+
+        // Reserve confirmed facet representatives next. This guarantees coverage even when a large
         // required-eligible set would otherwise consume the cap.
         foreach (var facet in new[] { RecipeDiversityFacet.Protein, RecipeDiversityFacet.Cuisine,
                                       RecipeDiversityFacet.Flavor, RecipeDiversityFacet.Diet })
@@ -42,13 +54,6 @@ public static class CandidateRecipeShortlisting
                 if (representative is not null) Add(representative);
             }
         }
-
-        // Hard constraints reserve the remaining capacity only when a restrictive stance exists.
-        var hasHardConstraint = constraints.RestrictedTagIds.Count > 0 ||
-            constraints.AttendeeStances.Any(a => a.RequiredTagIds.Count > 0);
-        if (hasHardConstraint)
-            foreach (var candidate in CandidateRecipeOrdering.Order(candidates.Where(IsHardEligible).ToList(), weights))
-                Add(candidate);
 
         foreach (var candidate in CandidateRecipeOrdering.Order(candidates, weights))
             Add(candidate);
