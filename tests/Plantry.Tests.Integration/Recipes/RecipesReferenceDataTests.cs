@@ -21,6 +21,7 @@ namespace Plantry.Tests.Integration.Recipes;
 [Collection(nameof(PostgresCollection))]
 public sealed class RecipesReferenceDataTests(PostgresFixture db) : IAsyncLifetime
 {
+    private static readonly FixedClock Clock = new(new DateOnly(2026, 8, 9));
     private HouseholdId _household;
     private HouseholdId _otherHousehold;
 
@@ -32,7 +33,7 @@ public sealed class RecipesReferenceDataTests(PostgresFixture db) : IAsyncLifeti
 
         // Seed only _household — _otherHousehold is left untouched to prove household scoping.
         await using var seedDb = NewRecipesDb(_household);
-        var seeder = new RecipesReferenceDataSeeder(seedDb, SystemClock.Instance);
+        var seeder = new RecipesReferenceDataSeeder(seedDb, Clock);
         await seeder.SeedAsync(_household);
     }
 
@@ -78,7 +79,7 @@ public sealed class RecipesReferenceDataTests(PostgresFixture db) : IAsyncLifeti
     public async Task Plant_Protein_Rollout_Adds_Only_Missing_Tags_And_Is_Idempotent()
     {
         await db.ResetAsync();
-        var household = Household.Create("Original household", SystemClock.Instance);
+        var household = Household.Create("Original household", Clock);
 
         await using (var identity = new PlantryIdentityDbContext(IdentityOptions()))
         {
@@ -88,14 +89,14 @@ public sealed class RecipesReferenceDataTests(PostgresFixture db) : IAsyncLifeti
 
         List<Tag> originalTags =
         [
-            Tag.Create(household.Id, "Vegetarian", TagCategory.Diet, SystemClock.Instance),
-            Tag.Create(household.Id, "Vegan", TagCategory.Diet, SystemClock.Instance),
-            Tag.Create(household.Id, "Dairy-Free", TagCategory.Diet, SystemClock.Instance),
-            Tag.Create(household.Id, "Gluten-Free", TagCategory.Diet, SystemClock.Instance),
-            Tag.Create(household.Id, "Meat", TagCategory.Protein, SystemClock.Instance),
-            Tag.Create(household.Id, "Poultry", TagCategory.Protein, SystemClock.Instance),
-            Tag.Create(household.Id, "Fish", TagCategory.Protein, SystemClock.Instance),
-            Tag.Create(household.Id, "Spicy", TagCategory.Flavor, SystemClock.Instance),
+            Tag.Create(household.Id, "Vegetarian", TagCategory.Diet, Clock),
+            Tag.Create(household.Id, "Vegan", TagCategory.Diet, Clock),
+            Tag.Create(household.Id, "Dairy-Free", TagCategory.Diet, Clock),
+            Tag.Create(household.Id, "Gluten-Free", TagCategory.Diet, Clock),
+            Tag.Create(household.Id, "Meat", TagCategory.Protein, Clock),
+            Tag.Create(household.Id, "Poultry", TagCategory.Protein, Clock),
+            Tag.Create(household.Id, "Fish", TagCategory.Protein, Clock),
+            Tag.Create(household.Id, "Spicy", TagCategory.Flavor, Clock),
         ];
         await using (var recipes = NewRecipesDb(household.Id))
         {
@@ -141,7 +142,7 @@ public sealed class RecipesReferenceDataTests(PostgresFixture db) : IAsyncLifeti
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddScoped<IClock>(_ => SystemClock.Instance);
+        services.AddScoped<IClock>(_ => Clock);
         services.AddScoped<TenantContext>();
         services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
         services.AddScoped<HouseholdRlsConnectionInterceptor>();
