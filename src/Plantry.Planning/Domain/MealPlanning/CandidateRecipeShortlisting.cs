@@ -40,16 +40,26 @@ public static class CandidateRecipeShortlisting
 
         // Reserve confirmed facet representatives next. This guarantees coverage even when a large
         // required-eligible set would otherwise consume the cap.
-        foreach (var facet in new[] { RecipeDiversityFacet.Protein, RecipeDiversityFacet.Cuisine,
-                                      RecipeDiversityFacet.Flavor, RecipeDiversityFacet.Diet })
-        {
-            var values = candidates.SelectMany(c => c.DiversityProfile?.Values(facet) ?? [])
-                .Where(v => v.Source == RecipeDiversityEvidenceSource.ConfirmedTag)
-                .GroupBy(v => v.Key, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal);
-            foreach (var value in values)
+        var facetValues = new[] { RecipeDiversityFacet.Protein, RecipeDiversityFacet.Cuisine,
+                                  RecipeDiversityFacet.Flavor, RecipeDiversityFacet.Diet }
+            .Select(facet => new
             {
+                Facet = facet,
+                Values = candidates.SelectMany(c => c.DiversityProfile?.Values(facet) ?? [])
+                    .Where(v => v.Source == RecipeDiversityEvidenceSource.ConfirmedTag)
+                    .GroupBy(v => v.Key, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal)
+                    .Select(g => g.Key).ToList()
+            }).ToList();
+        // Round-robin categories so a broad facet cannot consume the entire 200-slot budget.
+        for (var index = 0; facetValues.Any(x => index < x.Values.Count); index++)
+        {
+            foreach (var group in facetValues)
+            {
+                if (index >= group.Values.Count) continue;
+                var key = group.Values[index];
                 var representative = CandidateRecipeOrdering.Order(
-                    candidates.Where(c => c.DiversityProfile?.Values(facet).Any(v => v.Key == value.Key) == true).ToList(), weights)
+                    candidates.Where(c => c.DiversityProfile?.Values(group.Facet).Any(v =>
+                        v.Key == key && v.Source == RecipeDiversityEvidenceSource.ConfirmedTag) == true).ToList(), weights)
                     .FirstOrDefault();
                 if (representative is not null) Add(representative);
             }
