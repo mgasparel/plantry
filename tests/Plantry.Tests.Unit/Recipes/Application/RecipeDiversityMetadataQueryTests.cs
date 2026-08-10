@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -27,7 +28,10 @@ public sealed class RecipeDiversityMetadataQueryTests
         AddRecipe(recipes, "Untagged");
         AddRecipe(recipes, "Vegan only", vegan.Id);
 
-        var result = await new RecipeDiversityMetadataQuery(recipes, tags).ExecuteAsync();
+        var result = await new RecipeDiversityMetadataQuery(
+            recipes,
+            tags,
+            NullLogger<RecipeDiversityMetadataQuery>.Instance).ExecuteAsync();
 
         Assert.Equal(["Missing cuisine", "Untagged", "Vegan only"], result.Select(g => g.Name).ToArray());
         Assert.Equal([TagCategory.Cuisine], result[0].MissingCategories);
@@ -46,7 +50,10 @@ public sealed class RecipeDiversityMetadataQueryTests
         thai.Archive(Clock);
         AddRecipe(recipes, "Archived cuisine vocabulary", tofu.Id, thai.Id);
 
-        var result = await new RecipeDiversityMetadataQuery(recipes, tags).ExecuteAsync();
+        var result = await new RecipeDiversityMetadataQuery(
+            recipes,
+            tags,
+            NullLogger<RecipeDiversityMetadataQuery>.Instance).ExecuteAsync();
 
         Assert.Empty(result);
     }

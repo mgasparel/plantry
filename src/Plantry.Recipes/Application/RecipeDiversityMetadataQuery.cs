@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Recipes.Domain;
 
 namespace Plantry.Recipes.Application;
@@ -9,37 +10,47 @@ namespace Plantry.Recipes.Application;
 /// </summary>
 public sealed class RecipeDiversityMetadataQuery(
     IRecipeRepository recipes,
-    ITagRepository tags)
+    ITagRepository tags,
+    ILogger<RecipeDiversityMetadataQuery> logger)
 {
     private static readonly TagCategory[] MaintainedFacets = [TagCategory.Protein, TagCategory.Cuisine];
 
     public async Task<IReadOnlyList<RecipeDiversityMetadataGap>> ExecuteAsync(CancellationToken ct = default)
     {
         var recipeRows = await recipes.ListForBrowseAsync(ct);
-        if (recipeRows.Count == 0) return [];
+        IReadOnlyList<RecipeDiversityMetadataGap> result = [];
 
-        // Include archived tags because an existing recipe's explicit metadata remains authoritative even
-        // after that vocabulary entry stops appearing in pickers.
-        var categoryById = (await tags.ListAllAsync(activeOnly: false, ct))
-            .ToDictionary(t => t.Id, t => t.Category);
+        if (recipeRows.Count > 0)
+        {
+            // Include archived tags because an existing recipe's explicit metadata remains authoritative even
+            // after that vocabulary entry stops appearing in pickers.
+            var categoryById = (await tags.ListAllAsync(activeOnly: false, ct))
+                .ToDictionary(t => t.Id, t => t.Category);
 
-        return recipeRows
-            .Select(recipe =>
-            {
-                var present = recipe.Tags
-                    .Select(rt => categoryById.GetValueOrDefault(rt.TagId))
-                    .Where(category => category.HasValue)
-                    .Select(category => category!.Value)
-                    .ToHashSet();
-                IReadOnlyList<TagCategory> missing = MaintainedFacets
-                    .Where(category => !present.Contains(category))
-                    .ToList();
-                return new RecipeDiversityMetadataGap(recipe.Id, recipe.Name, missing);
-            })
-            .Where(gap => gap.MissingCategories.Count > 0)
-            .OrderBy(gap => gap.Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(gap => gap.RecipeId.Value)
-            .ToList();
+            result = recipeRows
+                .Select(recipe =>
+                {
+                    var present = recipe.Tags
+                        .Select(rt => categoryById.GetValueOrDefault(rt.TagId))
+                        .Where(category => category.HasValue)
+                        .Select(category => category!.Value)
+                        .ToHashSet();
+                    IReadOnlyList<TagCategory> missing = MaintainedFacets
+                        .Where(category => !present.Contains(category))
+                        .ToList();
+                    return new RecipeDiversityMetadataGap(recipe.Id, recipe.Name, missing);
+                })
+                .Where(gap => gap.MissingCategories.Count > 0)
+                .OrderBy(gap => gap.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(gap => gap.RecipeId.Value)
+                .ToList();
+        }
+
+        logger.LogInformation(
+            "Recipe diversity metadata query evaluated {RecipeCount} recipe(s) and found {GapCount} gap(s).",
+            recipeRows.Count,
+            result.Count);
+        return result;
     }
 }
 

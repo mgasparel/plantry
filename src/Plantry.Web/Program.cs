@@ -338,7 +338,9 @@ builder.Services.AddScoped<IRecipeRatingRepository, RecipeRatingRepository>();
 // Ingredient substitutions (plantry-aqpa.1) — the Substitution aggregate's repository + read seam.
 builder.Services.AddScoped<ISubstitutionRepository, SubstitutionRepository>();
 builder.Services.AddScoped<ISubstitutionReader, SubstitutionReader>();
-builder.Services.AddScoped<IReferenceDataSeeder, RecipesReferenceDataSeeder>();
+builder.Services.AddScoped<RecipesReferenceDataSeeder>();
+builder.Services.AddScoped<IReferenceDataSeeder>(sp => sp.GetRequiredService<RecipesReferenceDataSeeder>());
+builder.Services.AddSingleton<RecipesReferenceDataRollout>();
 
 // Planning context (Meal Planning + Shopping, ADR-024). A single PlanningDbContext spans both the
 // shopping and meal_planning schemas (unified plantry-g3da.8) — the schemas themselves did not move
@@ -865,6 +867,7 @@ if (app.Environment.IsDevelopment())
         await queue.EnqueueAsync(static (sp, ct) => sp.GetRequiredService<RecipeConversionBackfillCycle>().RunAsync(ct));
         return Results.Accepted();
     }, "Queue AI-suggested conversions for existing recipes' cross-dimension unit gaps across every household (plantry-qll2.4; idempotent, re-runnable); runs in the background (202).");
+
 }
 
 app.MapStaticAssets();
@@ -882,6 +885,8 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     app.Lifetime.ApplicationStarted.Register(() =>
     {
+        _ = app.Services.GetRequiredService<RecipesReferenceDataRollout>()
+            .RunAsync(app.Lifetime.ApplicationStopping);
         _ = app.Services.GetRequiredService<TidyUpBadgeWarmup>().RunAsync(app.Lifetime.ApplicationStopping);
     });
 }
