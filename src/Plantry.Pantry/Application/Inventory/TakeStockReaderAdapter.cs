@@ -164,41 +164,33 @@ public sealed class TakeStockReaderAdapter(
         var allProducts = await products.ListActiveAsync(ct);
         var unitCodesById = (await units.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
 
-        // Only products with no default_location_id assigned.
-        var noLocationProductIds = allProducts
-            .Where(p => p.CanHoldStock && p.DefaultLocationId is null)
-            .Select(p => p.Id.Value)
+        // J7's no-location section is for products that have neither a catalog home nor active
+        // physical stock. A product with an active lot is already represented by the concrete
+        // location walk, even when its default location is still unset; including it here would
+        // duplicate the same stock across both flows. Missing default locations remain a separate
+        // catalog/housekeeping concern (D8), not a reason to pull located stock into this section.
+        var activeStockProductIds = allStock
+            .Where(s => s.ActiveLotsFefo().Any())
+            .Select(s => s.ProductId)
             .ToHashSet();
 
-        var stockWithNoLocation = allStock
-            .Where(s => noLocationProductIds.Contains(s.ProductId) && s.ActiveLotsFefo().Any())
-            .ToList();
-
-        var convertersByProduct = await conversions.ForProductsAsync(
-            stockWithNoLocation.Select(s => s.ProductId), ct);
-
-        var productsById = allProducts.ToDictionary(p => p.Id.Value);
         var rows = new List<TakeStockNoLocationRow>();
 
-        foreach (var stock in stockWithNoLocation)
+        foreach (var product in allProducts.Where(p =>
+            p.CanHoldStock &&
+            p.DefaultLocationId is null &&
+            !activeStockProductIds.Contains(p.Id.Value)))
         {
-            if (!productsById.TryGetValue(stock.ProductId, out var product)) continue;
-
-            var activeLots = stock.ActiveLotsFefo().ToList();
-            var converter = convertersByProduct.GetValueOrDefault(stock.ProductId)
-                ?? new IdentityQuantityConverter();
             var displayUnitId = product.DefaultUnitId.Value;
             var displayUnitCode = unitCodesById.GetValueOrDefault(displayUnitId, "?");
-            var total = SumInDisplayUnit(activeLots, displayUnitId, converter);
 
             rows.Add(new TakeStockNoLocationRow(
-                stock.ProductId,
+                product.Id.Value,
                 product.Name,
                 displayUnitCode,
-                total,
+                RecordedQuantity: 0m,
                 DisplayUnitId: displayUnitId));
         }
-
         return rows
             .OrderBy(r => r.ProductName, StringComparer.OrdinalIgnoreCase)
             .ToList();
