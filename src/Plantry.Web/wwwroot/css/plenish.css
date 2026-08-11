@@ -5479,6 +5479,16 @@ button.sadd svg { width: 13px; height: 13px; }
 }
 .empty-auto:hover { background: var(--color-accent-subtle); }
 .empty-auto svg { width: 13px; height: 13px; }
+.cell-autofill-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-accent-subtle);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.cell-autofill-spinner.htmx-request { display: inline-block; }
 
 /* ── conflict / unfulfillable cell state (so5.4 + so5.5) ─────────────────
    Two reasons a generated cell is left unfilled and flagged:
