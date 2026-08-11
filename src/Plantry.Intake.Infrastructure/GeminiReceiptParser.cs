@@ -304,7 +304,7 @@ public sealed class GeminiReceiptParser : IReceiptParser
                 : null;
 
             var lines = new List<ParsedLine>();
-            if (root.TryGetProperty("lines", out var linesEl) && linesEl.ValueKind == JsonValueKind.Array)
+            if (root.TryGetProperty("lines", out var linesEl))
             {
                 var index = 0;
                 foreach (var el in linesEl.EnumerateArray())
