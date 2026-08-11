@@ -590,12 +590,13 @@ describe("commitBarCounts", () => {
     }
   });
 
-  it("canCommit only when nothing is unresolved AND something is confirmed", () => {
+  it("canCommit for any non-empty fully resolved review, including all dismissed lines", () => {
     assert.equal(commitBarCounts(["confirmed", "confirmed"]).canCommit, true);
     assert.equal(commitBarCounts(["sure", "confirmed"]).canCommit, false);   // a sure thing still blocks
     assert.equal(commitBarCounts(["needs", "confirmed"]).canCommit, false);  // a deck card still blocks
-    assert.equal(commitBarCounts(["skipped", "skipped"]).canCommit, false);  // nothing to commit
-    assert.equal(commitBarCounts([]).canCommit, false);
+    assert.equal(commitBarCounts(["skipped", "skipped"]).canCommit, true);   // explicit no-pantry review completes
+    assert.equal(commitBarCounts(["confirmed", "skipped"]).canCommit, true);  // mixed review remains committable
+    assert.equal(commitBarCounts([]).canCommit, false);                         // empty review stays blocked
   });
 
   it("progressPct = (confirmed + skipped) / all lines, 100 when there is nothing", () => {

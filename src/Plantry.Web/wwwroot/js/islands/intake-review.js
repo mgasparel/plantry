@@ -982,9 +982,11 @@ function App({ lines, order, skipStack, baseline, products, stagedProducts, unit
               <span class="commit-bar__warn"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> ${bar.value.remaining} to resolve</span>`}
             ${session.trailingAverageBasket != null && session.total != null && html`
               <span class="chip-stat">Basket <b>${fmtMoney(session.total)}</b> vs avg <b>${fmtMoney(session.trailingAverageBasket)}</b></span>`}
-            <div class="commit-bar__summary">Adding <b>${bar.value.confirmedCount}</b> items · <b class="mono">${fmtMoney(confirmedLines.value.reduce((s, l) => s + (l.price.value ?? 0), 0))}</b></div>
+            <div class="commit-bar__summary">${bar.value.confirmedCount === 0
+              ? html`No pantry items to add`
+              : html`Adding <b>${bar.value.confirmedCount}</b> items · <b class="mono">${fmtMoney(confirmedLines.value.reduce((s, l) => s + (l.price.value ?? 0), 0))}</b>`}</div>
             <button type="button" class="btn btn--primary" disabled=${!bar.value.canCommit} onClick=${handlers.commit}>
-              <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> Add to pantry
+              <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg> ${bar.value.confirmedCount === 0 ? "Finish receipt" : "Add to pantry"}
             </button>
           </div>
         </div>
