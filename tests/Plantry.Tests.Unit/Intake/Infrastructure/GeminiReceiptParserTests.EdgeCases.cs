@@ -63,3 +63,4 @@ public sealed class GeminiReceiptParserEdgeCasesTests
         Assert.Equal(Guid.Parse(validId), alternative.ProductId);
     }
 }
+
