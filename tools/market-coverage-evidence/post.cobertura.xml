@@ -1,0 +1,3 @@
+<coverage><packages><package name="Plantry.Market"><classes>
+<class filename="src/Plantry.Market/Domain/Deals/DealNormalizer.cs" line-rate="1"/>
+</classes></package></packages></coverage>

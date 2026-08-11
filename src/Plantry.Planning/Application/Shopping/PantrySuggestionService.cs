@@ -1,81 +1,53 @@
+using Plantry.SharedKernel.Domain;
+
 namespace Plantry.Planning.Application;
 
-/// <summary>
-/// Builds the "Running low in your pantry" suggestion list for the Shopping page
-/// suggestions strip (plantry-48l / plantry-14q). Orchestrates the <see cref="IShoppingPantryReader"/>
-/// (to discover low/out products) and <see cref="IShoppingCatalogReader"/> (to resolve
-/// product names and category info) without crossing bounded-context boundaries directly.
-///
-/// <para>The service is responsible for:</para>
-/// <list type="bullet">
-///   <item>Fetching all household pantry products with <c>IsLow = true</c> via the read port.</item>
-///   <item>Excluding products whose id is present in <paramref name="onListProductIds"/>
-///   (both unchecked and checked items are excluded — a checked item is "in progress").</item>
-///   <item>Resolving catalog summaries for ALL eligible products (before the cap), so ordering
-///   by name is deterministic regardless of pantry data order.</item>
-///   <item>Ordering: out-of-stock first (<c>OnHand &lt;= 0</c>), then product name ascending.</item>
-///   <item>Capping the result at <see cref="SuggestionCap"/> items AFTER ordering.</item>
-/// </list>
-/// </summary>
+/// <summary>Builds the tiered "Pantry suggestions" list for the Shopping page.</summary>
 public sealed class PantrySuggestionService(
     IShoppingPantryReader pantry,
-    IShoppingCatalogReader catalog)
+    IShoppingCatalogReader catalog,
+    IClock? clock = null)
 {
-    /// <summary>Maximum number of suggestion chips rendered in the strip (matches prototype).</summary>
     public const int SuggestionCap = 5;
 
-    /// <summary>
-    /// Returns up to <see cref="SuggestionCap"/> pantry suggestions: low/out products NOT
-    /// present in <paramref name="onListProductIds"/>, ordered out-of-stock first then name
-    /// ascending, enriched with catalog name and category hue.
-    /// </summary>
-    /// <param name="onListProductIds">
-    /// Product ids already on the active shopping list (unchecked and checked). Items whose
-    /// product id appears here are excluded from suggestions.
-    /// </param>
     public async Task<IReadOnlyList<PantrySuggestion>> GetSuggestionsAsync(
-        IReadOnlySet<Guid> onListProductIds,
-        CancellationToken ct = default)
+        IReadOnlySet<Guid> onListProductIds, CancellationToken ct = default)
     {
-        // Fetch all low-stock products from the pantry read port.
-        var lowStockProducts = await pantry.GetLowStockProductsAsync(ct);
+        var today = DateOnly.FromDateTime((clock ?? SystemClock.Instance).UtcNow.UtcDateTime);
+        var lowStock = await pantry.GetLowStockProductsAsync(ct);
+        var thresholded = lowStock.Where(s => s.HasLowStockThreshold).ToList();
+        var staples = await pantry.GetFrequentStapleProductsAsync(today, ct);
+        var stapleIds = staples.Select(s => s.ProductId).ToHashSet();
 
-        // Exclude products already on the list — do NOT cap yet; we need names to order by.
-        var eligible = lowStockProducts
+        var candidates = thresholded
             .Where(s => !onListProductIds.Contains(s.ProductId))
+            .Select(s => (Stock: s, Tier: 1))
+            .Concat(staples
+                .Where(s => !onListProductIds.Contains(s.ProductId))
+                .Select(s => (Stock: s, Tier: 2)))
+            .Concat(lowStock
+                .Where(s => !thresholded.Any(t => t.ProductId == s.ProductId)
+                    && !stapleIds.Contains(s.ProductId) && !onListProductIds.Contains(s.ProductId))
+                .Select(s => (Stock: s, Tier: 3)))
+            .GroupBy(x => x.Stock.ProductId)
+            .Select(g => g.OrderBy(x => x.Tier).First())
             .ToList();
 
-        if (eligible.Count == 0)
+        if (candidates.Count == 0)
             return [];
 
-        // Resolve catalog summaries for ALL eligible products before the cap so that the
-        // name-ascending ordering is applied across the full candidate set, not just the
-        // first SuggestionCap entries (plantry-14q deterministic ordering requirement).
-        var eligibleIds = eligible.Select(s => s.ProductId).ToList();
-        var summaries = await catalog.ResolveSummariesAsync(eligibleIds, ct);
-
-        // Build enriched suggestions, then apply deterministic ordering:
-        //   1. Out-of-stock first (OnHand <= 0)
-        //   2. Product name ascending (stable across rerenders)
-        //   3. Take(SuggestionCap) applied AFTER ordering
-        var suggestions = eligible
-            .Select(stock =>
+        var summaries = await catalog.ResolveSummariesAsync(candidates.Select(x => x.Stock.ProductId).ToList(), ct);
+        return candidates
+            .Select(x =>
             {
-                summaries.TryGetValue(stock.ProductId, out var summary);
-                return new PantrySuggestion(
-                    ProductId: stock.ProductId,
-                    Name: summary?.Name ?? "(unknown)",
-                    OnHand: stock.OnHand,
-                    UnitCode: stock.UnitCode,
-                    IsLow: stock.IsLow,
-                    CategoryName: summary?.CategoryName,
-                    CategoryHue: summary?.CategoryHue);
+                summaries.TryGetValue(x.Stock.ProductId, out var summary);
+                return new PantrySuggestion(x.Stock.ProductId, summary?.Name ?? "(unknown)", x.Stock.OnHand,
+                    x.Stock.UnitCode, x.Stock.IsLow, summary?.CategoryName, summary?.CategoryHue, x.Tier == 2);
             })
-            .OrderBy(s => s.OnHand <= 0 ? 0 : 1)   // out-of-stock first
+            .OrderBy(s => s.Tier)
+            .ThenBy(s => s.OnHand <= 0 ? 0 : 1)
             .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
             .Take(SuggestionCap)
             .ToList();
-
-        return suggestions;
     }
 }

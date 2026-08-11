@@ -120,12 +120,13 @@
                     hx-post="/MealPlan?handler=GenerateCell&amp;date=@dateIso&amp;slotId=@slotId"
                     hx-target="#@cellId"
                     hx-swap="outerHTML"
-                    hx-indicator=".autofill-spinner"
+                    hx-indicator="#@cellId-autofill-spinner"
                     title="Auto-fill this cell with an AI suggestion"
                     aria-label="Auto-fill this cell — @cellContext">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 Auto-fill
             </button>
+            <span id="@cellId-autofill-spinner" class="cell-autofill-spinner htmx-indicator" role="status" aria-label="Loading meal suggestion"></span>
         </div>
     }
 </div>

@@ -18,7 +18,9 @@ public sealed record ProductFact(
     Guid ProductId,
     string Name,
     bool TrackStock,
-    Guid DefaultUnitId);
+    Guid DefaultUnitId,
+    Guid? DefaultLocationId = null,
+    bool IsParent = false);
 
 /// <summary>Unit display facts from <c>catalog.units</c>.</summary>
 public sealed record UnitFact(

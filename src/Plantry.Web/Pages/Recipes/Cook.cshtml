@@ -270,7 +270,7 @@
                         </div>
                     </div>
                     <div class="card__body">
-                        <form method="post" action="/Recipes/@cook.RecipeId/Cook?Servings=@cook.DesiredServings">
+                        <form id="cook-confirm-form" method="post" action="/Recipes/@cook.RecipeId/Cook?Servings=@cook.DesiredServings">
                             @Html.AntiForgeryToken()
 
                             @* Plan provenance (plantry-0eut): carries the plan dish this cook was launched

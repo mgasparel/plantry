@@ -28,11 +28,13 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
     private HouseholdId _household;
     private Guid _gramsId;
     private Guid _eachId;
+    private int _idSequence = 60;
 
     public async Task InitializeAsync()
     {
         await db.ResetAsync();
-        _household = HouseholdId.New();
+        _household = HouseholdId.From(Guid.Parse("00000000-0000-0000-0000-000000000061"));
+        _idSequence = 60;
 
         await using var catalog = NewCatalogDb(_household);
         var grams = CatalogUnit.Create(_household, "g", "grams", Dimension.Mass, 1m, isBase: true);
@@ -267,7 +269,7 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
         await using var conn = new NpgsqlConnection(db.ConnectionString);
         await conn.OpenAsync();
 
-        var recipeId = Guid.NewGuid();
+        var recipeId = Guid.Parse($"00000000-0000-0000-0000-{_idSequence++:000000000000}");
         await using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
@@ -291,7 +293,7 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
                 VALUES
                     (@id, @hid, @rid, @pid, @qty, @uid, @ord)
                 """;
-            ingCmd.Parameters.AddWithValue("id", Guid.NewGuid());
+            ingCmd.Parameters.AddWithValue("id", Guid.Parse($"00000000-0000-0000-0000-{_idSequence++:000000000000}"));
             ingCmd.Parameters.AddWithValue("hid", _household.Value);
             ingCmd.Parameters.AddWithValue("rid", recipeId);
             ingCmd.Parameters.AddWithValue("pid", productId);
@@ -309,7 +311,7 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
         await using var conn = new NpgsqlConnection(db.ConnectionString);
         await conn.OpenAsync();
 
-        var id = Guid.NewGuid();
+        var id = Guid.Parse($"00000000-0000-0000-0000-{_idSequence++:000000000000}");
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO pricing.price_observation
@@ -324,8 +326,8 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
         cmd.Parameters.AddWithValue("pid", productId);
         cmd.Parameters.AddWithValue("price", price);
         cmd.Parameters.AddWithValue("uid", _gramsId);
-        cmd.Parameters.AddWithValue("ref", Guid.NewGuid());
-        cmd.Parameters.AddWithValue("usr", Guid.NewGuid());
+        cmd.Parameters.AddWithValue("ref", Guid.Parse($"00000000-0000-0000-0000-{_idSequence++:000000000000}"));
+        cmd.Parameters.AddWithValue("usr", Guid.Parse($"00000000-0000-0000-0000-{_idSequence++:000000000000}"));
         await cmd.ExecuteNonQueryAsync();
         return id;
     }

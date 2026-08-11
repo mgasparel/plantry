@@ -7,7 +7,7 @@
 			</div>
 		</div>
 		<div class="card__body">
-			<form method="post" action="/Recipes/Guid_1/Cook?Servings=4">
+			<form id="cook-confirm-form" method="post" action="/Recipes/Guid_1/Cook?Servings=4">
 				<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
 				<template x-for="ingId in directSkips" :key="ingId"><input type="hidden" name="SkippedIngredientIds" :value="ingId"></template>
 				<template x-for="m in directModifiedQuantities" :key="m.id"><input type="hidden" :name="`QuantityOverrides[${m.id}]`" :value="m.qty"></template>

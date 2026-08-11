@@ -24,8 +24,9 @@ public sealed class RecipeFactsReadModelRlsIsolationTests(PostgresFixture db) : 
     public async Task InitializeAsync()
     {
         await db.ResetAsync();
-        _householdA = HouseholdId.New();
-        _householdB = HouseholdId.New();
+        _householdA = HouseholdId.From(Guid.Parse("00000000-0000-0000-0000-000000000041"));
+        _householdB = HouseholdId.From(Guid.Parse("00000000-0000-0000-0000-000000000042"));
+
 
         _recipeA = await SeedRecipeAsync(_householdA, "Household A Recipe");
         _recipeB = await SeedRecipeAsync(_householdB, "Household B Recipe");
@@ -62,7 +63,7 @@ public sealed class RecipeFactsReadModelRlsIsolationTests(PostgresFixture db) : 
         await using var conn = new NpgsqlConnection(db.ConnectionString);
         await conn.OpenAsync();
 
-        var recipeId = Guid.NewGuid();
+        var recipeId = household == _householdA ? Guid.Parse("00000000-0000-0000-0000-000000000043") : Guid.Parse("00000000-0000-0000-0000-000000000044");
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO recipes.recipe

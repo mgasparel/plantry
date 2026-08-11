@@ -27,13 +27,17 @@ public sealed class StockFactsReadModelRlsIsolationTests(PostgresFixture db) : I
     private HouseholdId _householdB;
     private Guid _productA;
     private Guid _productB;
+    private Guid _catalogOnlyA;
+    private Guid _catalogOnlyB;
     private Guid _gramsId;
+    private int _entrySequenceA = 40;
+    private int _entrySequenceB = 50;
 
     public async Task InitializeAsync()
     {
         await db.ResetAsync();
-        _householdA = HouseholdId.New();
-        _householdB = HouseholdId.New();
+        _householdA = HouseholdId.From(Guid.Parse("00000000-0000-0000-0000-000000000031"));
+        _householdB = HouseholdId.From(Guid.Parse("00000000-0000-0000-0000-000000000032"));
 
         // Units are per-household rows too — seed one grams unit per household.
         _gramsId = await SeedUnitAsync(_householdA, "g");
@@ -41,6 +45,8 @@ public sealed class StockFactsReadModelRlsIsolationTests(PostgresFixture db) : I
 
         _productA = await SeedProductAsync(_householdA, "Household A Product", _gramsId);
         _productB = await SeedProductAsync(_householdB, "Household B Product", gramsB);
+        _catalogOnlyA = await SeedProductAsync(_householdA, "Catalog-only A", _gramsId);
+        _catalogOnlyB = await SeedProductAsync(_householdB, "Catalog-only B", gramsB);
 
         var locationA = await SeedLocationAsync(_householdA, "A Pantry");
         var locationB = await SeedLocationAsync(_householdB, "B Pantry");
@@ -64,6 +70,10 @@ public sealed class StockFactsReadModelRlsIsolationTests(PostgresFixture db) : I
         Assert.DoesNotContain(_productB, bag.Products.Keys);
         Assert.Contains(_productA, bag.StockByProduct.Keys);
         Assert.DoesNotContain(_productB, bag.StockByProduct.Keys);
+        Assert.Contains(_catalogOnlyA, bag.Products.Keys);
+        Assert.DoesNotContain(_catalogOnlyB, bag.Products.Keys);
+        Assert.DoesNotContain(_catalogOnlyA, bag.StockByProduct.Keys);
+        Assert.DoesNotContain(_catalogOnlyB, bag.StockByProduct.Keys);
     }
 
     [Fact(DisplayName = "No tenant set — the RLS-armed connection returns no rows for either household")]
@@ -75,6 +85,7 @@ public sealed class StockFactsReadModelRlsIsolationTests(PostgresFixture db) : I
         var bag = await rm.LoadAsync();
 
         Assert.Empty(bag.StockByProduct);
+        Assert.Empty(bag.Products);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
@@ -138,7 +149,8 @@ public sealed class StockFactsReadModelRlsIsolationTests(PostgresFixture db) : I
             VALUES
                 (@id, @hid, @pid, @lid, 1, @uid, false, NOW(), NOW())
             """;
-        cmd.Parameters.AddWithValue("id", Guid.NewGuid());
+        var entryNumber = household == _householdA ? _entrySequenceA++ : _entrySequenceB++;
+        cmd.Parameters.AddWithValue("id", Guid.Parse($"00000000-0000-0000-0000-{entryNumber:000000000000}"));
         cmd.Parameters.AddWithValue("hid", household.Value);
         cmd.Parameters.AddWithValue("pid", productId);
         cmd.Parameters.AddWithValue("lid", locationId);

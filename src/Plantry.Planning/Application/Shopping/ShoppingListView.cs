@@ -171,8 +171,11 @@ public sealed record PantrySuggestion(
     string UnitCode,
     bool IsLow,
     string? CategoryName,
-    int? CategoryHue)
+    int? CategoryHue,
+    bool IsFrequentStaple = false)
 {
+    public int Tier => IsFrequentStaple ? 2 : 1;
+
     /// <summary>Label shown next to the chip: "N unit" or "out" when zero.</summary>
     public string StockLabel => OnHand > 0
         ? $"{OnHand:0.###} {UnitCode} left"

@@ -296,6 +296,8 @@ public sealed class GeminiReceiptParser : IReceiptParser
         {
             using var doc = JsonDocument.Parse(StripFences(rawContent));
             var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return new ReceiptParseResult(null, [], "AI response must be a JSON object.");
 
             var merchant = root.TryGetProperty("merchant", out var m) && m.ValueKind == JsonValueKind.String
                 ? m.GetString()
@@ -308,6 +310,9 @@ public sealed class GeminiReceiptParser : IReceiptParser
                 foreach (var el in linesEl.EnumerateArray())
                 {
                     index++;
+                    if (el.ValueKind != JsonValueKind.Object)
+                        return new ReceiptParseResult(null, [], $"AI response line {index} must be a JSON object.");
+
                     var primaryId = GetGuid(el, "suggested_product_id");
                     lines.Add(new ParsedLine(
                         LineNo: GetInt(el, "line_no") ?? index,
@@ -359,6 +364,9 @@ public sealed class GeminiReceiptParser : IReceiptParser
 
         foreach (var alt in altsEl.EnumerateArray())
         {
+            if (alt.ValueKind != JsonValueKind.Object)
+                continue;
+
             if (result.Count >= cap)
                 break;
 
@@ -413,11 +421,11 @@ public sealed class GeminiReceiptParser : IReceiptParser
     // (null) rather than guessed. DateOnly/TimeOnly parse invariantly so locale never shifts the value.
     private static DateOnly? GetDate(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
-        && DateOnly.TryParse(p.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null;
+        && DateOnly.TryParseExact(p.GetString(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null;
 
     private static TimeOnly? GetTime(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
-        && TimeOnly.TryParse(p.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null;
+        && TimeOnly.TryParseExact(p.GetString(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null;
 
     /// <summary>
     /// Converts the AI's string confidence label to a numeric score for the histogram.

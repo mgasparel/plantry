@@ -17,6 +17,12 @@
   excluded — some are legitimately hit by E2E/Web tests. Interface-only and
   enum-only files have no coverable lines and never enter the denominator, so
   they need no exclusion.
+
+  Compiler-generated [GeneratedRegex] output is emitted under obj/**/System.Text.
+  RegularExpressions.Generator/ and is attributed to the owning assembly, but
+  its generated runner and factory code cannot be exercised as handwritten
+  behavior. Exclude those generated files rather than counting them as 0%-covered;
+  the handwritten DealNormalizer.cs that owns the regex members remains eligible.
 -->
 <RunSettings>
   <DataCollectionRunSettings>
@@ -37,7 +43,8 @@
             **/Recipes/DisabledDietTagContradictionChecker.cs,
             **/Recipes/DisabledRecipeTagSuggester.cs,
             **/FlippOptions.cs,
-            **/IntakeAiOptions.cs
+            **/IntakeAiOptions.cs,
+            **/obj/**/System.Text.RegularExpressions.Generator/**/*.g.cs
           </ExcludeByFile>
         </Configuration>
       </DataCollector>

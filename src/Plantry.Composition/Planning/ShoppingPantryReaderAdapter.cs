@@ -77,6 +77,35 @@ public sealed class ShoppingPantryReaderAdapter(
         return levels.Where(l => l.IsLow || l.OnHand <= 0m).ToList();
     }
 
+    public async Task<IReadOnlyList<ShoppingPantryStockLevel>> GetFrequentStapleProductsAsync(
+        DateOnly today, CancellationToken ct = default)
+    {
+        if (tenant.HouseholdId is not { } householdGuid)
+            return [];
+
+        var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdGuid), ct);
+        if (allStock.Count == 0)
+            return [];
+
+        var catalogProducts = await catalog.ListProductsAsync(ct);
+        var catalogByProduct = catalogProducts.ToDictionary(p => p.Id);
+        var result = new List<ShoppingPantryStockLevel>();
+        foreach (var stock in allStock)
+        {
+            if (!catalogByProduct.TryGetValue(stock.ProductId, out var product) || product.IsProduced)
+                continue;
+            if (stock.LowStockThreshold is not null)
+                continue;
+            var dates = stock.Entries.Select(entry => entry.PurchasedAt);
+            if (!FrequentStaplePredicate.IsFrequent(dates, today))
+                continue;
+            var aggregated = await AggregateStockLevelsAsync([stock], ct);
+            if (aggregated.Count > 0)
+                result.Add(aggregated[0]);
+        }
+        return result;
+    }
+
     // ── Shared aggregation helper ─────────────────────────────────────────────
 
     /// <summary>
@@ -143,7 +172,8 @@ public sealed class ShoppingPantryReaderAdapter(
                 ProductId: productStock.ProductId,
                 OnHand: total,
                 UnitCode: unitCode,
-                IsLow: isLow));
+                IsLow: isLow,
+                HasLowStockThreshold: productStock.LowStockThreshold is not null));
         }
 
         return result;

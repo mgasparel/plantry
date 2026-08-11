@@ -33,8 +33,8 @@ public sealed class StapleNoLowStockAlertDetector(
     ITenantContext tenant)
     : IProblemDetector
 {
-    private const int MinDistinctPurchaseDates = 3;
-    private const int LookbackDays = 90;
+    private const int MinDistinctPurchaseDates = FrequentStaplePredicate.MinimumDistinctPurchaseDates;
+    private const int LookbackDays = FrequentStaplePredicate.LookbackDays;
 
     public DetectorId Id => DetectorId.StapleNoLowStockAlert;
     public Severity Severity => Severity.Advisory;
@@ -61,13 +61,14 @@ public sealed class StapleNoLowStockAlertDetector(
             if (stock.LowStockThreshold is not null)
                 continue;
 
-            var distinctPurchaseDates = stock.Entries
-                .Where(e => e.PurchasedAt is { } purchasedAt && purchasedAt >= cutoff)
-                .Select(e => e.PurchasedAt!.Value)
+            var purchaseDates = stock.Entries.Select(e => e.PurchasedAt);
+            if (!FrequentStaplePredicate.IsFrequent(purchaseDates, today))
+                continue;
+            var distinctPurchaseDates = purchaseDates
+                .Where(d => d is { } date && date >= cutoff)
+                .Select(d => d!.Value)
                 .Distinct()
                 .Count();
-            if (distinctPurchaseDates < MinDistinctPurchaseDates)
-                continue;
             if (!bag.Products.TryGetValue(stock.ProductId, out var product))
                 continue; // product archived/removed from catalog — skip, same as D1/D3
 

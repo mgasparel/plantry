@@ -29,11 +29,13 @@ public sealed class StockDetectorsTests(PostgresFixture db) : IAsyncLifetime
     private Guid _gramsId;
     private Guid _eachId;
     private Guid _packId;
+    private int _entrySequence = 100;
 
     public async Task InitializeAsync()
     {
         await db.ResetAsync();
-        _household = HouseholdId.New();
+        _household = HouseholdId.From(Guid.Parse("00000000-0000-0000-0000-000000000051"));
+        _entrySequence = 100;
 
         await using var catalog = NewCatalogDb(_household);
         var grams = CatalogUnit.Create(_household, "g", "grams", Dimension.Mass, 1m, isBase: true);
@@ -237,6 +239,68 @@ public sealed class StockDetectorsTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(findings);
     }
 
+    // ── D8: MissingDefaultLocationDetector ────────────────────────────────────────────────────────
+
+    [Fact(DisplayName = "D8: catalog-only tracked concrete product without default location produces finding")]
+    public async Task D8_CatalogOnlyTrackedConcrete_ProducesFinding()
+    {
+        var productId = await SeedProductAsync("Catalog-only D8", _eachId);
+
+        var findings = await BuildD8().DetectAsync();
+
+        var finding = Assert.Single(findings.Where(x => x.SubjectId == productId));
+        Assert.Equal(DetectorId.ProductMissingDefaultLocation, finding.DetectorId);
+        Assert.Equal("Catalog-only D8", finding.SubjectName);
+    }
+
+    [Fact(DisplayName = "D8: default location, untracked, and parent products are excluded while variants remain eligible")]
+    public async Task D8_FilteringRules_ArePreserved()
+    {
+        var defaultedId = await SeedProductAsync("D8 Defaulted", _eachId);
+        await SetProductDefaultLocationAsync(defaultedId);
+        var untrackedId = await SeedProductAsync("D8 Untracked", _eachId, trackStock: false);
+        var parentId = await SeedProductAsync("D8 Parent", _eachId);
+        await SetProductHasVariantsAsync(parentId, true);
+        var variantId = await SeedProductAsync("D8 Variant", _eachId);
+
+        var findings = await BuildD8().DetectAsync();
+
+        Assert.DoesNotContain(findings, x => x.SubjectId == defaultedId);
+        Assert.DoesNotContain(findings, x => x.SubjectId == untrackedId);
+        Assert.DoesNotContain(findings, x => x.SubjectId == parentId);
+        Assert.Contains(findings, x => x.SubjectId == variantId);
+    }
+
+    [Fact(DisplayName = "D8: physical lot location does not substitute for missing product default")]
+    public async Task D8_PhysicalLotStillProducesFinding()
+    {
+        var productId = await SeedProductAsync("D8 Physical lot", _eachId);
+        var locationId = await SeedLocationAsync("D8 Freezer");
+        await SeedStockEntryAsync(productId, locationId, 2m, _eachId, expiryDate: null);
+
+        var finding = Assert.Single((await BuildD8().DetectAsync()).Where(x => x.SubjectId == productId));
+        Assert.Equal("Default location not set", finding.Specifics);
+    }
+
+    [Fact(DisplayName = "D8: archived product is excluded")]
+    public async Task D8_ArchivedProduct_IsExcluded()
+    {
+        var productId = await SeedProductAsync("D8 Archived", _eachId);
+        await using (var catalog = NewCatalogDb(_household))
+        {
+            var product = await catalog.Products.SingleAsync(x => x.Id == ProductId.From(productId));
+            product.Archive(Clock);
+            await catalog.SaveChangesAsync();
+        }
+
+        var findings = await BuildD8().DetectAsync();
+
+        Assert.DoesNotContain(findings, x => x.SubjectId == productId);
+    }
+
+    private MissingDefaultLocationDetector BuildD8(ITenantContext? tenant = null) =>
+        new(NewStockFactsReadModel(tenant), tenant ?? TenantFor(_household));
+
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
 
     private StockUnitUnconvertibleDetector BuildD1(ITenantContext? tenant = null) =>
@@ -278,6 +342,23 @@ public sealed class StockDetectorsTests(PostgresFixture db) : IAsyncLifetime
         return product.Id.Value;
     }
 
+    private async Task SetProductDefaultLocationAsync(Guid productId)
+    {
+        var locationId = await SeedLocationAsync("D8 Default");
+        await using var catalog = NewCatalogDb(_household);
+        var product = await catalog.Products.SingleAsync(x => x.Id == ProductId.From(productId));
+        product.SetDefaultLocation(LocationId.From(locationId), Clock);
+        await catalog.SaveChangesAsync();
+    }
+
+    private async Task SetProductHasVariantsAsync(Guid productId, bool hasVariants)
+    {
+        await using var catalog = NewCatalogDb(_household);
+        var product = await catalog.Products.SingleAsync(x => x.Id == ProductId.From(productId));
+        product.SetHasVariants(hasVariants, Clock);
+        await catalog.SaveChangesAsync();
+    }
+
     private async Task<Guid> SeedLocationAsync(string name)
     {
         await using var catalog = NewCatalogDb(_household);
@@ -311,7 +392,7 @@ public sealed class StockDetectorsTests(PostgresFixture db) : IAsyncLifetime
         await using var conn = new NpgsqlConnection(db.ConnectionString);
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
-        var depletedAt = depleted ? (object)DateTime.UtcNow : DBNull.Value;
+        var depletedAt = depleted ? (object)new DateTime(2026, 8, 11, 0, 0, 0, DateTimeKind.Utc) : DBNull.Value;
         var expiryObj = expiryDate.HasValue ? (object)expiryDate.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value;
         var purchasedObj = purchasedAt.HasValue ? (object)purchasedAt.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value;
 
@@ -323,7 +404,7 @@ public sealed class StockDetectorsTests(PostgresFixture db) : IAsyncLifetime
                 (@id, @hid, @pid, @lid, @qty, @uid, @exp,
                  false, NOW(), NOW(), @dep, @purch)
             """;
-        cmd.Parameters.AddWithValue("id", Guid.NewGuid());
+        cmd.Parameters.AddWithValue("id", Guid.Parse($"00000000-0000-0000-0000-{_entrySequence++:000000000000}"));
         cmd.Parameters.AddWithValue("hid", _household.Value);
         cmd.Parameters.AddWithValue("pid", productId);
         cmd.Parameters.AddWithValue("lid", locationId);

@@ -15,7 +15,7 @@ namespace Plantry.Web.Pages.Pantry.TakeStock;
 
 /// <summary>
 /// "No location" section for the Take Stock flow (P4-8, J7). Shows tracked products that
-/// have active stock but no Catalog default location assigned, with a required location picker
+/// have neither active stock nor a Catalog default location assigned, with a required location picker
 /// per row. Saving:
 /// <list type="bullet">
 /// <item>Always calls <see cref="ITakeStockCatalogWriter.SetDefaultLocationAsync"/> to assign the

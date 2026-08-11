@@ -14,7 +14,7 @@ public sealed class IndexModel(ITakeStockReader reader, IClock clock) : PageMode
 {
     public IReadOnlyList<TakeStockLocationRow> Locations { get; private set; } = [];
 
-    /// <summary>True when any tracked product has active stock but no default location (J7).</summary>
+    /// <summary>True when any tracked product has neither active lots nor a default location (J7).</summary>
     public bool HasNoLocationProducts { get; private set; }
 
     /// <summary>Captured once per request so every card's freshness line (plantry-hp67) is computed

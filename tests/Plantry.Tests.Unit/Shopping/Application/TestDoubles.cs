@@ -133,6 +133,9 @@ internal sealed class FakeShoppingPantryReader : IShoppingPantryReader
         return Task.FromResult(result);
     }
 
+    public Task<IReadOnlyList<ShoppingPantryStockLevel>> GetFrequentStapleProductsAsync(DateOnly today, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ShoppingPantryStockLevel>>([]);
+
     public Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
         CancellationToken ct = default)
     {

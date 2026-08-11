@@ -42,6 +42,9 @@ Thumbs.db
 .reviews
 .preflight
 
+# Generated coverage report dumps; curated evidence fixtures remain tracked.
+tools/market-coverage-evidence/real-*
+
 # UI prototype mockups (scratch — decided by eye, not shipped)
 .preview/
 

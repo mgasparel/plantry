@@ -467,7 +467,7 @@ builder.Services.AddScoped<IStockFactsReadModel>(sp =>
 builder.Services.AddScoped<IRecipeFactsReadModel>(sp =>
     new RecipeFactsReadModel(appUserConnStr, sp.GetRequiredService<ITenantContext>()));
 
-// Tidy Up's 7 problem detectors (tidy-up.md T4/T8) — moved from Plantry.Composition's
+// Tidy Up's 8 problem detectors (tidy-up.md T4/T8) — moved from Plantry.Composition's
 // AddCrossContextAdapters (ADR-024 Phase A: Plantry.Composition must never reference Plantry.Web
 // types, so this registration can only live here). Registered as IProblemDetector so
 // GetTidyUpPageQuery discovers every implementation via IEnumerable<IProblemDetector>.
@@ -478,6 +478,7 @@ builder.Services.AddScoped<IProblemDetector, StapleNoLowStockAlertDetector>();
 builder.Services.AddScoped<IProblemDetector, RecipeIngredientNoPriceDetector>();
 builder.Services.AddScoped<IProblemDetector, MixedIncompatibleUnitsDetector>();
 builder.Services.AddScoped<IProblemDetector, RecipeLineUntrackedProductDetector>();
+builder.Services.AddScoped<IProblemDetector, MissingDefaultLocationDetector>();
 // Singleton (T6): the badge count must survive across requests/scopes with its own TTL; the query
 // service and the dismiss/restore commands (all scoped) write/invalidate into it via the port.
 // IClock is registered Scoped (a singleton cannot safely consume it via constructor injection —

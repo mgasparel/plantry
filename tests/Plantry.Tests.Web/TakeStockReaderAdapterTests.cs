@@ -359,7 +359,7 @@ public sealed class TakeStockReaderAdapterTests
 
     // ── ListNoLocationRows (J7) ───────────────────────────────────────────────
 
-    [Fact(DisplayName = "ListNoLocationRows — tracked product with active stock and no default location returned")]
+    [Fact(DisplayName = "ListNoLocationRows — tracked product with no stock and no default location returned")]
     public async Task ListNoLocationRows_TrackedProductNoDefaultLocation_Returned()
     {
         var units = new TsUnitRepository();
@@ -370,19 +370,30 @@ public sealed class TakeStockReaderAdapterTests
         // No default location
         prods.Add(flour);
 
-        var stocks = new TsStockRepository();
-        var stock = ProductStock.Start(Household, flour.Id.Value, Clock);
-        stock.AddStock(500m, gramId, PantryLocId, userId: Guid.NewGuid(), Clock);
-        stocks.Add(stock);
-
-        var adapter = BuildAdapter(stocks, prods, units, new TsLocationRepository());
+        var adapter = BuildAdapter(new TsStockRepository(), prods, units, new TsLocationRepository());
         var result = await adapter.ListNoLocationRowsAsync();
 
         var row = Assert.Single(result);
         Assert.Equal(flour.Id.Value, row.ProductId);
-        Assert.Equal(500m, row.RecordedQuantity);
+        Assert.Equal(0m, row.RecordedQuantity);
     }
 
+    [Fact(DisplayName = "ListNoLocationRows — active stock in a concrete location is excluded")]
+    public async Task ListNoLocationRows_ActiveStockInConcreteLocation_Excluded()
+    {
+        var units = new TsUnitRepository();
+        var (_, gramId) = MakeUnit(units, "g");
+        var prods = new TsProductRepository();
+        var flour = Product.Create(Household, "Flour", UnitId.From(gramId), Clock);
+        prods.Add(flour);
+        var stocks = new TsStockRepository();
+        var stock = ProductStock.Start(Household, flour.Id.Value, Clock);
+        stock.AddStock(500m, gramId, PantryLocId, userId: Guid.NewGuid(), Clock);
+        stocks.Add(stock);
+        var adapter = BuildAdapter(stocks, prods, units, new TsLocationRepository());
+        var result = await adapter.ListNoLocationRowsAsync();
+        Assert.Empty(result);
+    }
     [Fact(DisplayName = "ListNoLocationRows — product with a default location assigned is excluded")]
     public async Task ListNoLocationRows_ProductWithDefaultLocation_Excluded()
     {
@@ -405,8 +416,8 @@ public sealed class TakeStockReaderAdapterTests
         Assert.Empty(result);
     }
 
-    [Fact(DisplayName = "ListNoLocationRows — product with no active stock is excluded")]
-    public async Task ListNoLocationRows_NoActiveLots_Excluded()
+    [Fact(DisplayName = "ListNoLocationRows — product with no active stock is included")]
+    public async Task ListNoLocationRows_NoActiveLots_Included()
     {
         var units = new TsUnitRepository();
         var (_, gramId) = MakeUnit(units, "g");
@@ -419,7 +430,9 @@ public sealed class TakeStockReaderAdapterTests
         var adapter = BuildAdapter(new TsStockRepository(), prods, units, new TsLocationRepository());
         var result = await adapter.ListNoLocationRowsAsync();
 
-        Assert.Empty(result);
+        var row = Assert.Single(result);
+        Assert.Equal(flour.Id.Value, row.ProductId);
+        Assert.Equal(0m, row.RecordedQuantity);
     }
 
     [Fact(DisplayName = "ListNoLocationRows — recorded quantity sums across all physical locations")]
@@ -441,8 +454,8 @@ public sealed class TakeStockReaderAdapterTests
         var adapter = BuildAdapter(stocks, prods, units, new TsLocationRepository());
         var result = await adapter.ListNoLocationRowsAsync();
 
-        var row = Assert.Single(result);
-        Assert.Equal(500m, row.RecordedQuantity);
+        Assert.Empty(result);
+
     }
 
     [Fact(DisplayName = "ListNoLocationRows — no tenant context returns empty")]

@@ -540,7 +540,7 @@ export function commitBarCounts(sections) {
     skippedCount,
     unresolved,
     totalItems,
-    canCommit: unresolved === 0 && confirmedCount > 0,
+    canCommit: sections.length > 0 && unresolved === 0,
     remaining: unresolved,
     progressPct: allLines > 0 ? Math.round((done / allLines) * 100) : 100,
   };

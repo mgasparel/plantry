@@ -29,5 +29,8 @@ public readonly record struct DetectorId(string Value)
     /// <summary>D7 (tidy-up.md §3, redefined): a recipe ingredient line whose product is untracked.</summary>
     public static readonly DetectorId RecipeLineUntrackedProduct = new("recipe-line-untracked-product");
 
+    /// <summary>D8 (tidy-up.md §3): a tracked concrete product without a catalog default location.</summary>
+    public static readonly DetectorId ProductMissingDefaultLocation = new("product-missing-default-location");
+
     public override string ToString() => Value;
 }

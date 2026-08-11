@@ -1,0 +1,4 @@
+<coverage><packages><package name="Plantry.Market"><classes>
+<class filename="Plantry.Market/obj/Debug/net10.0/System.Text.RegularExpressions.Generator/RegexGenerator.g.cs" line-rate="0"/>
+<class filename="src/Plantry.Market/Domain/Deals/DealNormalizer.cs" line-rate="0.95"/>
+</classes></package></packages></coverage>
