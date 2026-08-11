@@ -116,6 +116,16 @@ numbers consistent with the release gate, coverage here is aggregated with the
         release collects only unit + integration + E2E. The floors below were
         measured from pre-flight's own full-solution baseline, so the gate stays
         self-consistent.)
+     1b. Run the structural denominator verifier against this run's raw coverage:
+        ```
+        python tools/verify-market-coverage.py \
+          --summary .preflight/coverage/report/Summary.json \
+          --cobertura ".preflight/coverage/**/coverage.cobertura.xml"
+        ```
+        It checks that compiler-generated regex rows are absent, handwritten
+        `DealNormalizer.cs` remains covered, and the exclusion is narrowly scoped.
+        It never re-aggregates coverage percentages; ReportGenerator remains the
+        source of truth for the floor gate. A failure is **FAILED — coverage**.
      2. Classify each `Plantry.*` product assembly into a tier by **rule**, not a
         hand-maintained list:
         - `*.Infrastructure` → **infra** tier.
@@ -259,6 +269,7 @@ Status: PASS | FAIL | SKIPPED (not run — build failed)
 ### 2c. Coverage
 Status: PASS | FAIL | SKIPPED (not run — {build|tests} failed)
 - Engine: ReportGenerator (pinned local tool) over .preflight/coverage/**/coverage.cobertura.xml
+- Denominator check: PASS | FAIL (see diagnostics)
 - Table: assembly | tier (domain/infra/advisory) | line % | floor | pass/fail
 - Any floors raised this run (ratchet): assembly old→new, or "none"
 

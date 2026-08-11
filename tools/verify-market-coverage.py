@@ -1,52 +1,170 @@
 #!/usr/bin/env python3
-"""Verify durable evidence for the Plantry.Market coverage denominator fix."""
+"""Verify the generated-regex coverage denominator correction."""
 from __future__ import annotations
-import argparse, json, re, sys, xml.etree.ElementTree as ET
+
+import argparse
+import json
+import re
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
-EXPECTED_BASELINE = (2282, 2817)
-EXPECTED_POST = (1456, 1519)
-GENERATED_RE = re.compile(r"(?:^|[\\/])obj(?:[\\/]).*System\.Text\.RegularExpressions\.Generator(?:[\\/]).*\.g\.cs$", re.I)
-DEAL_RE = re.compile(r"(?:^|[\\/])src[\\/]Plantry\.Market[\\/]Domain[\\/]Deals[\\/]DealNormalizer\.cs$", re.I)
-def percent(pair):
-    covered, total = pair
-    return int(covered * 1000 / total) / 10
-def read_summary(path: Path):
+
+RUNSETTINGS = Path(__file__).resolve().parents[1] / "coverage.runsettings"
+GENERATED_PATTERN = "**/obj/**/System.Text.RegularExpressions.Generator/**/*.g.cs"
+GENERATED_RE = re.compile(
+    r"(?:^|[\\/])obj(?:[\\/]).*System\.Text\.RegularExpressions\.Generator"
+    r"(?:[\\/]).*\.g\.cs$",
+    re.IGNORECASE,
+)
+DEAL_RE = re.compile(
+    r"(?:^|[\\/])(?:src[\\/])?Plantry\.Market[\\/]Domain[\\/]Deals[\\/]"
+    r"DealNormalizer\.cs$",
+    re.IGNORECASE,
+)
+
+
+def normalise(path: str) -> str:
+    return path.replace("\\", "/").lstrip("./")
+
+
+def is_generated(path: str) -> bool:
+    return bool(GENERATED_RE.search(normalise(path)))
+
+
+def is_deal_normalizer(path: str) -> bool:
+    return bool(DEAL_RE.search(normalise(path)))
+
+
+def read_exclusions() -> list[str]:
+    root = ET.parse(RUNSETTINGS).getroot()
+    node = root.find(".//ExcludeByFile")
+    if node is None or not node.text:
+        raise ValueError(f"{RUNSETTINGS} has no ExcludeByFile entries")
+    return [entry.strip() for entry in node.text.split(",") if entry.strip()]
+
+
+def glob_matches(pattern: str, path: str) -> bool:
+    pattern = normalise(pattern)
+    path = normalise(path)
+    regex = re.escape(pattern).replace(r"\*\*/", r"(?:.*/)?")
+    regex = regex.replace(r"\*", r"[^/]*").replace(r"\?", r"[^/]")
+    return re.fullmatch(regex, path, re.IGNORECASE) is not None
+
+
+def validate_runsettings() -> None:
+    exclusions = read_exclusions()
+    if GENERATED_PATTERN not in exclusions:
+        raise ValueError(f"runsettings is missing the narrow generated-regex exclusion: {GENERATED_PATTERN}")
+    if any("DealNormalizer.cs" in entry or "Plantry.Market" in entry for entry in exclusions):
+        raise ValueError("runsettings contains a broad or handwritten Market exclusion")
+    generated_path = "src/Plantry.Market/obj/Debug/net10.0/System.Text.RegularExpressions.Generator/RegexGenerator.g.cs"
+    handwritten_path = "src/Plantry.Market/Domain/Deals/DealNormalizer.cs"
+    if not glob_matches(GENERATED_PATTERN, generated_path):
+        raise ValueError("generated-regex exclusion does not match a representative generated path")
+    if glob_matches(GENERATED_PATTERN, handwritten_path):
+        raise ValueError("generated-regex exclusion matches handwritten DealNormalizer.cs")
+
+
+def class_rows(path: Path) -> list[ET.Element]:
+    return list(ET.parse(path).getroot().findall(".//class"))
+
+
+def covered_lines(row: ET.Element) -> int:
+    lines = row.findall(".//line")
+    return sum(1 for line in lines if int(line.attrib.get("hits", "0")) > 0)
+
+
+def validate_cobertura(paths: list[Path]) -> None:
+    if not paths:
+        raise ValueError("no Cobertura files matched")
+    generated_rows = []
+    deal_rows = []
+    market_packages = 0
+    for path in paths:
+        root = ET.parse(path).getroot()
+        for package in root.findall(".//package"):
+            if package.attrib.get("name") == "Plantry.Market":
+                market_packages += 1
+        for row in class_rows(path):
+            filename = row.attrib.get("filename", "")
+            if is_generated(filename):
+                generated_rows.append(f"{path}: {filename}")
+            if is_deal_normalizer(filename):
+                deal_rows.append((path, row))
+    if generated_rows:
+        raise ValueError("generated regex rows remain in coverage output:\n" + "\n".join(generated_rows[:5]))
+    if not deal_rows or not any(covered_lines(row) > 0 for _, row in deal_rows):
+        raise ValueError("handwritten DealNormalizer.cs is missing or has no covered lines")
+    if market_packages == 0:
+        raise ValueError("Plantry.Market package is absent from coverage output")
+
+
+def read_market_summary(path: Path) -> tuple[float, int, int]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    node = data.get("summary", data)
-    if isinstance(node, list): node = node[0]
-    covered = int(node.get("covered", node.get("coveredLines", -1)))
-    total = int(node.get("total", node.get("totalLines", -1)))
-    if covered < 0 or total <= 0: raise ValueError(f"summary has no covered/total line counts: {path}")
-    return covered, total
-def filenames(path: Path):
-    root = ET.parse(path).getroot()
-    return [node.attrib.get("filename", "") for node in root.findall(".//class")]
-def verify(baseline, post, baseline_cov: Path, post_cov: Path):
-    assert baseline == EXPECTED_BASELINE, f"baseline changed: {baseline}"
-    assert post == EXPECTED_POST, f"post-fix changed: {post}"
-    assert percent(baseline) == 81.0 and percent(post) == 95.8
-    before, after = filenames(baseline_cov), filenames(post_cov)
-    assert any(GENERATED_RE.search(name) for name in before), "baseline lacks actual generated regex path"
-    assert not any(GENERATED_RE.search(name) for name in after), "generated regex row remains after exclusion"
-    assert any(DEAL_RE.search(name.replace("\\", "/")) for name in before), "baseline omitted DealNormalizer.cs"
-    assert any(DEAL_RE.search(name.replace("\\", "/")) for name in after), "post-fix omitted DealNormalizer.cs"
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--baseline-summary", type=Path)
-    parser.add_argument("--post-summary", type=Path)
-    parser.add_argument("--baseline-cobertura", type=Path)
-    parser.add_argument("--post-cobertura", type=Path)
+    assemblies = data.get("coverage", {}).get("assemblies", [])
+    market = next((item for item in assemblies if item.get("name") == "Plantry.Market"), None)
+    if market is None:
+        raise ValueError(f"Plantry.Market is absent from ReportGenerator summary: {path}")
+    return float(market["coverage"]), int(market["coveredlines"]), int(market["coverablelines"])
+
+
+def validate_fixtures() -> None:
+    evidence = Path(__file__).with_name("market-coverage-evidence")
+    baseline = class_rows(evidence / "baseline.cobertura.xml")
+    post = class_rows(evidence / "post.cobertura.xml")
+    if not any(is_generated(row.attrib.get("filename", "")) for row in baseline):
+        raise ValueError("baseline fixture does not document the generated row")
+    if any(is_generated(row.attrib.get("filename", "")) for row in post):
+        raise ValueError("post fixture still contains a generated row")
+    if not any(is_deal_normalizer(row.attrib.get("filename", "")) for row in baseline + post):
+        raise ValueError("fixtures do not retain DealNormalizer.cs")
+    for name in ("baseline-Summary.json", "post-Summary.json"):
+        json.loads((evidence / name).read_text(encoding="utf-8"))
+
+
+def self_test() -> None:
+    validate_runsettings()
+    validate_fixtures()
+    assert is_generated("obj/Debug/net10.0/System.Text.RegularExpressions.Generator/RegexGenerator.g.cs")
+    assert not is_generated("src/Plantry.Market/Domain/Deals/DealNormalizer.cs")
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "coverage.cobertura.xml"
+        path.write_text(
+            '<coverage><packages><package name="Plantry.Market"><classes>'
+            '<class filename="src/Plantry.Market/Domain/Deals/DealNormalizer.cs">'
+            '<methods><method><lines><line hits="1"/></lines></method></methods></class>'
+            '</classes></package></packages></coverage>',
+            encoding="utf-8",
+        )
+        validate_cobertura([path])
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--summary", type=Path, help="ReportGenerator Summary.json")
+    parser.add_argument("--cobertura", type=Path, action="append", help="Cobertura file or glob (repeatable)")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
-    if args.self_test:
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            b, p = Path(d)/"before.xml", Path(d)/"after.xml"
-            b.write_text('<coverage><class filename="obj/Debug/net10.0/System.Text.RegularExpressions.Generator/RegexGenerator.g.cs"/><class filename="src/Plantry.Market/Domain/Deals/DealNormalizer.cs"/></coverage>')
-            p.write_text('<coverage><class filename="src/Plantry.Market/Domain/Deals/DealNormalizer.cs"/></coverage>')
-            verify(EXPECTED_BASELINE, EXPECTED_POST, b, p)
-    elif all((args.baseline_summary, args.post_summary, args.baseline_cobertura, args.post_cobertura)):
-        verify(read_summary(args.baseline_summary), read_summary(args.post_summary), args.baseline_cobertura, args.post_cobertura)
-    else: parser.error("provide --self-test or all four coverage paths")
-    print("Market coverage evidence verified: 81.0% (2282/2817) -> 95.8% (1456/1519); generated regex excluded; DealNormalizer retained.")
-if __name__ == "__main__": sys.exit(main())
+    try:
+        if args.self_test:
+            self_test()
+            print("Market coverage denominator self-test passed.")
+            return 0
+        if args.summary is None or not args.cobertura:
+            parser.error("provide --summary and at least one --cobertura, or use --self-test")
+        paths = []
+        for candidate in args.cobertura:
+            paths.extend(sorted(Path().glob(str(candidate))) if any(char in str(candidate) for char in "*?[") else [candidate])
+        validate_runsettings()
+        validate_cobertura(paths)
+        coverage, covered, total = read_market_summary(args.summary)
+        print(f"Market coverage denominator verified: {coverage:.1f}% ({covered}/{total}); generated regex excluded; DealNormalizer retained.")
+        return 0
+    except (AssertionError, OSError, ET.ParseError, ValueError, json.JSONDecodeError) as error:
+        print(f"Market coverage verification failed: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
