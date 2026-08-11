@@ -44,6 +44,10 @@ public interface IShoppingPantryReader
     /// </summary>
     Task<IReadOnlyList<ShoppingPantryStockLevel>> GetLowStockProductsAsync(
         CancellationToken ct = default);
+
+    /// <summary>Returns products matching the shared Tidy Up D4 frequent-staple predicate and no threshold.</summary>
+    Task<IReadOnlyList<ShoppingPantryStockLevel>> GetFrequentStapleProductsAsync(
+        DateOnly today, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -72,4 +76,5 @@ public sealed record ShoppingPantryStockLevel(
     Guid ProductId,
     decimal OnHand,
     string UnitCode,
-    bool IsLow);
+    bool IsLow,
+    bool HasLowStockThreshold = true);

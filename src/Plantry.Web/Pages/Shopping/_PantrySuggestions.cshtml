@@ -9,14 +9,14 @@
 <div id="pantry-suggestions"@Html.Raw(oobAttr)>
     @if (suggestions.Count > 0)
     {
-        <div class="sl-suggest" aria-label="Running low in your pantry">
-            <div class="sl-suggest-label">Running low in your pantry</div>
+        <div class="sl-suggest" aria-label="Pantry suggestions">
+            <div class="sl-suggest-label">Pantry suggestions</div>
             <div class="sl-sug-chips">
                 @foreach (var sug in suggestions)
                 {
                     <div class="sl-sug">
                         <span class="sl-sug-name">@sug.Name</span>
-                        <span class="sl-sug-stock @(sug.OnHand <= 0 ? "out" : "")">@sug.StockLabel</span>
+                        <span class="sl-sug-stock @(sug.OnHand <= 0 ? "out" : "")">@(sug.IsFrequentStaple ? "Frequent staple · no alert" : sug.StockLabel)</span>
                         <form method="post" action="@Url.Page("./Index", "AddItem")"
                               hx-post="@Url.Page("./Index", "AddItem")"
                               hx-target="#shopping-list" hx-swap="outerHTML">
