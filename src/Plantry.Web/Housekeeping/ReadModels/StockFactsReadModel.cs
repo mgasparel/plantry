@@ -41,10 +41,10 @@ public sealed class StockFactsReadModel(
         // previous tenant's app.household_id.
         await using (var armCmd = conn.CreateCommand())
         {
-            armCmd.CommandText = "SELECT set_config('app.household_id', @household_id, false)";
+            armCmd.CommandText = "SELECT set_config('app.household_id', @household_id::text, false)";
             var hidParam = armCmd.CreateParameter();
             hidParam.ParameterName = "household_id";
-            hidParam.Value = tenant.HouseholdId?.ToString() ?? string.Empty;
+            hidParam.Value = tenant.HouseholdId ?? Guid.Empty;
             armCmd.Parameters.Add(hidParam);
             await armCmd.ExecuteNonQueryAsync(ct);
         }
@@ -56,7 +56,9 @@ public sealed class StockFactsReadModel(
             cmd.CommandText = """
                 SELECT product_id, low_stock_threshold
                 FROM inventory.product_stock
+                WHERE household_id = @household_id
                 """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
@@ -65,13 +67,6 @@ public sealed class StockFactsReadModel(
                 thresholdByProduct[productId] = threshold;
             }
         }
-
-        if (thresholdByProduct.Count == 0)
-            return new StockFactsBag(
-                new Dictionary<Guid, StockProductFact>(),
-                new Dictionary<Guid, ProductFact>(),
-                new Dictionary<Guid, UnitFact>(),
-                new Dictionary<Guid, IReadOnlyList<ConversionFact>>());
 
         // ── Query 2: every stock_entry lot (inventory) — ALL lots, not just active ones. D4 (staple
         // no-low-stock-alert) counts purchase history across active AND depleted lots; D1/D3/D6 filter
@@ -83,7 +78,9 @@ public sealed class StockFactsReadModel(
             cmd.CommandText = """
                 SELECT entry_id, product_id, unit_id, quantity, expiry_date, purchased_at, depleted_at
                 FROM inventory.stock_entry
+                WHERE household_id = @household_id
                 """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
@@ -113,27 +110,32 @@ public sealed class StockFactsReadModel(
                 kvp.Value,
                 entriesByProduct.TryGetValue(kvp.Key, out var lots) ? lots : []));
 
-        // ── Query 3: products (catalog) — active only, matching ICatalogReadFacade.ListProductsAsync's
-        // archived-skip convention every detector's doc comment already documents. ──────────────────
+        // ── Query 3: products (catalog) — all active household products. Stock roots remain separate.
         var productIds = thresholdByProduct.Keys.ToArray();
         var products = new Dictionary<Guid, ProductFact>();
         await using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT id, name, track_stock, default_unit_id
+                SELECT id, name, track_stock, default_unit_id, default_location_id, has_variants
                 FROM catalog.products
-                WHERE id = ANY(@ids) AND archived_at IS NULL
+                WHERE household_id = @household_id AND archived_at IS NULL
                 """;
-            var param = cmd.CreateParameter();
-            param.ParameterName = "ids";
-            param.Value = productIds;
-            cmd.Parameters.Add(param);
+            var householdParam = cmd.CreateParameter();
+            householdParam.ParameterName = "household_id";
+            householdParam.Value = tenant.HouseholdId ?? Guid.Empty;
+            cmd.Parameters.Add(householdParam);
 
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
                 var id = reader.GetGuid(0);
-                products[id] = new ProductFact(id, reader.GetString(1), reader.GetBoolean(2), reader.GetGuid(3));
+                products[id] = new ProductFact(
+                    id,
+                    reader.GetString(1),
+                    reader.GetBoolean(2),
+                    reader.GetGuid(3),
+                    reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                    reader.GetBoolean(5));
             }
         }
 
@@ -144,7 +146,9 @@ public sealed class StockFactsReadModel(
             cmd.CommandText = """
                 SELECT id, symbol, name, dimension, factor_to_base, is_base
                 FROM catalog.units
+                WHERE household_id = @household_id
                 """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
@@ -162,8 +166,9 @@ public sealed class StockFactsReadModel(
             cmd.CommandText = """
                 SELECT product_id, from_unit_id, to_unit_id, factor
                 FROM catalog.product_conversions
-                WHERE product_id = ANY(@ids)
+                WHERE household_id = @household_id AND product_id = ANY(@ids)
                 """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             var param = cmd.CreateParameter();
             param.ParameterName = "ids";
             param.Value = productIds;

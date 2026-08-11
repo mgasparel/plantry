@@ -36,10 +36,10 @@ public sealed class RecipeFactsReadModel(
 
         await using (var armCmd = conn.CreateCommand())
         {
-            armCmd.CommandText = "SELECT set_config('app.household_id', @household_id, false)";
+            armCmd.CommandText = "SELECT set_config('app.household_id', @household_id::text, false)";
             var hidParam = armCmd.CreateParameter();
             hidParam.ParameterName = "household_id";
-            hidParam.Value = tenant.HouseholdId?.ToString() ?? string.Empty;
+            hidParam.Value = tenant.HouseholdId ?? Guid.Empty;
             armCmd.Parameters.Add(hidParam);
             await armCmd.ExecuteNonQueryAsync(ct);
         }
@@ -60,9 +60,10 @@ public sealed class RecipeFactsReadModel(
                     i.ordinal     AS ing_ordinal
                 FROM recipes.recipe r
                 LEFT JOIN recipes.recipe_ingredient i ON i.recipe_id = r.recipe_id
-                WHERE r.archived_at IS NULL
+                WHERE r.household_id = @household_id AND r.archived_at IS NULL
                 ORDER BY r.recipe_id, i.ordinal
                 """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
@@ -111,10 +112,14 @@ public sealed class RecipeFactsReadModel(
         {
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
-                SELECT id, name, track_stock, default_unit_id
+                SELECT id, name, track_stock, default_unit_id, default_location_id, has_variants
                 FROM catalog.products
-                WHERE id = ANY(@ids) AND archived_at IS NULL
+                WHERE household_id = @household_id AND id = ANY(@ids) AND archived_at IS NULL
                 """;
+            var householdParam = cmd.CreateParameter();
+            householdParam.ParameterName = "household_id";
+            householdParam.Value = tenant.HouseholdId ?? Guid.Empty;
+            cmd.Parameters.Add(householdParam);
             var param = cmd.CreateParameter();
             param.ParameterName = "ids";
             param.Value = productIds;
@@ -124,7 +129,13 @@ public sealed class RecipeFactsReadModel(
             while (await reader.ReadAsync(ct))
             {
                 var id = reader.GetGuid(0);
-                products[id] = new ProductFact(id, reader.GetString(1), reader.GetBoolean(2), reader.GetGuid(3));
+                products[id] = new ProductFact(
+                    id,
+                    reader.GetString(1),
+                    reader.GetBoolean(2),
+                    reader.GetGuid(3),
+                    reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                    reader.GetBoolean(5));
             }
         }
 
@@ -135,7 +146,9 @@ public sealed class RecipeFactsReadModel(
             cmd.CommandText = """
                 SELECT id, symbol, name, dimension, factor_to_base, is_base
                 FROM catalog.units
+                WHERE household_id = @household_id
                 """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
@@ -154,8 +167,9 @@ public sealed class RecipeFactsReadModel(
             cmd.CommandText = """
                 SELECT product_id, from_unit_id, to_unit_id, factor
                 FROM catalog.product_conversions
-                WHERE product_id = ANY(@ids)
+                WHERE household_id = @household_id AND product_id = ANY(@ids)
                 """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             var param = cmd.CreateParameter();
             param.ParameterName = "ids";
             param.Value = productIds;
@@ -185,8 +199,9 @@ public sealed class RecipeFactsReadModel(
             cmd.CommandText = """
                 SELECT DISTINCT product_id
                 FROM pricing.price_observation
-                WHERE product_id = ANY(@ids) AND superseded_by_id IS NULL
+                WHERE household_id = @household_id AND product_id = ANY(@ids) AND superseded_by_id IS NULL
                 """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             var param = cmd.CreateParameter();
             param.ParameterName = "ids";
             param.Value = productIds;
