@@ -45,5 +45,21 @@ public sealed class GeminiReceiptParserEdgeCasesTests
         var result = GeminiReceiptParser.MapResponse($"{{\"purchase_time\":\"{value}\",\"lines\":[]}}");
         Assert.Equal(expected, result.Metadata!.PurchaseTime is not null);
     }
+    [Fact]
+    public void Skips_Scalar_Alternatives_And_Retains_Valid_Entries()
+    {
+        const string validId = "0193b4a0-aaaa-7000-8000-000000000001";
+        var json = $$"""
+            { "lines": [ { "alternatives": [ null, [],
+              { "product_id": "{{validId}}", "product_name": "Butter", "confidence": 0.62 } ] } ] }
+            """;
+
+        var result = GeminiReceiptParser.MapResponse(json);
+
+        Assert.False(result.HasError);
+        var alternative = Assert.Single(Assert.NotNull(result.Lines[0].Alternatives));
+        Assert.Equal(Guid.Parse(validId), alternative.ProductId);
+    }
 }
+
 
