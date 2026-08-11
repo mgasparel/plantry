@@ -258,6 +258,14 @@ function DetailsStrip({ ls, units, locations, today }) {
   return html`
     <div class="focus-card__details">
       <div class="form-grid__field">
+        <label class="form-grid__field__label" for=${`price-${ls.lineId}`}>Price</label>
+        <div class="form-grid__field__control">
+          <input id=${`price-${ls.lineId}`} class="field__input" type="number" min="0" step="0.01"
+                 inputmode="decimal" name="Edit.Price" placeholder="—" value=${ls.draftPrice}
+                 onInput=${(/** @type {InputEvent} */ e) => { ls.draftPrice.value = /** @type {HTMLInputElement} */ (e.target).value; }} />
+        </div>
+      </div>
+      <div class="form-grid__field">
         <label class="form-grid__field__label">Quantity</label>
         <div class="form-grid__field__control">
           <div class="stepper" role="group">
