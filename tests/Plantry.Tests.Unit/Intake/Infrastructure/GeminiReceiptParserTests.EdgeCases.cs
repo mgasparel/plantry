@@ -57,9 +57,9 @@ public sealed class GeminiReceiptParserEdgeCasesTests
         var result = GeminiReceiptParser.MapResponse(json);
 
         Assert.False(result.HasError);
-        var alternatives = result.Lines[0].Alternatives;\n        Assert.NotNull(alternatives);\n        var alternative = Assert.Single(alternatives);
+        var alternatives = result.Lines[0].Alternatives;
+        Assert.NotNull(alternatives);
+        var alternative = Assert.Single(alternatives);
         Assert.Equal(Guid.Parse(validId), alternative.ProductId);
     }
 }
-
-
