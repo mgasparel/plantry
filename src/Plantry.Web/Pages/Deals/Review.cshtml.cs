@@ -253,6 +253,10 @@ public sealed class ReviewModel(
             logger.LogWarning("Confirm deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
             SetToast("Couldn't confirm that deal — try again.");
         }
+        else
+        {
+            await RejectDuplicateSiblingsAsync(view, ct);
+        }
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -271,6 +275,10 @@ public sealed class ReviewModel(
 
         // Both resolve failures (inline-create failed, or neither an existing nor a new product supplied) and a
         // CorrectAsync failure surface the same short correction-failed toast — the log already carries the code.
+        // Load the target and its pending duplicate siblings before resolving the posted product. The same view
+        // is reused after a successful correction so sibling cleanup remains tied to this tenant-scoped read.
+        var view = await reviewDeals.FindAsync(DealId.From(form.DealId), includePurchaseContext: false, ct);
+
         var resolved = await ResolveCorrectionProductAsync(form, ct);
         if (resolved.IsFailure)
         {
@@ -283,6 +291,11 @@ public sealed class ReviewModel(
         {
             logger.LogWarning("Correct deal {DealId} failed: {ErrorCode}.", form.DealId, result.Error.Code);
             SetToast("Couldn't save that correction — try again.");
+        }
+
+        else if (view is not null)
+        {
+            await RejectDuplicateSiblingsAsync(view, ct);
         }
 
         return await QueueFragmentAsync(form.Flyer, form.Step, ct);
@@ -324,7 +337,10 @@ public sealed class ReviewModel(
         if (tenant.HouseholdId is null)
             return Forbid();
 
+        var view = await reviewDeals.FindAsync(DealId.From(dealId), includePurchaseContext: false, ct);
         var result = await rejectDeal.RejectAsync(DealId.From(dealId), CurrentUserId, ct: ct);
+        if (result.IsSuccess && view is not null)
+            await RejectDuplicateSiblingsAsync(view, ct);
         if (result.IsFailure)
         {
             logger.LogWarning("Reject deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
@@ -387,6 +403,7 @@ public sealed class ReviewModel(
             if (result.IsSuccess)
             {
                 confirmed++;
+                await RejectDuplicateSiblingsAsync(deal, ct);
             }
             else
             {
@@ -441,6 +458,7 @@ public sealed class ReviewModel(
             if (result.IsSuccess)
             {
                 dismissed++;
+                await RejectDuplicateSiblingsAsync(deal, ct);
             }
             else
             {
@@ -486,6 +504,23 @@ public sealed class ReviewModel(
     /// (or empty) means "the whole eligible set". Any requested id outside the eligible tier/flyer is dropped
     /// and logged — a client can never widen the set or reach a deal in another tier through the id list.
     /// </summary>
+    private async Task RejectDuplicateSiblingsAsync(DealReviewView view, CancellationToken ct)
+    {
+        foreach (var siblingId in view.DuplicateDealIds ?? [])
+        {
+            try
+            {
+                var result = await rejectDeal.RejectAsync(DealId.From(siblingId), CurrentUserId, ct: ct);
+                if (result.IsFailure)
+                    logger.LogWarning("Duplicate sibling cleanup failed for deal {DealId}: {ErrorCode}.", siblingId, result.Error.Code);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Duplicate sibling cleanup failed for deal {DealId}.", siblingId);
+            }
+        }
+    }
+
     private IReadOnlyList<DealReviewView> ScopeToRequestedIds(
         IReadOnlyList<DealReviewView> eligible, Guid[]? dealIds, string verb)
     {
