@@ -46,3 +46,4 @@ public sealed class GeminiReceiptParserEdgeCasesTests
         Assert.Equal(expected, result.Metadata!.PurchaseTime is not null);
     }
 }
+
