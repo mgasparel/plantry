@@ -4,8 +4,9 @@ namespace Plantry.Planning.Domain;
 /// The single product-policy location for retained meal history. History is a soft novelty signal,
 /// never an eligibility rule: callers may score it but must not exclude a recipe because it appears here.
 ///
-/// Retain ages 0 through 20 days. Weight is piecewise-linear through the approved anchors:
-/// age 0 = 100%, age 7 = 20%, age 14 = 10%, age 21+ = 0%.
+/// Retain ages 0 through 20 days. Curve D holds ages 0 through 3 at 100%, then
+/// decays exponentially to zero at age 21: exp(-ln(100) * ((age - 3) / 18)^2).
+/// Future local dates and age 21+ have zero weight.
 /// </summary>
 public static class RecentMealHistoryPolicy
 {
@@ -22,14 +23,10 @@ public static class RecentMealHistoryPolicy
         var ageDays = asOfDate.DayNumber - occurredOn.DayNumber;
         if (ageDays < 0 || ageDays >= HorizonDays) return 0m;
 
-        return ageDays switch
-        {
-            <= 7 => Interpolate(ageDays, 0, 1.00m, 7, 0.20m),
-            <= 14 => Interpolate(ageDays, 7, 0.20m, 14, 0.10m),
-            _ => Interpolate(ageDays, 14, 0.10m, 21, 0.00m),
-        };
-    }
+        if (ageDays <= 3) return 1.00m;
 
-    private static decimal Interpolate(int ageDays, int startAge, decimal startWeight, int endAge, decimal endWeight) =>
-        startWeight + ((ageDays - startAge) * (endWeight - startWeight) / (endAge - startAge));
+        var normalizedAge = (ageDays - 3d) / (HorizonDays - 3d);
+        var weight = Math.Exp(-Math.Log(100d) * normalizedAge * normalizedAge);
+        return decimal.Round((decimal)weight, 12, MidpointRounding.ToEven);
+    }
 }

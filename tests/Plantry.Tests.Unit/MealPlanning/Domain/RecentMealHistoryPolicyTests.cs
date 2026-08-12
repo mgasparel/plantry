@@ -10,27 +10,25 @@ public sealed class RecentMealHistoryPolicyTests
 
     [Theory]
     [InlineData(0, 1.00)]
-    [InlineData(7, 0.20)]
-    [InlineData(14, 0.10)]
+    [InlineData(3, 1.00)]
     [InlineData(21, 0.00)]
     [InlineData(30, 0.00)]
-    public void WeightFor_UsesApprovedAnchorsAndHorizon(int ageDays, double expected)
+    public void WeightFor_UsesCurveDAnchorsAndHorizon(int ageDays, double expected)
     {
         var actual = RecentMealHistoryPolicy.WeightFor(Today.AddDays(-ageDays), Today);
 
         Assert.Equal((decimal)expected, actual);
     }
 
-    [Fact]
-    public void WeightFor_InterpolatesLinearlyBetweenAnchors()
+    [Theory]
+    [InlineData(4)]
+    [InlineData(12)]
+    [InlineData(20)]
+    public void WeightFor_FollowsCurveDExponentialFormula(int ageDays)
     {
-        var ageThree = RecentMealHistoryPolicy.WeightFor(Today.AddDays(-3), Today);
-        var ageTen = RecentMealHistoryPolicy.WeightFor(Today.AddDays(-10), Today);
-        var ageEighteen = RecentMealHistoryPolicy.WeightFor(Today.AddDays(-18), Today);
+        var expected = Math.Exp(-Math.Log(100d) * Math.Pow((ageDays - 3d) / 18d, 2));
 
-        Assert.Equal(0.657143m, Math.Round(ageThree, 6));
-        Assert.Equal(0.157143m, Math.Round(ageTen, 6));
-        Assert.Equal(0.042857m, Math.Round(ageEighteen, 6));
+        Assert.Equal((decimal)expected, RecentMealHistoryPolicy.WeightFor(Today.AddDays(-ageDays), Today), 12);
     }
 
     [Fact]
