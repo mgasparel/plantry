@@ -29,8 +29,7 @@ public sealed record DealReviewView(
     DealStatus Status,
     bool AutoMatched,
     Guid? UnitId = null,
-    DealPurchaseContext? Purchase = null,
-    IReadOnlyList<Guid>? DuplicateDealIds = null)
+    DealPurchaseContext? Purchase = null)
 {
     /// <summary>
     /// True when a live, resolvable suggested product exists — drives the "did you mean" chip and the
@@ -175,11 +174,11 @@ public sealed class ReviewDeals(
         if (pending.Count == 0)
             return [];
 
-        var collapsed = CollapseDuplicateFlyerCrops(pending);
+        pending = CollapseDuplicateFlyerCrops(pending);
 
-        var (storeNames, suggestionNames) = await ResolveNamesAsync(collapsed.Select(x => x.Representative).ToList(), ct);
+        var (storeNames, suggestionNames) = await ResolveNamesAsync(pending, ct);
 
-        var views = collapsed.Select(x => ToView(x.Representative, storeNames, suggestionNames, x.SiblingIds)).ToList();
+        var views = pending.Select(d => ToView(d, storeNames, suggestionNames)).ToList();
         var purchaseContexts = await BuildPurchaseContextsAsync(views, ct);
 
         return views
@@ -286,18 +285,12 @@ public sealed class ReviewDeals(
     /// the surviving representative stable across renders instead of flapping between duplicates.
     /// </para>
     /// </summary>
-    private sealed record CollapsedDeal(Deal Representative, IReadOnlyList<Guid> SiblingIds);
-
-    private static List<CollapsedDeal> CollapseDuplicateFlyerCrops(IReadOnlyList<Deal> pending) =>
+    private static List<Deal> CollapseDuplicateFlyerCrops(IReadOnlyList<Deal> pending) =>
         pending
             .GroupBy(d => (
                 d.StoreId, d.ValidityWindow.ValidFrom, d.ValidityWindow.ValidTo,
                 d.NormalizedName, d.Price, d.Brand, d.Size, d.SaleStory, d.Quantity))
-            .Select(g =>
-            {
-                var ordered = g.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id.Value).ToList();
-                return new CollapsedDeal(ordered[0], ordered.Skip(1).Select(d => d.Id.Value).ToList());
-            })
+            .Select(g => g.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id.Value).First())
             .ToList();
 
     /// <summary>
@@ -410,14 +403,8 @@ public sealed class ReviewDeals(
         if (deal is null || deal.Status == DealStatus.Rejected)
             return null;
 
-        var all = await deals.ListBrowsableAsync(ct);
-        var siblings = all
-            .Where(d => d.Status == DealStatus.Pending && d.Id != deal.Id && SameAdvertisedIdentity(d, deal))
-            .Select(d => d.Id.Value)
-            .ToList();
-
         var (storeNames, suggestionNames) = await ResolveNamesAsync([deal], ct);
-        var view = ToView(deal, storeNames, suggestionNames, siblings);
+        var view = ToView(deal, storeNames, suggestionNames);
         if (!includePurchaseContext)
             return view;
 
@@ -447,8 +434,7 @@ public sealed class ReviewDeals(
     private static DealReviewView ToView(
         Deal deal,
         IReadOnlyDictionary<Guid, string> storeNames,
-        IReadOnlyDictionary<Guid, DealProductInfo> suggestionNames,
-        IReadOnlyList<Guid>? duplicateDealIds = null)
+        IReadOnlyDictionary<Guid, DealProductInfo> suggestionNames)
     {
         string? suggestedName = deal.SuggestedProductId is { } sid
                                 && suggestionNames.TryGetValue(sid, out var info)
@@ -472,21 +458,8 @@ public sealed class ReviewDeals(
             suggestedName,
             deal.Status,
             deal.AutoMatched,
-            deal.UnitId,
-            DuplicateDealIds: duplicateDealIds ?? []);
+            deal.UnitId);
     }
-
-
-    private static bool SameAdvertisedIdentity(Deal left, Deal right) =>
-        left.StoreId == right.StoreId
-        && left.ValidityWindow.ValidFrom == right.ValidityWindow.ValidFrom
-        && left.ValidityWindow.ValidTo == right.ValidityWindow.ValidTo
-        && left.NormalizedName == right.NormalizedName
-        && left.Price == right.Price
-        && left.Brand == right.Brand
-        && left.Size == right.Size
-        && left.SaleStory == right.SaleStory
-        && left.Quantity == right.Quantity;
 
     private static readonly IReadOnlyDictionary<Guid, DealProductInfo> EmptyProducts =
         new Dictionary<Guid, DealProductInfo>();

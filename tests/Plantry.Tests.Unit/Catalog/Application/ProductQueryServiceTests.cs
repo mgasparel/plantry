@@ -104,6 +104,18 @@ public sealed class ProductQueryServiceTests
         Assert.Null(result);
     }
 
+    [Fact]
+    public async Task ListEverything_Projects_IsProduced_From_Product()
+    {
+        var service = MakeService(out var products, out _);
+        var product = Product.Create(HouseholdId, "Homemade soup", UnitId.New(), SystemClock.Instance, isProduced: true);
+        products.Items.Add(product);
+
+        var result = await service.ListActiveAsync();
+
+        Assert.True(Assert.Single(result).IsProduced);
+    }
+
     [Fact(DisplayName = "plantry-lxm2: ListActiveAsync excludes archived products")]
     public async Task ListActive_Excludes_Archived_Products()
     {

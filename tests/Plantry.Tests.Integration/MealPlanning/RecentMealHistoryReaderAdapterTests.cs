@@ -24,8 +24,6 @@ public sealed class RecentMealHistoryReaderAdapterTests(PostgresFixture db) : IA
     private static readonly IClock Clock = new FixedClock(
         new DateTimeOffset(2026, 8, 9, 12, 0, 0, TimeSpan.Zero),
         TimeZoneInfo.Utc);
-    private static readonly TimeZoneInfo EasternTime = TimeZoneInfo.FindSystemTimeZoneById(
-        OperatingSystem.IsWindows() ? "Eastern Standard Time" : "America/New_York");
 
     private HouseholdId _household;
     private MealSlotId _slotId;
@@ -61,12 +59,12 @@ public sealed class RecentMealHistoryReaderAdapterTests(PostgresFixture db) : IA
         var occurrence = Assert.Single(history.Occurrences);
         Assert.Equal(RecentMealOccurrenceSource.RetainedPlan, occurrence.Source);
         Assert.Equal(Today.AddDays(-7), occurrence.OccurredOn);
-        Assert.Equal(0.796589482226m, occurrence.NoveltyWeight);
+        Assert.Equal(0.20m, occurrence.NoveltyWeight);
         Assert.Null(occurrence.CookedAt);
     }
 
     [Fact]
-    public async Task ReadAsync_CookOnly_UsesHouseholdLocalCookDate()
+    public async Task ReadAsync_CookOnly_UsesActualCookTimestamp()
     {
         var recipe = await SeedRecipeAsync("Cook-only curry");
         var cookedAt = new DateTimeOffset(2026, 7, 26, 18, 30, 0, TimeSpan.Zero);
@@ -78,27 +76,7 @@ public sealed class RecentMealHistoryReaderAdapterTests(PostgresFixture db) : IA
         Assert.Equal(RecentMealOccurrenceSource.CookEvent, occurrence.Source);
         Assert.Equal(Today.AddDays(-14), occurrence.OccurredOn);
         Assert.Equal(cookedAt, occurrence.CookedAt);
-        Assert.Equal(0.179096220006m, occurrence.NoveltyWeight);
-    }
-
-    [Fact]
-    public async Task ReadAsync_CookOnly_UsesHouseholdLocalDateAcrossUtcMidnight()
-    {
-        var recipe = await SeedRecipeAsync("Local midnight curry");
-        var cookedAt = new DateTimeOffset(2026, 8, 2, 3, 30, 0, TimeSpan.Zero);
-        await SeedCookAsync(recipe.Id, cookedAt);
-
-        await using var planning = NewPlanningDb();
-        await using var recipes = NewRecipesDb();
-        var adapter = new RecentMealHistoryReaderAdapter(
-            planning,
-            recipes,
-            new FixedClock(new DateTimeOffset(2026, 8, 9, 12, 0, 0, TimeSpan.Zero), EasternTime));
-        var snapshot = await adapter.ReadAsync(_household, Today, CurrentWeek);
-
-        var occurrence = Assert.Single(Assert.Single(snapshot.Recipes).Occurrences);
-        Assert.Equal(new DateOnly(2026, 8, 1), occurrence.OccurredOn);
-        Assert.Equal(RecentMealHistoryPolicy.WeightFor(new DateOnly(2026, 8, 1), Today), occurrence.NoveltyWeight);
+        Assert.Equal(0.10m, occurrence.NoveltyWeight);
     }
 
     [Fact]
@@ -112,11 +90,11 @@ public sealed class RecentMealHistoryReaderAdapterTests(PostgresFixture db) : IA
 
         var history = Assert.Single(snapshot.Recipes);
         Assert.Equal(2, history.Occurrences.Count);
-        Assert.Equal(0.975685702232m, history.RecencyScore);
+        Assert.Equal(0.30m, history.RecencyScore);
     }
 
     [Fact]
-    public async Task ReadAsync_LinkedPlanAndCook_CountsOnceAndUsesPlannedDate()
+    public async Task ReadAsync_LinkedPlanAndCook_CountsOnceAndPrefersCookedAt()
     {
         var recipe = await SeedRecipeAsync("Linked noodles");
         var plannedDishId = await SeedPlannedDishAsync(recipe.Id.Value, Today.AddDays(-14));
@@ -128,13 +106,13 @@ public sealed class RecentMealHistoryReaderAdapterTests(PostgresFixture db) : IA
         var history = Assert.Single(snapshot.Recipes);
         var occurrence = Assert.Single(history.Occurrences);
         Assert.Equal(RecentMealOccurrenceSource.CookEvent, occurrence.Source);
-        Assert.Equal(Today.AddDays(-14), occurrence.OccurredOn);
+        Assert.Equal(Today.AddDays(-7), occurrence.OccurredOn);
         Assert.Equal(cookedAt, occurrence.CookedAt);
-        Assert.Equal(0.179096220006m, history.RecencyScore);
+        Assert.Equal(0.20m, history.RecencyScore);
     }
 
     [Fact]
-    public async Task ReadAsync_LinkedCookOutsideHorizon_RetainsInHorizonPlannedDate()
+    public async Task ReadAsync_LinkedCookOutsideHorizon_SuppressesInHorizonPlannedDate()
     {
         var recipe = await SeedRecipeAsync("Late-linked stew");
         var plannedDishId = await SeedPlannedDishAsync(recipe.Id.Value, Today.AddDays(-7));
@@ -142,20 +120,6 @@ public sealed class RecentMealHistoryReaderAdapterTests(PostgresFixture db) : IA
             recipe.Id,
             new DateTimeOffset(2026, 7, 18, 18, 0, 0, TimeSpan.Zero),
             plannedDishId);
-
-        var snapshot = await ReadAsync();
-
-        var occurrence = Assert.Single(Assert.Single(snapshot.Recipes).Occurrences);
-        Assert.Equal(Today.AddDays(-7), occurrence.OccurredOn);
-        Assert.Equal(0.796589482226m, occurrence.NoveltyWeight);
-    }
-
-    [Fact]
-    public async Task ReadAsync_LinkedCookWithOutOfHorizonPlannedDateDoesNotUseCookedAt()
-    {
-        var recipe = await SeedRecipeAsync("Old linked stew");
-        var plannedDishId = await SeedPlannedDishAsync(recipe.Id.Value, Today.AddDays(-21));
-        await SeedCookAsync(recipe.Id, new DateTimeOffset(2026, 8, 2, 18, 0, 0, TimeSpan.Zero), plannedDishId);
 
         var snapshot = await ReadAsync();
 
@@ -181,7 +145,7 @@ public sealed class RecentMealHistoryReaderAdapterTests(PostgresFixture db) : IA
         var facet = Assert.Single(history.Facets);
         Assert.Equal("Tofu", facet.Name);
         Assert.Equal("Protein", facet.Category);
-        Assert.Equal(0.796589482226m, history.RecencyScore);
+        Assert.Equal(0.20m, history.RecencyScore);
     }
 
     [Fact]

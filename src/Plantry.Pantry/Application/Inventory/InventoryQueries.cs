@@ -57,7 +57,9 @@ public sealed record PantryListItem(
     /// and the row's link target (through to <c>/Catalog/Products/{id}</c>, where Unarchive lives)
     /// regardless of whether the row is stocked or a synthesized Everything-scope row.
     /// </summary>
-    bool IsArchived = false);
+    bool IsArchived = false,
+    /// <summary>True when the canonical catalog product is home-produced.</summary>
+    bool IsProduced = false);
 
 /// <summary>One physical lot on the product detail page (SPEC §1b).</summary>
 public sealed record StockLotRow(
@@ -259,7 +261,8 @@ public class InventoryQueryService(
                 CategoryHue: product.CategoryHue,
                 LowStockThreshold: stock.LowStockThreshold,
                 IsRunningLow: stock.IsRunningLow(total),
-                IsArchived: product.IsArchived));
+                IsArchived: product.IsArchived,
+                IsProduced: product.IsProduced));
         }
 
         return items

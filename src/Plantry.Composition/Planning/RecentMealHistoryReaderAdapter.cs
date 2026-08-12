@@ -51,9 +51,9 @@ public sealed class RecentMealHistoryReaderAdapter(
         var utcStart = StartOfLocalDay(earliestDate, clock.Zone);
         var utcEnd = StartOfLocalDay(asOfDate.AddDays(1), clock.Zone);
 
-        // Linked cook events are loaded even when CookedAt falls outside the horizon: the link
-        // preserves the planned DateOnly as the occurrence date. In-horizon direct cook events use
-        // their household-local CookedAt DateOnly and remain distinct real occurrences.
+        // Linked cook events are loaded even when their timestamp falls outside the horizon: the link
+        // suppresses the retained planned date because actual CookedAt is authoritative. In-horizon
+        // direct cook events are loaded independently and remain distinct real occurrences.
         var cookRows = await recipesDb.CookEvents
             .Where(cook => cook.HouseholdId == householdId
                 && !(cook.PlannedDishId != null && excludedWeekDishIds.Contains(cook.PlannedDishId.Value))
@@ -69,15 +69,6 @@ public sealed class RecentMealHistoryReaderAdapter(
             .Where(row => row.PlannedDishId.HasValue)
             .Select(row => row.PlannedDishId!.Value)
             .ToHashSet();
-        var linkedPlannedDates = await (
-            from dish in planningDb.PlannedDishes
-            join meal in planningDb.PlannedMeals on dish.PlannedMealId equals meal.Id
-            join plan in planningDb.MealPlans on meal.MealPlanId equals plan.Id
-            where plan.HouseholdId == householdId
-            select new { PlannedDishId = dish.Id.Value, meal.Date })
-            .ToListAsync(ct);
-        var plannedDateByDishId = linkedPlannedDates
-            .ToDictionary(row => row.PlannedDishId, row => row.Date);
 
         var occurrences = new List<OccurrenceRow>();
         occurrences.AddRange(plannedRows
@@ -92,9 +83,7 @@ public sealed class RecentMealHistoryReaderAdapter(
             .Select(row => new
             {
                 Row = row,
-                OccurredOn = row.PlannedDishId is { } plannedDishId
-                    ? plannedDateByDishId.GetValueOrDefault(plannedDishId, DateOnly.MinValue)
-                    : clock.ToLocalDate(row.CookedAt),
+                OccurredOn = clock.ToLocalDate(row.CookedAt),
             })
             .Where(item => RecentMealHistoryPolicy.IsRetained(item.OccurredOn, asOfDate))
             .Select(item => new OccurrenceRow(

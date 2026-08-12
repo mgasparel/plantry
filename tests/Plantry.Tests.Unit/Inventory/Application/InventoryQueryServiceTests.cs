@@ -34,6 +34,22 @@ public sealed class InventoryQueryServiceTests
     }
 
     [Fact]
+    public async Task ListPantry_Projects_IsProduced_From_Catalog_Product()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(100m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock);
+        var catalog = Catalog();
+        catalog.Products.Clear();
+        catalog.Products.Add(new CatalogProductInfo(_productId, "Homemade soup", "Meals", _grams, "g", CanHoldStock: true, IsProduced: true));
+
+        var item = Assert.Single(await Service(stocks, catalog, new IdentityQuantityConverter(), _household).ListPantryAsync());
+
+        Assert.True(item.IsProduced);
+    }
+
+    [Fact]
     public async Task ListPantry_Aggregates_Across_Lots_In_The_Display_Unit()
     {
         var stocks = new FakeProductStockRepository();
