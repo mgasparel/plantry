@@ -217,38 +217,7 @@ stalls at the last step. Get the answer before any tokens are spent on the work.
 
 ## Per-iteration procedure
 
-### Step 0 — Startup environment probe
-
-Before claiming, dispatching, building, or staging any issue, capture the Docker probe
-result and stop on failure:
-
-```bash
-scratchpad="<scratchpad>"
-probe_file="$scratchpad/docker-unavailable.md"
-mkdir -p "$scratchpad"
-if ! probe_output=$(python .claude/skills/pipeline-orchestrator/docker_probe.py 2>&1); then
-  printf '%s\n' "$probe_output" > "$probe_file"
-  # No issue is claimed at this point. If an active epic exists, park it and preserve
-  # the exact diagnostic; otherwise park this iteration without claiming work.
-  if [ -n "${epic_id:-}" ]; then
-    bd update "$epic_id" --status blocked --add-label needs-human
-    bd update "$epic_id" --notes "$(cat <<'EOF'
-unrecoverable-error:docker-unavailable; worker not dispatched
-EOF
-)"
-    bd comment "$epic_id" --file "$probe_file"
-  fi
-  exit 1
-fi
-printf '%s\n' "$probe_output"
-```
-
-The probe checks both the Docker CLI and daemon server version. Exit 0 means usable;
-any non-zero exit is an environment failure. Do not retry build/test: Docker failures
-are distinct from code or zero-test failures. Once the probe succeeds, continue with
-housekeeping and the claim workflow.
-
-### Step 1 — Housekeeping
+### Step 0 — Housekeeping
 
 Prune stale registrations before claiming new work. Only touches already-merged or
 abandoned state — never an in-progress branch or an active epic.
@@ -259,48 +228,89 @@ git fetch origin --quiet
 git branch --merged origin/main | grep -E '^\s+(issue|epic)/' | xargs -r git branch -d
 ```
 
-`git branch -d` removes only branches already merged into `origin/main`.
+`git branch -d` (safe delete) removes only `issue/*` and `epic/*` branches already
+merged into `origin/main`, leaving any in-flight child or active epic untouched. Log
+nothing unless something was reaped.
 
-### Step 2 — Claim one ready issue, guard Docker, and resolve its epic
-
-After claiming an issue and resolving its parent epic, run the Docker probe again before
-dispatching the worker. If it fails, persist the exact diagnostic before changing beads:
+### Step 1 — Claim one ready issue and resolve its epic
 
 ```bash
-scratchpad="<scratchpad>"
-probe_file="$scratchpad/docker-unavailable.md"
-mkdir -p "$scratchpad"
-if ! probe_output=$(python .claude/skills/pipeline-orchestrator/docker_probe.py 2>&1); then
-  printf '%s\n' "$probe_output" > "$probe_file"
-
-  bd update "$issue_id" --status blocked --add-label needs-human
-  bd update "$issue_id" --notes "$(cat <<'EOF'
-unrecoverable-error:docker-unavailable; worker not dispatched
-EOF
-)"
-
-  if [ -n "${epic_id:-}" ]; then
-    bd update "$epic_id" --status blocked --add-label needs-human
-    bd update "$epic_id" --notes "$(cat <<'EOF'
-unrecoverable-error:docker-unavailable; child worker not dispatched
-EOF
-)"
-  fi
-
-  bd comment "$issue_id" --file "$probe_file"
-  if [ -n "${epic_id:-}" ]; then
-    bd comment "$epic_id" --file "$probe_file"
-  fi
-  exit 1
-fi
-printf '%s\n' "$probe_output"
+bd ready
 ```
 
-The failed post-claim transition is mandatory: the issue must leave `in_progress`, gain
-`needs-human`, and retain the exact diagnostic. If an active epic owns the issue, also
-block that epic with the same reason and diagnostic. Never dispatch while either probe
-fails.
-### Step 3 — Dispatch implement-ticket-worker (own its critic loop)
+- **Nothing ready:** output "No ready issues — loop idle." and call
+  `ScheduleWakeup(delaySeconds=180)`. Return to the start of the loop.
+
+- **Issues available — prefer draining the active epic.** If an epic is already in
+  progress (an `epic/<id>` branch with staged-but-unmerged children exists), use the
+  **epic-aware ready check** to find the next child to work on:
+
+  1. `bd show <epic-id>` — collect all children.
+  2. Discard any child that is `staged`, `in_progress`, `closed`, or `blocked`.
+  3. For each remaining (`OPEN`, untagged) child, inspect its deps via `bd show <child-id>`.
+  4. A dep is **satisfied** if the blocker is `CLOSED` **or** (still `OPEN` AND carries the
+     `staged` label) — staged code is already on `epic/<id>` and available to build on.
+  5. A child is **locally ready** when all its deps are satisfied.
+  6. Pick the highest-priority locally-ready child. If none, the epic has no actionable
+     work right now — pick a ready issue from elsewhere (but do *not* start a new epic
+     until the active one has shipped or parked).
+
+  > **Why not rely solely on `bd ready` here?** `bd ready` clears a dep only when the
+  > blocker is `CLOSED`. In the batch model siblings stay `OPEN` until the epic flushes,
+  > so sibling `blocks` deps would never clear — causing a permanent deadlock. The
+  > epic-aware check substitutes `staged` as the satisfaction signal within the epic,
+  > resolving deps correctly without breaking the batch model.
+  >
+  > `bd ready` is still used for the non-epic path (loose one-offs with no active epic)
+  > where the closed-only rule is correct.
+
+Claim the chosen issue:
+```bash
+bd update <issue-id> --claim
+```
+Verify `bd show <issue-id>` shows `status: in_progress`. If the claim failed (another
+process beat you), try the next ready issue.
+
+**Resolve the epic the issue belongs to:**
+
+- **Has a parent epic** (`bd show` lists a `Parent:`) → `epic-id` = that parent.
+- **No parent** (a loose one-off) → attach it to the current rollup:
+  ```bash
+  # Find a usable rollup: labelled `rollup`, not yet `sealed`. bd list excludes
+  # closed by default and has no --type/--status filter — the `rollup` label is
+  # what identifies these epics.
+  bd list --label rollup --exclude-label sealed
+  ```
+  - If one is returned and has `< ROLLUP_MAX_CHILDREN` children (check via `bd show`)
+    → use it.
+  - Otherwise create a fresh rollup. Its **identity is the new bead id** (the branch
+    will be `epic/<that-id>`); the title is just a human-readable dated label — do NOT
+    key on it. The date stamp is "when opened," not a unique slot, so multiple rollups
+    can share a date without conflict (different bead ids, and only one is ever open
+    unsealed at a time). Never pass the description inline via `--description` on
+    PowerShell (code/CLAUDE.md's bd CLI guardrail) — write it to a scratch file first,
+    then pass via `--body-file`:
+    ```bash
+    # write "Rolling catch-all batch of loose one-offs (bugfixes/chores). Ships as one
+    # PR when sealed (label 'sealed' or ROLLUP_MAX_CHILDREN children), after which a
+    # fresh rollup opens for subsequent one-offs." to <scratchpad>/rollup-description.md
+    bd create --type epic --labels rollup --title "rollup (opened $(date -u +%Y-%m-%d))" \
+      --body-file "<scratchpad>/rollup-description.md" --priority 2
+    ```
+  Attach the issue and set `epic-id` to the rollup:
+  ```bash
+  bd update <issue-id> --parent <rollup-id>
+  ```
+
+**Ensure the epic integration branch + worktree exist.** If `epic/<epic-id>` is not yet
+present, create it off fresh `origin/main` in its own worktree (the orchestrator merges
+children into it here):
+```bash
+git show-ref --verify --quiet refs/heads/epic/<epic-id> || \
+  git worktree add ../worktrees/<epic-id> -b epic/<epic-id> origin/main
+```
+
+### Step 2 — Dispatch implement-ticket-worker (own its critic loop)
 
 ```
 worker = Agent(subagent_type="implement-ticket-worker", prompt="<issue-id>")
@@ -362,7 +372,7 @@ WORKTREE: ../worktrees/<issue-id>
 ...
 ```
 
-### Step 4 — Integrate the child (per verdict)
+### Step 3 — Integrate the child (per verdict)
 
 **On `RESULT: FAILED`:** the worker already parked the issue (`blocked` + `needs-human`).
 What happens next depends on the park reason:
@@ -450,7 +460,7 @@ git branch -D issue/<issue-id>   # -D, not -d: the branch is merged into the EPI
 If the worktree is locked by Windows build artifacts, skip `--force` removal and log the
 path — the branch delete is cosmetic; the commit is safely on the epic branch.
 
-### Step 5 — Flush check
+### Step 4 — Flush check
 
 Decide whether the epic is ready to ship. Read its child status via `bd show <epic-id>`.
 
@@ -474,7 +484,7 @@ accepting one-offs across iterations.
 
 If **ready** → run **Step 5 (Flush)**.
 
-### Step 6 — Flush: one epic→main PR
+### Step 5 — Flush: one epic→main PR
 
 Operate in the epic worktree `../worktrees/<epic-id>`.
 
@@ -589,7 +599,7 @@ EOF
    Log: `MERGED: epic <epic-id> — <title>. <n> children landed on main via PR #<pr-number>.`
    (If the flushed epic was a rollup, the next loose one-off in Step 1 opens a fresh rollup.)
 
-### Step 7 — CI reconcile loop (epic PR)
+### Step 6 — CI reconcile loop (epic PR)
 
 Entered when `gh pr checks` reports a failed check on the epic PR. The epic worktree at
 `../worktrees/<epic-id>` is still on disk.
