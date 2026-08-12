@@ -219,21 +219,34 @@ stalls at the last step. Get the answer before any tokens are spent on the work.
 
 ### Step 0 — Startup environment probe
 
-Before claiming, dispatching, building, or staging any issue, run:
+Before claiming, dispatching, building, or staging any issue, capture the Docker probe
+result and stop on failure:
 
 ```bash
-python .claude/skills/pipeline-orchestrator/docker_probe.py
+scratchpad="<scratchpad>"
+probe_file="$scratchpad/docker-unavailable.md"
+mkdir -p "$scratchpad"
+if ! probe_output=$(python .claude/skills/pipeline-orchestrator/docker_probe.py 2>&1); then
+  printf '%s\n' "$probe_output" > "$probe_file"
+  # No issue is claimed at this point. If an active epic exists, park it and preserve
+  # the exact diagnostic; otherwise park this iteration without claiming work.
+  if [ -n "${epic_id:-}" ]; then
+    bd update "$epic_id" --status blocked --add-label needs-human
+    bd update "$epic_id" --notes "$(cat <<'EOF'
+unrecoverable-error:docker-unavailable; worker not dispatched
+EOF
+)"
+    bd comment "$epic_id" --file "$probe_file"
+  fi
+  exit 1
+fi
+printf '%s\n' "$probe_output"
 ```
 
 The probe checks both the Docker CLI and daemon server version. Exit 0 means usable;
-any non-zero exit prints an operator diagnostic and is an environment failure. If it
-fails before an issue is claimed, park the orchestrator iteration with
-`unrecoverable-error:docker-unavailable` and claim/dispatch nothing. If an issue is
-already claimed, set it blocked with the same reason and preserve the diagnostic in a
-beads comment; do not dispatch its worker. If an active epic is already in progress,
-park the epic instead. Do not retry build/test: Docker failures are distinct from code
-or zero-test failures. Once the probe succeeds, continue with the existing housekeeping
-and claim workflow unchanged.
+any non-zero exit is an environment failure. Do not retry build/test: Docker failures
+are distinct from code or zero-test failures. Once the probe succeeds, continue with
+housekeeping and the claim workflow.
 
 ### Step 1 — Housekeeping
 
@@ -248,23 +261,45 @@ git branch --merged origin/main | grep -E '^\s+(issue|epic)/' | xargs -r git bra
 
 `git branch -d` removes only branches already merged into `origin/main`.
 
-### Step 2 — Claim one ready issue, guard Docker, and resolve its epic`n`nBefore dispatching the worker, run the Docker probe again. If it fails after claim:
+### Step 2 — Claim one ready issue, guard Docker, and resolve its epic
+
+After claiming an issue and resolving its parent epic, run the Docker probe again before
+dispatching the worker. If it fails, persist the exact diagnostic before changing beads:
 
 ```bash
-probe_output=$(python .claude/skills/pipeline-orchestrator/docker_probe.py 2>&1) || {
-  bd update <issue-id> --status blocked --add-label needs-human
-  bd update <issue-id> --notes "$(cat <<'EOF'`nunrecoverable-error:docker-unavailable; worker not dispatched`nEOF`n)"`n  bd update <epic-id> --status blocked --add-label needs-human`n  bd update <epic-id> --notes "$(cat <<'EOF'`nunrecoverable-error:docker-unavailable; child worker not dispatched`nEOF`n)"`n  bd comment <epic-id> --file <scratchpad>/docker-unavailable.md
-  printf '%s\n' "$probe_output" > <scratchpad>/docker-unavailable.md
-  bd comment <issue-id> --file <scratchpad>/docker-unavailable.md
+scratchpad="<scratchpad>"
+probe_file="$scratchpad/docker-unavailable.md"
+mkdir -p "$scratchpad"
+if ! probe_output=$(python .claude/skills/pipeline-orchestrator/docker_probe.py 2>&1); then
+  printf '%s\n' "$probe_output" > "$probe_file"
+
+  bd update "$issue_id" --status blocked --add-label needs-human
+  bd update "$issue_id" --notes "$(cat <<'EOF'
+unrecoverable-error:docker-unavailable; worker not dispatched
+EOF
+)"
+
+  if [ -n "${epic_id:-}" ]; then
+    bd update "$epic_id" --status blocked --add-label needs-human
+    bd update "$epic_id" --notes "$(cat <<'EOF'
+unrecoverable-error:docker-unavailable; child worker not dispatched
+EOF
+)"
+  fi
+
+  bd comment "$issue_id" --file "$probe_file"
+  if [ -n "${epic_id:-}" ]; then
+    bd comment "$epic_id" --file "$probe_file"
+  fi
   exit 1
-}
+fi
+printf '%s\n' "$probe_output"
 ```
 
 The failed post-claim transition is mandatory: the issue must leave `in_progress`, gain
 `needs-human`, and retain the exact diagnostic. If an active epic owns the issue, also
 block that epic with the same reason and diagnostic. Never dispatch while either probe
 fails.
-
 ### Step 3 — Dispatch implement-ticket-worker (own its critic loop)
 
 ```
