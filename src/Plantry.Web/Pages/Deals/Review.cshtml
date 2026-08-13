@@ -51,6 +51,7 @@
                      SearchUrl             = Model.SearchUrl,
                      UnitOptions           = Model.UnitOptions,
                      CategoryOptions       = Model.CategoryOptions,
+                     LocationOptions       = Model.LocationOptions,
                      TrackStock            = false,
                      Noun                  = "product",
                      ShowGroupHeading      = false,
@@ -106,7 +107,7 @@ function dealsReview(correctUrl) {
             this.activeDealId = dealId;
             this.sheetView = 'search';
             this.draft = { productId: '', productName: '', newStapleName: null,
-                           newStapleUnit: '', newStapleCategoryId: '' };
+                           newStapleUnit: '', newStapleCategoryId: '', newStapleDefaultLocationId: '' };
             this.dealContext = this.readDealContext(dealId);
             this.sheetOpen = true;
             this.$nextTick(() => {
@@ -169,6 +170,7 @@ function dealsReview(correctUrl) {
                 newProductName: name,
                 newProductUnitId: unitId,
                 newProductCategoryId: this.draft.newStapleCategoryId || '',
+                newProductDefaultLocationId: this.draft.newStapleDefaultLocationId || '',
             });
         },
 

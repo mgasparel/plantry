@@ -41,6 +41,7 @@
                        qty, unitId, groupHeading,
                        newGroupId,   ← '' = standalone or no selection; non-empty = join existing group
                        newGroupName, ← '' = standalone; non-empty text = create new group or selection
+                       newStapleDefaultLocationId,
                        ... }
       closeSheet()  — called by Cancel / Escape / overlay click
       saveSheet()   — called by the Add/Save (search view) or Create/Create & count (create view) button
@@ -521,6 +522,18 @@
                                 @foreach (var c in Model.CategoryOptions)
                                 {
                                     <option value="@c.Value">@c.Text</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-grid__field form-grid__field--full">
+                        <label class="form-grid__field__label" for="create-product-location">Default location</label>
+                        <div class="form-grid__field__control">
+                            <select id="create-product-location" class="field__input" x-model="draft.newStapleDefaultLocationId">
+                                <option value="">— None —</option>
+                                @foreach (var l in Model.LocationOptions)
+                                {
+                                    <option value="@l.Value">@l.Text</option>
                                 }
                             </select>
                         </div>

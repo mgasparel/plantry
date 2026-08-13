@@ -113,6 +113,7 @@ public sealed class EditModel(
     /// Passed to <see cref="ProductSearchCreateSheetViewModel.CategoryOptions"/>.
     /// </summary>
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
+    public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
 
     // ── D13 fixed-mode servings warning ──────────────────────────────────────────
 

@@ -78,6 +78,9 @@ public sealed class WalkModel(
     /// <summary>Category options for the Defaults collapsible in the create view (plantry-y53t).</summary>
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
 
+    /// <summary>Active household locations for product defaults.</summary>
+    public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
+
     // ── GET ───────────────────────────────────────────────────────────────────
 
     public async Task OnGetAsync(CancellationToken ct = default) =>
@@ -688,6 +691,12 @@ public sealed class WalkModel(
         CategoryOptions = (await categoryRepository.ListActiveAsync(ct))
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))
+            .ToList();
+
+        // The product default selector is household-scoped and independent from the walk's lot location.
+        LocationOptions = locations
+            .OrderBy(l => l.LocationName, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new SelectListItem(l.LocationName, l.LocationId.ToString()))
             .ToList();
     }
 

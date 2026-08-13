@@ -145,6 +145,7 @@ public sealed class ReviewModel(
 
     /// <summary>Category options for the inline-create sheet's Defaults collapsible (Category is optional).</summary>
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
+    public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
 
     // ── GET ─────────────────────────────────────────────────────────────────────
 
@@ -303,7 +304,7 @@ public sealed class ReviewModel(
 
         if (!string.IsNullOrWhiteSpace(form.NewProductName) && form.NewProductUnitId is { } unitId && unitId != Guid.Empty)
         {
-            var created = await CreateProductAsync(form.NewProductName.Trim(), unitId, form.NewProductCategoryId, ct);
+            var created = await CreateProductAsync(form.NewProductName.Trim(), unitId, form.NewProductCategoryId, form.NewProductDefaultLocationId, ct);
             if (created.IsFailure)
             {
                 logger.LogWarning(
@@ -546,10 +547,11 @@ public sealed class ReviewModel(
     }
 
 
-    private async Task<Result<Guid>> CreateProductAsync(string name, Guid unitId, Guid? categoryId, CancellationToken ct)
+    private async Task<Result<Guid>> CreateProductAsync(string name, Guid unitId, Guid? categoryId, Guid? defaultLocationId, CancellationToken ct)
     {
         var command = new CreateProductCommand(
-            name, unitId, categoryId is { } c && c != Guid.Empty ? c : null, defaultLocationId: null,
+            name, unitId, categoryId is { } c && c != Guid.Empty ? c : null,
+            defaultLocationId is { } l && l != Guid.Empty ? l : null,
             products, units, categories, locations, clock, tenant);
 
         var result = await command.ExecuteAsync(ct);
@@ -610,6 +612,10 @@ public sealed class ReviewModel(
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))
             .ToList();
+        LocationOptions = (await locations.ListActiveAsync(ct))
+            .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new SelectListItem(l.Name, l.Id.Value.ToString()))
+            .ToList();
     }
 
     /// <summary>
@@ -637,6 +643,7 @@ public sealed class ReviewModel(
         public string? NewProductName { get; init; }
         public Guid? NewProductUnitId { get; init; }
         public Guid? NewProductCategoryId { get; init; }
+        public Guid? NewProductDefaultLocationId { get; init; }
         public string? Flyer { get; init; }
         public int? Step { get; init; }
     }
