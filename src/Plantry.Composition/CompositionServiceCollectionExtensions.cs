@@ -124,6 +124,7 @@ public static class CompositionServiceCollectionExtensions
         // Pricing (latest price), and Shopping (list writer).
         services.AddScoped<Plantry.Recipes.Application.ICatalogProductReader, CatalogProductReaderAdapter>();
         services.AddScoped<ICatalogWriter, CatalogWriterAdapter>();
+        services.AddScoped<IHouseholdProducedCategoryReader, HouseholdProducedCategoryReaderAdapter>();
         services.AddScoped<IUnitConverter, RecipesUnitConverterAdapter>();
         services.AddScoped<IQuantityFormatter, RecipesQuantityFormatterAdapter>();
         services.AddScoped<IInventoryStockReader, InventoryStockReaderAdapter>();

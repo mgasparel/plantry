@@ -470,6 +470,9 @@ public sealed class PantryDbContext(DbContextOptions<PantryDbContext> options) :
             b.Property(s => s.DefaultLocationId)
                 .HasConversion(id => id == null ? (Guid?)null : id.Value.Value, v => v == null ? (LocationId?)null : LocationId.From(v.Value))
                 .HasColumnName("default_location_id");
+            b.Property(s => s.DefaultProducedCategoryId)
+                .HasConversion(id => id == null ? (Guid?)null : id.Value.Value, v => v == null ? (CategoryId?)null : CategoryId.From(v.Value))
+                .HasColumnName("default_produced_category_id");
 
             b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
         });

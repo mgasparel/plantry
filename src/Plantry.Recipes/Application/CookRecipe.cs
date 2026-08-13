@@ -46,7 +46,8 @@ public sealed class CookRecipe(
     ITenantContext tenant,
     ReconcilePendingCooks reconciler,
     ApplyDeferredUnitGaps deferredUnitGaps,
-    ILogger<CookRecipe> logger)
+    ILogger<CookRecipe> logger,
+    IHouseholdProducedCategoryReader? producedCategory = null)
 {
     public async Task<CookRecipeResult> ExecuteAsync(CookRecipeCommand command, CancellationToken ct = default)
     {
@@ -209,7 +210,7 @@ public sealed class CookRecipe(
                     var match = matches.FirstOrDefault(m =>
                         m.TrackStock && string.Equals(m.Name, leftoverName, StringComparison.OrdinalIgnoreCase));
                     var newProductId = match?.Id
-                        ?? await catalogWriter.CreateTrackedProductAsync(leftoverName, countUnit.Id, categoryId: null, isProduced: true, ct: ct);
+                        ?? await catalogWriter.CreateTrackedProductAsync(leftoverName, countUnit.Id, categoryId: producedCategory is null ? null : await producedCategory.GetDefaultProducedCategoryIdAsync(ct), isProduced: true, ct: ct);
 
                     var setResult = recipe.SetYield(newProductId, declaredQty, countUnit.Id, clock);
                     if (setResult.IsSuccess)
