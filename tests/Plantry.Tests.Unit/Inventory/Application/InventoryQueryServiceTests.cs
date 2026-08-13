@@ -419,6 +419,19 @@ public sealed class InventoryQueryServiceTests
         Assert.Null(stats);
     }
 
+    [Fact(DisplayName = "plantry-hjk7: returns null for a stock record with no journal history")]
+    public async Task GetConsumptionStats_ReturnsNull_WhenJournalIsEmpty()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        stocks.Items.Add(ProductStock.Start(HouseholdId.From(_household), _productId, clock));
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.Null(stats);
+    }
+
     [Fact(DisplayName = "plantry-fuej: DaysOfSupply is null with only a single Consumed event in the window (below the two-event floor)")]
     public async Task GetConsumptionStats_DaysOfSupply_Null_BelowMinimumEvents()
     {

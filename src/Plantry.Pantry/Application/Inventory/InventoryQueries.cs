@@ -540,13 +540,12 @@ public class InventoryQueryService(
             .Where(j => j.Reason == StockReason.Consumed && j.OccurredAt >= windowStart)
             .ToList();
 
-        var firstJournalDate = stock.Journal.Min(j => DateOnly.FromDateTime(j.OccurredAt.UtcDateTime));
-        var observedSpanDays = today.DayNumber - firstJournalDate.DayNumber;
-        var denominatorDays = Math.Clamp(observedSpanDays, MinPaceDays, VelocityWindowDays);
-
         decimal? daysOfSupply = null;
         if (consumedInWindow.Count >= MinConsumptionEventsForVelocity)
         {
+            var firstJournalDate = stock.Journal.Min(j => DateOnly.FromDateTime(j.OccurredAt.UtcDateTime));
+            var observedSpanDays = today.DayNumber - firstJournalDate.DayNumber;
+            var denominatorDays = Math.Clamp(observedSpanDays, MinPaceDays, VelocityWindowDays);
             var consumedQtyInWindow = SumConvertedAbsolute(consumedInWindow, displayUnitId, converter);
             if (consumedQtyInWindow > 0m)
             {
