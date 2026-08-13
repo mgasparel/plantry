@@ -460,7 +460,7 @@ public sealed class FakeCatalogProductReader(
     {
         IReadOnlyDictionary<Guid, CatalogProduct> result = productIds.Distinct()
             .ToDictionary(id => id, id => products.GetValueOrDefault(id) ??
-                new CatalogProduct(id, string.Empty, false, Guid.Empty, null, false, []));
+                new CatalogProduct(id, string.Empty, false, Guid.CreateVersion7(), null, false, []));
         return Task.FromResult(result);
     }
 
