@@ -1,7 +1,11 @@
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Plantry.Identity.Infrastructure;
+using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Tests.Web;
 
@@ -76,9 +80,17 @@ public sealed class ReadinessEndpointTests
 }
 
 /// <summary>
-/// WebApplicationFactory that overrides all DbContext connection strings with a guaranteed-
-/// unreachable host, exercising the real <c>AddDbContextCheck</c> failure path end-to-end.
-/// No service mocking required — the production health check code runs as-is.
+/// WebApplicationFactory that points the identity DbContext at a guaranteed-unreachable host,
+/// exercising the real <c>AddDbContextCheck&lt;PlantryIdentityDbContext&gt;</c> failure path
+/// end-to-end. No service mocking required — the production health check code runs as-is.
+///
+/// The connection is redirected via a <see cref="ConfigureServices"/> re-registration of the
+/// DbContext options, NOT a config override: <c>Program.cs</c> derives <c>appUserConnStr</c>
+/// from <c>GetConnectionString("plantrydb")</c> in top-level code during host construction,
+/// which runs <em>before</em> any <c>WebApplicationFactory</c> config merge — so neither
+/// <c>ConfigureAppConfiguration</c> nor <c>UseSetting</c> can reach it. Swapping the resolved
+/// <c>DbContextOptions&lt;PlantryIdentityDbContext&gt;</c> to the dead host is the only override
+/// that takes effect, and it keeps the real check intact.
 /// </summary>
 file sealed class DeadDbFactory : WebApplicationFactory<Program>
 {
@@ -91,16 +103,28 @@ file sealed class DeadDbFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
 
-        // Override EVERY connection string to point at the dead host so no context can connect.
+        // Suppress DataProtection cert check in non-Production (Testing env skips it).
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                // Primary connection string used by Program.cs to derive appUserConnStr.
-                ["ConnectionStrings:plantrydb"] = DeadConnStr,
-                // Suppress DataProtection cert check in non-Production (Testing env skips it).
                 ["DataProtection:KeyPath"] = Path.GetTempPath(),
             });
+        });
+
+        // Redirect the identity context to the dead host (see class doc for why config override
+        // is insufficient). Mirrors Program.cs's registration — same migration assembly and RLS
+        // interceptor — so the health check exercises the real options pipeline, just against
+        // an unreachable endpoint.
+        builder.ConfigureServices(services =>
+        {
+            var options = services.Single(d =>
+                d.ServiceType == typeof(DbContextOptions<PlantryIdentityDbContext>));
+            services.Remove(options);
+            services.AddDbContext<PlantryIdentityDbContext>((sp, opts) =>
+                opts.UseNpgsql(DeadConnStr,
+                        npgsql => npgsql.MigrationsAssembly("Plantry.Identity.Infrastructure"))
+                    .AddInterceptors(sp.GetRequiredService<HouseholdRlsConnectionInterceptor>()));
         });
     }
 }
