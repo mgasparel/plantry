@@ -4,7 +4,7 @@
     // arrives pre-formatted ("£3.99 for 500 g" / "No price recorded yet"); split on " for " so the
     // unit-price value and its "/ 500 g" qualifier share the tile's value/sub slots (mirrors the
     // approved prototype). No " for " substring simply means the whole string is the value.
-    var hasPrice = Model.DisplayText != "No price recorded yet";
+    var hasPrice = Model.DisplayText != "No price recorded yet" && !Model.Disabled;
     string? priceValue = null;
     string? priceQualifier = null;
     if (hasPrice)
@@ -38,8 +38,15 @@
     {
         <div class="vital__val vital__val--empty">—</div>
         <div class="vital__sub">
-            <a href="#" hx-get="@Url.Page("./Detail", "SetPriceSheet", new { id = Model.ProductId })"
-               hx-target="#sheet-host" hx-swap="innerHTML">Set price ›</a>
+            @if (Model.Disabled)
+            {
+                <button type="button" class="btn btn--ghost" disabled title="Prices can only be set on variants, not on parent products.">Set price</button><span title="Prices can only be set on variants, not on parent products.">Prices can only be set on variants, not on parent products.</span>
+            }
+            else
+            {
+                <a href="#" hx-get="@Url.Page("./Detail", "SetPriceSheet", new { id = Model.ProductId })"
+                   hx-target="#sheet-host" hx-swap="innerHTML">Set price ›</a>
+            }
         </div>
     }
 </div>

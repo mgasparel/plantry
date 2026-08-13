@@ -455,6 +455,15 @@ public sealed class FakeCatalogProductReader(
     public Task<CatalogProduct?> FindAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult(products.GetValueOrDefault(productId));
 
+    public Task<IReadOnlyDictionary<Guid, CatalogProduct>> FindManyWithVariantsAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, CatalogProduct> result = productIds.Distinct()
+            .ToDictionary(id => id, id => products.GetValueOrDefault(id) ??
+                new CatalogProduct(id, string.Empty, false, Guid.Empty, null, false, []));
+        return Task.FromResult(result);
+    }
+
     public Task<IReadOnlyList<CatalogProductCandidate>> SearchAsync(
         string nameQuery, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<CatalogProductCandidate>>([]);

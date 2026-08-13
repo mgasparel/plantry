@@ -46,7 +46,7 @@
    out of DOM sequence. *@
 <div class="vitals">
     <partial name="_VitalsTiles" model="new Plantry.Web.Pages.Pantry.Products.VitalsTilesPartialModel(Model.Detail, false, Model.TodayDate, Model.ExpiringSoonDays)" />
-    <partial name="_PriceDisplay" model="new Plantry.Web.Pages.Pantry.Products.PriceDisplayPartialModel(Model.ProductId, Model.PriceDisplayText, false)" />
+    <partial name="_PriceDisplay" model="new Plantry.Web.Pages.Pantry.Products.PriceDisplayPartialModel(Model.ProductId, Model.PriceDisplayText, false, Model.SetPriceDisabled)" />
 </div>
 
 @* Stats injection (plantry-fuej): price sparkline/median, days-of-supply, waste rate — in context on

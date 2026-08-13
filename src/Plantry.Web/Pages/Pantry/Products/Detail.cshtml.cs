@@ -22,6 +22,7 @@ public sealed class DetailModel(
     InventoryQueryService queries,
     IProductStockRepository stocks,
     IProductConversionProvider conversions,
+    IProductRepository productRepository,
     ICatalogReadFacade catalog,
     IUnitRepository units,
     ILocationRepository locations,
@@ -102,6 +103,10 @@ public sealed class DetailModel(
     /// <c>PricingQueries.EffectivePriceAsync</c>), rendered as "£3.99 for 500 g" — or a muted placeholder
     /// when nothing has ever been observed for this product (plantry-3fqm).</summary>
     public string PriceDisplayText { get; private set; } = "No price recorded yet";
+    public bool IsParentProduct { get; private set; }
+    public bool SetPriceDisabled => IsParentProduct;
+    public const string ParentPriceHint = "Prices can only be set on variants, not on parent products.";
+
 
     /// <summary>
     /// The product-detail stats injection (plantry-fuej, stats-page-prototype.html appendix): price
@@ -260,6 +265,7 @@ public sealed class DetailModel(
         ProductId = id;
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
+        IsParentProduct = !(await catalog.FindProductAsync(id))?.CanHoldStock ?? false;
         await LoadChipsAsync(Detail);
         PriceDisplayText = await BuildPriceDisplayAsync(id);
         RecipeUsages = await recipeUsages.ExecuteAsync(id);
@@ -753,9 +759,14 @@ public sealed class DetailModel(
         ProductId = id;
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
+        IsParentProduct = !(await catalog.FindProductAsync(id))?.CanHoldStock ?? false;
 
         var product = await catalog.FindProductAsync(id);
-        PriceInput = new PriceInputModel { Quantity = 1m, UnitId = product?.DefaultUnitId };
+        if (product is null) return NotFound();
+        IsParentProduct = !product.CanHoldStock;
+        if (IsParentProduct)
+            return Content($"<p class=\"field__hint\">{ParentPriceHint}</p>", "text/html");
+        PriceInput = new PriceInputModel { Quantity = 1m, UnitId = product.DefaultUnitId };
         await LoadUnitOptionsAsync();
         return Partial("_SetPriceSheet", this);
     }
@@ -770,6 +781,10 @@ public sealed class DetailModel(
     public async Task<IActionResult> OnPostSetPriceAsync(Guid id)
     {
         ProductId = id;
+        var product = await catalog.FindProductAsync(id);
+        if (product is null) return NotFound();
+        if (!product.CanHoldStock)
+            return Partial("_PriceDisplay", new PriceDisplayPartialModel(id, "No price recorded yet", Oob: false, Disabled: true));
         ClearOtherSheetValidation(nameof(PriceInput));
 
         if (!ModelState.IsValid)
@@ -857,6 +872,28 @@ public sealed class DetailModel(
     private async Task<string> BuildPriceDisplayAsync(Guid productId)
     {
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+        var catalogProduct = await catalog.FindProductAsync(productId);
+        if (catalogProduct is not null && !catalogProduct.CanHoldStock)
+        {
+            var parent = await productRepository.FindAsync(Plantry.Pantry.Domain.ProductId.From(productId));
+            var variants = parent is null ? [] : await productRepository.ListVariantsAsync(parent.Id);
+            var live = variants.Where(v => !v.IsArchived).ToList();
+            var observations = await pricingQueries.EffectiveCostablePricesAsync(live.Select(v => v.Id.Value), today);
+            EffectivePriceCandidate? candidate = null;
+            foreach (var variant in live)
+            {
+                if (!observations.TryGetValue(variant.Id.Value, out var variantObservation) || !variantObservation.UnitPrice.HasValue) continue;
+                var factor = (await conversions.ForProductAsync(variant.Id.Value)).Convert(1m, variantObservation.UnitId, parent!.DefaultUnitId.Value);
+                if (factor.IsFailure || factor.Value <= 0) continue;
+                var current = new EffectivePriceCandidate(productId, variant.Id.Value, variantObservation, variantObservation.Quantity * factor.Value, variantObservation.Price / (variantObservation.Quantity * factor.Value), parent!.DefaultUnitId.Value);
+                if (candidate is null || current.ConvertedUnitPrice < candidate.ConvertedUnitPrice) candidate = current;
+            }
+            if (candidate is null) return "No price recorded yet";
+            var parentCurrency = await displayCurrency.GetAsync();
+            var parentUnits = await catalog.GetUnitCodesAsync();
+            return $"{MoneyDisplay.Format(candidate.Observation.Price, parentCurrency)} for {candidate.ConvertedQuantity:0.###} {parentUnits.GetValueOrDefault(parent!.DefaultUnitId.Value, "?")}";
+        }
+
         var observation = await pricingQueries.EffectivePriceAsync(productId, today);
         if (observation is null) return "No price recorded yet";
 
@@ -1039,7 +1076,7 @@ public sealed record StockDetailPartialModel(
 /// out-of-band swap after a "Set price" submission — mirrors <see cref="StockDetailPartialModel.Oob"/>'s
 /// role for the lot/journal fragment, but scoped to just the price display since setting a price never
 /// changes stock.</summary>
-public sealed record PriceDisplayPartialModel(Guid ProductId, string DisplayText, bool Oob);
+public sealed record PriceDisplayPartialModel(Guid ProductId, string DisplayText, bool Oob, bool Disabled = false);
 
 /// <summary>
 /// View model for the vitals strip's On-hand / Next-expiry / Low-stock-alert tiles (plantry-sbpk) — the
