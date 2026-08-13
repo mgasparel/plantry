@@ -207,6 +207,11 @@ public class InventoryQueryService(
     /// minimum for the same reason.</summary>
     public const int MinConsumptionEventsForVelocity = 2;
 
+    /// <summary>Minimum calendar-day span used as the velocity denominator for newly tracked products.
+    /// The observed span is clamped between this floor and <see cref="VelocityWindowDays"/> so a short
+    /// history is not diluted by the full trailing window, while same-day history cannot divide by zero.</summary>
+    public const int MinPaceDays = 14;
+
     public async Task<IReadOnlyList<PantryListItem>> ListPantryAsync(CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdId)
@@ -499,8 +504,10 @@ public class InventoryQueryService(
     }
 
     /// <summary>
-    /// Days-of-supply and waste-rate stats for the product-detail injection (plantry-fuej). Journal rows
-    /// for one product can carry mixed units (each row records its own lot's unit, not a canonical one —
+    /// Days-of-supply and waste-rate stats for the product-detail injection (plantry-fuej). The velocity
+    /// denominator is the calendar-day span from the first journal entry through today, clamped between
+    /// <see cref="MinPaceDays"/> and <see cref="VelocityWindowDays"/>; the numerator remains limited to
+    /// consumed rows in the trailing window. Journal rows for one product can carry mixed units (each row records its own lot's unit, not a canonical one —
     /// see <see cref="ProductStock.Consume"/>), so every row is converted to the product's display unit
     /// via <paramref name="ct"/>'s <see cref="IProductConversionProvider"/> before summing — the same
     /// per-row-convert-then-sum pattern <see cref="SumInDisplayUnit"/> uses for lots, just applied to
@@ -533,13 +540,17 @@ public class InventoryQueryService(
             .Where(j => j.Reason == StockReason.Consumed && j.OccurredAt >= windowStart)
             .ToList();
 
+        var firstJournalDate = stock.Journal.Min(j => DateOnly.FromDateTime(j.OccurredAt.UtcDateTime));
+        var observedSpanDays = today.DayNumber - firstJournalDate.DayNumber;
+        var denominatorDays = Math.Clamp(observedSpanDays, MinPaceDays, VelocityWindowDays);
+
         decimal? daysOfSupply = null;
         if (consumedInWindow.Count >= MinConsumptionEventsForVelocity)
         {
             var consumedQtyInWindow = SumConvertedAbsolute(consumedInWindow, displayUnitId, converter);
             if (consumedQtyInWindow > 0m)
             {
-                var perDay = consumedQtyInWindow / VelocityWindowDays;
+                var perDay = consumedQtyInWindow / denominatorDays;
                 var onHand = SumInDisplayUnit(stock.ActiveLotsFefo(), displayUnitId, converter);
                 daysOfSupply = Math.Round(onHand / perDay, 1);
             }
