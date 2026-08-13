@@ -29,7 +29,7 @@ public static class EffectivePriceRollup
         {
             if (!observations.TryGetValue(reference.Id, out var observation) || observation.Quantity <= 0 || observation.UnitId == Guid.Empty || !observation.UnitPrice.HasValue || observation.UnitPrice.Value <= 0)
                 continue;
-            var factor = await convert(reference.Id, 1m, observation.UnitId, reference.DefaultUnitId, ct);
+            var factor = await convert(reference.Id, 1m, observation.UnitId, product.DefaultUnitId, ct);
             if (factor.IsFailure || factor.Value <= 0) continue;
             var convertedQuantity = observation.Quantity * factor.Value;
             var candidate = new EffectivePriceCandidate(product.Id, reference.Id, observation,

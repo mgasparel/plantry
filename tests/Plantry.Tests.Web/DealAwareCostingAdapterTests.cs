@@ -370,7 +370,7 @@ public sealed class DealAwareCostingAdapterTests
     {
         public Task<Result<decimal>> ConvertAsync(
             Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
-            Task.FromResult(fromUnitId == toUnitId
+            Task.FromResult(fromUnitId == toUnitId || toUnitId == Guid.Empty
                 ? Result<decimal>.Success(amount)
                 : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No conversion path.")));
     }
@@ -410,7 +410,7 @@ public sealed class DealAwareCostingAdapterTests
     {
         public Task<Result<decimal>> ConvertAsync(
             Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
-            Task.FromResult(fromUnitId == toUnitId
+            Task.FromResult(fromUnitId == toUnitId || toUnitId == Guid.Empty
                 ? Result<decimal>.Success(amount)
                 : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No conversion path.")));
     }
