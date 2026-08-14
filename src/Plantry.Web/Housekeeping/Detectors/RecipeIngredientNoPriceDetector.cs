@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Composition.Infrastructure;
 
@@ -15,9 +16,11 @@ namespace Plantry.Web.Housekeeping;
 /// </para>
 /// <para>
 /// ADR-021/ADR-024 Phase A: loads its facts via <see cref="IRecipeFactsReadModel"/> (shared with D2/D7),
-/// whose <c>PricedProductIds</c> query mirrors the retired
-/// <c>PricingQueries.ProductIdsWithAnyPriceAsync</c> batch existence check exactly — rather than the
-/// retired <c>IRecipeRepository</c>/<c>ICatalogProductReader</c>/<c>PricingQueries</c> ports.
+/// rather than the retired <c>IRecipeRepository</c>/<c>ICatalogProductReader</c>/<c>PricingQueries</c> ports.
+/// "Has a price" is a live-variant rollup, not raw existence (plantry-i07l rule 5): a concrete product is
+/// priced by its own usable observation; a parent is priced only when at least one live (non-archived)
+/// variant has a usable, convertible, non-superseded candidate. Parent-only, archived-only, and
+/// unusable/unconvertible observations never clear the finding — so D5 agrees with recipe costing.
 /// </para>
 /// </summary>
 public sealed class RecipeIngredientNoPriceDetector(
@@ -56,6 +59,7 @@ public sealed class RecipeIngredientNoPriceDetector(
         if (recipeNamesByProduct.Count == 0)
             return [];
 
+        var converter = bag.BuildConverter();
         var findings = new List<Finding>();
         foreach (var (productId, recipeNames) in recipeNamesByProduct)
         {
@@ -63,7 +67,7 @@ public sealed class RecipeIngredientNoPriceDetector(
                 continue; // product archived/removed from catalog — skip, same as D2/D7
             if (!product.TrackStock)
                 continue;
-            if (bag.PricedProductIds.Contains(productId))
+            if (HasUsableCandidate(bag, product, converter))
                 continue;
 
             var specifics = recipeNames.Count == 1
@@ -83,6 +87,59 @@ public sealed class RecipeIngredientNoPriceDetector(
 
         return findings;
     }
+
+    /// <summary>
+    /// True when the referenced product has a price under the shared live-variant rollup (plantry-i07l),
+    /// so D5 agrees with recipe costing:
+    /// <list type="bullet">
+    /// <item>A <b>concrete product</b> is priced iff it has any usable live observation on itself (a leaf
+    /// keeps its observation in its own unit — no conversion, mirroring <c>EffectivePriceRollup</c>).</item>
+    /// <item>A <b>parent</b> is priced iff at least one <b>live (non-archived) variant</b> has a usable
+    /// observation that converts to the parent's default unit. Parent-only observations, archived-only
+    /// variants, and unusable/unconvertible observations never count (rules 2/3/5).</item>
+    /// </list>
+    /// </summary>
+    private static bool HasUsableCandidate(
+        RecipeFactsBag bag, ProductFact product, Func<Guid, decimal, Guid, Guid, Result<decimal>> convert)
+    {
+        // Concrete product: resolves to itself — priced iff it has a usable observation (identity, no
+        // conversion). Matches EffectivePriceRollup's leaf self-resolution.
+        if (!product.IsParent)
+            return bag.PriceObservations.TryGetValue(product.ProductId, out var leafObservations)
+                && leafObservations.Any(IsUsable);
+
+        // Parent: roll up live direct variants only.
+        if (!bag.LiveVariantsByParent.TryGetValue(product.ProductId, out var variants))
+            return false;
+
+        foreach (var variant in variants)
+        {
+            if (!bag.PriceObservations.TryGetValue(variant.VariantId, out var observations))
+                continue;
+
+            foreach (var observation in observations)
+            {
+                if (!IsUsable(observation))
+                    continue;
+
+                // Reference unit for comparison (rule 3): the parent's default unit when known; otherwise
+                // the observation's own unit (identity — no conversion), mirroring the rollup.
+                var referenceUnit = product.DefaultUnitId != Guid.Empty ? product.DefaultUnitId : observation.UnitId;
+                if (referenceUnit == observation.UnitId)
+                    return true;
+
+                var converted = convert(variant.VariantId, 1m, observation.UnitId, referenceUnit);
+                if (converted.IsSuccess && converted.Value > 0m)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>A usable observation has a positive quantity and a real (non-empty) unit — the rollup's
+    /// gate; an empty-quantity or unitless (DM-17) row has no conversion basis and cannot price anything.</summary>
+    private static bool IsUsable(PriceObservationFact observation) =>
+        observation.Quantity > 0m && observation.UnitId != Guid.Empty;
 
     /// <summary>Constant per subject (§4): the gap is binary — a price observation exists or it doesn't —
     /// so dismissal is permanent.</summary>

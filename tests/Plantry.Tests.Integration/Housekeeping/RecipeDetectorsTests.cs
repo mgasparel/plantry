@@ -163,6 +163,81 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(findings);
     }
 
+    [Fact(DisplayName = "D5: parent with a priced live variant — no finding (parent rolls to its live variant, dogfood scenario)")]
+    public async Task D5_Parent_PricedLiveVariant_NoFinding()
+    {
+        var (parentId, variantId) = await SeedParentWithLiveVariantAsync(
+            "Miso Paste, White", _gramsId, "Miso Paste, White - Hikari Miso", _gramsId);
+        await SeedRecipeAsync("Cacio e Pepe Vegan", (parentId, 100m, _gramsId, 0));
+        // Price recorded against the VARIANT, not the parent — the dogfood Cacio e Pepe bug.
+        await SeedPriceObservationAsync(variantId, 1.80m);
+
+        var findings = await BuildD5().DetectAsync();
+
+        Assert.Empty(findings);
+    }
+
+    [Fact(DisplayName = "D5: parent with only a parent observation (no priced live variant) — still fires")]
+    public async Task D5_Parent_ParentOnlyObservation_StillFires()
+    {
+        var (parentId, _) = await SeedParentWithLiveVariantAsync(
+            "Miso Paste, White", _gramsId, "Miso Paste, White - Hikari Miso", _gramsId);
+        await SeedRecipeAsync("Cacio e Pepe Vegan", (parentId, 100m, _gramsId, 0));
+        // Legacy/orphaned parent observation (rule 5: parent-only never counts).
+        await SeedPriceObservationAsync(parentId, 1.80m);
+
+        var findings = await BuildD5().DetectAsync();
+
+        var finding = Assert.Single(findings);
+        Assert.Equal(parentId, finding.SubjectId);
+    }
+
+    [Fact(DisplayName = "D5: parent with a live variant but an unconvertible observation — still fires")]
+    public async Task D5_Parent_UnconvertibleVariant_StillFires()
+    {
+        // Parent default unit is 'gram' (mass); the variant observation is recorded in 'each' (count). The
+// converter builds same-dimension (Mass/Volume) scaling edges only and Count is never free-scaled, and
+// no product conversion between each and gram is seeded — so the observation cannot be converted to the
+// parent's reference unit and does not clear the finding (rule 3/5).
+        var (parentId, variantId) = await SeedParentWithLiveVariantAsync(
+            "Miso Paste, White", _gramsId, "Miso Paste, White - Each Pack", _eachId);
+        await SeedRecipeAsync("Cacio e Pepe Vegan", (parentId, 100m, _gramsId, 0));
+        await SeedPriceObservationAsync(variantId, 1.80m, _eachId);
+
+        var findings = await BuildD5().DetectAsync();
+
+        Assert.Single(findings);
+    }
+
+    [Fact(DisplayName = "D5: parent with an archived-only variant — still fires")]
+    public async Task D5_Parent_ArchivedVariantOnly_StillFires()
+    {
+        await using var catalog = NewCatalogDb(_household);
+        var parent = Product.Create(_household, "Miso Paste, Inactive", UnitId.From(_gramsId), Clock, trackStock: true);
+        parent.SetHasVariants(true, SystemClock.Instance);
+        await catalog.Products.AddAsync(parent);
+        await catalog.SaveChangesAsync();
+
+        var archived = Product.Create(_household, "Miso Paste, Inactive - Old", UnitId.From(_gramsId), Clock, trackStock: true);
+        archived.MakeVariantOf(parent.Id, SystemClock.Instance);
+        await catalog.Products.AddAsync(archived);
+        await catalog.SaveChangesAsync();
+        var parentId = parent.Id.Value;
+
+        // Archive the only variant, then price it — an archived variant is excluded from the live rollup,
+        // so its observation must not clear the parent (rule 2/5).
+        archived.Archive(SystemClock.Instance);
+        catalog.Products.Update(archived);
+        await catalog.SaveChangesAsync();
+        await SeedPriceObservationAsync(archived.Id.Value, 1.80m);
+
+        await SeedRecipeAsync("Inactive Soup", (parentId, 100m, _gramsId, 0));
+
+        var findings = await BuildD5().DetectAsync();
+
+        Assert.Equal(parentId, Assert.Single(findings).SubjectId);
+    }
+
     // ── D7: RecipeLineUntrackedProductDetector ──────────────────────────────────────────────────
 
     [Fact(DisplayName = "D7: untracked product line — produces a finding, FixUrl anchors on the offending line's own ordinal (plantry-c7mg regression lock)")]
@@ -263,6 +338,28 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
         return product.Id.Value;
     }
 
+    /// <summary>
+    /// Seeds a parent product (HasVariants, DM-19) with one live variant whose default unit is
+    /// <paramref name="variantDefaultUnitId"/>, and returns (parentId, variantId). The parent is created
+    /// and saved first — the self-referencing composite FK means EF can't batch parent + children in one
+    /// SaveChanges (mirrors ProductRoundTripTests).
+    /// </summary>
+    private async Task<(Guid ParentId, Guid VariantId)> SeedParentWithLiveVariantAsync(
+        string parentName, Guid parentDefaultUnitId, string variantName, Guid variantDefaultUnitId)
+    {
+        await using var catalog = NewCatalogDb(_household);
+        var parent = Product.Create(_household, parentName, UnitId.From(parentDefaultUnitId), Clock, trackStock: true);
+        parent.SetHasVariants(true, SystemClock.Instance);
+        await catalog.Products.AddAsync(parent);
+        await catalog.SaveChangesAsync();
+
+        var variant = Product.Create(_household, variantName, UnitId.From(variantDefaultUnitId), Clock, trackStock: true);
+        variant.MakeVariantOf(parent.Id, SystemClock.Instance);
+        await catalog.Products.AddAsync(variant);
+        await catalog.SaveChangesAsync();
+        return (parent.Id.Value, variant.Id.Value);
+    }
+
     private async Task<Guid> SeedRecipeAsync(
         string name, params (Guid ProductId, decimal Quantity, Guid UnitId, int Ordinal)[] ingredients)
     {
@@ -306,7 +403,10 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
         return recipeId;
     }
 
-    private async Task<Guid> SeedPriceObservationAsync(Guid productId, decimal price)
+    private async Task<Guid> SeedPriceObservationAsync(Guid productId, decimal price) =>
+        await SeedPriceObservationAsync(productId, price, _gramsId);
+
+    private async Task<Guid> SeedPriceObservationAsync(Guid productId, decimal price, Guid unitId)
     {
         await using var conn = new NpgsqlConnection(db.ConnectionString);
         await conn.OpenAsync();
@@ -325,7 +425,7 @@ public sealed class RecipeDetectorsTests(PostgresFixture db) : IAsyncLifetime
         cmd.Parameters.AddWithValue("hid", _household.Value);
         cmd.Parameters.AddWithValue("pid", productId);
         cmd.Parameters.AddWithValue("price", price);
-        cmd.Parameters.AddWithValue("uid", _gramsId);
+        cmd.Parameters.AddWithValue("uid", unitId);
         cmd.Parameters.AddWithValue("ref", Guid.Parse($"00000000-0000-0000-0000-{_idSequence++:000000000000}"));
         cmd.Parameters.AddWithValue("usr", Guid.Parse($"00000000-0000-0000-0000-{_idSequence++:000000000000}"));
         await cmd.ExecuteNonQueryAsync();

@@ -11,6 +11,7 @@ using Plantry.Intake.Domain;
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.Recipes.Application;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Web.Pages.Shared;
@@ -878,20 +879,23 @@ public sealed class DetailModel(
             var parent = await productRepository.FindAsync(Plantry.Pantry.Domain.ProductId.From(productId));
             var variants = parent is null ? [] : await productRepository.ListVariantsAsync(parent.Id);
             var live = variants.Where(v => !v.IsArchived).ToList();
-            var observations = await pricingQueries.EffectiveCostablePricesAsync(live.Select(v => v.Id.Value), today);
-            EffectivePriceCandidate? candidate = null;
-            foreach (var variant in live)
-            {
-                if (!observations.TryGetValue(variant.Id.Value, out var variantObservation) || !variantObservation.UnitPrice.HasValue) continue;
-                var factor = (await conversions.ForProductAsync(variant.Id.Value)).Convert(1m, variantObservation.UnitId, parent!.DefaultUnitId.Value);
-                if (factor.IsFailure || factor.Value <= 0) continue;
-                var current = new EffectivePriceCandidate(productId, variant.Id.Value, variantObservation, variantObservation.Quantity * factor.Value, variantObservation.Price / (variantObservation.Quantity * factor.Value), parent!.DefaultUnitId.Value);
-                if (candidate is null || current.ConvertedUnitPrice < candidate.ConvertedUnitPrice) candidate = current;
-            }
-            if (candidate is null) return "No price recorded yet";
             var parentCurrency = await displayCurrency.GetAsync();
             var parentUnits = await catalog.GetUnitCodesAsync();
-            return $"{MoneyDisplay.Format(candidate.Observation.Price, parentCurrency)} for {candidate.ConvertedQuantity:0.###} {parentUnits.GetValueOrDefault(parent!.DefaultUnitId.Value, "?")}";
+            if (live.Count == 0) return "No price recorded yet";
+
+            // Shared parent-aware rollup (plantry-i07l) — the same selection policy and batched read
+            // CostingService uses, so the parent's displayed price and recipe costing agree on which
+            // live variant wins (cheapest usable candidate converted to the parent's default unit).
+            var context = new PriceRollupProduct(productId, parent!.DefaultUnitId.Value, IsParent: true,
+                live.Select(v => new PriceRollupVariant(v.Id.Value, v.DefaultUnitId.Value)).ToList());
+
+            Func<Guid, decimal, Guid, Guid, CancellationToken, Task<Result<decimal>>> convert = async
+                (variantId, amount, from, to, token) =>
+                    (await conversions.ForProductAsync(variantId, token)).Convert(amount, from, to);
+
+            var candidate = await EffectivePriceRollup.SelectAsync(pricingQueries, context, today, convert);
+            if (candidate is null) return "No price recorded yet";
+            return $"{MoneyDisplay.Format(candidate.Observation.Price, parentCurrency)} for {candidate.ConvertedQuantity:0.###} {parentUnits.GetValueOrDefault(candidate.RequestedUnitId, "?")}";
         }
 
         var observation = await pricingQueries.EffectivePriceAsync(productId, today);
