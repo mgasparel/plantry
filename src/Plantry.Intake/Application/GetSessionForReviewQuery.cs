@@ -44,6 +44,9 @@ public sealed record ReviewLineView(
     SuggestedConfidence? EstimatedEachConfidence = null,
     Guid? StagedProductId = null)
 {
+    public Guid? NewProductDefaultUnitId { get; init; }
+    public Guid? NewProductDefaultLocationId { get; init; }
+
     /// <summary>
     /// Projects a domain <see cref="ImportLine"/> onto its read view — the single mapping point shared by
     /// <see cref="GetSessionForReviewQuery"/> (the review hydration builder) and
@@ -85,7 +88,11 @@ public sealed record ReviewLineView(
             l.ReceiptWeightUnitLabel,
             l.EstimatedEachCount,
             l.EstimatedEachConfidence,
-            l.StagedProductId);
+            l.StagedProductId)
+        {
+            NewProductDefaultUnitId = l.NewProductDefaultUnitId,
+            NewProductDefaultLocationId = l.NewProductDefaultLocationId
+        };
     }
 }
 
@@ -93,8 +100,9 @@ public sealed record ReviewLineView(
 public sealed record ReviewStagedProductView(
     Guid Id,
     string Name,
-    Guid CategoryId,
-    Guid DefaultUnitId);
+    Guid? CategoryId,
+    Guid DefaultUnitId,
+    Guid? DefaultLocationId = null);
 
 /// <summary>
 /// The session header plus its lines and the Catalog reference data (dropdown options) needed to render
@@ -170,7 +178,7 @@ public sealed class GetSessionForReviewQuery(
             session.PaymentDescriptor,
             session.ReceiptNumber,
             session.StagedProducts
-                .Select(p => new ReviewStagedProductView(p.Id, p.Name, p.CategoryId, p.DefaultUnitId))
+                .Select(p => new ReviewStagedProductView(p.Id, p.Name, p.CategoryId, p.DefaultUnitId, p.DefaultLocationId))
                 .ToList());
     }
 }

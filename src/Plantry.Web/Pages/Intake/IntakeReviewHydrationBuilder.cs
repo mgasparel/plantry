@@ -93,7 +93,7 @@ public sealed class IntakeReviewHydrationBuilder
 
         var stagedProducts = session.StagedProducts?
             .Select(p => new StagedProductHydration(
-                p.Id.ToString(), p.Name, p.CategoryId.ToString(), p.DefaultUnitId.ToString()))
+                p.Id.ToString(), p.Name, p.CategoryId?.ToString(), p.DefaultUnitId.ToString(), p.DefaultLocationId?.ToString()))
             .ToList();
 
         var unitIdByCode = reference.Units.ToDictionary(u => u.Code, u => u.Id, StringComparer.OrdinalIgnoreCase);
@@ -143,7 +143,11 @@ public sealed class IntakeReviewHydrationBuilder
                     SuggestedPrice: l.SuggestedPrice,
                     PriceDeltaPercent: priceDeltaPercentByLineId.TryGetValue(l.LineId, out var delta) ? delta : null,
                     DealHit: dealHitLineIds.Contains(l.LineId),
-                    StagedProductId: l.StagedProductId?.ToString()),
+                    StagedProductId: l.StagedProductId?.ToString())
+                    {
+                        NewProductDefaultUnitId = l.NewProductDefaultUnitId?.ToString(),
+                        NewProductDefaultLocationId = l.NewProductDefaultLocationId?.ToString()
+                    },
                 Prefill: new PrefillData(
                     ProductId: prefillProductId?.ToString(),
                     ProductName: prefillProductName,

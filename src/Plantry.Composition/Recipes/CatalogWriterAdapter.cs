@@ -40,10 +40,10 @@ public sealed class CatalogWriterAdapter(
         return result.Value.Value;
     }
 
-    public async Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, bool isProduced = false, CancellationToken ct = default)
+    public async Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, bool isProduced = false, CancellationToken ct = default)
     {
         var command = new CreateProductCommand(
-            name, defaultUnitId, categoryId, defaultLocationId: null,
+            name, defaultUnitId, categoryId, defaultLocationId,
             products, units, categories, locations, clock, tenant, trackStock: true, isProduced: isProduced);
 
         var result = await command.ExecuteAsync(ct);
@@ -53,11 +53,11 @@ public sealed class CatalogWriterAdapter(
         return result.Value.Value;
     }
 
-    public async Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, CancellationToken ct = default)
+    public async Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride = null, CancellationToken ct = default)
     {
         var command = new CreateVariantCommand(
             ProductId.From(parentGroupId), variantName,
-            unitOverride, categoryOverride, locationOverride: null,
+            unitOverride, categoryOverride, locationOverride,
             products, units, categories, locations, clock, tenant);
 
         var result = await command.ExecuteAsync(ct);
@@ -67,10 +67,10 @@ public sealed class CatalogWriterAdapter(
         return result.Value.Value;
     }
 
-    public async Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
+    public async Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, CancellationToken ct = default)
     {
         var command = new CreateGroupedProductCommand(
-            groupName, variantName, defaultUnitId, categoryId, defaultLocationId: null,
+            groupName, variantName, defaultUnitId, categoryId, defaultLocationId,
             products, units, categories, locations, clock, tenant);
 
         var result = await command.ExecuteAsync(ct);

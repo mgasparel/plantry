@@ -571,6 +571,7 @@ public sealed class EditModel(
                     NewGroupId: l.NewGroupId,
                     NewGroupName: l.NewGroupName,
                     NewStapleCategoryId: l.NewStapleCategoryId,
+                    NewStapleDefaultLocationId: l.NewStapleDefaultLocationId,
                     ConversionFromUnitId: convFrom,
                     ConversionToUnitId: convTo);
             })
@@ -1188,6 +1189,7 @@ public sealed class IngredientRowInput
     /// (plantry-y53t). Empty Guid or null when no category is selected.
     /// </summary>
     public Guid? NewStapleCategoryId { get; set; }
+    public Guid? NewStapleDefaultLocationId { get; set; }
 
     // ── Quantity / unit ────────────────────────────────────────────────────────────
     public decimal? Quantity { get; set; }

@@ -505,6 +505,7 @@ public sealed record AuthorIngredientLine(
     string? NewGroupId = null,
     string? NewGroupName = null,
     Guid? NewStapleCategoryId = null,
+    Guid? NewStapleDefaultLocationId = null,
     Guid? ConversionFromUnitId = null,
     Guid? ConversionToUnitId = null);
 

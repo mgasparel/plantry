@@ -214,7 +214,7 @@ public sealed class CommitSessionCommand(
         if (staged is null)
         {
             var created = session.GetOrCreateStagedProduct(
-                null, line.NewProductName!, line.NewProductCategoryId!.Value, line.UnitId!.Value);
+                null, line.NewProductName!, line.NewProductCategoryId, line.NewProductDefaultUnitId ?? line.UnitId!.Value, line.NewProductDefaultLocationId);
             if (created.IsFailure)
                 throw new InvalidOperationException(created.Error.Description);
             staged = created.Value;
@@ -227,7 +227,7 @@ public sealed class CommitSessionCommand(
             return (existingProductId, existingProductId);
 
         var productId = await createProduct.CreateAsync(
-            staged.Name, staged.CategoryId, staged.DefaultUnitId, ct);
+            staged.Name, staged.CategoryId, staged.DefaultUnitId, staged.DefaultLocationId, ct);
         var materialized = staged.MarkMaterialized(productId);
         if (materialized.IsFailure)
             throw new InvalidOperationException(materialized.Error.Description);

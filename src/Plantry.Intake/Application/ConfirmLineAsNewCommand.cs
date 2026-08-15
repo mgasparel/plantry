@@ -16,7 +16,9 @@ public sealed class ConfirmLineAsNewCommand(
     ImportSessionId sessionId,
     ImportLineId lineId,
     string newProductName,
-    Guid newProductCategoryId,
+    Guid? newProductCategoryId,
+    Guid defaultUnitId,
+    Guid? newProductDefaultLocationId,
     decimal quantity,
     Guid unitId,
     Guid locationId,
@@ -27,6 +29,25 @@ public sealed class ConfirmLineAsNewCommand(
     ILogger<ConfirmLineAsNewCommand>? logger = null,
     Guid? stagedProductId = null)
 {
+    public ConfirmLineAsNewCommand(
+        ImportSessionId sessionId,
+        ImportLineId lineId,
+        string newProductName,
+        Guid? newProductCategoryId,
+        decimal quantity,
+        Guid unitId,
+        Guid locationId,
+        DateOnly? expiryDate,
+        decimal? price,
+        IImportSessionRepository sessions,
+        ITenantContext tenant,
+        ILogger<ConfirmLineAsNewCommand>? logger = null,
+        Guid? stagedProductId = null)
+        : this(sessionId, lineId, newProductName, newProductCategoryId, unitId, null, quantity, unitId, locationId,
+            expiryDate, price, sessions, tenant, logger, stagedProductId)
+    {
+    }
+
     public async Task<Result> ExecuteAsync(CancellationToken ct = default)
     {
         if (tenant.HouseholdId is null)
@@ -56,7 +77,7 @@ public sealed class ConfirmLineAsNewCommand(
         // normalized-name/category/default-unit conflict check.
         var staged = session.GetOrCreateStagedProduct(
             stagedProductId,
-            newProductName, newProductCategoryId, unitId);
+            newProductName, newProductCategoryId, defaultUnitId, newProductDefaultLocationId);
         if (staged.IsFailure)
         {
             logger?.LogWarning("ConfirmLineAsNew failed for staged product in line {LineId} of session {SessionId}: {ErrorCode}.",
@@ -65,7 +86,7 @@ public sealed class ConfirmLineAsNewCommand(
         }
 
         var confirm = line.ConfirmAsNew(
-            newProductName, newProductCategoryId, quantity, unitId, locationId, expiryDate, price,
+            newProductName, newProductCategoryId, newProductDefaultLocationId, quantity, defaultUnitId, unitId, locationId, expiryDate, price,
             staged.Value.Id);
         if (confirm.IsFailure)
         {
@@ -93,7 +114,7 @@ public sealed class ConfirmLineAsNewCommand(
                 return Error.NotFound;
 
             var retry = ConfirmLine(
-                reloaded, lineId, newProductName, newProductCategoryId, quantity, unitId, locationId,
+                reloaded, lineId, newProductName, newProductCategoryId, defaultUnitId, newProductDefaultLocationId, quantity, unitId, locationId,
                 expiryDate, price, stagedProductId);
             if (retry.IsFailure)
                 return retry.Error;
@@ -124,7 +145,9 @@ public sealed class ConfirmLineAsNewCommand(
         ImportSession session,
         ImportLineId lineId,
         string newProductName,
-        Guid newProductCategoryId,
+        Guid? newProductCategoryId,
+        Guid defaultUnitId,
+        Guid? newProductDefaultLocationId,
         decimal quantity,
         Guid unitId,
         Guid locationId,
@@ -138,12 +161,12 @@ public sealed class ConfirmLineAsNewCommand(
 
         var staged = session.GetOrCreateStagedProduct(
             stagedProductId,
-            newProductName, newProductCategoryId, unitId);
+            newProductName, newProductCategoryId, defaultUnitId, newProductDefaultLocationId);
         if (staged.IsFailure)
             return staged.Error;
 
         return line.ConfirmAsNew(
-            newProductName, newProductCategoryId, quantity, unitId, locationId, expiryDate, price,
+            newProductName, newProductCategoryId, newProductDefaultLocationId, quantity, defaultUnitId, unitId, locationId, expiryDate, price,
             staged.Value.Id);
     }
 }

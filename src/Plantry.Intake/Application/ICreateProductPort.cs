@@ -6,5 +6,5 @@ namespace Plantry.Intake.Application;
 /// </summary>
 public interface ICreateProductPort
 {
-    Task<Guid> CreateAsync(string name, Guid categoryId, Guid defaultUnitId, CancellationToken ct = default);
+    Task<Guid> CreateAsync(string name, Guid? categoryId, Guid defaultUnitId, Guid? defaultLocationId, CancellationToken ct = default);
 }

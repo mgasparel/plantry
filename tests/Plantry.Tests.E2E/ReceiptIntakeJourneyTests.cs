@@ -122,6 +122,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             // then confirm. Price is prefilled from the receipt and still produces a price observation.
             var deckCard = page.Locator(".focus-card");
             await deckCard.Locator("[name='Edit.NewProductName']").FillAsync(newProductName);
+            await deckCard.Locator("[name='Edit.NewProductDefaultUnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
             await deckCard.Locator("[name='Edit.NewProductCategoryId']").SelectOptionAsync(new SelectOptionValue { Index = 1 });
             await deckCard.Locator("[name='Edit.Quantity']").FillAsync("1");
             await deckCard.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
@@ -207,6 +208,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
         var firstCard = page.Locator(".focus-card");
         await Assertions.Expect(firstCard).ToBeVisibleAsync();
         await firstCard.Locator("[name='Edit.NewProductName']").FillAsync(stagedProductName);
+        await firstCard.Locator("[name='Edit.NewProductDefaultUnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
         await firstCard.Locator("[name='Edit.NewProductCategoryId']").SelectOptionAsync(new SelectOptionValue { Index = 1 });
         await firstCard.Locator("[name='Edit.Quantity']").FillAsync("1");
         await firstCard.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
@@ -275,6 +277,7 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
         var firstCard = page.Locator(".focus-card");
         await Assertions.Expect(firstCard).ToBeVisibleAsync();
         await firstCard.Locator("[name='Edit.NewProductName']").FillAsync(stagedProductName);
+        await firstCard.Locator("[name='Edit.NewProductDefaultUnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
         await firstCard.Locator("[name='Edit.NewProductCategoryId']").SelectOptionAsync(new SelectOptionValue { Index = 1 });
         await firstCard.Locator("[name='Edit.Quantity']").FillAsync("1");
         await firstCard.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });

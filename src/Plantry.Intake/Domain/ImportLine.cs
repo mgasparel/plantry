@@ -79,10 +79,12 @@ public sealed class ImportLine : Entity<ImportLineId>
 
     // New-product intent (ADR-010 create-at-commit): when the user resolves an unmatched line to a
     // brand-new product, ProductId stays null and the product is created by CommitSessionCommand — so no
-    // orphan product is left behind if the session is never committed. The purchase UnitId doubles as the
-    // new product's default unit.
+    // orphan product is left behind if the session is never committed. Product defaults are independent
+    // from the purchased-lot fields below.
     public string? NewProductName { get; private set; }
     public Guid? NewProductCategoryId { get; private set; }
+    public Guid? NewProductDefaultUnitId { get; private set; }
+    public Guid? NewProductDefaultLocationId { get; private set; }
 
     /// <summary>
     /// Session-scoped staged-product identity.  Several lines may point at the same value while the
@@ -102,9 +104,9 @@ public sealed class ImportLine : Entity<ImportLineId>
     /// </summary>
     internal Result AttachStagedProduct(StagedProduct staged)
     {
-        if (ProductId is not null || string.IsNullOrWhiteSpace(NewProductName) || NewProductCategoryId is null)
+        if (ProductId is not null || string.IsNullOrWhiteSpace(NewProductName))
             return Error.Custom("Intake.InvalidStagedProduct", "Only a new-product line can attach a staged product.");
-        if (!staged.Matches(NewProductName, NewProductCategoryId.Value, UnitId ?? Guid.Empty))
+        if (!staged.Matches(NewProductName, NewProductCategoryId, NewProductDefaultUnitId ?? Guid.Empty, NewProductDefaultLocationId))
             return Error.Custom("Intake.StagedProductMismatch", "The staged product does not match the line's new-product intent.");
 
         StagedProductId = staged.Id;
@@ -190,6 +192,8 @@ public sealed class ImportLine : Entity<ImportLineId>
         // Resolving to an existing product clears any prior new-product intent.
         NewProductName = null;
         NewProductCategoryId = null;
+        NewProductDefaultUnitId = null;
+        NewProductDefaultLocationId = null;
         StagedProductId = null;
         Status = LineStatus.Confirmed;
         return Result.Success();
@@ -201,7 +205,12 @@ public sealed class ImportLine : Entity<ImportLineId>
     /// then. The purchase <paramref name="unitId"/> becomes the new product's default unit.
     /// </summary>
     public Result ConfirmAsNew(
-        string newProductName, Guid newProductCategoryId, decimal quantity, Guid unitId, Guid locationId,
+        string newProductName, Guid? newProductCategoryId, decimal quantity, Guid unitId, Guid locationId,
+        DateOnly? expiryDate, decimal? price, Guid? stagedProductId = null) =>
+        ConfirmAsNew(newProductName, newProductCategoryId, null, quantity, unitId, unitId, locationId, expiryDate, price, stagedProductId);
+
+    public Result ConfirmAsNew(
+        string newProductName, Guid? newProductCategoryId, Guid? newProductDefaultLocationId, decimal quantity, Guid defaultUnitId, Guid unitId, Guid locationId,
         DateOnly? expiryDate, decimal? price, Guid? stagedProductId = null)
     {
         if (Status == LineStatus.Dismissed)
@@ -215,6 +224,8 @@ public sealed class ImportLine : Entity<ImportLineId>
         SkuId = null;
         NewProductName = newProductName.Trim();
         NewProductCategoryId = newProductCategoryId;
+        NewProductDefaultUnitId = defaultUnitId;
+        NewProductDefaultLocationId = newProductDefaultLocationId;
         StagedProductId = stagedProductId;
         Quantity = quantity;
         UnitId = unitId;

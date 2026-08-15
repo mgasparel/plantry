@@ -105,18 +105,23 @@ public sealed class IngredientLineResolver(ICatalogProductReader products, ICata
             // Path A: create as a variant of an existing group.
             var unitOverride = trackedUnit == Guid.Empty ? (Guid?)null : trackedUnit;
             newTrackedId = await catalogWriter.CreateTrackedVariantAsync(
-                parentGroupId, trackedName, unitOverride, line.NewStapleCategoryId, ct);
+                parentGroupId, trackedName, unitOverride, line.NewStapleCategoryId, line.NewStapleDefaultLocationId, ct);
         }
         else if (!string.IsNullOrWhiteSpace(line.NewGroupName))
         {
             // Path B: create new group + first variant atomically.
             newTrackedId = await catalogWriter.CreateTrackedGroupedProductAsync(
-                line.NewGroupName.Trim(), trackedName, trackedUnit, line.NewStapleCategoryId, ct);
+                line.NewGroupName.Trim(), trackedName, trackedUnit, line.NewStapleCategoryId, line.NewStapleDefaultLocationId, ct);
         }
         else
         {
             // Path C: standalone tracked product (no group).
-            newTrackedId = await catalogWriter.CreateTrackedProductAsync(trackedName, trackedUnit, line.NewStapleCategoryId, ct: ct);
+            newTrackedId = await catalogWriter.CreateTrackedProductAsync(
+                trackedName,
+                trackedUnit,
+                line.NewStapleCategoryId,
+                line.NewStapleDefaultLocationId,
+                ct: ct);
         }
 
         // A freshly created tracked product has trackStock: true; its default unit is the supplied unit.

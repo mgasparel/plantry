@@ -199,7 +199,7 @@
                  // create view, so the newStapleUnit→unitId mirror stands down and never overwrites it.
                  recipeUnitPinned: false,
                  newIsTracked: false,
-                 newStapleCategoryId: '', newGroupId: '', newGroupName: '',
+                 newStapleCategoryId: '', newStapleDefaultLocationId: '', newGroupId: '', newGroupName: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '',
                  convLeftAmount: '', convLeftUnitId: '', convRightAmount: '', convRightUnitId: '',
                  convFor: '', stockUnits: [], recipeUnits: [],
@@ -838,6 +838,7 @@
 							<input type="hidden" :name="'Input.Lines[' + idx + '].NewGroupId'" :value="row.newGroupId ?? ''">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].NewGroupName'" :value="row.newGroupName ?? ''">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleCategoryId'" :value="row.newStapleCategoryId ?? ''">
+							<input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleDefaultLocationId'" :value="row.newStapleDefaultLocationId ?? ''">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId">
 							<input type="hidden" :name="'Input.Lines[' + idx + '].IsUntracked'" :value="row.isUntracked">
@@ -1232,6 +1233,14 @@
 								<label class="form-grid__field__label" for="create-product-category">Category</label>
 								<div class="form-grid__field__control">
 									<select id="create-product-category" class="field__input" x-model="draft.newStapleCategoryId">
+										<option value="">— None —</option>
+									</select>
+								</div>
+							</div>
+							<div class="form-grid__field form-grid__field--full">
+								<label class="form-grid__field__label" for="create-product-location">Default location</label>
+								<div class="form-grid__field__control">
+									<select id="create-product-location" class="field__input" x-model="draft.newStapleDefaultLocationId">
 										<option value="">— None —</option>
 									</select>
 								</div>

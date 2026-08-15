@@ -30,7 +30,7 @@ public interface ICatalogWriter
     /// (e.g. the Shopping "Running low" strip) since a produced product is never a purchase suggestion.
     /// Defaults to <c>false</c> so every other caller is unaffected.
     /// </param>
-    Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, bool isProduced = false, CancellationToken ct = default);
+    Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, bool isProduced = false, CancellationToken ct = default);
 
     /// <summary>
     /// Inline-creates a tracked product as a variant of an existing group product
@@ -38,7 +38,7 @@ public interface ICatalogWriter
     /// the parent group unless overrides are supplied. Throws when Catalog rejects the create (e.g.
     /// unknown parent, max-depth violation, duplicate name).
     /// </summary>
-    Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, CancellationToken ct = default);
+    Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride = null, CancellationToken ct = default);
 
     /// <summary>
     /// Inline-creates a new group (abstract parent, <c>trackStock = false</c>) and its first tracked
@@ -46,7 +46,7 @@ public interface ICatalogWriter
     /// Returns the variant's product id (the stock-holding product). Throws when Catalog rejects the
     /// create (e.g. duplicate group or variant name, unknown unit).
     /// </summary>
-    Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default);
+    Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, CancellationToken ct = default);
 
     /// <summary>
     /// Adds a product-specific <c>ProductConversion</c> (C10) — the inline factor the author supplies

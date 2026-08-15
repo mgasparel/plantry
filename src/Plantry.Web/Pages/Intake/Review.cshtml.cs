@@ -91,6 +91,8 @@ public sealed class ReviewModel(
         public Guid? SkuId { get; set; }
         public string? NewProductName { get; set; }
         public Guid? NewProductCategoryId { get; set; }
+        public Guid? NewProductDefaultUnitId { get; set; }
+        public Guid? NewProductDefaultLocationId { get; set; }
         public Guid? StagedProductId { get; set; }
         public decimal? Quantity { get; set; }
         public Guid? UnitId { get; set; }
@@ -267,12 +269,12 @@ public sealed class ReviewModel(
         Result result;
         if (edit.CreateNew)
         {
-            if (string.IsNullOrWhiteSpace(edit.NewProductName) || edit.NewProductCategoryId is null)
-                return JsonError("A new product needs a name and a category.");
+            if (string.IsNullOrWhiteSpace(edit.NewProductName) || edit.NewProductDefaultUnitId is not { } defaultUnitId)
+                return JsonError("A new product needs a name and a default unit.");
 
             result = await new ConfirmLineAsNewCommand(
                 ImportSessionId.From(Id), lineId,
-                edit.NewProductName!, edit.NewProductCategoryId!.Value,
+                edit.NewProductName!, edit.NewProductCategoryId, defaultUnitId, edit.NewProductDefaultLocationId,
                 quantity, unitId, locationId,
                 edit.ExpiryDate, edit.Price,
                 sessions, tenant, confirmAsNewLogger,
@@ -324,8 +326,9 @@ public sealed class ReviewModel(
                     {
                         id = staged.Id.ToString(),
                         name = staged.Name,
-                        categoryId = staged.CategoryId.ToString(),
+                        categoryId = staged.CategoryId?.ToString(),
                         defaultUnitId = staged.DefaultUnitId.ToString(),
+                        defaultLocationId = staged.DefaultLocationId?.ToString(),
                     }
                     : null,
             price = updated.Price ?? updated.SuggestedPrice,

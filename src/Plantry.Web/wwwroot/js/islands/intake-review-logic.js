@@ -80,6 +80,8 @@ export {
  * @property {boolean} isNewProduct
  * @property {string|null} newProductName
  * @property {string|null} newProductCategoryId
+ * @property {string|null} newProductDefaultUnitId
+ * @property {string|null} newProductDefaultLocationId
  * @property {number|null} suggestedPrice
  * @property {string|null} stagedProductId
  */
@@ -136,6 +138,8 @@ export {
  * @property {SignalLike<string>} draftPrice
  * @property {SignalLike<string>} draftNewName
  * @property {SignalLike<string>} draftNewCategoryId
+ * @property {SignalLike<string>} draftNewDefaultUnitId
+ * @property {SignalLike<string>} draftNewDefaultLocationId
  * @property {SignalLike<string>} stagedProductId
  * @property {AlternativeHydration[]|null} alternatives
  * @property {EstimateHydration|null} estimate
@@ -193,6 +197,8 @@ export function makeLine(seed, signalFn) {
     draftPrice: signalFn(prefill.price != null ? String(prefill.price) : ""),
     draftNewName: signalFn(line.newProductName ?? ""),
     draftNewCategoryId: signalFn(line.newProductCategoryId ?? ""),
+    draftNewDefaultUnitId: signalFn(line.newProductDefaultUnitId ?? ""),
+    draftNewDefaultLocationId: signalFn(line.newProductDefaultLocationId ?? ""),
     stagedProductId: signalFn(line.stagedProductId ?? ""),
     alternatives: alternatives ?? null,
     estimate: estimate ?? null,
@@ -444,7 +450,8 @@ export function demotedDecision(productName, productId, confidence = 0) {
  * @param {LineState} ls
  * @returns {{
  *   lineId: string, createNew: boolean, productId: string|null, skuId: string|null,
- *   newProductName: string|null, newProductCategoryId: string|null, stagedProductId: string|null, quantity: number,
+ *   newProductName: string|null, newProductCategoryId: string|null, newProductDefaultUnitId: string|null,
+ *   newProductDefaultLocationId: string|null, stagedProductId: string|null, quantity: number,
  *   unitId: string|null, locationId: string|null, expiryDate: string|null, price: number|null,
  * }}
  */
@@ -456,6 +463,8 @@ export function buildSaveLineBody(ls) {
     skuId: ls.createNew.value ? null : (ls.draftSkuId.value || null),
     newProductName: ls.createNew.value ? ls.draftNewName.value.trim() : null,
     newProductCategoryId: ls.createNew.value ? (ls.draftNewCategoryId.value || null) : null,
+    newProductDefaultUnitId: ls.createNew.value ? (ls.draftNewDefaultUnitId.value || null) : null,
+    newProductDefaultLocationId: ls.createNew.value ? (ls.draftNewDefaultLocationId.value || null) : null,
     stagedProductId: ls.createNew.value ? (ls.stagedProductId.value || null) : null,
     quantity: parseFloat(ls.draftQty.value),
     unitId: ls.draftUnitId.value || null,

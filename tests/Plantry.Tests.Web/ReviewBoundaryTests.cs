@@ -332,15 +332,16 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
     }
 
     [Fact]
-    public async Task SaveLine_createNew_without_name_or_category_returns_error()
+    public async Task SaveLine_createNew_without_name_or_default_unit_returns_error()
     {
         using var f = new ReviewFragmentFactory();
         var root = await PostSaveLineAsync(f, new
         {
-            lineId = FirstLineId(f), createNew = true, newProductName = (string?)null, newProductCategoryId = (Guid?)null,
+            lineId = FirstLineId(f), createNew = true, newProductName = (string?)null,
+            newProductCategoryId = (Guid?)null, newProductDefaultUnitId = (Guid?)null,
             quantity = 1m, unitId = ReviewSessionFixture.EachUnitId, locationId = ReviewSessionFixture.FridgeLocationId,
         });
-        AssertErrorContains(root, "category");
+        AssertErrorContains(root, "default unit");
     }
 
     [Fact]
@@ -353,6 +354,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             lineId = FirstLineId(f), createNew = true,
             productId = (Guid?)null, skuId = (Guid?)null,
             newProductName = "Brand New Item", newProductCategoryId = ReviewSessionFixture.DairyCategoryId,
+            newProductDefaultUnitId = ReviewSessionFixture.EachUnitId,
             quantity = 1m, unitId = ReviewSessionFixture.EachUnitId, locationId = ReviewSessionFixture.FridgeLocationId,
             expiryDate = (string?)null, price = (decimal?)null,
         });
@@ -379,6 +381,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             skuId = (Guid?)null,
             newProductName = "Oat Milk",
             newProductCategoryId = ReviewSessionFixture.DairyCategoryId,
+            newProductDefaultUnitId = ReviewSessionFixture.LitreUnitId,
             stagedProductId = (Guid?)null,
             quantity = 1m,
             unitId = ReviewSessionFixture.LitreUnitId,
@@ -404,6 +407,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             skuId = (Guid?)null,
             newProductName = "Oat Milk",
             newProductCategoryId = ReviewSessionFixture.DairyCategoryId,
+            newProductDefaultUnitId = ReviewSessionFixture.LitreUnitId,
             stagedProductId = stagedId,
             quantity = 2m,
             unitId = ReviewSessionFixture.LitreUnitId,
@@ -412,7 +416,8 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             price = 7.98m,
         });
 
-        Assert.Equal("Confirmed", secondResponse.GetProperty("status").GetString());
+        Assert.True(secondResponse.TryGetProperty("status", out var secondStatus), JsonSerializer.Serialize(secondResponse));
+        Assert.Equal("Confirmed", secondStatus.GetString());
         Assert.Equal(stagedId, secondResponse.GetProperty("stagedProductId").GetGuid());
         Assert.Equal(stagedId, second.StagedProductId);
         Assert.Single(f.SessionA.StagedProducts);
@@ -434,6 +439,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             skuId = (Guid?)null,
             newProductName = "Oat Milk",
             newProductCategoryId = ReviewSessionFixture.DairyCategoryId,
+            newProductDefaultUnitId = ReviewSessionFixture.LitreUnitId,
             stagedProductId = (Guid?)null,
             quantity = 1m,
             unitId = ReviewSessionFixture.LitreUnitId,
@@ -451,6 +457,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
             skuId = (Guid?)null,
             newProductName = " oat   milk ",
             newProductCategoryId = ReviewSessionFixture.MilkProductId,
+            newProductDefaultUnitId = ReviewSessionFixture.LitreUnitId,
             stagedProductId = (Guid?)null,
             quantity = 2m,
             unitId = ReviewSessionFixture.LitreUnitId,

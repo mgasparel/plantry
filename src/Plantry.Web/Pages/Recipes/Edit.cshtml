@@ -129,6 +129,7 @@
             newGroupId = l.NewGroupId ?? "",
             newGroupName = l.NewGroupName ?? "",
             newStapleCategoryId = l.NewStapleCategoryId?.ToString() ?? "",
+            newStapleDefaultLocationId = l.NewStapleDefaultLocationId?.ToString() ?? "",
             needsConversion = l.NeedsConversion,
             conversionFactor = l.ConversionFactor?.ToString() ?? "",
             conversionFromUnitId = l.ConversionFromUnitId.ToString(),
@@ -379,7 +380,7 @@
                  // create view, so the newStapleUnit→unitId mirror stands down and never overwrites it.
                  recipeUnitPinned: false,
                  newIsTracked: false,
-                 newStapleCategoryId: '', newGroupId: '', newGroupName: '',
+                 newStapleCategoryId: '', newStapleDefaultLocationId: '', newGroupId: '', newGroupName: '',
                  needsConversion: false, conversionFactor: '', conversionFromUnitId: '', conversionToUnitId: '',
                  convLeftAmount: '', convLeftUnitId: '', convRightAmount: '', convRightUnitId: '',
                  convFor: '', stockUnits: [], recipeUnits: [],
@@ -1160,6 +1161,7 @@
                             <input type="hidden" :name="'Input.Lines[' + idx + '].NewGroupId'" :value="row.newGroupId ?? ''" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].NewGroupName'" :value="row.newGroupName ?? ''" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleCategoryId'" :value="row.newStapleCategoryId ?? ''" />
+                            <input type="hidden" :name="'Input.Lines[' + idx + '].NewStapleDefaultLocationId'" :value="row.newStapleDefaultLocationId ?? ''" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty" />
                             <input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId" />
                             @* IsUntracked round-trips the real per-line tracked state so a failed-save
@@ -1461,6 +1463,7 @@
                      SearchUrl           = Url.Page("./Edit", "SearchProducts")!,
                      UnitOptions         = Model.UnitOptions,
                      CategoryOptions     = Model.CategoryOptions,
+                     LocationOptions     = Model.LocationOptions,
                      GroupOptions        = Model.GroupOptions,
                      TrackStock          = true,
                      ExtraFieldsPartial  = "Shared/_IngredientConversionPrompt",
