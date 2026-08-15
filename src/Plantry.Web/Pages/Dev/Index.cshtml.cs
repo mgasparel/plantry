@@ -87,6 +87,10 @@ public sealed class IndexModel : PageModel
     public IReadOnlyList<SelectListItem> GroceryOptions { get; } =
         GroceryItems.Select(g => new SelectListItem(g, g)).ToList();
 
+    /// <summary>Active household locations shown by the shared product-create sheet demo.</summary>
+    public IReadOnlyList<SelectListItem> LocationOptions { get; } =
+        new[] { new SelectListItem("Pantry", "pantry"), new SelectListItem("Fridge", "fridge") };
+
     public RowListViewModel PopulatedList { get; } = new(
         [
             new RowListItem("Whole milk", Href: "#", Secondary: "Dairy · default unit L"),

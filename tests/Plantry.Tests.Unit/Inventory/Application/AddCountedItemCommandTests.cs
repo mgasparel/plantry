@@ -37,7 +37,7 @@ public sealed class AddCountedItemCommandTests
         public Guid? LastLocationId { get; private set; }
 
         public Task<Guid> CreateTrackedProductAsync(
-            string name, Guid defaultUnitId, Guid? categoryId, Guid defaultLocationId, CancellationToken ct = default)
+            string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId, CancellationToken ct = default)
         {
             CreateCalls++;
             LastName = name;
@@ -141,7 +141,7 @@ public sealed class AddCountedItemCommandTests
         // Writer was called with the right name + location.
         Assert.Equal(1, writer.CreateCalls);
         Assert.Equal("Oat Milk", writer.LastName);
-        Assert.Equal(_locationId, writer.LastLocationId);
+        Assert.Null(writer.LastLocationId);
 
         // Stock root was created with a Correction lot for 5m.
         var stock = stocks.Items.SingleOrDefault(s => s.ProductId == newProductId);

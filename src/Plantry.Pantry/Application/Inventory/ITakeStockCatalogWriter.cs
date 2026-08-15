@@ -31,7 +31,7 @@ public interface ITakeStockCatalogWriter
         string name,
         Guid defaultUnitId,
         Guid? categoryId,
-        Guid defaultLocationId,
+        Guid? defaultLocationId,
         CancellationToken ct = default);
 
     /// <summary>

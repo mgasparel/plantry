@@ -33,7 +33,7 @@ public sealed class TakeStockCatalogWriterAdapter(
         string name,
         Guid defaultUnitId,
         Guid? categoryId,
-        Guid defaultLocationId,
+        Guid? defaultLocationId,
         CancellationToken ct = default)
     {
         var command = new CreateProductCommand(
