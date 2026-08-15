@@ -172,10 +172,8 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
 
             // The product default and the committed lot location are separate contracts.  Verify both
             // persisted values independently after the receipt commit (Fridge vs Pantry above).
-            var fridgeLocationId = await FindLocationIdAsync("Fridge");
-            var pantryLocationId = await FindLocationIdAsync("Pantry");
-            Assert.Equal(fridgeLocationId, await FindProductDefaultLocationIdAsync(newProductId));
-            Assert.Equal(pantryLocationId, await FindIntakeLotLocationIdAsync(newProductId));
+            Assert.Equal("Fridge", await FindProductDefaultLocationNameAsync(newProductId));
+            Assert.Equal("Pantry", await FindIntakeLotLocationNameAsync(newProductId));
         }
         finally
         {
@@ -386,6 +384,26 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
         command.Parameters.AddWithValue("@name", locationName);
         var value = await command.ExecuteScalarAsync();
         return value is Guid id ? id : Guid.Empty;
+    }
+
+    private async Task<string?> FindProductDefaultLocationNameAsync(Guid productId)
+    {
+        await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
+        await conn.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT l.name FROM catalog.products p JOIN catalog.locations l ON l.id = p.default_location_id AND l.household_id = p.household_id WHERE p.id = @productId", conn);
+        command.Parameters.AddWithValue("@productId", productId);
+        return (string?)await command.ExecuteScalarAsync();
+    }
+
+    private async Task<string?> FindIntakeLotLocationNameAsync(Guid productId)
+    {
+        await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
+        await conn.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT l.name FROM inventory.stock_entry e JOIN catalog.locations l ON l.id = e.location_id AND l.household_id = e.household_id WHERE e.product_id = @productId AND e.quantity > 0 ORDER BY e.created_at DESC LIMIT 1", conn);
+        command.Parameters.AddWithValue("@productId", productId);
+        return (string?)await command.ExecuteScalarAsync();
     }
 
     private async Task<Guid?> FindProductDefaultLocationIdAsync(Guid productId)
