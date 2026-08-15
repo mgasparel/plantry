@@ -4,8 +4,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
+using Plantry.SharedKernel;
 using Plantry.Recipes.Domain;
+using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 
 namespace Plantry.Tests.Web.Infrastructure;
@@ -27,7 +30,18 @@ namespace Plantry.Tests.Web.Infrastructure;
 /// </summary>
 public sealed class RecipeEditorFragmentFactory : WebApplicationFactory<Program>
 {
+    public FakeLocationRepository Locations { get; } = CreateLocations();
+
     public Recipe EmptyRecipe           { get; } = RecipeEditorFixture.BuildEmpty();
+
+    private static FakeLocationRepository CreateLocations()
+    {
+        var locations = new FakeLocationRepository();
+        var household = HouseholdId.From(RecipeEditorFixture.HouseholdAId);
+        locations.Seed(Location.Create(household, "Fridge", LocationType.Ambient));
+        locations.Seed(Location.Create(household, "Pantry", LocationType.Ambient));
+        return locations;
+    }
     public Recipe RichRecipe            { get; } = RecipeEditorFixture.BuildRich();
     public Recipe RichArchivedTagRecipe { get; } = RecipeEditorFixture.BuildRichWithArchivedTag();
     public Recipe NonCanonicalRecipe    { get; } = RecipeEditorFixture.BuildNonCanonical();
@@ -93,6 +107,9 @@ public sealed class RecipeEditorFragmentFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeUnitConverter());
+
+            services.RemoveAll<ILocationRepository>();
+            services.AddSingleton<ILocationRepository>(Locations);
         });
     }
 }
@@ -162,6 +179,16 @@ public sealed class RecipeEditorPostFactory : WebApplicationFactory<Program>
     /// the server-computed (productId, from = left unit, to = right unit, factor = right/left) triple.
     /// </summary>
     internal FakeCatalogWriter CatalogWriter { get; } = new();
+    internal FakeLocationRepository Locations { get; } = CreateLocations();
+
+    private static FakeLocationRepository CreateLocations()
+    {
+        var locations = new FakeLocationRepository();
+        var household = HouseholdId.From(RecipeEditorFixture.HouseholdAId);
+        locations.Seed(Location.Create(household, "Fridge", LocationType.Ambient));
+        locations.Seed(Location.Create(household, "Pantry", LocationType.Ambient));
+        return locations;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -201,6 +228,9 @@ public sealed class RecipeEditorPostFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeUnitConverter());
+
+            services.RemoveAll<ILocationRepository>();
+            services.AddSingleton<ILocationRepository>(Locations);
         });
     }
 }
@@ -218,6 +248,9 @@ internal sealed class FakeCatalogWriter : ICatalogWriter
 {
     public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId, decimal Factor)> ConversionsAdded { get; } = [];
     public List<(string Name, Guid DefaultUnitId, Guid? CategoryId, bool IsProduced)> TrackedProductsCreated { get; } = [];
+    public List<(Guid ParentGroupId, string VariantName)> VariantsCreated { get; } = [];
+    public List<(string GroupName, string VariantName)> GroupedProductsCreated { get; } = [];
+    public List<Guid?> DefaultLocations { get; } = [];
 
     public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
@@ -225,15 +258,24 @@ internal sealed class FakeCatalogWriter : ICatalogWriter
     public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, bool isProduced = false, CancellationToken ct = default)
     {
         var id = Guid.NewGuid();
+        DefaultLocations.Add(defaultLocationId);
         TrackedProductsCreated.Add((name, defaultUnitId, categoryId, isProduced));
         return Task.FromResult(id);
     }
 
-    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride = null, CancellationToken ct = default) =>
-        Task.FromResult(Guid.NewGuid());
+    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride = null, CancellationToken ct = default)
+    {
+        VariantsCreated.Add((parentGroupId, variantName));
+        DefaultLocations.Add(locationOverride);
+        return Task.FromResult(Guid.NewGuid());
+    }
 
-    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, CancellationToken ct = default) =>
-        Task.FromResult(Guid.NewGuid());
+    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, CancellationToken ct = default)
+    {
+        GroupedProductsCreated.Add((groupName, variantName));
+        DefaultLocations.Add(defaultLocationId);
+        return Task.FromResult(Guid.NewGuid());
+    }
 
     public Task AddConversionAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default)
     {

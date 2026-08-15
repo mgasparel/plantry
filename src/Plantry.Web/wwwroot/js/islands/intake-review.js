@@ -65,6 +65,7 @@ import {
   filterStores,
   buildCorrectHeaderBody,
   priceDeltaChipModel,
+  prefillStagedLotLocation,
 } from "./intake-review-logic.js?v=10";
 
 // ── Type documentation ───────────────────────────────────────────────────────
@@ -1258,7 +1259,10 @@ export function mountIntakeReview(root, hydration) {
       ls.draftNewCategoryId.value = staged.categoryId ?? "";
       ls.draftNewDefaultUnitId.value = staged.defaultUnitId;
       ls.draftNewDefaultLocationId.value = staged.defaultLocationId ?? "";
-      if (staged.defaultLocationId) ls.draftLocationId.value = staged.defaultLocationId;
+      ls.draftLocationId.value = prefillStagedLotLocation(
+        ls.draftLocationId.value,
+        staged.defaultLocationId);
+
       ls.draftSkuId.value = "";
       ls.createNew.value = true;
       ls.searchOpen.value = false;

@@ -31,6 +31,7 @@ import {
   filterStores,
   buildCorrectHeaderBody,
   priceDeltaChipModel,
+  prefillStagedLotLocation,
   // reused deck primitives (deal-deck-logic.js) — covered here for intake's use of them
   buildDeckOrder,
   applySkip,
@@ -103,6 +104,19 @@ function makeState(lineOverrides = {}, prefillOverrides = {}) {
     sig,
   );
 }
+
+// ── staged alias location prefill ─────────────────────────────────────────────
+
+describe("prefillStagedLotLocation", () => {
+  it("preserves an independently selected lot location", () => {
+    assert.equal(prefillStagedLotLocation("loc-pantry", "loc-fridge"), "loc-pantry");
+  });
+
+  it("prefills an empty lot location from the staged product default", () => {
+    assert.equal(prefillStagedLotLocation("", "loc-fridge"), "loc-fridge");
+    assert.equal(prefillStagedLotLocation(null, "loc-fridge"), "loc-fridge");
+  });
+});
 
 // ── buildSaveLineBody ─────────────────────────────────────────────────────────
 

@@ -42,6 +42,7 @@ public sealed class EditModel(
     IClock clock,
     AuthorRecipe authorRecipe,
     IUnitConverter unitConverter,
+    ILocationRepository locations,
     SuggestRecipeTags suggestRecipeTags,
     DietTagNudgeService dietTagNudge,
     RecipeExpansionService recipeExpansion,
@@ -872,6 +873,11 @@ public sealed class EditModel(
         var categoryOptions = await products.ListCategoriesAsync(ct);
         CategoryOptions = categoryOptions
             .Select(c => new SelectListItem(c.Name, c.Id.ToString()))
+            .ToList();
+
+        LocationOptions = (await locations.ListActiveAsync(ct))
+            .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new SelectListItem(l.Name, l.Id.Value.ToString()))
             .ToList();
     }
 
