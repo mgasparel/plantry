@@ -125,13 +125,12 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
             var existing = _stagedProducts.SingleOrDefault(p => p.Id == requestedId);
             if (existing is null)
                 return Error.NotFound;
-            // The alias's default unit is a Catalog decision made by the first line. Reusing the alias
-            // does not force later purchase lines to use that unit (a purchase can legitimately be in a
-            // different unit); only the name/category identity fields must match.
-            if (!existing.MatchesIdentity(name, categoryId, defaultLocationId))
+            // The alias's product defaults are immutable after the first line creates it. The purchase
+            // line unit may differ, but the submitted product default unit must match the staged identity.
+            if (!existing.MatchesIdentity(name, categoryId, defaultUnitId, defaultLocationId))
                 return Error.Custom(
                     "Intake.StagedProductMismatch",
-                    "The selected staged product no longer matches the supplied name or category.");
+                    "The selected staged product no longer matches the supplied product identity or defaults.");
             return existing;
         }
 

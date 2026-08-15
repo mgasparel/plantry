@@ -79,8 +79,9 @@ public sealed class StagedProduct
         DefaultLocationId == defaultLocationId;
 
     /// <summary>Identity check used when reusing an alias for a purchase line.</summary>
-    public bool MatchesIdentity(string name, Guid? categoryId, Guid? defaultLocationId) =>
+    public bool MatchesIdentity(string name, Guid? categoryId, Guid defaultUnitId, Guid? defaultLocationId) =>
         HasSameNormalizedName(name) &&
         CategoryId == categoryId &&
+        DefaultUnitId == defaultUnitId &&
         DefaultLocationId == defaultLocationId;
 }

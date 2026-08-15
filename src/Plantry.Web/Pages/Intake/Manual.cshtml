@@ -187,6 +187,12 @@
                     this.$watch('draft.unitId', v => { if (this.sheetView === 'create' && v) this.draft.newStapleUnit = v; });
                     this.$watch('draft.newStapleUnit', v => { if (this.sheetView === 'create' && v && !this.draft.unitId) this.draft.unitId = v; });
                     this.$watch('sheetView', v => { if (v === 'create' && this.draft.unitId && !this.draft.newStapleUnit) this.draft.newStapleUnit = this.draft.unitId; });
+                    // Product default location is a one-way convenience prefill for the host lot. Clearing
+                    // the default leaves an already chosen lot location intact, and later lot edits never
+                    // write back into the product default field.
+                    this.$watch('draft.newStapleDefaultLocationId', v => {
+                        if (v) this.draft.locationId = v;
+                    });
                 },
 
                 // ── Store picker ─────────────────────────────────────────────────
