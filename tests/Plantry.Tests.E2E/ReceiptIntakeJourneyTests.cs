@@ -124,6 +124,9 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             await deckCard.Locator("[name='Edit.NewProductName']").FillAsync(newProductName);
             await deckCard.Locator("[name='Edit.NewProductDefaultUnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
             await deckCard.Locator("[name='Edit.NewProductCategoryId']").SelectOptionAsync(new SelectOptionValue { Index = 1 });
+            // Keep the catalog default independent from the lot destination: the product belongs in the
+            // fridge by default, while this receipt's purchased lot is explicitly placed in the pantry.
+            await deckCard.Locator("[name='Edit.NewProductDefaultLocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Fridge" });
             await deckCard.Locator("[name='Edit.Quantity']").FillAsync("1");
             await deckCard.Locator("[name='Edit.UnitId']").SelectOptionAsync(new SelectOptionValue { Label = "ea — each" });
             await deckCard.Locator("[name='Edit.LocationId']").SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
@@ -166,6 +169,13 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             Assert.Equal(1, newJournalCount);
             Assert.Equal(1, await CountPriceObservationsForProductAsync(FakeReceiptParser.FixedMerchant, matchedProductId));
             Assert.Equal(1, await CountPriceObservationsForProductAsync(FakeReceiptParser.FixedMerchant, newProductId));
+
+            // The product default and the committed lot location are separate contracts.  Verify both
+            // persisted values independently after the receipt commit (Fridge vs Pantry above).
+            var fridgeLocationId = await FindLocationIdAsync("Fridge");
+            var pantryLocationId = await FindLocationIdAsync("Pantry");
+            Assert.Equal(fridgeLocationId, await FindProductDefaultLocationIdAsync(newProductId));
+            Assert.Equal(pantryLocationId, await FindIntakeLotLocationIdAsync(newProductId));
         }
         finally
         {
@@ -365,6 +375,39 @@ public sealed class ReceiptIntakeJourneyTests(AppHostFixture appHost) : IAsyncLi
             conn);
         journals.Parameters.AddWithValue("@productId", productId);
         return (productId, Convert.ToInt32(await journals.ExecuteScalarAsync()));
+    }
+
+    private async Task<Guid> FindLocationIdAsync(string locationName)
+    {
+        await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
+        await conn.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT id FROM catalog.locations WHERE name = @name", conn);
+        command.Parameters.AddWithValue("@name", locationName);
+        var value = await command.ExecuteScalarAsync();
+        return value is Guid id ? id : Guid.Empty;
+    }
+
+    private async Task<Guid?> FindProductDefaultLocationIdAsync(Guid productId)
+    {
+        await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
+        await conn.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT default_location_id FROM catalog.products WHERE id = @productId", conn);
+        command.Parameters.AddWithValue("@productId", productId);
+        var value = await command.ExecuteScalarAsync();
+        return value is Guid id ? id : null;
+    }
+
+    private async Task<Guid> FindIntakeLotLocationIdAsync(Guid productId)
+    {
+        await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
+        await conn.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT location_id FROM inventory.stock_entry WHERE product_id = @productId AND quantity > 0 ORDER BY created_at DESC LIMIT 1", conn);
+        command.Parameters.AddWithValue("@productId", productId);
+        var value = await command.ExecuteScalarAsync();
+        return value is Guid id ? id : Guid.Empty;
     }
 
     private async Task<int> CountCatalogProductsAsync(string productName)

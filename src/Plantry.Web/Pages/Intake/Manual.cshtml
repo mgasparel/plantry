@@ -284,8 +284,8 @@
                         // reconcile whichever of the two fields the user actually touched.
                         if (draft.newStapleUnit && !draft.unitId) draft.unitId = draft.newStapleUnit;
                         else if (draft.unitId && !draft.newStapleUnit) draft.newStapleUnit = draft.unitId;
-                        // Category and default location are optional product defaults.
-                        if (draft.newStapleDefaultLocationId) draft.locationId = draft.newStapleDefaultLocationId;
+                        // Category and default location are optional product defaults.  The product default
+                        // is persisted separately; never replace the host lot location with it.
                     } else if (!draft.productId) {
                         this.sheetError = 'Pick a product, or create a new one.';
                         return;

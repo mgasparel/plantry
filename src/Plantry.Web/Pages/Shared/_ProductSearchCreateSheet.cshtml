@@ -480,14 +480,16 @@
 
             @*
                 ── Defaults collapsible (plantry-y53t) ──────────────────────────────────────────────
-                A <details> disclosure wrapping the two optional-to-see fields: Unit (required by
-                CreateProductCommand) and Category (optional).  Collapsed by default so the create
-                form stays compact; the user can expand when they want to change the defaults.
+                A <details> disclosure wrapping the three product-default fields: required Default unit,
+                optional Category, and optional Default location.  Collapsed by default so the create form
+                stays compact; the user can expand when they want to change the defaults.
 
-                Unit is bound to draft.newStapleUnit — the existing wire used by Recipes' hidden-input
+                Default unit is bound to draft.newStapleUnit — the existing wire used by Recipes' hidden-input
                 post (Input.Lines[n].NewStapleDefaultUnitId) and the TakeStock saveSheet() fallback.
-                Category is bound to draft.newStapleCategoryId — a new optional draft field.
-                Both are bound with x-model inside the Alpine x-data of the host, so no inner x-data
+                Category is bound to draft.newStapleCategoryId — a new optional draft field.  Default location
+                is bound to draft.newStapleDefaultLocationId and is independent of any host lot/count location;
+                the host save contract forwards it separately when the product is created.
+                All three are bound with x-model inside the Alpine x-data of the host, so no inner x-data
                 scope is needed here.
             *@
             @*

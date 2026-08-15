@@ -1,4 +1,5 @@
 using Microsoft.Playwright;
+using Npgsql;
 using Plantry.Tests.E2E.Infrastructure;
 using Xunit;
 
@@ -188,8 +189,9 @@ public sealed class ManualIntakeJourneyTests(AppHostFixture appHost) : IAsyncLif
             await nameInput.FillAsync(newProductName);
             await sheet.Locator("#create-product-qty").FillAsync("1");
             await sheet.Locator("#create-product-category").SelectOptionAsync(new SelectOptionValue { Label = "Dairy & Eggs" });
-            // Location carried over from the earlier pick — part of the entry-path contract.
-            await Assertions.Expect(lineLocation).ToHaveValueAsync(locationId);
+            // Keep the product default independent from this purchase's lot destination.
+            await sheet.Locator("#create-product-location").SelectOptionAsync(new SelectOptionValue { Label = "Fridge" });
+            await lineLocation.SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
 
             await createButton.ClickAsync();
             await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
@@ -202,6 +204,25 @@ public sealed class ManualIntakeJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             await Assertions.Expect(page.GetByText(milkName).First).ToBeVisibleAsync();
             await Assertions.Expect(page.GetByText(newProductName).First).ToBeVisibleAsync();
+
+            await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
+            await conn.OpenAsync();
+            await using var productCommand = new NpgsqlCommand(
+                "SELECT p.id, default_location.name FROM catalog.products p LEFT JOIN catalog.locations default_location ON default_location.id = p.default_location_id AND default_location.household_id = p.household_id WHERE p.name = @name", conn);
+            productCommand.Parameters.AddWithValue("@name", newProductName);
+            await using var productReader = await productCommand.ExecuteReaderAsync();
+            Assert.True(await productReader.ReadAsync());
+            var newProductId = productReader.GetGuid(0);
+            var defaultLocationName = productReader.IsDBNull(1) ? null : productReader.GetString(1);
+            await productReader.DisposeAsync();
+
+            await using var lotCommand = new NpgsqlCommand(
+                "SELECT l.name FROM inventory.stock_entry e JOIN catalog.locations l ON l.id = e.location_id AND l.household_id = e.household_id WHERE e.product_id = @productId AND e.quantity > 0 ORDER BY e.created_at DESC LIMIT 1", conn);
+            lotCommand.Parameters.AddWithValue("@productId", newProductId);
+            var lotLocationName = (string)(await lotCommand.ExecuteScalarAsync())!;
+
+            Assert.Equal("Fridge", defaultLocationName);
+            Assert.Equal("Pantry", lotLocationName);
         }
         finally
         {
