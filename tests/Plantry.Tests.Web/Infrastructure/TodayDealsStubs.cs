@@ -90,9 +90,19 @@ internal static class TodayDealsStubs
 public sealed class FakeDealBrowseRepo : IDealRepository
 {
     public List<Deal> Items { get; } = [];
+    public HashSet<Guid> ThrowOnFindIds { get; } = [];
+    public HashSet<Guid> CancelOnFindIds { get; } = [];
 
-    public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default) =>
-        Task.FromResult(Items.SingleOrDefault(d => d.Id == id));
+    public Task<Deal?> FindAsync(DealId id, CancellationToken ct = default)
+    {
+        if (CancelOnFindIds.Contains(id.Value))
+            throw new OperationCanceledException("Injected FindAsync cancellation.");
+
+        if (ThrowOnFindIds.Contains(id.Value))
+            throw new InvalidOperationException($"Injected FindAsync failure for {id.Value}.");
+
+        return Task.FromResult(Items.SingleOrDefault(d => d.Id == id));
+    }
 
     public Task<List<Deal>> ListBrowsableAsync(CancellationToken ct = default) =>
         Task.FromResult(Items.Where(d => d.Status is DealStatus.Pending or DealStatus.Confirmed).ToList());

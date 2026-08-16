@@ -649,6 +649,24 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Equal(1, factory.Observations.Calls);          // supersede observation written
     }
 
+    [Fact(DisplayName = "Correct stale dealId does not inline-create a catalog product")]
+    public async Task Correct_Stale_Target_Does_Not_Create_Product()
+    {
+        factory.Reset();
+        var staleId = Guid.NewGuid();
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, "/Deals/Review?handler=Correct",
+            Kv("__RequestVerificationToken", token),
+            Kv("dealId", staleId.ToString()),
+            Kv("newProductName", "Should Not Exist"),
+            Kv("newProductUnitId", factory.UnitId.ToString()));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Empty(factory.Products.Items);
+    }
+
     [Fact(DisplayName = "Correct via inline-create → mints a catalog product, then confirms the deal against it")]
     public async Task Correct_Inline_Create_Then_Confirm()
     {
@@ -670,6 +688,27 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         // … and the deal was confirmed against the newly-created product.
         Assert.Equal(DealStatus.Confirmed, deal.Status);
         Assert.Equal(created.Id.Value, deal.ProductId);
+        Assert.Equal(1, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "Correcting a confirmed duplicate target rejects pending siblings and writes one observation")]
+    public async Task Correct_Confirmed_Target_Cleans_Pending_Siblings()
+    {
+        factory.Reset();
+        var target = factory.SeedAutoConfirmed("Confirmed Duplicate", factory.BreadProduct);
+        var sibling = factory.SeedPending("Confirmed Duplicate", MatchConfidence.Low, factory.BreadProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, "/Deals/Review?handler=Correct",
+            Kv("__RequestVerificationToken", token),
+            Kv("dealId", target.Id.Value.ToString()),
+            Kv("productId", factory.MilkProduct.ToString()));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, target.Status);
+        Assert.Equal(factory.MilkProduct, target.ProductId);
+        Assert.Equal(DealStatus.Rejected, sibling.Status);
         Assert.Equal(1, factory.Observations.Calls);
     }
 
@@ -840,6 +879,430 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Equal(DealStatus.Pending, y.Status);            // Y's High was NOT bulk-confirmed
         Assert.Equal(1, factory.Observations.Calls);           // no additional writes
         Assert.False(replay.Headers.Contains("HX-Trigger"));   // nothing confirmed → no toast
+    }
+
+    [Fact(DisplayName = "DismissAll rejects every pending duplicate crop and the group does not resurface")]
+    public async Task DismissAll_Rejects_Duplicate_Siblings_And_Does_Not_Resurface()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Duplicate None", MatchConfidence.None, suggested: null);
+        var sibling = factory.SeedPending("Duplicate None", MatchConfidence.None, suggested: null);
+        var third = factory.SeedPending("Duplicate None", MatchConfidence.None, suggested: null);
+        var key = FlyerKeyOf(representative);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=DismissAll&flyer={key}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.All(new[] { representative, sibling, third }, d => Assert.Equal(DealStatus.Rejected, d.Status));
+        Assert.Equal(0, factory.Observations.Calls);
+        var secondRender = await (await client.GetAsync("/Deals/Review?step=3")).Content.ReadAsStringAsync();
+        Assert.DoesNotContain("Duplicate None", secondRender);
+    }
+
+    [Fact(DisplayName = "DismissAll dealIds scope resolves only requested representatives, not hidden siblings")]
+    public async Task DismissAll_Scopes_Visible_Representatives_With_Duplicate_Siblings()
+    {
+        factory.Reset();
+        var requested = factory.SeedPending("Requested None", MatchConfidence.None, suggested: null);
+        var requestedSibling = factory.SeedPending("Requested None", MatchConfidence.None, suggested: null);
+        var untouched = factory.SeedPending("Untouched None", MatchConfidence.None, suggested: null);
+        var untouchedSibling = factory.SeedPending("Untouched None", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=DismissAll&flyer={FlyerKeyOf(requested)}",
+            Kv("__RequestVerificationToken", token), Kv("dealIds", requested.Id.Value.ToString()));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Rejected, requested.Status);
+        Assert.Equal(DealStatus.Rejected, requestedSibling.Status);
+        Assert.Equal(DealStatus.Pending, untouched.Status);
+        Assert.Equal(DealStatus.Pending, untouchedSibling.Status);
+    }
+
+    [Fact(DisplayName = "ConfirmAll confirms one duplicate representative, rejects siblings, and writes one observation")]
+    public async Task ConfirmAll_Confirms_Representative_And_Rejects_Duplicate_Siblings()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Duplicate High", MatchConfidence.High, factory.MilkProduct);
+        var sibling = factory.SeedPending("Duplicate High", MatchConfidence.High, factory.MilkProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(representative)}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, representative.Status);
+        Assert.Equal(DealStatus.Rejected, sibling.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+        Assert.DoesNotContain("Duplicate High", await (await client.GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+    }
+
+    [Fact(DisplayName = "Single Confirm rejects duplicate siblings without a second observation")]
+    public async Task Confirm_Rejects_Duplicate_Siblings()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Single Confirm Duplicate", MatchConfidence.High, factory.MilkProduct);
+        var sibling = factory.SeedPending("Single Confirm Duplicate", MatchConfidence.High, factory.MilkProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={representative.Id.Value}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, representative.Status);
+        Assert.Equal(DealStatus.Rejected, sibling.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "Single Correct reached through posted dealId rejects duplicate siblings")]
+    public async Task Correct_Rejects_Duplicate_Siblings()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Single Correct Duplicate", MatchConfidence.Low, factory.BreadProduct);
+        var sibling = factory.SeedPending("Single Correct Duplicate", MatchConfidence.Low, factory.BreadProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, "/Deals/Review?handler=Correct",
+            Kv("__RequestVerificationToken", token), Kv("dealId", representative.Id.Value.ToString()),
+            Kv("productId", factory.MilkProduct.ToString()));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, representative.Status);
+        Assert.Equal(factory.MilkProduct, representative.ProductId);
+        Assert.Equal(DealStatus.Rejected, sibling.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "Single Reject reached through dealId rejects duplicate siblings and writes no observation")]
+    public async Task Reject_Rejects_Duplicate_Siblings()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Single Reject Duplicate", MatchConfidence.None, suggested: null);
+        var sibling = factory.SeedPending("Single Reject Duplicate", MatchConfidence.None, suggested: null);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=Reject&dealId={representative.Id.Value}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Rejected, representative.Status);
+        Assert.Equal(DealStatus.Rejected, sibling.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "A failed primary Confirm leaves duplicate siblings pending")]
+    public async Task Confirm_Failure_Leaves_Duplicate_Siblings_Pending()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Failed Confirm Duplicate", MatchConfidence.High, factory.MilkProduct);
+        var sibling = factory.SeedPending("Failed Confirm Duplicate", MatchConfidence.High, factory.MilkProduct);
+        factory.ProductReader.MissingProducts.Add(factory.MilkProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={representative.Id.Value}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Pending, representative.Status);
+        Assert.Equal(DealStatus.Pending, sibling.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "Reposting bulk duplicate cleanup is an idempotent no-op")]
+    public async Task Duplicate_Bulk_Cleanup_Is_Idempotent()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Idempotent Duplicate", MatchConfidence.High, factory.MilkProduct);
+        var sibling = factory.SeedPending("Idempotent Duplicate", MatchConfidence.High, factory.MilkProduct);
+        var key = FlyerKeyOf(representative);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var first = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={key}",
+            Kv("__RequestVerificationToken", token));
+        first.EnsureSuccessStatusCode();
+        var second = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={key}",
+            Kv("__RequestVerificationToken", token));
+        second.EnsureSuccessStatusCode();
+
+        Assert.Equal(DealStatus.Confirmed, representative.Status);
+        Assert.Equal(DealStatus.Rejected, sibling.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+        Assert.False(second.Headers.Contains("HX-Trigger"));
+    }
+
+    [Fact(DisplayName = "Hidden sibling direct Confirm resolves the requested crop and rejects the rest")]
+    public async Task Hidden_Sibling_Confirm_Resolves_Group()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Hidden Confirm", MatchConfidence.High, factory.MilkProduct);
+        var hidden = factory.SeedPending("Hidden Confirm", MatchConfidence.High, factory.MilkProduct);
+        var remaining = factory.SeedPending("Hidden Confirm", MatchConfidence.High, factory.MilkProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={hidden.Id.Value}", Kv("__RequestVerificationToken", token));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Rejected, representative.Status);
+        Assert.Equal(DealStatus.Confirmed, hidden.Status);
+        Assert.Equal(DealStatus.Rejected, remaining.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "Hidden sibling direct Correct resolves the requested crop and rejects the rest")]
+    public async Task Hidden_Sibling_Correct_Resolves_Group()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Hidden Correct", MatchConfidence.Low, factory.BreadProduct);
+        var hidden = factory.SeedPending("Hidden Correct", MatchConfidence.Low, factory.BreadProduct);
+        var remaining = factory.SeedPending("Hidden Correct", MatchConfidence.Low, factory.BreadProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, "/Deals/Review?handler=Correct", Kv("__RequestVerificationToken", token), Kv("dealId", hidden.Id.Value.ToString()), Kv("productId", factory.MilkProduct.ToString()));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Rejected, representative.Status);
+        Assert.Equal(DealStatus.Confirmed, hidden.Status);
+        Assert.Equal(DealStatus.Rejected, remaining.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "Hidden sibling direct Reject rejects the requested crop and every other pending member")]
+    public async Task Hidden_Sibling_Reject_Resolves_Group()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Hidden Reject", MatchConfidence.None, null);
+        var hidden = factory.SeedPending("Hidden Reject", MatchConfidence.None, null);
+        var remaining = factory.SeedPending("Hidden Reject", MatchConfidence.None, null);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, $"/Deals/Review?handler=Reject&dealId={hidden.Id.Value}", Kv("__RequestVerificationToken", token));
+        response.EnsureSuccessStatusCode();
+        Assert.All(new[] { representative, hidden, remaining }, d => Assert.Equal(DealStatus.Rejected, d.Status));
+        Assert.Equal(0, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "GET for a hidden sibling opens the focused correction card")]
+    public async Task Get_Hidden_Sibling_Uses_Direct_Deal_Path()
+    {
+        factory.Reset();
+        factory.SeedPending("GET Hidden", MatchConfidence.High, factory.MilkProduct);
+        var hidden = factory.SeedPending("GET Hidden", MatchConfidence.High, factory.MilkProduct);
+        var html = await (await AuthedClient().GetAsync($"/Deals/Review?dealId={hidden.Id.Value}")).Content.ReadAsStringAsync();
+        Assert.Contains($"data-deal-id=\"{hidden.Id.Value}\"", html);
+        Assert.Contains("GET Hidden", html);
+    }
+
+    [Fact(DisplayName = "ConfirmAll primary exceptions fail one representative and continue with later representatives")]
+    public async Task ConfirmAll_Primary_Exception_Continues_And_Preserves_Counts()
+    {
+        factory.Reset();
+        var failed = factory.SeedPending("Exception A", MatchConfidence.High, factory.MilkProduct);
+        var succeeded = factory.SeedPending("Exception B", MatchConfidence.High, factory.BreadProduct);
+        factory.Repo.ThrowOnFindIds.Add(failed.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(failed)}", Kv("__RequestVerificationToken", token));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Pending, failed.Status);
+        Assert.Equal(DealStatus.Confirmed, succeeded.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+        Assert.Contains("1 failed", string.Join("", response.Headers.GetValues("HX-Trigger")));
+    }
+
+    [Fact(DisplayName = "DismissAll primary exceptions fail one representative and continue with later representatives")]
+    public async Task DismissAll_Primary_Exception_Continues_And_Preserves_Counts()
+    {
+        factory.Reset();
+        var failed = factory.SeedPending("Exception None A", MatchConfidence.None, null);
+        var succeeded = factory.SeedPending("Exception None B", MatchConfidence.None, null);
+        factory.Repo.ThrowOnFindIds.Add(failed.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, $"/Deals/Review?handler=DismissAll&flyer={FlyerKeyOf(failed)}", Kv("__RequestVerificationToken", token));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Pending, failed.Status);
+        Assert.Equal(DealStatus.Rejected, succeeded.Status);
+        Assert.Contains("1 failed", string.Join("", response.Headers.GetValues("HX-Trigger")));
+    }
+
+    [Fact(DisplayName = "A failed primary Correct leaves every duplicate sibling pending")]
+    public async Task Correct_Failure_Leaves_Duplicate_Siblings_Pending()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Failed Correct Duplicate", MatchConfidence.Low, factory.BreadProduct);
+        var sibling = factory.SeedPending("Failed Correct Duplicate", MatchConfidence.Low, factory.BreadProduct);
+        factory.ProductReader.MissingProducts.Add(factory.MilkProduct);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, "/Deals/Review?handler=Correct",
+            Kv("__RequestVerificationToken", token), Kv("dealId", representative.Id.Value.ToString()),
+            Kv("productId", factory.MilkProduct.ToString()));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Pending, representative.Status);
+        Assert.Equal(DealStatus.Pending, sibling.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "ConfirmAll primary cancellation propagates without continuing")]
+    public async Task ConfirmAll_Primary_Cancellation_Propagates()
+    {
+        factory.Reset();
+        var cancelled = factory.SeedPending("Cancelled Confirm", MatchConfidence.High, factory.MilkProduct);
+        var later = factory.SeedPending("Later Confirm", MatchConfidence.High, factory.BreadProduct);
+        factory.Repo.CancelOnFindIds.Add(cancelled.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client,
+            $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(cancelled)}",
+            Kv("__RequestVerificationToken", token));
+
+        Assert.False(response.IsSuccessStatusCode);
+        Assert.Equal(DealStatus.Pending, cancelled.Status);
+        Assert.Equal(DealStatus.Pending, later.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "DismissAll primary cancellation propagates without continuing")]
+    public async Task DismissAll_Primary_Cancellation_Propagates()
+    {
+        factory.Reset();
+        var cancelled = factory.SeedPending("Cancelled Dismiss", MatchConfidence.None, null);
+        var later = factory.SeedPending("Later Dismiss", MatchConfidence.None, null);
+        factory.Repo.CancelOnFindIds.Add(cancelled.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client,
+            $"/Deals/Review?handler=DismissAll&flyer={FlyerKeyOf(cancelled)}",
+            Kv("__RequestVerificationToken", token));
+
+        Assert.False(response.IsSuccessStatusCode);
+        Assert.Equal(DealStatus.Pending, cancelled.Status);
+        Assert.Equal(DealStatus.Pending, later.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+    }
+
+    [Fact(DisplayName = "Duplicate cleanup cancellation propagates after the primary result")]
+    public async Task Duplicate_Cleanup_Cancellation_Propagates()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Cancelled Cleanup", MatchConfidence.High, factory.MilkProduct);
+        var sibling = factory.SeedPending("Cancelled Cleanup", MatchConfidence.High, factory.MilkProduct);
+        factory.Repo.CancelOnFindIds.Add(sibling.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={representative.Id.Value}",
+            Kv("__RequestVerificationToken", token));
+
+        Assert.False(response.IsSuccessStatusCode);
+        Assert.Equal(DealStatus.Confirmed, representative.Status);
+        Assert.Equal(DealStatus.Pending, sibling.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+        Assert.False(response.Headers.Contains("HX-Trigger"));
+    }
+
+    [Fact(DisplayName = "ConfirmAll cleanup failure preserves representative count and toast")]
+    public async Task ConfirmAll_Cleanup_Failure_Preserves_Representative_Toast()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Bulk Cleanup Failure", MatchConfidence.High, factory.MilkProduct);
+        var sibling = factory.SeedPending("Bulk Cleanup Failure", MatchConfidence.High, factory.MilkProduct);
+        factory.Repo.ThrowOnFindIds.Add(sibling.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, $"/Deals/Review?handler=ConfirmAll&flyer={FlyerKeyOf(representative)}",
+            Kv("__RequestVerificationToken", token));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, representative.Status);
+        Assert.Equal(DealStatus.Pending, sibling.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+        Assert.Contains("Confirmed 1", ExtractTrigger(response));
+    }
+
+    [Fact(DisplayName = "DismissAll cleanup failure preserves representative count and toast")]
+    public async Task DismissAll_Cleanup_Failure_Preserves_Representative_Toast()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Bulk Dismiss Cleanup Failure", MatchConfidence.None, null);
+        var sibling = factory.SeedPending("Bulk Dismiss Cleanup Failure", MatchConfidence.None, null);
+        factory.Repo.ThrowOnFindIds.Add(sibling.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, $"/Deals/Review?handler=DismissAll&flyer={FlyerKeyOf(representative)}",
+            Kv("__RequestVerificationToken", token));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Rejected, representative.Status);
+        Assert.Equal(DealStatus.Pending, sibling.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+        Assert.Contains("Dismissed 1", ExtractTrigger(response));
+    }
+
+    [Fact(DisplayName = "Single Correct cleanup failure preserves its success toast and observation")]
+    public async Task Correct_Cleanup_Failure_Preserves_Success_Result()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Correct Cleanup Failure", MatchConfidence.Low, factory.BreadProduct);
+        var sibling = factory.SeedPending("Correct Cleanup Failure", MatchConfidence.Low, factory.BreadProduct);
+        factory.Repo.ThrowOnFindIds.Add(sibling.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, "/Deals/Review?handler=Correct",
+            Kv("__RequestVerificationToken", token), Kv("dealId", representative.Id.Value.ToString()),
+            Kv("productId", factory.MilkProduct.ToString()));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, representative.Status);
+        Assert.Equal(DealStatus.Pending, sibling.Status);
+        Assert.Equal(1, factory.Observations.Calls);
+        Assert.Equal("", ExtractTrigger(response));
+    }
+
+    [Fact(DisplayName = "Single Reject cleanup failure preserves its success response")]
+    public async Task Reject_Cleanup_Failure_Preserves_Success_Result()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Reject Cleanup Failure", MatchConfidence.None, null);
+        var sibling = factory.SeedPending("Reject Cleanup Failure", MatchConfidence.None, null);
+        factory.Repo.ThrowOnFindIds.Add(sibling.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+        var response = await PostAsync(client, $"/Deals/Review?handler=Reject&dealId={representative.Id.Value}",
+            Kv("__RequestVerificationToken", token));
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Rejected, representative.Status);
+        Assert.Equal(DealStatus.Pending, sibling.Status);
+        Assert.Equal(0, factory.Observations.Calls);
+    }
+
+    private static string ExtractTrigger(HttpResponseMessage response) =>
+        response.Headers.TryGetValues("HX-Trigger", out var values) ? string.Join("", values) : "";
+
+    [Fact(DisplayName = "Duplicate cleanup failure does not change the successful primary result")]
+    public async Task Duplicate_Cleanup_Failure_Does_Not_Change_Primary_Result()
+    {
+        factory.Reset();
+        var representative = factory.SeedPending("Cleanup Failure Duplicate", MatchConfidence.High, factory.MilkProduct);
+        var sibling = factory.SeedPending("Cleanup Failure Duplicate", MatchConfidence.High, factory.MilkProduct);
+        factory.Repo.ThrowOnFindIds.Add(sibling.Id.Value);
+        var client = AuthedClient();
+        var token = await TokenAsync(client);
+
+        var response = await PostAsync(client, $"/Deals/Review?handler=Confirm&dealId={representative.Id.Value}",
+            Kv("__RequestVerificationToken", token));
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(DealStatus.Confirmed, representative.Status);
+        Assert.Equal(DealStatus.Pending, sibling.Status);
+        Assert.Equal(1, factory.Observations.Calls);
     }
 
     [Fact(DisplayName = "DismissAll rejects every None deal — noise rows included — writes NO observation, and toasts")]
@@ -1259,6 +1722,8 @@ public class DealReviewFactory : WebApplicationFactory<Program>
         FlyerImports.ParsedRefsCalls.Clear();
         Frequency.Counts.Clear();
         Frequency.Dates.Clear();
+        Repo.ThrowOnFindIds.Clear();
+        Repo.CancelOnFindIds.Clear();
     }
 
     /// <summary>
