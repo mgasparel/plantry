@@ -3,7 +3,7 @@
 > **How** Plantry is deployed and operated in production. The **why** lives in
 > [ADR-016](../ADRs/ADR-016.md) (pipeline) and [ADR-017](../ADRs/ADR-017.md) (migrations);
 > the runtime shape in [ADR-012](../ADRs/ADR-012.md). For third-party self-hosting see
-> [self-hosting.md](self-hosting.md). For the not-yet-built rollout, see
+> [self-hosting.md](self-hosting.md). For the rollout history/context, see
 > [cicd-rollout-plan.md](cicd-rollout-plan.md).
 
 Production is one Linux host running `docker compose`. There is no Kubernetes, no
@@ -36,9 +36,11 @@ local-development tool only.
 
 - A Linux host with Docker Engine + the Compose plugin.
 - DNS A/AAAA record pointing at the host (for Caddy's automatic TLS).
-- An SSH key the CI deploy job can use (stored as a GitHub Actions secret).
-- The host logged in to GHCR if images are private (`docker login ghcr.io`); public
-  images need no login.
+- To let CI run the deploy (release.yml stage 3): the `DEPLOY_ENABLED` repo
+  variable set to `true`, plus the `DEPLOY_*` secrets (SSH key, host, user,
+  domain). Leave `DEPLOY_ENABLED` unset to deploy manually / pull-based.
+- The host logged in to GHCR only if images are private (`docker login ghcr.io`);
+  the public `mgasparel/plantry/*` images need no login.
 
 ## Secrets / configuration
 
@@ -61,29 +63,43 @@ repository secrets / environments — never in the repo.
 
 ## Deploy procedure
 
-What CD does on a merge to `main` (and the exact manual equivalent):
+Production deploys are **release-gated**, not per-merge. Pushing a semver tag
+(`git push origin vX.Y.Z`) runs `release.yml`, which: verifies the full suite,
+builds + pushes the semver image family to GHCR, and — only when the repository
+variable `DEPLOY_ENABLED` is `true` — SSHes to the host and rolls it. With
+`DEPLOY_ENABLED` unset, the SSH deploy is skipped (the model for pull-based
+hosts, which pull the image themselves). `release.yml` is the authoritative
+sequence.
 
 ```bash
-# 1. (CI) build + push image, tagged with the commit SHA
-docker build -t ghcr.io/<org>/plantry-web:<sha> .
-docker push ghcr.io/<org>/plantry-web:<sha>
+# CI (release.yml) on `git push origin vX.Y.Z`:
+#   verify → build + push ghcr.io/mgasparel/plantry/{web,migrator}:X.Y.Z (+ :X.Y :X :latest)
+#   → (if vars.DEPLOY_ENABLED == 'true') the ssh deploy below
+```
 
-# 2. on the host, from the compose directory:
-export PLANTRY_WEB_IMAGE=ghcr.io/<org>/plantry-web:<sha>
-docker compose -f docker-compose.prod.yml pull
+The deploy stage's exact manual equivalent, run from the compose directory on
+the host (`VERSION` is the tag without the leading `v`, e.g. `1.4.0`):
 
-# 3. migrations — explicit, fails loud, blocks the deploy (ADR-017)
+```bash
+export VERSION=1.4.0
+export PLANTRY_WEB_IMAGE=ghcr.io/mgasparel/plantry/web:$VERSION
+export MIGRATOR_IMAGE=ghcr.io/mgasparel/plantry/migrator:$VERSION
+
+# 1. pull the exact released images
+docker compose -f docker-compose.prod.yml pull plantry-web migrator
+
+# 2. migrations — explicit, fails loud, blocks the deploy (ADR-017)
 docker compose -f docker-compose.prod.yml run --rm migrator
 
-# 4. roll the web service to the new image
-docker compose -f docker-compose.prod.yml up -d plantry-web
+# 3. roll the web service (and caddy, so Caddyfile changes take effect)
+docker compose -f docker-compose.prod.yml up -d plantry-web caddy
 
-# 5. smoke checks — /alive (liveness) then /ready (DB connectivity)
+# 4. smoke checks — /alive (liveness) then /ready (DB connectivity)
 curl -fsS https://<host>/alive
 curl -fsS https://<host>/ready
 ```
 
-If step 3 exits non-zero, **stop** — the schema is unchanged and the old web
+If step 2 exits non-zero, **stop** — the schema is unchanged and the old web
 container is still serving. Investigate before proceeding.
 
 ## Health checks
@@ -113,7 +129,8 @@ Caddy begins serving real traffic.
 ## Rollback
 
 Forward-fix is preferred, but to revert the app: re-point `PLANTRY_WEB_IMAGE` at
-the previous SHA tag and `docker compose up -d plantry-web`. **Schema does not roll
+the previous semver tag (e.g. `ghcr.io/mgasparel/plantry/web:1.3.2`) and
+`docker compose up -d plantry-web`. **Schema does not roll
 back** — EF down-migrations are not run in production. If a migration must be
 undone, write a new forward migration that reverses it. This is why backups gate
 any risky migration — take a fresh backup immediately before any deploy that
