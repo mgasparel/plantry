@@ -65,7 +65,6 @@ import {
   filterStores,
   buildCorrectHeaderBody,
   priceDeltaChipModel,
-  prefillStagedLotLocation,
 } from "./intake-review-logic.js?v=10";
 
 // ── Type documentation ───────────────────────────────────────────────────────
