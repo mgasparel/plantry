@@ -127,6 +127,16 @@ import {
  */
 
 /**
+ * The deferred Catalog identity returned by staged-product hydration.
+ * @typedef {Object} StagedProductHydration
+ * @property {string} id
+ * @property {string} name
+ * @property {string|null} categoryId
+ * @property {string} defaultUnitId
+ * @property {string|null} defaultLocationId
+ */
+
+/**
  * @typedef {Object} UnitHydration
  * @property {string} id
  * @property {string} code
@@ -181,7 +191,7 @@ import {
  * @property {string} confirmLinesUrl
  * @property {string} correctHeaderUrl
  * @property {ProductHydration[]} products
- * @property {{id:string, name:string, categoryId:string, defaultUnitId:string}[]|null} stagedProducts
+ * @property {StagedProductHydration[]|null} stagedProducts
  * @property {UnitHydration[]} units
  * @property {LocationHydration[]} locations
  * @property {CategoryHydration[]} categories
@@ -344,7 +354,7 @@ function pickAlternative(ls, k) {
 
 /**
  * @param {{
- *   ls: LineState, products: ProductHydration[], stagedProducts: {id:string,name:string,categoryId:string,defaultUnitId:string}[], units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
+ *   ls: LineState, products: ProductHydration[], stagedProducts: StagedProductHydration[], units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
  *   skuCount: number,
  * }} props
  */
@@ -834,7 +844,7 @@ function HeaderPanel({ header, stores, storeBranch, handlers }) {
  *   order: import("@preact/signals").Signal<string[]>,
  *   skipStack: import("@preact/signals").Signal<string[]>,
  *   baseline: import("@preact/signals").Signal<number>,
- *   products: ProductHydration[], stagedProducts: import("@preact/signals").Signal<{id:string,name:string,categoryId:string,defaultUnitId:string}[]>, units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
+ *   products: ProductHydration[], stagedProducts: import("@preact/signals").Signal<StagedProductHydration[]>, units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
  *   session: SessionHydration,
  *   header: any,
  *   alert: import("@preact/signals").Signal<string>,

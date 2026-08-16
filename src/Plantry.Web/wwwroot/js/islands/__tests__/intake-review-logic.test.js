@@ -200,7 +200,7 @@ describe("buildSaveLineBody", () => {
 });
 
 describe("mergeStagedProductOption", () => {
-  const alias = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L" };
+  const alias = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L", defaultLocationId: "loc-fridge" };
 
   it("appends a newly returned staged option", () => {
     const existing = [{ id: "stage-0", name: "Flour", categoryId: "cat-grain", defaultUnitId: "unit-kg" }];
@@ -227,7 +227,7 @@ describe("mergeStagedProductOption", () => {
 
 describe("same-line staged rematch", () => {
   it("keeps one staged option through create response, reopen, search, and the next SaveLine body", () => {
-    const staged = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L" };
+    const staged = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L", defaultLocationId: "loc-fridge" };
     const ls = makeState(
       { isNewProduct: false, newProductName: null, newProductCategoryId: null },
       { productId: null, productName: null, quantity: 1, unitId: "unit-L", locationId: "loc-fridge" },
@@ -271,6 +271,7 @@ describe("same-line staged rematch", () => {
     assert.equal(body.stagedProductId, staged.id);
     assert.equal(body.newProductName, staged.name);
     assert.equal(body.newProductCategoryId, staged.categoryId);
+    assert.equal(found.defaultLocationId, "loc-fridge");
 
     // Replaying the response is idempotent by staged id, so the picker still has one entry.
     stagedOptions = mergeStagedProductOption(stagedOptions, createResponse.stagedProduct);
