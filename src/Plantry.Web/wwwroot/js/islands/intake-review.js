@@ -1259,9 +1259,9 @@ export function mountIntakeReview(root, hydration) {
       ls.draftNewCategoryId.value = staged.categoryId ?? "";
       ls.draftNewDefaultUnitId.value = staged.defaultUnitId;
       ls.draftNewDefaultLocationId.value = staged.defaultLocationId ?? "";
-      ls.draftLocationId.value = prefillStagedLotLocation(
-        ls.draftLocationId.value,
-        staged.defaultLocationId);
+      // Selecting a staged alias hydrates its immutable product defaults only. The purchased-lot
+      // location is line-local and may be copied from a default only after an explicit user change.
+      // Never overwrite it during alias hydration, even when it is currently empty.
 
       ls.draftSkuId.value = "";
       ls.createNew.value = true;

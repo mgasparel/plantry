@@ -217,17 +217,6 @@ export function makeLine(seed, signalFn) {
  * @param {{id:string,name:string,categoryId:string,defaultUnitId:string}|null|undefined} incoming
  * @returns {{id:string,name:string,categoryId:string,defaultUnitId:string}[]}
  */
-/**
- * Applies a staged product's default location to a receipt-line draft without overwriting
- * the line's independently selected purchased-lot location.
- * @param {string|null|undefined} currentLotLocation
- * @param {string|null|undefined} stagedDefaultLocation
- * @returns {string|null|undefined}
- */
-export function prefillStagedLotLocation(currentLotLocation, stagedDefaultLocation) {
-  return currentLotLocation || stagedDefaultLocation;
-}
-
 export function mergeStagedProductOption(options, incoming) {
   const current = Array.isArray(options) ? options : [];
   if (!incoming?.id) return current.slice();
