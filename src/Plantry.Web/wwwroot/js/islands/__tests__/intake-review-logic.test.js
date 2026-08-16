@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import {
   makeLine,
   mergeStagedProductOption,
+  applyStagedProductSelection,
   lineSection,
   isSurePending,
   isPrefillComplete,
@@ -223,6 +224,35 @@ describe("mergeStagedProductOption", () => {
     assert.deepEqual(merged, existing);
     assert.notEqual(merged, existing);
   });
+});
+
+describe("staged alias selection", () => {
+  const staged = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L", defaultLocationId: "loc-pantry" };
+
+  for (const lotLocation of ["", "loc-fridge"]) {
+    it(`hydrates product defaults without changing lot location (${lotLocation || "empty"})`, () => {
+      const selected = applyStagedProductSelection(staged, { draftLocationId: lotLocation, draftUnitId: "" });
+      assert.equal(selected.draftNewDefaultLocationId, "loc-pantry");
+      assert.equal(selected.draftLocationId, lotLocation);
+      assert.equal(buildSaveLineBody({
+        lineId: "line-1",
+        createNew: sig(selected.createNew),
+        draftProductId: sig(selected.draftProductId),
+        draftSkuId: sig(selected.draftSkuId),
+        draftNewName: sig(selected.draftNewName),
+        draftNewCategoryId: sig(selected.draftNewCategoryId),
+        draftNewDefaultUnitId: sig(selected.draftNewDefaultUnitId),
+        draftNewDefaultLocationId: sig(selected.draftNewDefaultLocationId),
+        stagedProductId: sig(selected.stagedProductId),
+        draftQty: sig("1"),
+        draftUnitId: sig(selected.draftUnitId),
+        draftLocationId: sig(selected.draftLocationId),
+        draftExpiryMode: sig("never"),
+        draftExpiry: sig(""),
+        draftPrice: sig(""),
+      }).locationId, lotLocation || null);
+    });
+  }
 });
 
 describe("same-line staged rematch", () => {

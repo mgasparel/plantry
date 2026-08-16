@@ -41,6 +41,7 @@ import { createToast, createToastHost } from "./toast.js?v=1";
 import {
   makeLine as makeLineFromSeed,
   mergeStagedProductOption,
+  applyStagedProductSelection,
   lineSection,
   isSurePending,
   buildSaveLineBody,
@@ -128,12 +129,7 @@ import {
 
 /**
  * The deferred Catalog identity returned by staged-product hydration.
- * @typedef {Object} StagedProductHydration
- * @property {string} id
- * @property {string} name
- * @property {string|null} categoryId
- * @property {string} defaultUnitId
- * @property {string|null} defaultLocationId
+ * @typedef {import("./intake-review-logic.js").StagedProductHydration} StagedProductHydration
  */
 
 /**
@@ -518,14 +514,14 @@ function displayNameFor(ls, products) {
 let enterCreate = () => {};
 /** @type {(ls: LineState, product: ProductHydration, products: ProductHydration[]) => void} */
 let pickSearchResult = () => {};
-/** @type {(ls: LineState, product: {id:string,name:string,categoryId:string,defaultUnitId:string}) => void} */
+/** @type {(ls: LineState, product: StagedProductHydration) => void} */
 let pickStagedSearchResult = () => {};
 
 // ── DeckCard — the top judgement-call card (.focus-card family) ──────────────────
 
 /**
  * @param {{
- *   ls: LineState, products: ProductHydration[], stagedProducts: {id:string,name:string,categoryId:string,defaultUnitId:string}[], units: UnitHydration[], locations: LocationHydration[],
+ *   ls: LineState, products: ProductHydration[], stagedProducts: StagedProductHydration[], units: UnitHydration[], locations: LocationHydration[],
  *   categories: CategoryHydration[], today: string, canSkip: boolean, canBack: boolean,
  *   onConfirm: () => void, onReject: () => void, onSkip: () => void, onBack: () => void,
  *   onSearchOn: (ls: LineState) => void, onSearchOff: (ls: LineState) => void,
@@ -1258,24 +1254,25 @@ export function mountIntakeReview(root, hydration) {
     });
   };
   pickStagedSearchResult = (ls, staged) => {
+    const draft = applyStagedProductSelection(staged, {
+      draftLocationId: ls.draftLocationId.value,
+      draftUnitId: ls.draftUnitId.value,
+    });
     batch(() => {
       // A staged alias is still a deferred new-product decision, not a Catalog ProductId. Keep the
       // catalog id blank and carry the explicit staged id in the SaveLine payload.
-      ls.stagedProductId.value = staged.id;
-      ls.draftProductId.value = "";
-      ls.draftProductName.value = staged.name;
-      ls.draftNewName.value = staged.name;
-      ls.draftNewCategoryId.value = staged.categoryId ?? "";
-      ls.draftNewDefaultUnitId.value = staged.defaultUnitId;
-      ls.draftNewDefaultLocationId.value = staged.defaultLocationId ?? "";
-      // Selecting a staged alias hydrates its immutable product defaults only. The purchased-lot
-      // location is line-local and may be copied from a default only after an explicit user change.
-      // Never overwrite it during alias hydration, even when it is currently empty.
-
-      ls.draftSkuId.value = "";
-      ls.createNew.value = true;
-      ls.searchOpen.value = false;
-      if (!ls.draftUnitId.value) ls.draftUnitId.value = staged.defaultUnitId;
+      ls.stagedProductId.value = draft.stagedProductId;
+      ls.draftProductId.value = draft.draftProductId;
+      ls.draftProductName.value = draft.draftProductName;
+      ls.draftNewName.value = draft.draftNewName;
+      ls.draftNewCategoryId.value = draft.draftNewCategoryId;
+      ls.draftNewDefaultUnitId.value = draft.draftNewDefaultUnitId;
+      ls.draftNewDefaultLocationId.value = draft.draftNewDefaultLocationId;
+      ls.draftSkuId.value = draft.draftSkuId;
+      ls.createNew.value = draft.createNew;
+      ls.searchOpen.value = draft.searchOpen;
+      ls.draftUnitId.value = draft.draftUnitId;
+      // draftLocationId is intentionally not assigned: lot location remains line-local.
     });
   };
   /** @param {string} lineId */

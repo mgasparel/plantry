@@ -208,14 +208,24 @@ export function makeLine(seed, signalFn) {
 }
 
 /**
+ * The shared deferred Catalog identity used by the staged-product picker and merge path.
+ * @typedef {Object} StagedProductHydration
+ * @property {string} id
+ * @property {string} name
+ * @property {string|null} categoryId
+ * @property {string} defaultUnitId
+ * @property {string|null} defaultLocationId
+ */
+
+/**
  * Merge one server-returned staged-product option into the review's selectable list.
  *
  * A new id is appended, while a replay for an existing id replaces that option in place. Returning
  * a fresh array keeps the helper safe for signal updates and makes the idempotence contract explicit.
  *
- * @param {{id:string,name:string,categoryId:string,defaultUnitId:string}[]|null|undefined} options
- * @param {{id:string,name:string,categoryId:string,defaultUnitId:string}|null|undefined} incoming
- * @returns {{id:string,name:string,categoryId:string,defaultUnitId:string}[]}
+ * @param {StagedProductHydration[]|null|undefined} options
+ * @param {StagedProductHydration|null|undefined} incoming
+ * @returns {StagedProductHydration[]}
  */
 export function mergeStagedProductOption(options, incoming) {
   const current = Array.isArray(options) ? options : [];
@@ -225,6 +235,33 @@ export function mergeStagedProductOption(options, incoming) {
   const merged = current.slice();
   merged[index] = incoming;
   return merged;
+}
+
+/**
+ * Apply a staged alias to line drafts without coupling the product default location to lot location.
+ *
+ * The returned object is a draft snapshot so the island can assign its signals in one batch and tests
+ * can prove that alias selection preserves both empty and already-selected lot locations.
+ *
+ * @param {StagedProductHydration} staged
+ * @param {{draftLocationId:string, draftUnitId:string}} current
+ * @returns {{draftProductId:string, draftProductName:string, draftNewName:string, draftNewCategoryId:string, draftNewDefaultUnitId:string, draftNewDefaultLocationId:string, stagedProductId:string, draftSkuId:string, createNew:boolean, searchOpen:boolean, draftLocationId:string, draftUnitId:string}}
+ */
+export function applyStagedProductSelection(staged, current) {
+  return {
+    draftProductId: "",
+    draftProductName: staged.name,
+    draftNewName: staged.name,
+    draftNewCategoryId: staged.categoryId ?? "",
+    draftNewDefaultUnitId: staged.defaultUnitId,
+    draftNewDefaultLocationId: staged.defaultLocationId ?? "",
+    stagedProductId: staged.id,
+    draftSkuId: "",
+    createNew: true,
+    searchOpen: false,
+    draftLocationId: current.draftLocationId,
+    draftUnitId: current.draftUnitId || staged.defaultUnitId,
+  };
 }
 
 // ── estimateHint ───────────────────────────────────────────────────────────────
