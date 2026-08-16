@@ -316,7 +316,7 @@ public sealed class FakeTsNoLocationCatalogWriter : ITakeStockCatalogWriter
     public Guid   LastSetLocationId  { get; private set; }
 
     public Task<Guid> CreateTrackedProductAsync(
-        string name, Guid defaultUnitId, Guid? categoryId, Guid defaultLocationId, CancellationToken ct = default) =>
+        string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
     public Task<Guid> CreateTrackedVariantAsync(

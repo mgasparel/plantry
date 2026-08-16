@@ -206,6 +206,7 @@ public sealed class ManualIntakePageTests : IDisposable
             // Line 2: created inline, mid-form.
             new("Input.Lines[1].NewProductName", "Artisan sourdough"),
             new("Input.Lines[1].NewProductCategoryId", ReviewSessionFixture.DairyCategoryId.ToString()),
+            new("Input.Lines[1].NewProductDefaultUnitId", ReviewSessionFixture.EachUnitId.ToString()),
             new("Input.Lines[1].Quantity", "1"),
             new("Input.Lines[1].UnitId", ReviewSessionFixture.EachUnitId.ToString()),
             new("Input.Lines[1].LocationId", ReviewSessionFixture.FridgeLocationId.ToString()),
@@ -401,7 +402,7 @@ public sealed class ManualIntakePageTests : IDisposable
     }
 
     [Fact]
-    public async Task New_product_line_missing_a_category_bounces_with_no_orphan_product()
+    public async Task New_product_line_missing_a_default_unit_bounces_with_no_orphan_product()
     {
         var client = AuthClient();
         var token = await GetAntiforgeryTokenAsync(client);

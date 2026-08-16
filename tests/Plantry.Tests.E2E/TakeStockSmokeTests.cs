@@ -818,22 +818,9 @@ public sealed class TakeStockSmokeTests(AppHostFixture appHost) : IAsyncLifetime
             await page.ClickAsync("button:has-text('Create Product')");
             await page.WaitForURLAsync("**/Catalog/Products/**");
 
-            // ── Add stock to the unplaced product via the Pantry AddStock sheet ──
-            await page.GotoAsync($"{BaseUrl}/Pantry");
-            await page.WaitForURLAsync("**/Pantry**");
-            await page.ClickAsync("button:has-text('Add stock')");
-            await Assertions.Expect(page.Locator("#sheet-host .sheet__panel")).ToBeVisibleAsync();
-            var productSearch = page.Locator("#sheet-host .sheet__panel input[role='combobox']");
-            await productSearch.FillAsync(productName);
-            var productOption = page.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName });
-            await Assertions.Expect(productOption).ToBeVisibleAsync();
-            await productOption.ClickAsync();
-            await page.FillAsync("[name='Input.Quantity']", "200");
-            await page.SelectOptionAsync("[name='Input.UnitId']", new SelectOptionValue { Label = "g — gram" });
-            await page.SelectOptionAsync("[name='Input.LocationId']", new SelectOptionValue { Label = "Pantry" });
-            await page.ClickAsync("button:has-text('Add to pantry')");
-            var pantryRow = page.Locator("tr", new() { HasText = productName });
-            await Assertions.Expect(pantryRow).ToBeVisibleAsync();
+            // No active stock: the product belongs to Take Stock's "No location" filing flow.
+            // Active stock is intentionally excluded because it is already represented by its
+            // concrete location walk (TakeStockReaderAdapter.ListNoLocationRowsAsync).
 
             // ── Navigate to Take Stock index — "No location" entry should appear ──
             await page.GotoAsync($"{BaseUrl}/pantry/take-stock");

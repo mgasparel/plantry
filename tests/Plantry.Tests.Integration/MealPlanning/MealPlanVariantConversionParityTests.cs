@@ -157,7 +157,7 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
 
         var catalogReader = new CatalogProductReaderAdapter(productRepo, unitRepo, categoryRepo);
         var unitConverter = new RecipesUnitConverterAdapter(productRepo, unitRepo);
-        var priceReader = new PriceReaderAdapter(new PricingQueries(new PriceObservationRepository(pricingDb)), Clock);
+        var priceReader = new PriceReaderAdapter(new PricingQueries(new PriceObservationRepository(pricingDb)), Clock, catalogReader, unitConverter);
         var costingServiceAsync = new CostingService(priceReader, unitConverter, catalogReader);
 
         var recipeRepo = new RecipeRepository(recipesDb);
@@ -349,7 +349,7 @@ public sealed class MealPlanVariantConversionParityTests(PostgresFixture db) : I
 
         var catalogReader = new CatalogProductReaderAdapter(productRepo, unitRepo, categoryRepo);
         var unitConverter = new RecipesUnitConverterAdapter(productRepo, unitRepo);
-        var priceReader = new PriceReaderAdapter(new PricingQueries(new PriceObservationRepository(pricingDb)), Clock);
+        var priceReader = new PriceReaderAdapter(new PricingQueries(new PriceObservationRepository(pricingDb)), Clock, catalogReader, unitConverter);
         var costingServiceAsync = new CostingService(priceReader, unitConverter, catalogReader);
 
         var recipeRepo = new RecipeRepository(recipesDb);

@@ -153,6 +153,8 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
             b.Property(l => l.Price).HasColumnName("price").HasPrecision(12, 2);
             b.Property(l => l.NewProductName).HasColumnName("new_product_name").HasMaxLength(200);
             b.Property(l => l.NewProductCategoryId).HasColumnName("new_product_category_id");
+            b.Property(l => l.NewProductDefaultUnitId).HasColumnName("new_product_default_unit_id");
+            b.Property(l => l.NewProductDefaultLocationId).HasColumnName("new_product_default_location_id");
             b.Property(l => l.StagedProductId).HasColumnName("staged_product_id");
             b.Property(l => l.Status)
                 .HasConversion(s => s.ToDbValue(), v => LineStatusExtensions.Parse(v))
@@ -201,8 +203,9 @@ public sealed class IntakeDbContext(DbContextOptions<IntakeDbContext> options) :
                 .IsRequired();
             b.Property(p => p.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
             b.Property(p => p.NormalizedName).HasColumnName("normalized_name").HasMaxLength(200).IsRequired();
-            b.Property(p => p.CategoryId).HasColumnName("category_id").IsRequired();
+            b.Property(p => p.CategoryId).HasColumnName("category_id");
             b.Property(p => p.DefaultUnitId).HasColumnName("default_unit_id").IsRequired();
+            b.Property(p => p.DefaultLocationId).HasColumnName("default_location_id");
             b.Property(p => p.CreatedProductId).HasColumnName("created_product_id");
 
             b.HasIndex(p => new { p.HouseholdId, p.SessionId }).HasDatabaseName("ix_staged_product_session");

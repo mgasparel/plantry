@@ -46,7 +46,8 @@ public sealed class CookRecipe(
     ITenantContext tenant,
     ReconcilePendingCooks reconciler,
     ApplyDeferredUnitGaps deferredUnitGaps,
-    ILogger<CookRecipe> logger)
+    ILogger<CookRecipe> logger,
+    IHouseholdProducedCategoryReader? producedCategory = null)
 {
     public async Task<CookRecipeResult> ExecuteAsync(CookRecipeCommand command, CancellationToken ct = default)
     {
@@ -208,8 +209,25 @@ public sealed class CookRecipe(
                     var matches = await products.SearchAsync(leftoverName, ct);
                     var match = matches.FirstOrDefault(m =>
                         m.TrackStock && string.Equals(m.Name, leftoverName, StringComparison.OrdinalIgnoreCase));
+                    Guid? categoryId = null;
+                    if (producedCategory is not null)
+                    {
+                        try
+                        {
+                            categoryId = await producedCategory.GetDefaultProducedCategoryIdAsync(ct);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            // Category settings are optional metadata. A stale or unavailable setting
+                            // must never prevent cooking or creation of the leftovers product.
+                            logger.LogWarning(ex,
+                                "Cook {RecipeId}: produced-product category could not be resolved; creating an uncategorized product.",
+                                recipe.Id.Value);
+                        }
+                    }
+
                     var newProductId = match?.Id
-                        ?? await catalogWriter.CreateTrackedProductAsync(leftoverName, countUnit.Id, categoryId: null, isProduced: true, ct: ct);
+                        ?? await catalogWriter.CreateTrackedProductAsync(leftoverName, countUnit.Id, categoryId, isProduced: true, ct: ct);
 
                     var setResult = recipe.SetYield(newProductId, declaredQty, countUnit.Id, clock);
                     if (setResult.IsSuccess)

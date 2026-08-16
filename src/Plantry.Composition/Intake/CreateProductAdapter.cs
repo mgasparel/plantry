@@ -20,10 +20,15 @@ public sealed class CreateProductAdapter(
     IClock clock,
     ITenantContext tenant) : ICreateProductPort
 {
-    public async Task<Guid> CreateAsync(string name, Guid categoryId, Guid defaultUnitId, CancellationToken ct = default)
+    public async Task<Guid> CreateAsync(
+        string name,
+        Guid? categoryId,
+        Guid defaultUnitId,
+        Guid? defaultLocationId,
+        CancellationToken ct = default)
     {
         var command = new CreateProductCommand(
-            name, defaultUnitId, categoryId, defaultLocationId: null,
+            name, defaultUnitId, categoryId, defaultLocationId,
             products, units, categories, locations, clock, tenant);
 
         var result = await command.ExecuteAsync(ct);

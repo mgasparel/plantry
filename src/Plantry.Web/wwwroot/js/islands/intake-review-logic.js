@@ -80,6 +80,8 @@ export {
  * @property {boolean} isNewProduct
  * @property {string|null} newProductName
  * @property {string|null} newProductCategoryId
+ * @property {string|null} newProductDefaultUnitId
+ * @property {string|null} newProductDefaultLocationId
  * @property {number|null} suggestedPrice
  * @property {string|null} stagedProductId
  */
@@ -136,6 +138,8 @@ export {
  * @property {SignalLike<string>} draftPrice
  * @property {SignalLike<string>} draftNewName
  * @property {SignalLike<string>} draftNewCategoryId
+ * @property {SignalLike<string>} draftNewDefaultUnitId
+ * @property {SignalLike<string>} draftNewDefaultLocationId
  * @property {SignalLike<string>} stagedProductId
  * @property {AlternativeHydration[]|null} alternatives
  * @property {EstimateHydration|null} estimate
@@ -193,6 +197,8 @@ export function makeLine(seed, signalFn) {
     draftPrice: signalFn(prefill.price != null ? String(prefill.price) : ""),
     draftNewName: signalFn(line.newProductName ?? ""),
     draftNewCategoryId: signalFn(line.newProductCategoryId ?? ""),
+    draftNewDefaultUnitId: signalFn(line.newProductDefaultUnitId ?? ""),
+    draftNewDefaultLocationId: signalFn(line.newProductDefaultLocationId ?? ""),
     stagedProductId: signalFn(line.stagedProductId ?? ""),
     alternatives: alternatives ?? null,
     estimate: estimate ?? null,
@@ -202,14 +208,24 @@ export function makeLine(seed, signalFn) {
 }
 
 /**
+ * The shared deferred Catalog identity used by the staged-product picker and merge path.
+ * @typedef {Object} StagedProductHydration
+ * @property {string} id
+ * @property {string} name
+ * @property {string|null} categoryId
+ * @property {string} defaultUnitId
+ * @property {string|null} defaultLocationId
+ */
+
+/**
  * Merge one server-returned staged-product option into the review's selectable list.
  *
  * A new id is appended, while a replay for an existing id replaces that option in place. Returning
  * a fresh array keeps the helper safe for signal updates and makes the idempotence contract explicit.
  *
- * @param {{id:string,name:string,categoryId:string,defaultUnitId:string}[]|null|undefined} options
- * @param {{id:string,name:string,categoryId:string,defaultUnitId:string}|null|undefined} incoming
- * @returns {{id:string,name:string,categoryId:string,defaultUnitId:string}[]}
+ * @param {StagedProductHydration[]|null|undefined} options
+ * @param {StagedProductHydration|null|undefined} incoming
+ * @returns {StagedProductHydration[]}
  */
 export function mergeStagedProductOption(options, incoming) {
   const current = Array.isArray(options) ? options : [];
@@ -219,6 +235,33 @@ export function mergeStagedProductOption(options, incoming) {
   const merged = current.slice();
   merged[index] = incoming;
   return merged;
+}
+
+/**
+ * Apply a staged alias to line drafts without coupling the product default location to lot location.
+ *
+ * The returned object is a draft snapshot so the island can assign its signals in one batch and tests
+ * can prove that alias selection preserves both empty and already-selected lot locations.
+ *
+ * @param {StagedProductHydration} staged
+ * @param {{draftLocationId:string, draftUnitId:string}} current
+ * @returns {{draftProductId:string, draftProductName:string, draftNewName:string, draftNewCategoryId:string, draftNewDefaultUnitId:string, draftNewDefaultLocationId:string, stagedProductId:string, draftSkuId:string, createNew:boolean, searchOpen:boolean, draftLocationId:string, draftUnitId:string}}
+ */
+export function applyStagedProductSelection(staged, current) {
+  return {
+    draftProductId: "",
+    draftProductName: staged.name,
+    draftNewName: staged.name,
+    draftNewCategoryId: staged.categoryId ?? "",
+    draftNewDefaultUnitId: staged.defaultUnitId,
+    draftNewDefaultLocationId: staged.defaultLocationId ?? "",
+    stagedProductId: staged.id,
+    draftSkuId: "",
+    createNew: true,
+    searchOpen: false,
+    draftLocationId: current.draftLocationId,
+    draftUnitId: current.draftUnitId || staged.defaultUnitId,
+  };
 }
 
 // ── estimateHint ───────────────────────────────────────────────────────────────
@@ -444,7 +487,8 @@ export function demotedDecision(productName, productId, confidence = 0) {
  * @param {LineState} ls
  * @returns {{
  *   lineId: string, createNew: boolean, productId: string|null, skuId: string|null,
- *   newProductName: string|null, newProductCategoryId: string|null, stagedProductId: string|null, quantity: number,
+ *   newProductName: string|null, newProductCategoryId: string|null, newProductDefaultUnitId: string|null,
+ *   newProductDefaultLocationId: string|null, stagedProductId: string|null, quantity: number,
  *   unitId: string|null, locationId: string|null, expiryDate: string|null, price: number|null,
  * }}
  */
@@ -456,6 +500,8 @@ export function buildSaveLineBody(ls) {
     skuId: ls.createNew.value ? null : (ls.draftSkuId.value || null),
     newProductName: ls.createNew.value ? ls.draftNewName.value.trim() : null,
     newProductCategoryId: ls.createNew.value ? (ls.draftNewCategoryId.value || null) : null,
+    newProductDefaultUnitId: ls.createNew.value ? (ls.draftNewDefaultUnitId.value || null) : null,
+    newProductDefaultLocationId: ls.createNew.value ? (ls.draftNewDefaultLocationId.value || null) : null,
     stagedProductId: ls.createNew.value ? (ls.stagedProductId.value || null) : null,
     quantity: parseFloat(ls.draftQty.value),
     unitId: ls.draftUnitId.value || null,

@@ -1967,12 +1967,12 @@ public sealed class FakeTsCatalogWriter(Guid? returnProductId = null, string? th
     public Guid? LastCategoryId { get; private set; }
 
     public Task<Guid> CreateTrackedProductAsync(
-        string name, Guid defaultUnitId, Guid? categoryId, Guid defaultLocationId, CancellationToken ct = default)
+        string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId, CancellationToken ct = default)
     {
         CreateCalls++;
         LastName = name;
         LastUnitId = defaultUnitId;
-        LastLocationId = defaultLocationId;
+        LastLocationId = defaultLocationId ?? Guid.Empty;
         LastCategoryId = categoryId;
 
         if (throwMessage is not null)

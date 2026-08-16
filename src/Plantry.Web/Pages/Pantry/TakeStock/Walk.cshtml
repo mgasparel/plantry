@@ -40,6 +40,7 @@
                  SearchUrl             = Url.Page("./Walk", "SearchProducts", new { locationId = Model.LocationId })!,
                  UnitOptions           = Model.UnitOptions,
                  CategoryOptions       = Model.CategoryOptions,
+                 LocationOptions       = Model.LocationOptions,
                  TrackStock            = false,
                  ExtraFieldsPartial    = "TakeStock/_CountLocationFields",
                  Noun                  = "item",
@@ -104,6 +105,7 @@ function takeStockSheetBridge() {
             this.sheetView = 'search';
             this.draft = { productId: '', productName: '', isUntracked: false,
                            newStapleName: null, newStapleUnit: '', newStapleCategoryId: '',
+                           newStapleDefaultLocationId: '',
                            groupHeading: '', newGroupId: '', newGroupName: '',
                            addCount: 1, addUnitId: '', expiryDate: '' };
             this.sheetOpen = true;
@@ -178,6 +180,7 @@ function takeStockSheetBridge() {
                     newGroupId:          this.draft.newGroupId   || '',
                     newGroupName:        this.draft.newGroupName  || '',
                     newStapleCategoryId: this.draft.newStapleCategoryId || '',
+                    newStapleDefaultLocationId: this.draft.newStapleDefaultLocationId || '',
                     addCount:            this.draft.addCount,
                     addUnitId:           this.draft.addUnitId    || unitId,
                     addUnitCode:         addUnitCode,

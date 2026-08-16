@@ -139,11 +139,11 @@ public sealed class ManualPurchaseSessionRepository : IImportSessionRepository
 /// <summary>Records each create and hands back a fresh product id.</summary>
 public sealed class FakeCreateProductPort : ICreateProductPort
 {
-    public List<(string Name, Guid CategoryId, Guid UnitId)> Calls { get; } = [];
+    public List<(string Name, Guid? CategoryId, Guid UnitId, Guid? LocationId)> Calls { get; } = [];
 
-    public Task<Guid> CreateAsync(string name, Guid categoryId, Guid defaultUnitId, CancellationToken ct = default)
+    public Task<Guid> CreateAsync(string name, Guid? categoryId, Guid defaultUnitId, Guid? defaultLocationId, CancellationToken ct = default)
     {
-        Calls.Add((name, categoryId, defaultUnitId));
+        Calls.Add((name, categoryId, defaultUnitId, defaultLocationId));
         return Task.FromResult(Guid.CreateVersion7());
     }
 }

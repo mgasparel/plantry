@@ -162,7 +162,9 @@ public sealed record CatalogProduct(
     Guid DefaultUnitId,
     Guid? ParentProductId,
     bool IsParent,
-    IReadOnlyList<Guid> VariantProductIds);
+    IReadOnlyList<Guid> VariantProductIds,
+    IReadOnlyDictionary<Guid, Guid>? VariantDefaultUnitIds = null);
+
 
 /// <summary>A search hit for the ingredient editor's product picker, with a fuzzy match score.</summary>
 public sealed record CatalogProductCandidate(

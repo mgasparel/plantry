@@ -107,6 +107,76 @@ public sealed class RecipeEditorSnapshotTests(RecipeEditorFragmentFactory factor
     /// a button can carry x-text and still render empty if no fallback child text is emitted.
     /// </summary>
     [Fact]
+    public async Task Editor_create_renders_active_default_locations_in_shared_create_sheet()
+    {
+        var html = await GetCreatePageAsync();
+        var doc = Parser.ParseDocument(html);
+        var select = doc.QuerySelector("#create-product-location")
+            ?? throw new InvalidOperationException("Product default location select not found.");
+
+        var options = select.QuerySelectorAll("option").ToArray();
+        Assert.Equal("— None —", options[0].TextContent.Trim());
+        Assert.Contains(options, option => option.TextContent.Trim() == "Fridge");
+        Assert.Contains(options, option => option.TextContent.Trim() == "Pantry");
+    }
+
+    /// <summary>
+    /// The recipe inline-create POST carries the selected default location through each Catalog creation
+    /// route: standalone, existing-group variant, and new-group variant.
+    /// </summary>
+    [Fact]
+    public async Task Editor_inline_create_forwards_default_location_for_all_catalog_routes()
+    {
+        using var postFactory = new RecipeEditorPostFactory();
+        var client = postFactory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, RecipeEditorFixture.HouseholdAId.ToString());
+        var token = await GetAntiforgeryTokenAsync(client);
+        var locationId = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000019");
+        var groupId = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000020");
+
+        async Task PostAsync(string name, string? groupIdValue, string? groupName)
+        {
+            var fields = new List<KeyValuePair<string, string>>
+            {
+                new("__RequestVerificationToken", token),
+                new("Input.Name", $"Recipe {name}"),
+                new("Input.DefaultServings", "1"),
+                new("Input.Lines[0].Ordinal", "0"),
+                new("Input.Lines[0].NewStapleName", name),
+                new("Input.Lines[0].NewStapleDefaultUnitId", RecipeEditorFixture.GramUnitId.ToString()),
+                new("Input.Lines[0].NewIsTracked", "true"),
+                new("Input.Lines[0].NewStapleDefaultLocationId", locationId.ToString()),
+                new("Input.Lines[0].Quantity", "1"),
+                new("Input.Lines[0].UnitId", RecipeEditorFixture.GramUnitId.ToString()),
+            };
+            if (groupIdValue is not null) fields.Add(new("Input.Lines[0].NewGroupId", groupIdValue));
+            if (groupName is not null) fields.Add(new("Input.Lines[0].NewGroupName", groupName));
+            var response = await client.PostAsync("/Recipes/New", new FormUrlEncodedContent(fields));
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        }
+
+        await PostAsync("Standalone Product", null, null);
+        await PostAsync("Joined Variant", groupId.ToString(), null);
+        await PostAsync("Grouped Variant", null, "New Group");
+
+        var writer = postFactory.CatalogWriter;
+        Assert.Contains(writer.TrackedProductsCreated, item => item.Name == "Standalone Product");
+        Assert.Contains(writer.VariantsCreated, item => item.VariantName == "Joined Variant");
+        Assert.Contains(writer.GroupedProductsCreated, item => item.VariantName == "Grouped Variant");
+        Assert.Equal(3, writer.DefaultLocations.Count);
+        Assert.All(writer.DefaultLocations, id => Assert.Equal(locationId, id));
+    }
+
+    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
+    {
+        var html = await (await client.GetAsync("/Recipes/New")).Content.ReadAsStringAsync();
+        var match = System.Text.RegularExpressions.Regex.Match(
+            html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"([^\\\"]+)\\\"");
+        Assert.True(match.Success, "No antiforgery token found on the create page.");
+        return match.Groups[1].Value;
+    }
+
+    [Fact]
     public async Task Editor_create_ProductSearchCreateSheet_submit_button_has_non_empty_fallback_text()
     {
         var html = await GetCreatePageAsync();

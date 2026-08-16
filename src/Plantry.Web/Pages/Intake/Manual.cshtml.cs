@@ -140,7 +140,7 @@ public sealed class ManualModel(
 
         var lines = Input.Lines
             .Select(l => new ManualPurchaseLineInput(
-                l.ProductId, l.NewProductName, l.NewProductCategoryId,
+                l.ProductId, l.NewProductName, l.NewProductCategoryId, l.NewProductDefaultUnitId, l.NewProductDefaultLocationId,
                 l.Quantity!.Value, l.UnitId!.Value, l.LocationId!.Value, l.Price, l.ExpiryDate))
             .ToList();
 
@@ -273,6 +273,8 @@ public sealed class ManualModel(
             productName = l.ProductId is { } pid && productNames.TryGetValue(pid, out var name) ? name : "",
             newStapleName = l.NewProductName,
             newStapleCategoryId = l.NewProductCategoryId?.ToString() ?? "",
+            newStapleUnit = l.NewProductDefaultUnitId?.ToString() ?? l.UnitId?.ToString() ?? "",
+            newStapleDefaultLocationId = l.NewProductDefaultLocationId?.ToString() ?? "",
             qty = l.Quantity?.ToString(CultureInfo.InvariantCulture) ?? "",
             unitId = l.UnitId?.ToString() ?? "",
             locationId = l.LocationId?.ToString() ?? "",
@@ -319,6 +321,8 @@ public sealed class ManualLineFormInput
     public Guid? ProductId { get; set; }
     public string? NewProductName { get; set; }
     public Guid? NewProductCategoryId { get; set; }
+    public Guid? NewProductDefaultUnitId { get; set; }
+    public Guid? NewProductDefaultLocationId { get; set; }
     public decimal? Quantity { get; set; }
     public Guid? UnitId { get; set; }
     public Guid? LocationId { get; set; }

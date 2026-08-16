@@ -261,6 +261,8 @@ builder.Services.AddScoped<IExpiringSoonHorizon>(sp => sp.GetRequiredService<Exp
 // horizon above.
 builder.Services.AddScoped<HouseholdDefaultLocationService>();
 builder.Services.AddScoped<IHouseholdDefaultLocationReader>(sp => sp.GetRequiredService<HouseholdDefaultLocationService>());
+builder.Services.AddScoped<HouseholdDefaultProducedCategoryService>();
+builder.Services.AddScoped<IHouseholdDefaultProducedCategoryReader>(sp => sp.GetRequiredService<HouseholdDefaultProducedCategoryService>());
 // Purchase-frequency read over the stock journal — feeds the Deals stock-up alerts (P5-10 / DL-O4).
 builder.Services.AddScoped<IPurchaseJournalReader, PurchaseJournalReader>();
 // Waste-journal read over the same stock journal — feeds the Today "did you know" stats widget

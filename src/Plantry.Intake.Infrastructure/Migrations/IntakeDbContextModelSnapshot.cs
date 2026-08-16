@@ -76,6 +76,14 @@ namespace Plantry.Intake.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("new_product_category_id");
 
+                    b.Property<Guid?>("NewProductDefaultLocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("new_product_default_location_id");
+
+                    b.Property<Guid?>("NewProductDefaultUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("new_product_default_unit_id");
+
                     b.Property<string>("NewProductName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
@@ -345,13 +353,17 @@ namespace Plantry.Intake.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("staged_product_id");
 
-                    b.Property<Guid>("CategoryId")
+                    b.Property<Guid?>("CategoryId")
                         .HasColumnType("uuid")
                         .HasColumnName("category_id");
 
                     b.Property<Guid?>("CreatedProductId")
                         .HasColumnType("uuid")
                         .HasColumnName("created_product_id");
+
+                    b.Property<Guid?>("DefaultLocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("default_location_id");
 
                     b.Property<Guid>("DefaultUnitId")
                         .HasColumnType("uuid")

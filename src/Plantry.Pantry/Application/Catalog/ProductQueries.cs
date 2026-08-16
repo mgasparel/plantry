@@ -10,7 +10,8 @@ public sealed record ProductListItem(
     string DefaultUnitCode,
     bool IsArchived,
     bool IsVariant,
-    bool IsParent);
+    bool IsParent,
+    bool IsProduced = false);
 
 public sealed record ProductSkuDetail(
     ProductSkuId Id,
@@ -90,7 +91,8 @@ public sealed class ProductQueryService(
                 unitsById.TryGetValue(p.DefaultUnitId, out var unit) ? unit.Code : "?",
                 p.IsArchived,
                 p.IsVariant,
-                p.IsParent))
+                p.IsParent,
+                p.IsProduced))
             .ToList();
     }
 

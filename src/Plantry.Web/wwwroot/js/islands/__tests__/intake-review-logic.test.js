@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import {
   makeLine,
   mergeStagedProductOption,
+  applyStagedProductSelection,
   lineSection,
   isSurePending,
   isPrefillComplete,
@@ -200,7 +201,7 @@ describe("buildSaveLineBody", () => {
 });
 
 describe("mergeStagedProductOption", () => {
-  const alias = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L" };
+  const alias = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L", defaultLocationId: "loc-fridge" };
 
   it("appends a newly returned staged option", () => {
     const existing = [{ id: "stage-0", name: "Flour", categoryId: "cat-grain", defaultUnitId: "unit-kg" }];
@@ -225,9 +226,38 @@ describe("mergeStagedProductOption", () => {
   });
 });
 
+describe("staged alias selection", () => {
+  const staged = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L", defaultLocationId: "loc-pantry" };
+
+  for (const lotLocation of ["", "loc-fridge"]) {
+    it(`hydrates product defaults without changing lot location (${lotLocation || "empty"})`, () => {
+      const selected = applyStagedProductSelection(staged, { draftLocationId: lotLocation, draftUnitId: "" });
+      assert.equal(selected.draftNewDefaultLocationId, "loc-pantry");
+      assert.equal(selected.draftLocationId, lotLocation);
+      assert.equal(buildSaveLineBody({
+        lineId: "line-1",
+        createNew: sig(selected.createNew),
+        draftProductId: sig(selected.draftProductId),
+        draftSkuId: sig(selected.draftSkuId),
+        draftNewName: sig(selected.draftNewName),
+        draftNewCategoryId: sig(selected.draftNewCategoryId),
+        draftNewDefaultUnitId: sig(selected.draftNewDefaultUnitId),
+        draftNewDefaultLocationId: sig(selected.draftNewDefaultLocationId),
+        stagedProductId: sig(selected.stagedProductId),
+        draftQty: sig("1"),
+        draftUnitId: sig(selected.draftUnitId),
+        draftLocationId: sig(selected.draftLocationId),
+        draftExpiryMode: sig("never"),
+        draftExpiry: sig(""),
+        draftPrice: sig(""),
+      }).locationId, lotLocation || null);
+    });
+  }
+});
+
 describe("same-line staged rematch", () => {
   it("keeps one staged option through create response, reopen, search, and the next SaveLine body", () => {
-    const staged = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L" };
+    const staged = { id: "stage-1", name: "Oat Milk", categoryId: "cat-dairy", defaultUnitId: "unit-L", defaultLocationId: "loc-fridge" };
     const ls = makeState(
       { isNewProduct: false, newProductName: null, newProductCategoryId: null },
       { productId: null, productName: null, quantity: 1, unitId: "unit-L", locationId: "loc-fridge" },
@@ -271,6 +301,7 @@ describe("same-line staged rematch", () => {
     assert.equal(body.stagedProductId, staged.id);
     assert.equal(body.newProductName, staged.name);
     assert.equal(body.newProductCategoryId, staged.categoryId);
+    assert.equal(found.defaultLocationId, "loc-fridge");
 
     // Replaying the response is idempotent by staged id, so the picker still has one entry.
     stagedOptions = mergeStagedProductOption(stagedOptions, createResponse.stagedProduct);

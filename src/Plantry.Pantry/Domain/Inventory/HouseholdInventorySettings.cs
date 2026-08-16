@@ -55,6 +55,9 @@ public sealed class HouseholdInventorySettings
     /// </summary>
     public LocationId? DefaultLocationId { get; private set; }
 
+    /// <summary>Category assigned to automatically created recipe-produced products; null means unassigned.</summary>
+    public CategoryId? DefaultProducedCategoryId { get; private set; }
+
     /// <summary>Creates a new settings record for the household with the default horizon (lazy seeding).</summary>
     public static HouseholdInventorySettings Create(HouseholdId householdId) =>
         new(householdId);
@@ -80,4 +83,6 @@ public sealed class HouseholdInventorySettings
     /// <see cref="ILocationRepository"/> in hand and this aggregate does not.
     /// </summary>
     public void SetDefaultLocationId(LocationId? locationId) => DefaultLocationId = locationId;
+
+    public void SetDefaultProducedCategoryId(CategoryId? categoryId) => DefaultProducedCategoryId = categoryId;
 }

@@ -369,7 +369,7 @@ internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUni
         return Task.FromResult(staple.Id);
     }
 
-    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, bool isProduced = false, CancellationToken ct = default)
+    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, bool isProduced = false, CancellationToken ct = default)
     {
         if (FailCreateTrackedProduct)
             throw new InvalidOperationException($"Create tracked product failed (simulated) for '{name}'.");
@@ -380,7 +380,7 @@ internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUni
         return Task.FromResult(product.Id);
     }
 
-    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, CancellationToken ct = default)
+    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride = null, CancellationToken ct = default)
     {
         VariantsCreated.Add((parentGroupId, variantName));
         // The variant has the parent's unit (simplified in the fake — unit override not tracked for simplicity).
@@ -390,7 +390,7 @@ internal sealed class FakeCatalogWriter(FakeCatalogProductReader reader, FakeUni
         return Task.FromResult(variant.Id);
     }
 
-    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default)
+    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, CancellationToken ct = default)
     {
         GroupedProductsCreated.Add((groupName, variantName, defaultUnitId));
         var variantId = Guid.CreateVersion7();

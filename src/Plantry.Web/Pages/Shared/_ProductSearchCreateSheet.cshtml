@@ -41,6 +41,7 @@
                        qty, unitId, groupHeading,
                        newGroupId,   ← '' = standalone or no selection; non-empty = join existing group
                        newGroupName, ← '' = standalone; non-empty text = create new group or selection
+                       newStapleDefaultLocationId,
                        ... }
       closeSheet()  — called by Cancel / Escape / overlay click
       saveSheet()   — called by the Add/Save (search view) or Create/Create & count (create view) button
@@ -479,14 +480,16 @@
 
             @*
                 ── Defaults collapsible (plantry-y53t) ──────────────────────────────────────────────
-                A <details> disclosure wrapping the two optional-to-see fields: Unit (required by
-                CreateProductCommand) and Category (optional).  Collapsed by default so the create
-                form stays compact; the user can expand when they want to change the defaults.
+                A <details> disclosure wrapping the three product-default fields: required Default unit,
+                optional Category, and optional Default location.  Collapsed by default so the create form
+                stays compact; the user can expand when they want to change the defaults.
 
-                Unit is bound to draft.newStapleUnit — the existing wire used by Recipes' hidden-input
+                Default unit is bound to draft.newStapleUnit — the existing wire used by Recipes' hidden-input
                 post (Input.Lines[n].NewStapleDefaultUnitId) and the TakeStock saveSheet() fallback.
-                Category is bound to draft.newStapleCategoryId — a new optional draft field.
-                Both are bound with x-model inside the Alpine x-data of the host, so no inner x-data
+                Category is bound to draft.newStapleCategoryId — a new optional draft field.  Default location
+                is bound to draft.newStapleDefaultLocationId and is independent of any host lot/count location;
+                the host save contract forwards it separately when the product is created.
+                All three are bound with x-model inside the Alpine x-data of the host, so no inner x-data
                 scope is needed here.
             *@
             @*
@@ -521,6 +524,19 @@
                                 @foreach (var c in Model.CategoryOptions)
                                 {
                                     <option value="@c.Value">@c.Text</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-grid__field form-grid__field--full">
+                        <label class="form-grid__field__label" for="create-product-location">Default location</label>
+                        <div class="form-grid__field__control">
+                            <select id="create-product-location" class="field__input" x-model="draft.newStapleDefaultLocationId"
+                                    @@change="if ($event.target.value) draft.locationId = $event.target.value">
+                                <option value="">— None —</option>
+                                @foreach (var l in Model.LocationOptions)
+                                {
+                                    <option value="@l.Value">@l.Text</option>
                                 }
                             </select>
                         </div>

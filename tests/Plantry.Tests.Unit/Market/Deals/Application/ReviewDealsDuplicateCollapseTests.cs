@@ -72,6 +72,182 @@ public sealed class ReviewDealsDuplicateCollapseTests
         var card = Assert.Single(flyer.Deals);
         Assert.Equal("RED MANGOES OR HONEY ATAULFO MANGOES", card.RawName);
         Assert.Equal(1.49m, card.Price);
+        Assert.Equal(_deals.Items.Select(d => d.Id.Value).Where(id => id != card.DealId.Value).Order(), card.DuplicateDealIds!.Order());
+    }
+
+    [Fact(DisplayName = "Equal CreatedAt chooses the lowest DealId as representative")]
+    public async Task Equal_CreatedAt_Uses_Lowest_Id_Tie_Breaker()
+    {
+        var createdAt = new DateTimeOffset(2026, 8, 6, 12, 0, 0, TimeSpan.Zero);
+        var first = Stage(FoodBasics, "Tie", 1m, createdAt: createdAt);
+        var second = Stage(FoodBasics, "Tie", 1m, createdAt: createdAt);
+        var expected = new[] { first, second }.OrderBy(d => d.Id.Value).First();
+
+        var cards = Assert.Single((await Sut.ProjectPendingQueueAsync()).Flyers).Deals;
+
+        Assert.Equal(expected.Id, cards[0].DealId);
+    }
+
+    [Fact(DisplayName = "A non-duplicate card has no duplicate siblings")]
+    public async Task NonDuplicate_Has_Empty_Sibling_List()
+    {
+        Stage(FoodBasics, "A", 1m);
+        Stage(FoodBasics, "B", 1m);
+
+        var cards = Assert.Single((await Sut.ProjectPendingQueueAsync()).Flyers).Deals;
+        Assert.All(cards, card => Assert.Empty(card.DuplicateDealIds!));
+    }
+
+    [Fact(DisplayName = "FindAsync discovers pending siblings from a hidden crop")]
+    public async Task FindAsync_Resolves_Hidden_Sibling_Group()
+    {
+        var first = Stage(FoodBasics, "A", 1m);
+        var second = Stage(FoodBasics, "A", 1m);
+        var view = await Sut.FindAsync(second.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Equal([first.Id.Value], view!.DuplicateDealIds);
+    }
+
+    [Fact(DisplayName = "FindAsync returns every other pending member from the representative")]
+    public async Task FindAsync_Representative_Returns_All_Pending_Siblings()
+    {
+        var representative = Stage(FoodBasics, "A", 1m);
+        var siblingB = Stage(FoodBasics, "A", 1m);
+        var siblingC = Stage(FoodBasics, "A", 1m);
+        var siblingD = Stage(FoodBasics, "A", 1m);
+
+        var view = await Sut.FindAsync(representative.Id, includePurchaseContext: false);
+
+        Assert.NotNull(view);
+        Assert.Equal(new[] { siblingB.Id.Value, siblingC.Id.Value, siblingD.Id.Value }.Order(),
+            view!.DuplicateDealIds!.Order());
+    }
+
+    [Fact(DisplayName = "FindAsync from a hidden crop returns the representative and remaining pending members")]
+    public async Task FindAsync_Hidden_Target_Returns_Other_Pending_Members()
+    {
+        var representative = Stage(FoodBasics, "A", 1m);
+        var hiddenTarget = Stage(FoodBasics, "A", 1m);
+        var remainingB = Stage(FoodBasics, "A", 1m);
+        var remainingC = Stage(FoodBasics, "A", 1m);
+
+        var view = await Sut.FindAsync(hiddenTarget.Id, includePurchaseContext: false);
+
+        Assert.NotNull(view);
+        Assert.Equal(new[] { representative.Id.Value, remainingB.Id.Value, remainingC.Id.Value }.Order(),
+            view!.DuplicateDealIds!.Order());
+    }
+
+    [Fact(DisplayName = "FindAsync excludes confirmed and rejected matches, retaining pending cleanup candidates")]
+    public async Task FindAsync_Excludes_NonPending_Matches()
+    {
+        var target = Stage(FoodBasics, "A", 1m);
+        var pending = Stage(FoodBasics, "A", 1m);
+        var confirmed = Stage(FoodBasics, "A", 1m);
+        var rejected = Stage(FoodBasics, "A", 1m);
+        confirmed.Confirm(Guid.NewGuid(), Guid.NewGuid(), _clock);
+        rejected.Reject(Guid.NewGuid(), _clock);
+
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+
+        Assert.NotNull(view);
+        Assert.Equal(new[] { pending.Id.Value }, view!.DuplicateDealIds);
+    }
+
+    [Fact(DisplayName = "FindAsync on a confirmed target returns only pending matching siblings")]
+    public async Task FindAsync_Confirmed_Target_Returns_Pending_Siblings_Only()
+    {
+        var confirmedTarget = Stage(FoodBasics, "A", 1m);
+        var pending = Stage(FoodBasics, "A", 1m);
+        var rejected = Stage(FoodBasics, "A", 1m);
+        confirmedTarget.Confirm(Guid.NewGuid(), Guid.NewGuid(), _clock);
+        rejected.Reject(Guid.NewGuid(), _clock);
+
+        var view = await Sut.FindAsync(confirmedTarget.Id, includePurchaseContext: false);
+
+        Assert.NotNull(view);
+        Assert.Equal(new[] { pending.Id.Value }, view!.DuplicateDealIds);
+    }
+
+    [Fact(DisplayName = "FindAsync does not cross advertised identity boundaries")]
+    public async Task FindAsync_Different_Identity_Has_No_Siblings()
+    {
+        var target = Stage(FoodBasics, "A", 1m);
+        Stage(FoodBasics, "A", 2m);
+        Stage(Metro, "A", 1m);
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Empty(view!.DuplicateDealIds!);
+    }
+
+    [Fact(DisplayName = "FindAsync does not treat a validity start difference as a duplicate")]
+    public async Task FindAsync_Different_ValidityStart_Has_No_Sibling()
+    {
+        var target = Stage(FoodBasics, "A", 1m);
+        Stage(FoodBasics, "A", 1m, from: ValidFrom.AddDays(-1));
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Empty(view!.DuplicateDealIds!);
+    }
+
+    [Fact(DisplayName = "FindAsync does not treat a validity end difference as a duplicate")]
+    public async Task FindAsync_Different_ValidityEnd_Has_No_Sibling()
+    {
+        var target = Stage(FoodBasics, "A", 1m);
+        Stage(FoodBasics, "A", 1m, to: ValidTo.AddDays(1));
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Empty(view!.DuplicateDealIds!);
+    }
+
+    [Fact(DisplayName = "FindAsync does not treat a normalized name difference as a duplicate")]
+    public async Task FindAsync_Different_NormalizedName_Has_No_Sibling()
+    {
+        var target = Stage(FoodBasics, "A", 1m);
+        Stage(FoodBasics, rawName: "A  B", 1m);
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Empty(view!.DuplicateDealIds!);
+    }
+
+    [Fact(DisplayName = "FindAsync does not treat a brand difference as a duplicate")]
+    public async Task FindAsync_Different_Brand_Has_No_Sibling()
+    {
+        var target = Stage(FoodBasics, "A", 1m, brand: "Brand");
+        Stage(FoodBasics, "A", 1m, brand: "Other Brand");
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Empty(view!.DuplicateDealIds!);
+    }
+
+    [Fact(DisplayName = "FindAsync does not treat a size difference as a duplicate")]
+    public async Task FindAsync_Different_Size_Has_No_Sibling()
+    {
+        var target = Stage(FoodBasics, "A", 1m, size: "500g");
+        Stage(FoodBasics, "A", 1m, size: "1kg");
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Empty(view!.DuplicateDealIds!);
+    }
+
+    [Fact(DisplayName = "FindAsync does not treat a sale story difference as a duplicate")]
+    public async Task FindAsync_Different_SaleStory_Has_No_Sibling()
+    {
+        var target = Stage(FoodBasics, "A", 1m, saleStory: "Same");
+        Stage(FoodBasics, "A", 1m, saleStory: "Different");
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Empty(view!.DuplicateDealIds!);
+    }
+
+    [Fact(DisplayName = "FindAsync does not treat a quantity difference as a duplicate")]
+    public async Task FindAsync_Different_Quantity_Has_No_Sibling()
+    {
+        var target = Stage(FoodBasics, "A", 1m, quantity: 1m);
+        Stage(FoodBasics, "A", 1m, quantity: 2m);
+        var view = await Sut.FindAsync(target.Id, includePurchaseContext: false);
+        Assert.NotNull(view);
+        Assert.Empty(view!.DuplicateDealIds!);
     }
 
     [Fact(DisplayName = "ListPendingAsync (the flat queue) collapses duplicates the same way as the flyer-chaptered projection")]

@@ -39,6 +39,28 @@ public sealed record ConversionFact(
     decimal Factor);
 
 /// <summary>
+/// A live (non-archived) direct variant of a parent ingredient product (DM-19). D5 prices a parent by
+/// rolling up its live variants only — archived variants and the parent's own (orphaned) observations
+/// never count (plantry-i07l rule 2/5). Catalog enforces maximum tree depth one, so there is no
+/// recursion.
+/// </summary>
+public sealed record LiveVariantFact(Guid VariantId, Guid DefaultUnitId);
+
+/// <summary>
+/// A usable price observation from <c>pricing.price_observation</c> — live (<c>superseded_by_id IS NULL</c>,
+/// ADR-023 A7), quantity &gt; 0, and with a real (non-empty) unit, matching <c>EffectivePriceRollup</c>'s
+/// "usable candidate" gate (an observation with a zero/absent quantity or an empty unit has no conversion
+/// basis). D5 decides "has a price" by whether any usable observation yields a convertible candidate, not
+/// mere existence of any row (plantry-i07l rule 5).
+/// </summary>
+public sealed record PriceObservationFact(
+    Guid ProductId,
+    decimal Price,
+    decimal Quantity,
+    Guid UnitId,
+    decimal? UnitPrice);
+
+/// <summary>
 /// Builds the shared conversion delegate both bags hand their detectors — maps flat <see cref="UnitFact"/>/
 /// <see cref="ConversionFact"/> rows onto <see cref="UnitConverter"/>'s shape-typed overload (plantry-jvd7),
 /// so Tidy Up's conversion checks run the exact same graph algorithm Recipes/Inventory/Meal Planning do,

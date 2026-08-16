@@ -11,6 +11,7 @@
         SearchUrl = Url.Page("./Manual", "SearchProducts")!,
         UnitOptions = Model.UnitOptions,
         CategoryOptions = Model.CategoryOptions,
+        LocationOptions = Model.LocationOptions,
         TrackStock = true,
         Noun = "line",
         CreateLabel = "as a new product",
@@ -129,6 +130,8 @@
                         <input type="hidden" :name="'Input.Lines[' + idx + '].ProductId'" :value="row.productId" />
                         <input type="hidden" :name="'Input.Lines[' + idx + '].NewProductName'" :value="row.newStapleName" />
                         <input type="hidden" :name="'Input.Lines[' + idx + '].NewProductCategoryId'" :value="row.newStapleCategoryId" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].NewProductDefaultUnitId'" :value="row.newStapleUnit" />
+                        <input type="hidden" :name="'Input.Lines[' + idx + '].NewProductDefaultLocationId'" :value="row.newStapleDefaultLocationId" />
                         <input type="hidden" :name="'Input.Lines[' + idx + '].Quantity'" :value="row.qty" />
                         <input type="hidden" :name="'Input.Lines[' + idx + '].UnitId'" :value="row.unitId" />
                         <input type="hidden" :name="'Input.Lines[' + idx + '].LocationId'" :value="row.locationId" />
@@ -209,7 +212,7 @@
                 blankDraft() {
                     return {
                         productId: '', productName: '', newStapleName: null, newStapleUnit: '',
-                        newStapleCategoryId: '', qty: '', unitId: '', locationId: '', price: '',
+                        newStapleCategoryId: '', newStapleDefaultLocationId: '', qty: '', unitId: '', locationId: '', price: '',
                         expiryDate: '',
                     };
                 },
@@ -281,7 +284,8 @@
                         // reconcile whichever of the two fields the user actually touched.
                         if (draft.newStapleUnit && !draft.unitId) draft.unitId = draft.newStapleUnit;
                         else if (draft.unitId && !draft.newStapleUnit) draft.newStapleUnit = draft.unitId;
-                        if (!draft.newStapleCategoryId) { this.sheetError = 'Choose a category for the new product.'; return; }
+                        // Category and default location are optional product defaults.  The product default
+                        // is persisted separately; never replace the host lot location with it.
                     } else if (!draft.productId) {
                         this.sheetError = 'Pick a product, or create a new one.';
                         return;

@@ -73,6 +73,10 @@ namespace Plantry.Pantry.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("default_location_id");
 
+                    b.Property<Guid?>("DefaultProducedCategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("default_produced_category_id");
+
                     b.Property<int>("ExpiringSoonDays")
                         .HasColumnType("integer")
                         .HasColumnName("expiring_soon_days");

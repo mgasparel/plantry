@@ -452,6 +452,8 @@ public sealed class AddCountedItemCommand(
     IClock clock,
     ITenantContext tenant,
     Guid? categoryId = null,
+    /// <summary>Optional Catalog default location; the walk location remains the opening-lot location.</summary>
+    Guid? defaultLocationId = null,
     /// <summary>Optional expiry for the opening-balance lot (plantry-4onl).</summary>
     DateOnly? expiryDate = null)
 {
@@ -468,7 +470,7 @@ public sealed class AddCountedItemCommand(
         Guid productId;
         try
         {
-            productId = await writer.CreateTrackedProductAsync(name, defaultUnitId, categoryId, locationId, ct);
+            productId = await writer.CreateTrackedProductAsync(name, defaultUnitId, categoryId, defaultLocationId, ct);
         }
         catch (InvalidOperationException ex)
         {

@@ -41,6 +41,7 @@ import { createToast, createToastHost } from "./toast.js?v=1";
 import {
   makeLine as makeLineFromSeed,
   mergeStagedProductOption,
+  applyStagedProductSelection,
   lineSection,
   isSurePending,
   buildSaveLineBody,
@@ -97,6 +98,8 @@ import {
  * @property {boolean} isNewProduct
  * @property {string|null} newProductName
  * @property {string|null} newProductCategoryId
+ * @property {string|null} newProductDefaultUnitId
+ * @property {string|null} newProductDefaultLocationId
  * @property {string|null} stagedProductId
  * @property {number|null} suggestedPrice
  * @property {number|null} priceDeltaPercent   unit-price delta vs the product's last purchase (plantry-bb7p), e.g. 0.12 for "▲ 12%"; null unless the line is Confirmed and both its own and the prior unit price normalized
@@ -122,6 +125,11 @@ import {
  * @property {string} name
  * @property {SkuOption[]} skus
  * @property {ProductDefaults} defaults
+ */
+
+/**
+ * The deferred Catalog identity returned by staged-product hydration.
+ * @typedef {import("./intake-review-logic.js").StagedProductHydration} StagedProductHydration
  */
 
 /**
@@ -179,7 +187,7 @@ import {
  * @property {string} confirmLinesUrl
  * @property {string} correctHeaderUrl
  * @property {ProductHydration[]} products
- * @property {{id:string, name:string, categoryId:string, defaultUnitId:string}[]|null} stagedProducts
+ * @property {StagedProductHydration[]|null} stagedProducts
  * @property {UnitHydration[]} units
  * @property {LocationHydration[]} locations
  * @property {CategoryHydration[]} categories
@@ -342,11 +350,11 @@ function pickAlternative(ls, k) {
 
 /**
  * @param {{
- *   ls: LineState, products: ProductHydration[], stagedProducts: {id:string,name:string,categoryId:string,defaultUnitId:string}[], categories: CategoryHydration[],
+ *   ls: LineState, products: ProductHydration[], stagedProducts: StagedProductHydration[], units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
  *   skuCount: number,
  * }} props
  */
-function MatchBlock({ ls, products, stagedProducts = [], categories, skuCount }) {
+function MatchBlock({ ls, products, stagedProducts = [], units = [], locations = [], categories, skuCount }) {
   // ── Search mode (M / "Change match") — inline searchable-select with a demoted "+ Create" escape. ──
   if (ls.searchOpen.value) {
     const q = ls.draftProductName.value.trim().toLowerCase();
@@ -391,7 +399,7 @@ function MatchBlock({ ls, products, stagedProducts = [], categories, skuCount })
       <div class="focus-card__link">Plantry suggests</div>
       <div class="focus-card__match">
         <div class="focus-card__src">New catalog product</div>
-        <div class="focus-card__details" style="grid-template-columns: 3fr 1fr; margin-top: var(--space-2)">
+        <div class="focus-card__details" style="grid-template-columns: 2fr 1fr 1fr; margin-top: var(--space-2)">
           <div class="form-grid__field">
             <label class="form-grid__field__label">Product name</label>
             <div class="form-grid__field__control">
@@ -401,13 +409,38 @@ function MatchBlock({ ls, products, stagedProducts = [], categories, skuCount })
             </div>
           </div>
           <div class="form-grid__field">
+            <label class="form-grid__field__label">Default unit</label>
+            <div class="form-grid__field__control">
+              <select class="field__input" name="Edit.NewProductDefaultUnitId" value=${ls.draftNewDefaultUnitId.value}
+                      disabled=${!!ls.stagedProductId.value}
+                      onChange=${(/** @type {Event} */ e) => { ls.draftNewDefaultUnitId.value = /** @type {HTMLSelectElement} */ (e.target).value; }}>
+                <option value="">— Unit —</option>
+                ${units.map((u) => html`<option key=${u.id} value=${u.id}>${u.code} — ${u.name}</option>`)}
+              </select>
+            </div>
+          </div>
+          <div class="form-grid__field">
             <label class="form-grid__field__label">Category</label>
             <div class="form-grid__field__control">
-              <select class="field__input" name="Edit.NewProductCategoryId" value=${ls.draftNewCategoryId}
+              <select class="field__input" name="Edit.NewProductCategoryId" value=${ls.draftNewCategoryId.value}
                       disabled=${!!ls.stagedProductId.value}
                       onChange=${(/** @type {Event} */ e) => { ls.draftNewCategoryId.value = /** @type {HTMLSelectElement} */ (e.target).value; }}>
                 <option value="">— Category —</option>
                 ${categories.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+              </select>
+            </div>
+          </div>
+          <div class="form-grid__field">
+            <label class="form-grid__field__label">Default location</label>
+            <div class="form-grid__field__control">
+              <select class="field__input" name="Edit.NewProductDefaultLocationId" value=${ls.draftNewDefaultLocationId.value}
+                      disabled=${!!ls.stagedProductId.value}
+                      onChange=${(/** @type {Event} */ e) => {
+                        ls.draftNewDefaultLocationId.value = /** @type {HTMLSelectElement} */ (e.target).value;
+                        if (ls.draftNewDefaultLocationId.value) ls.draftLocationId.value = ls.draftNewDefaultLocationId.value;
+                      }}>
+                <option value="">— None —</option>
+                ${locations.map((l) => html`<option key=${l.id} value=${l.id}>${l.name}</option>`)}
               </select>
             </div>
           </div>
@@ -481,14 +514,14 @@ function displayNameFor(ls, products) {
 let enterCreate = () => {};
 /** @type {(ls: LineState, product: ProductHydration, products: ProductHydration[]) => void} */
 let pickSearchResult = () => {};
-/** @type {(ls: LineState, product: {id:string,name:string,categoryId:string,defaultUnitId:string}) => void} */
+/** @type {(ls: LineState, product: StagedProductHydration) => void} */
 let pickStagedSearchResult = () => {};
 
 // ── DeckCard — the top judgement-call card (.focus-card family) ──────────────────
 
 /**
  * @param {{
- *   ls: LineState, products: ProductHydration[], stagedProducts: {id:string,name:string,categoryId:string,defaultUnitId:string}[], units: UnitHydration[], locations: LocationHydration[],
+ *   ls: LineState, products: ProductHydration[], stagedProducts: StagedProductHydration[], units: UnitHydration[], locations: LocationHydration[],
  *   categories: CategoryHydration[], today: string, canSkip: boolean, canBack: boolean,
  *   onConfirm: () => void, onReject: () => void, onSkip: () => void, onBack: () => void,
  *   onSearchOn: (ls: LineState) => void, onSearchOff: (ls: LineState) => void,
@@ -570,7 +603,7 @@ function DeckCard({ ls, products, stagedProducts = [], units, locations, categor
           <svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> ${ls.error.value}
         </div>`}
 
-      <${MatchBlock} ls=${ls} products=${products} stagedProducts=${stagedProducts} categories=${categories} skuCount=${skuCount} />
+      <${MatchBlock} ls=${ls} products=${products} stagedProducts=${stagedProducts} units=${units} locations=${locations} categories=${categories} skuCount=${skuCount} />
       ${!inSearch && html`<${DetailsStrip} ls=${ls} units=${units} locations=${locations} today=${today} />`}
 
       <div class="focus-verbs">
@@ -807,7 +840,7 @@ function HeaderPanel({ header, stores, storeBranch, handlers }) {
  *   order: import("@preact/signals").Signal<string[]>,
  *   skipStack: import("@preact/signals").Signal<string[]>,
  *   baseline: import("@preact/signals").Signal<number>,
- *   products: ProductHydration[], stagedProducts: import("@preact/signals").Signal<{id:string,name:string,categoryId:string,defaultUnitId:string}[]>, units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
+ *   products: ProductHydration[], stagedProducts: import("@preact/signals").Signal<StagedProductHydration[]>, units: UnitHydration[], locations: LocationHydration[], categories: CategoryHydration[],
  *   session: SessionHydration,
  *   header: any,
  *   alert: import("@preact/signals").Signal<string>,
@@ -1147,7 +1180,7 @@ export function mountIntakeReview(root, hydration) {
   function validateLine(ls) {
     const qty = parseFloat(ls.draftQty.value);
     if (ls.createNew.value) {
-      if (!ls.draftNewName.value.trim() || !ls.draftNewCategoryId.value) return "A new product needs a name and a category.";
+      if (!ls.draftNewName.value.trim() || !ls.draftNewDefaultUnitId.value) return "A new product needs a name and a default unit.";
     } else if (!ls.draftProductId.value) {
       return "Choose a product, or switch to creating a new one.";
     }
@@ -1221,18 +1254,25 @@ export function mountIntakeReview(root, hydration) {
     });
   };
   pickStagedSearchResult = (ls, staged) => {
+    const draft = applyStagedProductSelection(staged, {
+      draftLocationId: ls.draftLocationId.value,
+      draftUnitId: ls.draftUnitId.value,
+    });
     batch(() => {
       // A staged alias is still a deferred new-product decision, not a Catalog ProductId. Keep the
       // catalog id blank and carry the explicit staged id in the SaveLine payload.
-      ls.stagedProductId.value = staged.id;
-      ls.draftProductId.value = "";
-      ls.draftProductName.value = staged.name;
-      ls.draftNewName.value = staged.name;
-      ls.draftNewCategoryId.value = staged.categoryId;
-      ls.draftSkuId.value = "";
-      ls.createNew.value = true;
-      ls.searchOpen.value = false;
-      if (!ls.draftUnitId.value) ls.draftUnitId.value = staged.defaultUnitId;
+      ls.stagedProductId.value = draft.stagedProductId;
+      ls.draftProductId.value = draft.draftProductId;
+      ls.draftProductName.value = draft.draftProductName;
+      ls.draftNewName.value = draft.draftNewName;
+      ls.draftNewCategoryId.value = draft.draftNewCategoryId;
+      ls.draftNewDefaultUnitId.value = draft.draftNewDefaultUnitId;
+      ls.draftNewDefaultLocationId.value = draft.draftNewDefaultLocationId;
+      ls.draftSkuId.value = draft.draftSkuId;
+      ls.createNew.value = draft.createNew;
+      ls.searchOpen.value = draft.searchOpen;
+      ls.draftUnitId.value = draft.draftUnitId;
+      // draftLocationId is intentionally not assigned: lot location remains line-local.
     });
   };
   /** @param {string} lineId */

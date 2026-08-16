@@ -58,10 +58,12 @@ public sealed class CreateProductCommand(
         if (await units.FindAsync(UnitId.From(defaultUnitId), ct) is null)
             return Error.Custom("Catalog.UnknownUnit", "The selected default unit does not exist.");
 
-        if (categoryId is { } catId && await categories.FindAsync(CategoryId.From(catId), ct) is null)
+        if (categoryId is { } catId &&
+            !(await categories.ListActiveAsync(ct)).Any(category => category.Id == CategoryId.From(catId)))
             return Error.Custom("Catalog.UnknownCategory", "The selected category does not exist.");
 
-        if (defaultLocationId is { } locId && await locations.FindAsync(LocationId.From(locId), ct) is null)
+        if (defaultLocationId is { } locId &&
+            !(await locations.ListActiveAsync(ct)).Any(location => location.Id == LocationId.From(locId)))
             return Error.Custom("Catalog.UnknownLocation", "The selected default location does not exist.");
 
         return null;

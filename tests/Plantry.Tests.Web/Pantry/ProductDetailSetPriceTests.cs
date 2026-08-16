@@ -183,6 +183,103 @@ public sealed class ProductDetailSetPriceTests : IDisposable
         var html = await response.Content.ReadAsStringAsync();
         Assert.Contains("2.99", html, StringComparison.Ordinal);
     }
+
+    // ── Parent products: no price recorded on the parent (plantry-i07l) ──────────────────────────
+
+    [Fact(DisplayName = "SetPriceSheet — parent returns a hint, never the recording sheet")]
+    public async Task SetPriceSheet_Parent_ReturnsParentHint()
+    {
+        var client = AuthClient();
+        _factory.SetParentMode();
+
+        var response = await client.GetAsync(
+            $"/Pantry/Products/Detail/{ProductDetailSetPriceFixture.ProductId}?handler=SetPriceSheet");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains(ProductDetailSetPriceFixture.ParentHint, html, StringComparison.Ordinal);
+        // No recording form is rendered — the sheet-host is replaced by the hint fragment.
+        Assert.DoesNotContain("PriceInput.Price", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Save price", html, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "SetPrice POST — parent records nothing and returns a disabled price display")]
+    public async Task SetPrice_Parent_RecordsNothing()
+    {
+        var client = AuthClient();
+        _factory.SetParentMode();
+        var token = await GetAntiforgeryTokenAsync(client, ProductDetailSetPriceFixture.ProductId);
+
+        var response = await client.PostAsync(
+            $"/Pantry/Products/Detail/{ProductDetailSetPriceFixture.ProductId}?handler=SetPrice",
+            new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("__RequestVerificationToken", token),
+                new KeyValuePair<string, string>("PriceInput.Price", "3.99"),
+                new KeyValuePair<string, string>("PriceInput.Quantity", "500"),
+                new KeyValuePair<string, string>("PriceInput.UnitId", ProductDetailSetPriceFixture.UnitId.ToString()),
+            }));
+
+        // The POST is a no-op: no observation is persisted (a parent has no stock/price of its own —
+        // pricing happens on variants), and the response variant-tails the price display, disabled.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(_factory.PriceRepo.Items);
+        Assert.Equal(0, _factory.PriceRepo.SaveChangesCalls);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("disabled", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(ProductDetailSetPriceFixture.ParentHint, html, StringComparison.Ordinal);
+        Assert.DoesNotContain("PriceInput.Price", html, StringComparison.Ordinal); // no form ever renders
+    }
+
+    [Fact(DisplayName = "Detail GET — parent price equals the costing live-variant rollup (cheapest usable convertible variant)")]
+    public async Task Get_Parent_ShowsCostingRollupPrice()
+    {
+        // Parent has two live variants in two units; the identity conversion provider (factor 1) is used
+        // here so no unit graph is needed. V1 1.80/500g = 0.0036/g beats V2 2.00/1ea = 2.00/g — the rollup
+        // picks V1 as the cheapest usable candidate and displays its raw price.
+        _factory.SetParentMode();
+        // Key observations by the variants' DOMAIN ids — what the rollup reads (v.Id.Value).
+        var v1Id = _factory.Variant1!.Id.Value;
+        var v2Id = _factory.Variant2!.Id.Value;
+        var parentUnitId = _factory.Parent!.DefaultUnitId.Value;
+        _factory.PriceRepo.Items.Add(PriceObservation.Record(
+            ProductDetailSetPriceFixture.Household, v1Id, null,
+            price: 1.80m, quantity: 500m, unitId: parentUnitId,
+            unitPrice: 0.0036m, source: PriceSource.Manual, merchantText: null, sourceRef: null,
+            observedAt: DateTimeOffset.UtcNow, userId: Guid.Parse("00000000-0000-0000-0000-0000000000aa")));
+        _factory.PriceRepo.Items.Add(PriceObservation.Record(
+            ProductDetailSetPriceFixture.Household, v2Id, null,
+            price: 2.00m, quantity: 1m, unitId: ProductDetailSetPriceFixture.EachId,
+            unitPrice: 2.00m, source: PriceSource.Manual, merchantText: null, sourceRef: null,
+            observedAt: DateTimeOffset.UtcNow, userId: Guid.Parse("00000000-0000-0000-0000-0000000000aa")));
+
+        var client = AuthClient();
+        var response = await client.GetAsync($"/Pantry/Products/Detail/{ProductDetailSetPriceFixture.ProductId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        // Winning candidate is V1: raw 1.80, displayed as "for 500 g".
+        Assert.Contains("1.80", html, StringComparison.Ordinal);
+        Assert.Contains("500", html, StringComparison.Ordinal);
+        // The set-price CTA is disabled on a parent.
+        Assert.Contains("disabled", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "Detail GET — parent price falls back to the rollup's no-candidate placeholder when no variant is priced")]
+    public async Task Get_Parent_NoPricedVariant_ShowsPlaceholder()
+    {
+        // Parent with a live variant but no usable observation on it — the rollup yields no candidate so
+        // the price line shows the idle placeholder, exactly like an unpriced concrete product.
+        _factory.SetParentMode();
+
+        var client = AuthClient();
+        var response = await client.GetAsync($"/Pantry/Products/Detail/{ProductDetailSetPriceFixture.ProductId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Contains("vital__val--empty", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("for ", html, StringComparison.Ordinal); // no "for N unit" ever renders
+    }
 }
 
 // ── Fixture data ──────────────────────────────────────────────────────────────
@@ -196,8 +293,34 @@ internal static class ProductDetailSetPriceFixture
     internal static readonly Guid ProductId = Guid.Parse("eeeeeeee-0000-0000-0000-eee000000001");
     internal static readonly Guid UnitId = Guid.Parse("ffffffff-0000-0000-0000-fff000000001");
 
+    // ── Parent / variant data (plantry-i07l) ──────────────────────────────────────────────────────
+    internal const string ParentHint = "Prices can only be set on variants, not on parent products.";
+    internal static readonly Guid EachId = Guid.Parse("ffffffff-0000-0000-0000-fff0000000ea");
+    /// <summary>The parent fixture shares <see cref="ProductId"/> (product name "Test Product"); its two
+    /// live variants live at these ids, with the parent's <see cref="UnitId"/> (grams) as reference.</summary>
+    internal static readonly (Guid V1, Guid V2, Guid ParentUnitId) ParentVariantIds =
+        (Guid.Parse("eeeeeeee-0000-0000-0000-0000000000aa"),
+         Guid.Parse("eeeeeeee-0000-0000-0000-0000000000bb"),
+         UnitId);
+
     internal static CatalogUnit BuildUnit() =>
         CatalogUnit.Create(Household, "g", "Grams", Dimension.Mass, 1m, isBase: true);
+
+    /// <summary>The parent <see cref="Product"/> plus two live variants (<c>HasVariants</c> set, each a
+    /// child of the parent) — the shape <c>BuildPriceDisplayAsync</c>'s parent branch rolls up
+    /// (plantry-i07l). The caller maps domain ids onto the fixture route id via the repository fake.</summary>
+    internal static (Product Parent, Product V1, Product V2) BuildParentWithVariants(CatalogUnit gram)
+    {
+        var parent = Product.Create(Household, "Test Product", gram.Id, Clock);
+        parent.SetHasVariants(true, Clock);
+
+        var v1 = Product.Create(Household, "Jar 500g", gram.Id, Clock);
+        v1.MakeVariantOf(parent.Id, Clock);
+        var v2 = Product.Create(Household, "Jar 250g", gram.Id, Clock);
+        v2.MakeVariantOf(parent.Id, Clock);
+
+        return (parent, v1, v2);
+    }
 
     /// <summary>Stock with no active lots — mirrors the "seeded pantry stock, no price" scenario
     /// plantry-3fqm exists to fix: quantities came in via Take Stock, cost never did.</summary>
@@ -209,6 +332,32 @@ internal static class ProductDetailSetPriceFixture
 internal sealed class ProductDetailSetPriceFactory : WebApplicationFactory<Program>
 {
     internal FakePriceObservationRepository PriceRepo { get; } = new();
+
+    /// <summary>Runs for <see cref="IProductRepository"/>/<see cref="ICatalogReadFacade"/>, shared between
+    /// the leaf and parent test modes — empty (leaf) until a parent test calls <see cref="SetParentMode"/>.</summary>
+    internal FakeParentProductRepository ProductRepo { get; } = new();
+    internal Product? Parent { get; private set; }
+    internal Product? Variant1 { get; private set; }
+    internal Product? Variant2 { get; private set; }
+
+    /// <summary>Switches the fixture to parent mode: the catalog facade reports <c>CanHoldStock == false</c>
+    /// and <see cref="ProductRepo"/> is populated with the parent plus two live variants — the shape that
+    /// exercises <c>BuildPriceDisplayAsync</c>'s parent rollup (plantry-i07l). Mutation happens in place on
+    /// the singleton instances the request pipeline resolves (forcing the host to start), so no
+    /// re-registration is needed. The built variants are exposed (by their <em>domain</em> ids, which is
+    /// what the price rollup keys observations by) so tests can seed variant prices.</summary>
+    internal void SetParentMode()
+    {
+        var catalog = (FakeCatalogReadFacade)Services.GetRequiredService<ICatalogReadFacade>();
+        catalog.CanHoldStock = false;
+        var unit = ProductDetailSetPriceFixture.BuildUnit();
+        var (parent, v1, v2) = ProductDetailSetPriceFixture.BuildParentWithVariants(unit);
+        ProductRepo.LoadParent(
+            (ProductDetailSetPriceFixture.ProductId, parent),
+            (ProductDetailSetPriceFixture.ParentVariantIds.V1, v1),
+            (ProductDetailSetPriceFixture.ParentVariantIds.V2, v2));
+        (Parent, Variant1, Variant2) = (parent, v1, v2);
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -232,6 +381,9 @@ internal sealed class ProductDetailSetPriceFactory : WebApplicationFactory<Progr
 
             services.RemoveAll<ICatalogReadFacade>();
             services.AddSingleton<ICatalogReadFacade>(new FakeCatalogReadFacade(ProductDetailSetPriceFixture.ProductId, unit));
+
+            services.RemoveAll<IProductRepository>();
+            services.AddSingleton<IProductRepository>(ProductRepo);
 
             var stockRepo = new FakeDetailStockRepository();
             stockRepo.Items.Add(stock);
@@ -290,10 +442,15 @@ internal sealed class FakeCatalogReadFacade(
     Guid productId,
     CatalogUnit unit,
     Guid? defaultUnitId = null,
-    bool productExists = true) : ICatalogReadFacade
+    bool productExists = true,
+    bool canHoldStock = true) : ICatalogReadFacade
 {
+    /// <summary>Mutable so parent-mode tests can flip the guard (plantry-i07l) without re-registering DI.</summary>
+    internal bool CanHoldStock { get; set; } = canHoldStock;
+
     private CatalogProductInfo ProductInfo =>
-        new(productId, "Test Product", "Pantry", defaultUnitId ?? unit.Id.Value, unit.Code, CanHoldStock: true);
+        new(productId, "Test Product", "Pantry", defaultUnitId ?? unit.Id.Value, unit.Code,
+            CanHoldStock: CanHoldStock);
 
     public Task<CatalogProductInfo?> FindProductAsync(Guid id, CancellationToken ct = default) =>
         Task.FromResult<CatalogProductInfo?>(id == productId && productExists
@@ -309,6 +466,52 @@ internal sealed class FakeCatalogReadFacade(
 
     public Task<IReadOnlyDictionary<Guid, string>> GetLocationNamesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+}
+
+/// <summary>Parent-capable <see cref="IProductRepository"/> for the Detail page's parent price rollup
+/// (plantry-i07l). Empty until <see cref="LoadParent"/> maps a fixture route id onto a parent plus its
+/// live variants — the leaf-price path never touches it, the parent path resolves via
+/// <c>FindAsync</c>/<c>ListVariantsAsync</c>.</summary>
+internal sealed class FakeParentProductRepository : IProductRepository
+{
+    private readonly Dictionary<ProductId, Product> _byId = [];
+    private ProductId? _parentId;
+
+    internal void LoadParent((Guid RouteId, Product Parent) parent, params (Guid RouteId, Product Variant)[] variants)
+    {
+        _byId[ProductId.From(parent.RouteId)] = parent.Parent;
+        _parentId = parent.Parent.Id;
+        foreach (var (routeId, variant) in variants)
+            _byId[ProductId.From(routeId)] = variant;
+    }
+
+    public Task<Product?> FindAsync(ProductId id, CancellationToken ct = default) =>
+        Task.FromResult(_byId.GetValueOrDefault(id));
+
+    public Task<Product?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult<Product?>(null);
+
+    public Task<List<Product>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(_byId.Values.ToList());
+
+    public Task<List<Product>> ListActiveWithSkusAsync(CancellationToken ct = default) =>
+        Task.FromResult(_byId.Values.ToList());
+
+    public Task<List<Product>> ListWithConversionsAsync(IEnumerable<ProductId> ids, CancellationToken ct = default) =>
+        Task.FromResult(_byId.Where(kv => ids.Contains(kv.Key)).Select(kv => kv.Value).ToList());
+
+    public Task<List<Product>> ListVariantsAsync(ProductId parentId, CancellationToken ct = default) =>
+        Task.FromResult(_parentId == parentId
+            ? _byId.Values.Where(p => p.IsVariant).ToList()
+            : []);
+
+    public Task AddAsync(Product product, CancellationToken ct = default)
+    {
+        _byId[product.Id] = product;
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 internal sealed class FakeDetailStockRepository : IProductStockRepository

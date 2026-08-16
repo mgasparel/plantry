@@ -89,11 +89,11 @@ public sealed class IndexModel(
     }
 
     public async Task<IActionResult> OnGetFilterAsync(
-        string? q, string? expiry, string? category, string? location, bool hideVariants, string? scope)
+        string? q, string? expiry, string? category, string? location, bool hideVariants, bool produced, string? scope)
     {
         Scope = NormalizeScope(scope);
         var all = await LoadItemsAsync(Scope == ScopeEverything);
-        var items = Filter(all, q, expiry, category, location, hideVariants);
+        var items = Filter(all, q, expiry, category, location, hideVariants, produced);
         return Partial("_PantryList", new PantryListPartialModel(BuildPantryGrid(items), Oob: false));
     }
 
@@ -312,7 +312,8 @@ public sealed class IndexModel(
                 ExpiryTone: ExpiryTone.None,
                 IsStocked: false,
                 IsParent: p.IsParent,
-                IsArchived: p.IsArchived));
+                IsArchived: p.IsArchived,
+                IsProduced: p.IsProduced));
 
         return [.. inStock, .. unstocked];
     }
@@ -341,11 +342,18 @@ public sealed class IndexModel(
             .ToList();
     }
 
+    internal static IReadOnlyList<PantryListItem> FilterForTests(
+        IReadOnlyList<PantryListItem> items, string? q, string? expiry,
+        string? category, string? location, bool hideVariants, bool produced) =>
+        Filter(items, q, expiry, category, location, hideVariants, produced);
+
     private static IReadOnlyList<PantryListItem> Filter(
         IReadOnlyList<PantryListItem> items, string? q, string? expiry,
-        string? category, string? location, bool hideVariants)
+        string? category, string? location, bool hideVariants, bool produced)
     {
         IEnumerable<PantryListItem> rows = items;
+        if (produced)
+            rows = rows.Where(i => i.IsProduced);
         if (!string.IsNullOrWhiteSpace(q))
             rows = rows.Where(i => i.Name.Contains(q.Trim(), StringComparison.OrdinalIgnoreCase));
         rows = expiry switch

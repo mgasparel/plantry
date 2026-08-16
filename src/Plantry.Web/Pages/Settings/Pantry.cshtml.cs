@@ -31,12 +31,15 @@ namespace Plantry.Web.Pages.Settings;
 public sealed class PantryModel(
     ExpiringSoonSettingsService expiringSoonSettings,
     HouseholdDefaultLocationService defaultLocationSettings,
-    ILocationRepository locations) : PageModel
+    HouseholdDefaultProducedCategoryService producedCategorySettings,
+    ILocationRepository locations,
+    ICategoryRepository categories) : PageModel
 {
     [BindProperty]
     public InputModel Input { get; set; } = new();
 
     public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
+    public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
 
     /// <summary>True when a POST persisted successfully — drives the confirmation badge.</summary>
     public bool Saved { get; private set; }
@@ -52,12 +55,16 @@ public sealed class PantryModel(
 
         [Display(Name = "Default storage location")]
         public Guid? DefaultLocationId { get; set; }
+
+        [Display(Name = "Default category for automatically created produced products")]
+        public Guid? DefaultProducedCategoryId { get; set; }
     }
 
     public async Task OnGetAsync(CancellationToken ct = default)
     {
         Input.ExpiringSoonDays = await expiringSoonSettings.GetDaysAsync(ct);
         Input.DefaultLocationId = await defaultLocationSettings.GetDefaultLocationIdAsync(ct);
+        Input.DefaultProducedCategoryId = await producedCategorySettings.GetDefaultProducedCategoryIdAsync(ct);
         await LoadLocationOptionsAsync(ct);
     }
 
@@ -76,10 +83,16 @@ public sealed class PantryModel(
         // truth for this check (also used internally by SetDefaultLocationAsync below) — rather than a
         // second inline copy of the existence/active check, its message, and its rejection log line.
         var locationValidation = await defaultLocationSettings.ValidateLocationAsync(Input.DefaultLocationId, ct);
+        var categoryValidation = await producedCategorySettings.ValidateAsync(Input.DefaultProducedCategoryId, ct);
         if (locationValidation.IsFailure)
         {
-            ModelState.AddModelError(
-                nameof(Input) + "." + nameof(InputModel.DefaultLocationId), locationValidation.Error.Description);
+            ModelState.AddModelError(nameof(Input) + "." + nameof(InputModel.DefaultLocationId), locationValidation.Error.Description);
+            await LoadLocationOptionsAsync(ct);
+            return Page();
+        }
+        if (categoryValidation.IsFailure)
+        {
+            ModelState.AddModelError(nameof(Input) + "." + nameof(InputModel.DefaultProducedCategoryId), categoryValidation.Error.Description);
             await LoadLocationOptionsAsync(ct);
             return Page();
         }
@@ -88,6 +101,14 @@ public sealed class PantryModel(
         if (daysResult.IsFailure)
         {
             ModelState.AddModelError(nameof(Input) + "." + nameof(InputModel.ExpiringSoonDays), daysResult.Error.Description);
+            await LoadLocationOptionsAsync(ct);
+            return Page();
+        }
+
+        var categoryResult = await producedCategorySettings.SetAsync(Input.DefaultProducedCategoryId, ct);
+        if (categoryResult.IsFailure)
+        {
+            ModelState.AddModelError(nameof(Input) + "." + nameof(InputModel.DefaultProducedCategoryId), categoryResult.Error.Description);
             await LoadLocationOptionsAsync(ct);
             return Page();
         }
@@ -103,6 +124,7 @@ public sealed class PantryModel(
         // Reflect the persisted values (in case of any normalization) and confirm.
         Input.ExpiringSoonDays = await expiringSoonSettings.GetDaysAsync(ct);
         Input.DefaultLocationId = await defaultLocationSettings.GetDefaultLocationIdAsync(ct);
+        Input.DefaultProducedCategoryId = await producedCategorySettings.GetDefaultProducedCategoryIdAsync(ct);
         await LoadLocationOptionsAsync(ct);
         Saved = true;
         return Page();
@@ -112,6 +134,9 @@ public sealed class PantryModel(
     {
         LocationOptions = (await locations.ListActiveAsync(ct))
             .Select(l => new SelectListItem(l.Name, l.Id.Value.ToString()))
+            .ToList();
+        CategoryOptions = (await categories.ListActiveAsync(ct))
+            .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))
             .ToList();
     }
 }

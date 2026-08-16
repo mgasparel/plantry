@@ -19,11 +19,27 @@ public sealed record ManualPurchaseLineInput(
     Guid? ProductId,
     string? NewProductName,
     Guid? NewProductCategoryId,
+    Guid? NewProductDefaultUnitId,
+    Guid? NewProductDefaultLocationId,
     decimal Quantity,
     Guid UnitId,
     Guid LocationId,
     decimal? Price = null,
-    DateOnly? ExpiryDate = null);
+    DateOnly? ExpiryDate = null)
+{
+    public ManualPurchaseLineInput(
+        Guid? ProductId,
+        string? NewProductName,
+        Guid? NewProductCategoryId,
+        decimal Quantity,
+        Guid UnitId,
+        Guid LocationId,
+        decimal? Price = null,
+        DateOnly? ExpiryDate = null)
+        : this(ProductId, NewProductName, NewProductCategoryId, UnitId, null, Quantity, UnitId, LocationId, Price, ExpiryDate)
+    {
+    }
+}
 
 /// <summary>
 /// Commits a typed purchase (store, date, one or more lines) in a single call — the application command
@@ -140,8 +156,8 @@ public sealed class LogManualPurchaseCommand(
             var line = session.AddLine(lineNo, label, SuggestedConfidence.None, rawPayload: null);
             var confirm = isNewProduct
                 ? line.ConfirmAsNew(
-                    input.NewProductName!, input.NewProductCategoryId!.Value, input.Quantity, input.UnitId,
-                    input.LocationId, input.ExpiryDate, input.Price)
+                    input.NewProductName!, input.NewProductCategoryId, input.NewProductDefaultLocationId, input.Quantity,
+                    input.NewProductDefaultUnitId ?? input.UnitId, input.UnitId, input.LocationId, input.ExpiryDate, input.Price)
                 : line.Confirm(
                     input.ProductId!.Value, skuId: null, input.Quantity, input.UnitId, input.LocationId,
                     input.ExpiryDate, input.Price);
@@ -211,8 +227,10 @@ public sealed class LogManualPurchaseCommand(
                 return Error.Custom(
                     "Intake.InvalidLineProduct",
                     $"Line {lineNo}: must name either an existing product or a new product, not both or neither.");
-            if (isNew && line.NewProductCategoryId is null)
-                return Error.Custom("Intake.MissingProductCategory", $"Line {lineNo}: a new product needs a category.");
+            if (isNew && (line.NewProductDefaultUnitId is not { } defaultUnitId || defaultUnitId == Guid.Empty))
+                return Error.Custom("Intake.MissingProductDefaultUnit", $"Line {lineNo}: choose a default unit for the new product.");
+            if (isNew && line.NewProductDefaultLocationId is { } locationId && locationId == Guid.Empty)
+                return Error.Custom("Intake.InvalidDefaultLocation", $"Line {lineNo}: choose a valid default location.");
         }
 
         return null;

@@ -100,6 +100,14 @@
                    hx-include=".pantry-filter" />
             Hide variants
         </label>
+
+        <label class="pantry-toolbar__toggle">
+            <input type="checkbox" name="produced" value="true" class="pantry-filter"
+                   hx-get="@Url.Page("./Index", "Filter")"
+                   hx-trigger="change" hx-target="#pantry-list" hx-swap="outerHTML"
+                   hx-include=".pantry-filter" />
+            Produced only
+        </label>
     </div>
 </div>
 

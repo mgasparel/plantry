@@ -251,6 +251,32 @@ public sealed class CreateGroupedProductCommandTests
     }
 
     [Fact]
+    public async Task Rejects_Archived_Category()
+    {
+        var f = MakeFixture();
+        f.Category.Archive(Clock);
+
+        var result = await f.BuildCommand(categoryId: f.Category.Id.Value).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.UnknownCategory", result.Error.Code);
+        Assert.Equal(0, f.Products.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task Rejects_Archived_Location()
+    {
+        var f = MakeFixture();
+        f.Location.Archive(Clock);
+
+        var result = await f.BuildCommand(locationId: f.Location.Id.Value).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Catalog.UnknownLocation", result.Error.Code);
+        Assert.Equal(0, f.Products.SaveChangesCalls);
+    }
+
+    [Fact]
     public async Task No_Products_Written_When_Group_Name_Collides()
     {
         // Even though the variant name is free, we must not write anything if the group name collides.

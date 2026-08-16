@@ -53,7 +53,7 @@ public sealed class DealAwareCostingAdapterTests
         var repo = SeededRepo(productId);
         var clock = new MutableClock(InWindow);
         var costing = new CostingService(
-            new PriceReaderAdapter(new PricingQueries(repo), clock),
+            new PriceReaderAdapter(new PricingQueries(repo), clock, EmptyCatalog, new IdentityUnitConverter()),
             new IdentityUnitConverter(),
             EmptyCatalog);
 
@@ -70,7 +70,7 @@ public sealed class DealAwareCostingAdapterTests
         var repo = SeededRepo(productId);
         var clock = new MutableClock(AfterWindow); // deal expired; only latest purchase remains buyable
         var costing = new CostingService(
-            new PriceReaderAdapter(new PricingQueries(repo), clock),
+            new PriceReaderAdapter(new PricingQueries(repo), clock, EmptyCatalog, new IdentityUnitConverter()),
             new IdentityUnitConverter(),
             EmptyCatalog);
 
@@ -103,7 +103,7 @@ public sealed class DealAwareCostingAdapterTests
 
         var clock = new MutableClock(InWindow);
         var costing = new CostingService(
-            new PriceReaderAdapter(new PricingQueries(repo), clock),
+            new PriceReaderAdapter(new PricingQueries(repo), clock, EmptyCatalog, new IdentityUnitConverter()),
             new IdentityUnitConverter(),
             EmptyCatalog);
 
@@ -142,7 +142,7 @@ public sealed class DealAwareCostingAdapterTests
 
         var clock = new MutableClock(InWindow); // deal is active, but unitless
         var costing = new CostingService(
-            new PriceReaderAdapter(new PricingQueries(repo), clock),
+            new PriceReaderAdapter(new PricingQueries(repo), clock, EmptyCatalog, new IdentityUnitConverter()),
             new IdentityUnitConverter(),
             EmptyCatalog);
 
@@ -168,7 +168,7 @@ public sealed class DealAwareCostingAdapterTests
         repo.Add(original);
         repo.Add(amendment);
 
-        var reader = new PriceReaderAdapter(new PricingQueries(repo), new MutableClock(InWindow));
+        var reader = new PriceReaderAdapter(new PricingQueries(repo), new MutableClock(InWindow), EmptyCatalog, new IdentityUnitConverter());
         var point = await reader.FindLatestAsync(productId);
 
         Assert.NotNull(point);
@@ -185,7 +185,7 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(InWindow);
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
-            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
+            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock, EmptyCatalog, new IdentityUnitConverter()),
             new IdentityMealPlanUnitConverter(),
             clock);
 
@@ -203,7 +203,7 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(AfterWindow);
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
-            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
+            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock, EmptyCatalog, new IdentityUnitConverter()),
             new IdentityMealPlanUnitConverter(),
             clock);
 
@@ -232,7 +232,7 @@ public sealed class DealAwareCostingAdapterTests
         var clock = new MutableClock(InWindow);
         var planCosting = new PlanCostingService(
             new UnusedRecipeReadModel(),
-            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock),
+            new MealPlanPriceReaderAdapter(new PricingQueries(repo), clock, EmptyCatalog, new IdentityUnitConverter()),
             new IdentityMealPlanUnitConverter(),
             clock);
 
@@ -370,7 +370,7 @@ public sealed class DealAwareCostingAdapterTests
     {
         public Task<Result<decimal>> ConvertAsync(
             Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
-            Task.FromResult(fromUnitId == toUnitId
+            Task.FromResult(fromUnitId == toUnitId || toUnitId == Guid.Empty
                 ? Result<decimal>.Success(amount)
                 : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No conversion path.")));
     }
@@ -410,7 +410,7 @@ public sealed class DealAwareCostingAdapterTests
     {
         public Task<Result<decimal>> ConvertAsync(
             Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
-            Task.FromResult(fromUnitId == toUnitId
+            Task.FromResult(fromUnitId == toUnitId || toUnitId == Guid.Empty
                 ? Result<decimal>.Success(amount)
                 : Result<decimal>.Failure(Error.Custom("Catalog.NoConversionPath", "No conversion path.")));
     }

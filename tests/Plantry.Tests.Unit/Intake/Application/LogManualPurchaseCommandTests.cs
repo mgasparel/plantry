@@ -281,15 +281,15 @@ public sealed class LogManualPurchaseCommandTests
     }
 
     [Fact]
-    public async Task Rejects_A_New_Product_Line_With_No_Category()
+    public async Task Allows_A_New_Product_Line_With_No_Category()
     {
         var lines = new List<ManualPurchaseLineInput> { new(null, "Mystery item", null, 1m, _unitId, _locationId) };
         var repo = new FakeImportSessionRepository();
 
         var result = await Command(lines, repo).ExecuteAsync();
 
-        Assert.True(result.IsFailure);
-        Assert.Equal("Intake.MissingProductCategory", result.Error.Code);
+        Assert.True(result.IsSuccess);
+        Assert.NotEqual(Guid.Empty, result.Value.Value);
     }
 
     [Fact]

@@ -119,7 +119,8 @@ public sealed class ReviewHydrationContractTests
             "lineId", "receiptText", "confidence", "status",
             "productId", "skuId", "quantity", "unitId", "locationId",
             "expiryDate", "price", "isNewProduct", "newProductName",
-            "newProductCategoryId", "suggestedPrice", "priceDeltaPercent", "dealHit");
+            "newProductCategoryId", "newProductDefaultUnitId", "newProductDefaultLocationId",
+            "suggestedPrice", "priceDeltaPercent", "dealHit");
         HydrationContract.AssertKeys(item.GetProperty("prefill"),
             "productId", "productName", "quantity", "unitId", "locationId",
             "price", "expiry", "skuId");

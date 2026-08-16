@@ -145,6 +145,7 @@ public sealed class ReviewModel(
 
     /// <summary>Category options for the inline-create sheet's Defaults collapsible (Category is optional).</summary>
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
+    public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
 
     // ── GET ─────────────────────────────────────────────────────────────────────
 
@@ -253,6 +254,10 @@ public sealed class ReviewModel(
             logger.LogWarning("Confirm deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
             SetToast("Couldn't confirm that deal — try again.");
         }
+        else
+        {
+            await RejectDuplicateSiblingsAsync(view, ct);
+        }
 
         return await QueueFragmentAsync(flyer, step, ct);
     }
@@ -271,6 +276,16 @@ public sealed class ReviewModel(
 
         // Both resolve failures (inline-create failed, or neither an existing nor a new product supplied) and a
         // CorrectAsync failure surface the same short correction-failed toast — the log already carries the code.
+        // Load the target and its pending duplicate siblings before resolving the posted product. The same view
+        // is reused after a successful correction so sibling cleanup remains tied to this tenant-scoped read.
+        var view = await reviewDeals.FindAsync(DealId.From(form.DealId), includePurchaseContext: false, ct);
+        if (view is null || view.Status == DealStatus.Rejected)
+        {
+            logger.LogWarning("Correct deal {DealId} rejected: target was not found or is already rejected.", form.DealId);
+            SetToast("Couldn't save that correction — try again.");
+            return await QueueFragmentAsync(form.Flyer, form.Step, ct);
+        }
+
         var resolved = await ResolveCorrectionProductAsync(form, ct);
         if (resolved.IsFailure)
         {
@@ -283,6 +298,11 @@ public sealed class ReviewModel(
         {
             logger.LogWarning("Correct deal {DealId} failed: {ErrorCode}.", form.DealId, result.Error.Code);
             SetToast("Couldn't save that correction — try again.");
+        }
+
+        else if (view is not null)
+        {
+            await RejectDuplicateSiblingsAsync(view, ct);
         }
 
         return await QueueFragmentAsync(form.Flyer, form.Step, ct);
@@ -303,7 +323,7 @@ public sealed class ReviewModel(
 
         if (!string.IsNullOrWhiteSpace(form.NewProductName) && form.NewProductUnitId is { } unitId && unitId != Guid.Empty)
         {
-            var created = await CreateProductAsync(form.NewProductName.Trim(), unitId, form.NewProductCategoryId, ct);
+            var created = await CreateProductAsync(form.NewProductName.Trim(), unitId, form.NewProductCategoryId, form.NewProductDefaultLocationId, ct);
             if (created.IsFailure)
             {
                 logger.LogWarning(
@@ -324,7 +344,10 @@ public sealed class ReviewModel(
         if (tenant.HouseholdId is null)
             return Forbid();
 
+        var view = await reviewDeals.FindAsync(DealId.From(dealId), includePurchaseContext: false, ct);
         var result = await rejectDeal.RejectAsync(DealId.From(dealId), CurrentUserId, ct: ct);
+        if (result.IsSuccess && view is not null)
+            await RejectDuplicateSiblingsAsync(view, ct);
         if (result.IsFailure)
         {
             logger.LogWarning("Reject deal {DealId} failed: {ErrorCode}.", dealId, result.Error.Code);
@@ -382,16 +405,29 @@ public sealed class ReviewModel(
         foreach (var deal in toConfirm)
         {
             // Per-deal server-side suggestion — identical semantics to the single Confirm verb.
-            var productId = deal.SuggestedProductId!.Value;
-            var result = await confirmDeal.ConfirmAsync(deal.DealId, productId, CurrentUserId, ct);
-            if (result.IsSuccess)
+            try
             {
-                confirmed++;
+                var productId = deal.SuggestedProductId!.Value;
+                var result = await confirmDeal.ConfirmAsync(deal.DealId, productId, CurrentUserId, ct);
+                if (result.IsSuccess)
+                {
+                    confirmed++;
+                    await RejectDuplicateSiblingsAsync(deal, ct);
+                }
+                else
+                {
+                    failed++;
+                    logger.LogWarning("ConfirmAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+                }
             }
-            else
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 failed++;
-                logger.LogWarning("ConfirmAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+                logger.LogWarning(ex, "ConfirmAll: exception confirming deal {DealId}.", deal.DealId.Value);
             }
         }
 
@@ -437,15 +473,28 @@ public sealed class ReviewModel(
         var failed = 0;
         foreach (var deal in eligible)
         {
-            var result = await rejectDeal.RejectAsync(deal.DealId, CurrentUserId, ct: ct);
-            if (result.IsSuccess)
+            try
             {
-                dismissed++;
+                var result = await rejectDeal.RejectAsync(deal.DealId, CurrentUserId, ct: ct);
+                if (result.IsSuccess)
+                {
+                    dismissed++;
+                    await RejectDuplicateSiblingsAsync(deal, ct);
+                }
+                else
+                {
+                    failed++;
+                    logger.LogWarning("DismissAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+                }
             }
-            else
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 failed++;
-                logger.LogWarning("DismissAll: deal {DealId} failed: {ErrorCode}.", deal.DealId.Value, result.Error.Code);
+                logger.LogWarning(ex, "DismissAll: exception rejecting deal {DealId}.", deal.DealId.Value);
             }
         }
 
@@ -486,6 +535,23 @@ public sealed class ReviewModel(
     /// (or empty) means "the whole eligible set". Any requested id outside the eligible tier/flyer is dropped
     /// and logged — a client can never widen the set or reach a deal in another tier through the id list.
     /// </summary>
+    private async Task RejectDuplicateSiblingsAsync(DealReviewView view, CancellationToken ct)
+    {
+        foreach (var siblingId in view.DuplicateDealIds ?? [])
+        {
+            try
+            {
+                var result = await rejectDeal.RejectAsync(DealId.From(siblingId), CurrentUserId, ct: ct);
+                if (result.IsFailure)
+                    logger.LogWarning("Duplicate sibling cleanup failed for deal {DealId}: {ErrorCode}.", siblingId, result.Error.Code);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Duplicate sibling cleanup failed for deal {DealId}.", siblingId);
+            }
+        }
+    }
+
     private IReadOnlyList<DealReviewView> ScopeToRequestedIds(
         IReadOnlyList<DealReviewView> eligible, Guid[]? dealIds, string verb)
     {
@@ -546,10 +612,11 @@ public sealed class ReviewModel(
     }
 
 
-    private async Task<Result<Guid>> CreateProductAsync(string name, Guid unitId, Guid? categoryId, CancellationToken ct)
+    private async Task<Result<Guid>> CreateProductAsync(string name, Guid unitId, Guid? categoryId, Guid? defaultLocationId, CancellationToken ct)
     {
         var command = new CreateProductCommand(
-            name, unitId, categoryId is { } c && c != Guid.Empty ? c : null, defaultLocationId: null,
+            name, unitId, categoryId is { } c && c != Guid.Empty ? c : null,
+            defaultLocationId is { } l && l != Guid.Empty ? l : null,
             products, units, categories, locations, clock, tenant);
 
         var result = await command.ExecuteAsync(ct);
@@ -610,6 +677,10 @@ public sealed class ReviewModel(
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))
             .ToList();
+        LocationOptions = (await locations.ListActiveAsync(ct))
+            .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new SelectListItem(l.Name, l.Id.Value.ToString()))
+            .ToList();
     }
 
     /// <summary>
@@ -637,6 +708,7 @@ public sealed class ReviewModel(
         public string? NewProductName { get; init; }
         public Guid? NewProductUnitId { get; init; }
         public Guid? NewProductCategoryId { get; init; }
+        public Guid? NewProductDefaultLocationId { get; init; }
         public string? Flyer { get; init; }
         public int? Step { get; init; }
     }

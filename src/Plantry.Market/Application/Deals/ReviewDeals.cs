@@ -29,13 +29,22 @@ public sealed record DealReviewView(
     DealStatus Status,
     bool AutoMatched,
     Guid? UnitId = null,
-    DealPurchaseContext? Purchase = null)
+    DealPurchaseContext? Purchase = null,
+    IReadOnlyList<Guid>? duplicateDealIds = null)
 {
     /// <summary>
-    /// True when a live, resolvable suggested product exists — drives the "did you mean" chip and the
-    /// Confirm verb. A <see cref="MatchConfidence.None"/>/"Unrecognized" deal (DL-O7) has none, so it can
-    /// only be Corrected (search) or Rejected.
+    /// IDs of other pending deals with the same advertised identity as this view's deal. The projection and
+    /// <see cref="ReviewDeals.FindAsync"/> populate this list for hidden duplicate flyer crops; ordinary views
+    /// expose an empty list. The public property is always non-null, including direct record construction.
     /// </summary>
+    public IReadOnlyList<Guid> DuplicateDealIds { get; } = duplicateDealIds ?? [];
+
+    /// <summary>Compatibility alias for callers that describe these as pending duplicate candidates.</summary>
+    public IReadOnlyList<Guid> PendingDuplicateIds => DuplicateDealIds;
+
+    /// <summary>True when a live, resolvable suggested product exists — drives the "did you mean" chip and the
+    /// Confirm verb. A <see cref="MatchConfidence.None"/>/"Unrecognized" deal has none, so it can only be
+    /// Corrected (search) or Rejected.</summary>
     public bool HasSuggestion => SuggestedProductId is not null && SuggestedProductName is not null;
 
     /// <summary>True for the already-confirmed correction entry path (the DJ3 → DJ4 edge from the active list).</summary>
@@ -174,11 +183,11 @@ public sealed class ReviewDeals(
         if (pending.Count == 0)
             return [];
 
-        pending = CollapseDuplicateFlyerCrops(pending);
+        var collapsed = CollapseDuplicateFlyerCrops(pending);
 
-        var (storeNames, suggestionNames) = await ResolveNamesAsync(pending, ct);
+        var (storeNames, suggestionNames) = await ResolveNamesAsync(collapsed.Select(x => x.Representative).ToList(), ct);
 
-        var views = pending.Select(d => ToView(d, storeNames, suggestionNames)).ToList();
+        var views = collapsed.Select(x => ToView(x.Representative, storeNames, suggestionNames, x.SiblingIds)).ToList();
         var purchaseContexts = await BuildPurchaseContextsAsync(views, ct);
 
         return views
@@ -275,22 +284,27 @@ public sealed class ReviewDeals(
     /// quantity) — the full advertised identity, matching every field <see cref="DealReviewView"/> renders —
     /// collapses same-crop repeats to one representative <see cref="Deal"/> per group before it is projected
     /// into a card, so the reviewer sees exactly one card per advertised deal.
-    /// Confirming/rejecting that one card resolves only the representative; any remaining duplicate(s) stay
-    /// Pending and collapse again on the next render — matching/pricing invariants already tolerate
-    /// duplicate <c>NormalizedName</c> deals (deals-journeys.md), so this never needs to touch
-    /// <see cref="ConfirmDeal"/>/<see cref="RejectDeal"/>.
+    /// The representative remains the only deal confirmed or corrected; hidden pending duplicates are rejected
+    /// best-effort by web review orchestration after the primary command succeeds, preventing resolved groups
+    /// from resurfacing while keeping the domain commands unchanged.
     /// </para>
     /// <para>
     /// Deterministic pick — oldest <see cref="Deal.CreatedAt"/>, ties broken by <see cref="Deal.Id"/> — keeps
     /// the surviving representative stable across renders instead of flapping between duplicates.
     /// </para>
     /// </summary>
-    private static List<Deal> CollapseDuplicateFlyerCrops(IReadOnlyList<Deal> pending) =>
+    private sealed record CollapsedDeal(Deal Representative, IReadOnlyList<Guid> SiblingIds);
+
+    private static List<CollapsedDeal> CollapseDuplicateFlyerCrops(IReadOnlyList<Deal> pending) =>
         pending
             .GroupBy(d => (
                 d.StoreId, d.ValidityWindow.ValidFrom, d.ValidityWindow.ValidTo,
                 d.NormalizedName, d.Price, d.Brand, d.Size, d.SaleStory, d.Quantity))
-            .Select(g => g.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id.Value).First())
+            .Select(g =>
+            {
+                var ordered = g.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id.Value).ToList();
+                return new CollapsedDeal(ordered[0], ordered.Skip(1).Select(d => d.Id.Value).ToList());
+            })
             .ToList();
 
     /// <summary>
@@ -389,12 +403,14 @@ public sealed class ReviewDeals(
     }
 
     /// <summary>
-    /// One deal by id for the review form (the already-confirmed correction entry path). Returns null when
-    /// the id is unknown to this household (RLS) or the deal has been rejected (nothing left to review).
-    /// <paramref name="includePurchaseContext"/> defaults to true (the single-correction card render, which
-    /// needs it); action handlers that only read <see cref="DealReviewView.SuggestedProductId"/> off the
-    /// result (e.g. Confirm) pass false so the three purchase-context round trips aren't spent and thrown
-    /// away on every one-click confirm.
+    /// Finds one deal for review and resolves its hidden duplicate-crop cleanup candidates. The target may be
+    /// Pending, a hidden Pending sibling, or Confirmed; the returned <see cref="DealReviewView.DuplicateDealIds"/>
+    /// contains only other Pending deals with the exact advertised identity tuple (store, validity start/end,
+    /// normalized name, price, brand, size, sale story, and quantity). A hidden target therefore discovers its
+    /// representative and remaining pending siblings just like the visible representative does.
+    /// Returns null when the id is unknown to this household (RLS) or rejected. Rejected targets never produce
+    /// sibling candidates. <paramref name="includePurchaseContext"/> defaults to true for the correction card;
+    /// single action handlers pass false when they only need the suggestion and sibling IDs.
     /// </summary>
     public async Task<DealReviewView?> FindAsync(
         DealId id, bool includePurchaseContext = true, CancellationToken ct = default)
@@ -403,8 +419,14 @@ public sealed class ReviewDeals(
         if (deal is null || deal.Status == DealStatus.Rejected)
             return null;
 
+        var all = await deals.ListBrowsableAsync(ct);
+        var siblings = all
+            .Where(d => d.Status == DealStatus.Pending && d.Id != deal.Id && SameAdvertisedIdentity(d, deal))
+            .Select(d => d.Id.Value)
+            .ToList();
+
         var (storeNames, suggestionNames) = await ResolveNamesAsync([deal], ct);
-        var view = ToView(deal, storeNames, suggestionNames);
+        var view = ToView(deal, storeNames, suggestionNames, siblings);
         if (!includePurchaseContext)
             return view;
 
@@ -434,7 +456,8 @@ public sealed class ReviewDeals(
     private static DealReviewView ToView(
         Deal deal,
         IReadOnlyDictionary<Guid, string> storeNames,
-        IReadOnlyDictionary<Guid, DealProductInfo> suggestionNames)
+        IReadOnlyDictionary<Guid, DealProductInfo> suggestionNames,
+        IReadOnlyList<Guid>? duplicateDealIds = null)
     {
         string? suggestedName = deal.SuggestedProductId is { } sid
                                 && suggestionNames.TryGetValue(sid, out var info)
@@ -458,8 +481,21 @@ public sealed class ReviewDeals(
             suggestedName,
             deal.Status,
             deal.AutoMatched,
-            deal.UnitId);
+            deal.UnitId,
+            duplicateDealIds: duplicateDealIds ?? []);
     }
+
+
+    private static bool SameAdvertisedIdentity(Deal left, Deal right) =>
+        left.StoreId == right.StoreId
+        && left.ValidityWindow.ValidFrom == right.ValidityWindow.ValidFrom
+        && left.ValidityWindow.ValidTo == right.ValidityWindow.ValidTo
+        && left.NormalizedName == right.NormalizedName
+        && left.Price == right.Price
+        && left.Brand == right.Brand
+        && left.Size == right.Size
+        && left.SaleStory == right.SaleStory
+        && left.Quantity == right.Quantity;
 
     private static readonly IReadOnlyDictionary<Guid, DealProductInfo> EmptyProducts =
         new Dictionary<Guid, DealProductInfo>();

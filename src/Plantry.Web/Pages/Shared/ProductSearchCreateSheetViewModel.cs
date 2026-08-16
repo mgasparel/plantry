@@ -101,6 +101,12 @@ public sealed class ProductSearchCreateSheetViewModel
     public IReadOnlyList<SelectListItem> CategoryOptions { get; init; } = [];
 
     /// <summary>
+    /// Active household locations offered as optional product default locations.
+    /// This is intentionally distinct from any host workflow lot/count location.
+    /// </summary>
+    public IReadOnlyList<SelectListItem> LocationOptions { get; init; } = [];
+
+    /// <summary>
     /// When true, quantity and unit fields are rendered for tracked products. Set false when the host
     /// only needs a product identity (e.g. Take Stock inline-add where the count is entered elsewhere).
     /// Defaults to true (Recipes behaviour).

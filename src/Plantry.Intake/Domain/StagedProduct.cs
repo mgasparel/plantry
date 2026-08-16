@@ -22,8 +22,9 @@ public sealed class StagedProduct
     public string Name { get; private set; } = string.Empty;
     /// <summary>Canonical invariant-uppercase key used by the database uniqueness constraint.</summary>
     public string NormalizedName { get; private set; } = string.Empty;
-    public Guid CategoryId { get; private set; }
+    public Guid? CategoryId { get; private set; }
     public Guid DefaultUnitId { get; private set; }
+    public Guid? DefaultLocationId { get; private set; }
 
     /// <summary>The Catalog product materialized for this staged decision, or null until commit.</summary>
     public Guid? CreatedProductId { get; private set; }
@@ -32,8 +33,9 @@ public sealed class StagedProduct
         ImportSessionId sessionId,
         HouseholdId householdId,
         string name,
-        Guid categoryId,
-        Guid defaultUnitId) =>
+        Guid? categoryId,
+        Guid defaultUnitId,
+        Guid? defaultLocationId) =>
         new()
         {
             Id = Guid.CreateVersion7(),
@@ -43,6 +45,7 @@ public sealed class StagedProduct
             NormalizedName = NormalizeNameKey(name),
             CategoryId = categoryId,
             DefaultUnitId = defaultUnitId,
+            DefaultLocationId = defaultLocationId,
         };
 
     /// <summary>
@@ -69,13 +72,16 @@ public sealed class StagedProduct
     }
 
     /// <summary>Whether a new-line request carries the exact staged identity represented by this alias.</summary>
-    public bool Matches(string name, Guid categoryId, Guid defaultUnitId) =>
+    public bool Matches(string name, Guid? categoryId, Guid defaultUnitId, Guid? defaultLocationId) =>
         HasSameNormalizedName(name) &&
         CategoryId == categoryId &&
-        DefaultUnitId == defaultUnitId;
+        DefaultUnitId == defaultUnitId &&
+        DefaultLocationId == defaultLocationId;
 
     /// <summary>Identity check used when reusing an alias for a purchase line.</summary>
-    public bool MatchesIdentity(string name, Guid categoryId) =>
+    public bool MatchesIdentity(string name, Guid? categoryId, Guid defaultUnitId, Guid? defaultLocationId) =>
         HasSameNormalizedName(name) &&
-        CategoryId == categoryId;
+        CategoryId == categoryId &&
+        DefaultUnitId == defaultUnitId &&
+        DefaultLocationId == defaultLocationId;
 }

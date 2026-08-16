@@ -4,8 +4,9 @@
 @{
     ViewData["Title"] = "Categories";
 
+    var isSorted = IndexModel.IsSortedRequest(Model.Sort);
     var categoryRows = new RowListViewModel(
-        Model.Categories.OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+        Model.Categories
             .Select(c => new RowListItem(
                 c.Name,
                 Secondary: c.DefaultDueDays is { } days ? $"Default expiry: {days} days" : "No default expiry",
@@ -13,8 +14,8 @@
                 SortOrder: c.SortOrder))
             .ToList(),
         EmptyMessage: "No categories yet — add your first one below.",
-        Reorderable: true,
-        ReorderUrl: Url.Page("./Index", "Reorder"),
+        Reorderable: !isSorted,
+        ReorderUrl: isSorted ? null : Url.Page("./Index", "Reorder"),
         Deletable: true);
 }
 
@@ -23,6 +24,21 @@
 <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
 <section class="catalog-section">
+    <div class="field field--inline">
+        <label for="category-sort" class="field__label">Sort categories</label>
+        <form id="category-sort-form" method="get">
+            <select id="category-sort" name="sort" class="field__input" onchange="this.form.submit()">
+                <option value="name" selected="@(Model.Sort == "name" && !Model.Desc ? "selected" : null)">Name (A–Z)</option>
+                <option value="name-desc" selected="@(Model.Sort == "name" && Model.Desc ? "selected" : null)">Name (Z–A)</option>
+                <option value="expiry" selected="@(Model.Sort == "expiry" && !Model.Desc ? "selected" : null)">Default expiry (soonest)</option>
+                <option value="expiry-desc" selected="@(Model.Sort == "expiry" && Model.Desc ? "selected" : null)">Default expiry (latest)</option>
+            </select>
+        </form>
+        @if (isSorted)
+        {
+            <p class="field__hint">Drag reordering is disabled in sorted views. Your persisted manual order is unchanged.</p>
+        }
+    </div>
     <partial name="Shared/_RowList" model="categoryRows" />
 </section>
 

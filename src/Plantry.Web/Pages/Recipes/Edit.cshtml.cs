@@ -42,6 +42,7 @@ public sealed class EditModel(
     IClock clock,
     AuthorRecipe authorRecipe,
     IUnitConverter unitConverter,
+    ILocationRepository locations,
     SuggestRecipeTags suggestRecipeTags,
     DietTagNudgeService dietTagNudge,
     RecipeExpansionService recipeExpansion,
@@ -113,6 +114,7 @@ public sealed class EditModel(
     /// Passed to <see cref="ProductSearchCreateSheetViewModel.CategoryOptions"/>.
     /// </summary>
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
+    public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
 
     // ── D13 fixed-mode servings warning ──────────────────────────────────────────
 
@@ -570,6 +572,7 @@ public sealed class EditModel(
                     NewGroupId: l.NewGroupId,
                     NewGroupName: l.NewGroupName,
                     NewStapleCategoryId: l.NewStapleCategoryId,
+                    NewStapleDefaultLocationId: l.NewStapleDefaultLocationId,
                     ConversionFromUnitId: convFrom,
                     ConversionToUnitId: convTo);
             })
@@ -870,6 +873,11 @@ public sealed class EditModel(
         var categoryOptions = await products.ListCategoriesAsync(ct);
         CategoryOptions = categoryOptions
             .Select(c => new SelectListItem(c.Name, c.Id.ToString()))
+            .ToList();
+
+        LocationOptions = (await locations.ListActiveAsync(ct))
+            .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new SelectListItem(l.Name, l.Id.Value.ToString()))
             .ToList();
     }
 
@@ -1187,6 +1195,7 @@ public sealed class IngredientRowInput
     /// (plantry-y53t). Empty Guid or null when no category is selected.
     /// </summary>
     public Guid? NewStapleCategoryId { get; set; }
+    public Guid? NewStapleDefaultLocationId { get; set; }
 
     // ── Quantity / unit ────────────────────────────────────────────────────────────
     public decimal? Quantity { get; set; }

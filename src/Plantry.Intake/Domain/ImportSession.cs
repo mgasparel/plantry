@@ -113,8 +113,9 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
     internal Result<StagedProduct> GetOrCreateStagedProduct(
         Guid? stagedProductId,
         string name,
-        Guid categoryId,
-        Guid defaultUnitId)
+        Guid? categoryId,
+        Guid defaultUnitId,
+        Guid? defaultLocationId = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             return Error.Custom("Intake.MissingProductName", "A new product needs a name.");
@@ -124,13 +125,12 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
             var existing = _stagedProducts.SingleOrDefault(p => p.Id == requestedId);
             if (existing is null)
                 return Error.NotFound;
-            // The alias's default unit is a Catalog decision made by the first line. Reusing the alias
-            // does not force later purchase lines to use that unit (a purchase can legitimately be in a
-            // different unit); only the name/category identity fields must match.
-            if (!existing.MatchesIdentity(name, categoryId))
+            // The alias's product defaults are immutable after the first line creates it. The purchase
+            // line unit may differ, but the submitted product default unit must match the staged identity.
+            if (!existing.MatchesIdentity(name, categoryId, defaultUnitId, defaultLocationId))
                 return Error.Custom(
                     "Intake.StagedProductMismatch",
-                    "The selected staged product no longer matches the supplied name or category.");
+                    "The selected staged product no longer matches the supplied product identity or defaults.");
             return existing;
         }
 
@@ -142,7 +142,7 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
             // A matching no-id request is the server-side equivalent of selecting the existing staged
             // option. A category/default-unit mismatch is conflicting input, so leave the line untouched
             // and direct the user to Change match where the existing option is visible.
-            if (sameName.Count == 1 && sameName[0].Matches(name, categoryId, defaultUnitId))
+            if (sameName.Count == 1 && sameName[0].Matches(name, categoryId, defaultUnitId, defaultLocationId))
                 return sameName[0];
 
             return Error.Custom(
@@ -151,7 +151,7 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
                 "Use Change match to select the existing staged option instead of creating another.");
         }
 
-        var created = StagedProduct.Create(Id, HouseholdId, name, categoryId, defaultUnitId);
+        var created = StagedProduct.Create(Id, HouseholdId, name, categoryId, defaultUnitId, defaultLocationId);
         _stagedProducts.Add(created);
         return created;
     }
@@ -176,8 +176,9 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
             {
                 Name = line.NewProductName!,
                 NormalizedName = StagedProduct.NormalizeNameKey(line.NewProductName!),
-                CategoryId = line.NewProductCategoryId!.Value,
-                DefaultUnitId = line.UnitId!.Value,
+                CategoryId = line.NewProductCategoryId,
+                DefaultUnitId = line.NewProductDefaultUnitId ?? line.UnitId!.Value,
+                DefaultLocationId = line.NewProductDefaultLocationId,
             })
             .ToList();
 
@@ -188,7 +189,7 @@ public sealed class ImportSession : AggregateRoot<ImportSessionId>
 
             var staged = _stagedProducts.SingleOrDefault(product => product.NormalizedName == group.Key);
             if (staged is not null &&
-                group.Any(line => !staged.Matches(line.Name, line.CategoryId, line.DefaultUnitId)))
+                group.Any(line => !staged.Matches(line.Name, line.CategoryId, line.DefaultUnitId, line.DefaultLocationId)))
             {
                 return StagedProductNameConflict(staged.Name);
             }

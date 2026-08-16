@@ -1899,6 +1899,7 @@
              blankDraft() {
                  return { productId: '', productName: '', isUntracked: false,
                           newStapleName: null, newStapleUnit: '', newStapleCategoryId: '',
+                          newStapleDefaultLocationId: '',
                           qty: '', unitId: '', groupHeading: '' };
              },
              openSheet() {
@@ -1926,6 +1927,7 @@
                  {
                      SearchUrl   = "/Dev?handler=FilterGroceries",
                      UnitOptions = Model.UnitOptions,
+                     LocationOptions = Model.LocationOptions,
                      TrackStock  = true,
                  }' />
     </div>
@@ -1935,6 +1937,7 @@ new ProductSearchCreateSheetViewModel
 {
     SearchUrl             = Url.Page(""./MyPage"", ""SearchProducts"")!,
     UnitOptions           = Model.UnitOptions,              // IReadOnlyList<SelectListItem>
+    LocationOptions       = Model.LocationOptions,          // active household locations + — None —
     TrackStock            = true,                           // false = hide qty/unit (Take Stock)
     ExtraFieldsPartial    = null,                           // or ""TakeStock/_CountLocationFields""
     Noun                  = ""ingredient"",                  // 'Add {Noun}' / 'Edit {Noun}' in title
@@ -1965,6 +1968,7 @@ new ProductSearchCreateSheetViewModel
              SearchUrl = Url.Page(""./Edit"", ""SearchProducts"")!,
              UnitOptions = Model.UnitOptions,
              TrackStock = true,
+    LocationOptions = Model.LocationOptions,
          }' />")</code></pre>
 </section>
 

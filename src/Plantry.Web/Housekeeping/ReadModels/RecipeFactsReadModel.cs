@@ -98,7 +98,8 @@ public sealed class RecipeFactsReadModel(
                 new Dictionary<Guid, ProductFact>(),
                 new Dictionary<Guid, UnitFact>(),
                 new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
-                new HashSet<Guid>());
+                new Dictionary<Guid, IReadOnlyList<PriceObservationFact>>(),
+                new Dictionary<Guid, IReadOnlyList<LiveVariantFact>>());
 
         var productIds = ingredientsByRecipe.Values
             .SelectMany(x => x)
@@ -139,6 +140,50 @@ public sealed class RecipeFactsReadModel(
             }
         }
 
+        // ── Query 2b: live variants of parent ingredients (catalog) — D5's parent rollup scope ────
+        // A parent ingredient is priced via its live (non-archived) direct variants only (DM-19;
+        // plantry-i07l rule 2/5). Load the variant children of every parent ingredient product with
+        // their own default units, so D5 can convert each variant's observation to the parent's
+        // reference unit. Catalog enforces maximum tree depth one — no recursion.
+        var variantsByParent = new Dictionary<Guid, List<LiveVariantFact>>();
+        var variantIds = new HashSet<Guid>();
+        var parentIds = products.Values.Where(p => p.IsParent).Select(p => p.ProductId).ToArray();
+        if (parentIds.Length > 0)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT id, parent_product_id, default_unit_id
+                FROM catalog.products
+                WHERE household_id = @household_id AND parent_product_id = ANY(@ids) AND archived_at IS NULL
+                """;
+            var householdParam = cmd.CreateParameter();
+            householdParam.ParameterName = "household_id";
+            householdParam.Value = tenant.HouseholdId ?? Guid.Empty;
+            cmd.Parameters.Add(householdParam);
+            var param = cmd.CreateParameter();
+            param.ParameterName = "ids";
+            param.Value = parentIds;
+            cmd.Parameters.Add(param);
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var parentId = reader.GetGuid(1);
+                var variantId = reader.GetGuid(0);
+                if (!variantsByParent.TryGetValue(parentId, out var list))
+                {
+                    list = [];
+                    variantsByParent[parentId] = list;
+                }
+                list.Add(new LiveVariantFact(variantId, reader.GetGuid(2)));
+                variantIds.Add(variantId);
+            }
+        }
+
+        // Pricing/conversion refs = ingredient product ids ∪ live variant ids, so a variant's own
+        // conversions and observations are loaded alongside its parent's (one batched read, no N+1).
+        var allRefs = productIds.Concat(variantIds).Distinct().ToArray();
+
         // ── Query 3: units (catalog) — all household units. ─────────────────────────────────────────
         var units = new Dictionary<Guid, UnitFact>();
         await using (var cmd = conn.CreateCommand())
@@ -159,9 +204,11 @@ public sealed class RecipeFactsReadModel(
             }
         }
 
-        // ── Query 4: product conversions (catalog), for D2's conversion-path check. ─────────────────
+        // ── Query 4: product conversions (catalog), for D2's conversion-path check. Loaded for the
+        // ingredient products AND their live variants so D5's parent rollup can convert each variant
+        // observation to the parent's reference unit (ADR-021 rule 1 — no round-trips in the detector).
         var conversionsByProduct = new Dictionary<Guid, List<ConversionFact>>();
-        if (productIds.Length > 0)
+        if (allRefs.Length > 0)
         {
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
@@ -172,7 +219,7 @@ public sealed class RecipeFactsReadModel(
             cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             var param = cmd.CreateParameter();
             param.ParameterName = "ids";
-            param.Value = productIds;
+            param.Value = allRefs;
             cmd.Parameters.Add(param);
 
             await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -189,27 +236,48 @@ public sealed class RecipeFactsReadModel(
             }
         }
 
-        // ── Query 5: priced product ids (pricing) — D5's batch existence check. Mirrors
-        // IPriceObservationRepository.ProductIdsWithAnyObservationAsync: any live (non-superseded,
-        // ADR-023 A7) observation of any source counts. ────────────────────────────────────────────
-        var pricedProductIds = new HashSet<Guid>();
-        if (productIds.Length > 0)
+        // ── Query 5: usable price observations (pricing) — D5's batch pricing facts. Unlike the
+        // retired exact-id existence check (IPriceObservationRepository.ProductIdsWithAnyObservationAsync),
+        // this loads only USABLE observations — live (superseded_by_id IS NULL, ADR-023 A7), quantity > 0,
+        // and a real (non-empty) unit — for the ingredient products AND their live variant refs, so D5 can
+        // evaluate a live-variant rollup (plantry-i07l rule 5) rather than raw existence. A unitless deal
+        // (DM-17 writes unit_id = Guid.Empty) and an empty-quantity row have no conversion basis and must
+        // not count. Multiple usable rows per ref are kept — D5 needs to know whether ANY one converts.
+        var priceObservations = new Dictionary<Guid, List<PriceObservationFact>>();
+        if (allRefs.Length > 0)
         {
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
-                SELECT DISTINCT product_id
+                SELECT product_id, price, quantity, unit_id, unit_price
                 FROM pricing.price_observation
-                WHERE household_id = @household_id AND product_id = ANY(@ids) AND superseded_by_id IS NULL
+                WHERE household_id = @household_id AND product_id = ANY(@ids)
+                  AND superseded_by_id IS NULL
+                  AND quantity > 0
+                  AND unit_id <> '00000000-0000-0000-0000-000000000000'
                 """;
             cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
             var param = cmd.CreateParameter();
             param.ParameterName = "ids";
-            param.Value = productIds;
+            param.Value = allRefs;
             cmd.Parameters.Add(param);
 
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
-                pricedProductIds.Add(reader.GetGuid(0));
+            {
+                var productId = reader.GetGuid(0);
+                var fact = new PriceObservationFact(
+                    productId,
+                    reader.GetDecimal(1),
+                    reader.GetDecimal(2),
+                    reader.GetGuid(3),
+                    reader.IsDBNull(4) ? null : reader.GetDecimal(4));
+                if (!priceObservations.TryGetValue(productId, out var list))
+                {
+                    list = [];
+                    priceObservations[productId] = list;
+                }
+                list.Add(fact);
+            }
         }
 
         return new RecipeFactsBag(
@@ -218,7 +286,8 @@ public sealed class RecipeFactsReadModel(
             products,
             units,
             conversionsByProduct.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<ConversionFact>)kvp.Value),
-            pricedProductIds);
+            priceObservations.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<PriceObservationFact>)kvp.Value),
+            variantsByParent.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<LiveVariantFact>)kvp.Value));
     }
 }
 
@@ -234,7 +303,8 @@ public sealed class RecipeFactsBag(
     IReadOnlyDictionary<Guid, ProductFact> products,
     IReadOnlyDictionary<Guid, UnitFact> units,
     IReadOnlyDictionary<Guid, IReadOnlyList<ConversionFact>> conversionsByProduct,
-    IReadOnlySet<Guid> pricedProductIds)
+    IReadOnlyDictionary<Guid, IReadOnlyList<PriceObservationFact>> priceObservations,
+    IReadOnlyDictionary<Guid, IReadOnlyList<LiveVariantFact>> liveVariantsByParent)
 {
     public IReadOnlyDictionary<Guid, RecipeFact> Recipes { get; } = recipes;
     public IReadOnlyDictionary<Guid, IReadOnlyList<RecipeIngredientFact>> IngredientsByRecipe { get; } = ingredientsByRecipe;
@@ -242,9 +312,34 @@ public sealed class RecipeFactsBag(
     public IReadOnlyDictionary<Guid, UnitFact> Units { get; } = units;
     public IReadOnlyDictionary<Guid, IReadOnlyList<ConversionFact>> ConversionsByProduct { get; } = conversionsByProduct;
 
-    /// <summary>Product ids with at least one live (non-superseded) price observation of any source — D5's
-    /// batch existence check.</summary>
-    public IReadOnlySet<Guid> PricedProductIds { get; } = pricedProductIds;
+    /// <summary>Usable live (non-superseded, quantity &gt; 0, non-empty unit) price observations keyed by
+    /// product id — the ref id being a leaf ingredient or a live variant of a parent (plantry-i07l). D5
+    /// decides "has a price" by whether any observation yields a usable, convertible candidate, not by raw
+    /// existence.</summary>
+    public IReadOnlyDictionary<Guid, IReadOnlyList<PriceObservationFact>> PriceObservations { get; } = priceObservations;
+
+    /// <summary>Live (non-archived) direct variants of each parent ingredient, with each variant's own default
+    /// unit — D5's parent rollup scope (DM-19; plantry-i07l rule 2/5).</summary>
+    public IReadOnlyDictionary<Guid, IReadOnlyList<LiveVariantFact>> LiveVariantsByParent { get; } = liveVariantsByParent;
+
+    /// <summary>
+    /// Convenience overload for the non-pricing detector tests (D2/D7), which do not load price facts. The
+    /// legacy <paramref name="pricedProductIds"/> set is not consulted by D5 any more — D5 reads the richer
+    /// <see cref="PriceObservations"/>/<see cref="LiveVariantsByParent"/> facts via the full constructor
+    /// (plantry-i07l rule 5) — so this overload maps it to an empty fact list and no variants.
+    /// </summary>
+    public RecipeFactsBag(
+        IReadOnlyDictionary<Guid, RecipeFact> recipes,
+        IReadOnlyDictionary<Guid, IReadOnlyList<RecipeIngredientFact>> ingredientsByRecipe,
+        IReadOnlyDictionary<Guid, ProductFact> products,
+        IReadOnlyDictionary<Guid, UnitFact> units,
+        IReadOnlyDictionary<Guid, IReadOnlyList<ConversionFact>> conversionsByProduct,
+        IReadOnlySet<Guid> pricedProductIds)
+        : this(recipes, ingredientsByRecipe, products, units, conversionsByProduct,
+            pricedProductIds.ToDictionary(id => id, id => (IReadOnlyList<PriceObservationFact>)[]),
+            new Dictionary<Guid, IReadOnlyList<LiveVariantFact>>())
+    {
+    }
 
     public IReadOnlyList<RecipeIngredientFact> GetIngredients(Guid recipeId) =>
         IngredientsByRecipe.TryGetValue(recipeId, out var list) ? list : [];

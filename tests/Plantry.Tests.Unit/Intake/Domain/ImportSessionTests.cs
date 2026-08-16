@@ -62,6 +62,20 @@ public sealed class ImportSessionTests
         Assert.Empty(session.StagedProducts);
     }
 
+    [Fact(DisplayName = "Explicit staged alias selection rejects a different default unit")]
+    public void GetOrCreateStagedProduct_Rejects_Explicit_Alias_With_Different_Default_Unit()
+    {
+        var session = Started();
+        var staged = session.GetOrCreateStagedProduct(null, "Oat Milk", CategoryA, UnitA, Location).Value;
+
+        var result = session.GetOrCreateStagedProduct(staged.Id, "Oat Milk", CategoryA, UnitB, Location);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.StagedProductMismatch", result.Error.Code);
+        Assert.Single(session.StagedProducts);
+        Assert.Equal(UnitA, session.StagedProducts[0].DefaultUnitId);
+    }
+
     [Fact(DisplayName = "Commit validation compares legacy lines with a persisted staged identity")]
     public void ValidateStagedProductNames_Rejects_Legacy_Line_Conflicting_With_Staged_Alias()
     {

@@ -78,6 +78,9 @@ public sealed class WalkModel(
     /// <summary>Category options for the Defaults collapsible in the create view (plantry-y53t).</summary>
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
 
+    /// <summary>Active household locations for product defaults.</summary>
+    public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
+
     // ── GET ───────────────────────────────────────────────────────────────────
 
     public async Task OnGetAsync(CancellationToken ct = default) =>
@@ -178,7 +181,7 @@ public sealed class WalkModel(
                     parentGroupId, name,
                     unitOverride:     unitId == Guid.Empty ? null : unitId,
                     categoryOverride: payload.CategoryId,
-                    locationOverride: LocationId,
+                    locationOverride: payload.DefaultLocationId,
                     ct2),
                 countedValue: payload.CountedValue,
                 countUnit:    countUnit,
@@ -194,7 +197,7 @@ public sealed class WalkModel(
                     newGroupName, name,
                     defaultUnitId:    unitId,
                     categoryId:       payload.CategoryId,
-                    defaultLocationId: LocationId,
+                    defaultLocationId: payload.DefaultLocationId,
                     ct2),
                 countedValue: payload.CountedValue,
                 countUnit:    countUnit,
@@ -211,6 +214,7 @@ public sealed class WalkModel(
                 payload.CountedValue, countUnit,
                 userId, catalogWriter, stocks, conversions, clock, tenant,
                 categoryId: payload.CategoryId,
+                defaultLocationId: payload.DefaultLocationId,
                 expiryDate: payload.ExpiryDate);
             result = await cmd.ExecuteAsync(ct);
         }
@@ -689,6 +693,12 @@ public sealed class WalkModel(
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .Select(c => new SelectListItem(c.Name, c.Id.Value.ToString()))
             .ToList();
+
+        // The product default selector is household-scoped and independent from the walk's lot location.
+        LocationOptions = locations
+            .OrderBy(l => l.LocationName, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new SelectListItem(l.LocationName, l.LocationId.ToString()))
+            .ToList();
     }
 
     /// <summary>
@@ -820,6 +830,8 @@ public sealed class WalkModel(
         public string? NewGroupName  { get; set; }
         /// <summary>Optional category for the new product (from the Defaults collapsible).</summary>
         public Guid?  CategoryId     { get; set; }
+        /// <summary>Optional Catalog default location; separate from the walk's opening-lot location.</summary>
+        public Guid?  DefaultLocationId { get; set; }
         /// <summary>Optional expiry for the opening-balance lot (plantry-4onl).</summary>
         public DateOnly? ExpiryDate  { get; set; }
     }

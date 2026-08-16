@@ -111,7 +111,8 @@ public sealed class CatalogProductReaderAdapter(
                 product.DefaultUnitId.Value,
                 product.ParentProductId?.Value,
                 product.IsParent,
-                variantIds);
+                variantIds,
+                loaded.Where(v => v.ParentProductId?.Value == id).ToDictionary(v => v.Id.Value, v => v.DefaultUnitId.Value));
         }
         return result;
     }

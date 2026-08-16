@@ -111,8 +111,9 @@ public sealed record StoreHydration(
 public sealed record StagedProductHydration(
     string Id,
     string Name,
-    string CategoryId,
-    string DefaultUnitId);
+    string? CategoryId,
+    string DefaultUnitId,
+    string? DefaultLocationId);
 
 /// <summary>One review row: the saved/edited line state, the server-computed prefill
 /// (ADR-020 §3 case 1 — the priority chain stays server-side), and resolved alternatives.</summary>
@@ -160,7 +161,11 @@ public sealed record LineSeed(
     // date, using the exact same query + tolerance the commit-time stamp uses (DealHitMatcher).
     bool DealHit,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? StagedProductId = null);
+    string? StagedProductId = null)
+{
+    public string? NewProductDefaultUnitId { get; init; }
+    public string? NewProductDefaultLocationId { get; init; }
+}
 
 /// <summary>Server-computed prefill values (the priority chain's output) the drawer renders.
 /// The island never re-derives the chain — it consumes these (ADR-020 §3 case 1).</summary>

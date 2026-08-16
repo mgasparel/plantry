@@ -34,6 +34,22 @@ public sealed class InventoryQueryServiceTests
     }
 
     [Fact]
+    public async Task ListPantry_Projects_IsProduced_From_Catalog_Product()
+    {
+        var stocks = new FakeProductStockRepository();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
+        stock.AddStock(100m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock);
+        var catalog = Catalog();
+        catalog.Products.Clear();
+        catalog.Products.Add(new CatalogProductInfo(_productId, "Homemade soup", "Meals", _grams, "g", CanHoldStock: true, IsProduced: true));
+
+        var item = Assert.Single(await Service(stocks, catalog, new IdentityQuantityConverter(), _household).ListPantryAsync());
+
+        Assert.True(item.IsProduced);
+    }
+
+    [Fact]
     public async Task ListPantry_Aggregates_Across_Lots_In_The_Display_Unit()
     {
         var stocks = new FakeProductStockRepository();
@@ -403,6 +419,19 @@ public sealed class InventoryQueryServiceTests
         Assert.Null(stats);
     }
 
+    [Fact(DisplayName = "plantry-hjk7: returns null for a stock record with no journal history")]
+    public async Task GetConsumptionStats_ReturnsNull_WhenJournalIsEmpty()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        stocks.Items.Add(ProductStock.Start(HouseholdId.From(_household), _productId, clock));
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.Null(stats);
+    }
+
     [Fact(DisplayName = "plantry-fuej: DaysOfSupply is null with only a single Consumed event in the window (below the two-event floor)")]
     public async Task GetConsumptionStats_DaysOfSupply_Null_BelowMinimumEvents()
     {
@@ -419,13 +448,15 @@ public sealed class InventoryQueryServiceTests
         Assert.Null(stats?.DaysOfSupply);
     }
 
-    [Fact(DisplayName = "plantry-fuej: DaysOfSupply = on-hand ÷ (trailing-window consumed ÷ window days)")]
-    public async Task GetConsumptionStats_DaysOfSupply_Computed_From_Trailing_Window_Pace()
+    [Fact(DisplayName = "plantry-fuej: mature history clamps velocity denominator at the trailing-window maximum")]
+    public async Task GetConsumptionStats_DaysOfSupply_MatureHistory_UsesMaximumDenominator()
     {
         var stocks = new FakeProductStockRepository();
         var clock = new MutableClock();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(-100);
         stock.AddStock(1000m, _grams, _location, _user, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(100);
         // Two Consumed events inside the 90-day window, totalling 180g → 2g/day pace.
         stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
         stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
@@ -437,6 +468,101 @@ public sealed class InventoryQueryServiceTests
         Assert.NotNull(stats);
         // On hand 820g at 2g/day (180g / 90 days) = 410 days.
         Assert.Equal(410m, stats!.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-hjk7: young history floors velocity denominator at minimum pace days")]
+    public async Task GetConsumptionStats_DaysOfSupply_YoungHistory_UsesMinimumDenominator()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(-7);
+        stock.AddStock(1000m, _grams, _location, _user, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(7);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.NotNull(stats);
+        Assert.Equal(63.8m, stats!.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-hjk7: exact minimum observed span uses the unclamped denominator")]
+    public async Task GetConsumptionStats_DaysOfSupply_ExactMinimumSpan_UsesObservedDenominator()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(-14);
+        stock.AddStock(1000m, _grams, _location, _user, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(14);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.Equal(63.8m, stats!.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-hjk7: just above minimum observed span uses the 15-day denominator")]
+    public async Task GetConsumptionStats_DaysOfSupply_JustAboveMinimumSpan_UsesObservedDenominator()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(-15);
+        stock.AddStock(1000m, _grams, _location, _user, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(15);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.Equal(68.3m, stats!.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-hjk7: first Purchase journal entry controls the observed denominator")]
+    public async Task GetConsumptionStats_DaysOfSupply_UsesFirstJournalEntry_NotFirstConsumption()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(-30);
+        stock.AddStock(1000m, _grams, _location, _user, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(30);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        // The earlier Purchase journal entry makes the observed span 30 days, not zero.
+        Assert.Equal(136.7m, stats!.DaysOfSupply);
+    }
+
+    [Fact(DisplayName = "plantry-hjk7: same-day first journal entry uses minimum pace denominator")]
+    public async Task GetConsumptionStats_DaysOfSupply_SameDayHistory_UsesMinimumDenominator()
+    {
+        var stocks = new FakeProductStockRepository();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), _productId, clock);
+        stock.AddStock(1000m, _grams, _location, _user, clock);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stock.Consume(90m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stocks.Items.Add(stock);
+
+        var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(_productId);
+
+        Assert.Equal(63.8m, stats!.DaysOfSupply);
     }
 
     [Fact(DisplayName = "plantry-fuej: a Consumed event older than the trailing window doesn't count toward the pace")]
@@ -451,14 +577,16 @@ public sealed class InventoryQueryServiceTests
         stock.Consume(500m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
         clock.UtcNow = clock.UtcNow.AddDays(200); // back to "today"
         stock.Consume(10m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        stock.Consume(20m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
         stocks.Items.Add(stock);
 
         var stats = await ServiceWithClock(stocks, Catalog(), new IdentityQuantityConverter(), clock)
             .GetConsumptionStatsAsync(_productId);
 
-        // Only one Consumed event falls inside the window — below the two-event floor, so null
-        // rather than a pace derived from a single data point (or the excluded old one).
-        Assert.Null(stats?.DaysOfSupply);
+        // The two recent rows total 30g; the excluded 500g row must not affect the 90-day numerator.
+        // The first journal entry is 200 days old, so the denominator clamps at 90 days;
+        // on hand is 470g and 470 ÷ (30 ÷ 90) = 1410 days.
+        Assert.Equal(1410m, stats!.DaysOfSupply);
     }
 
     [Fact(DisplayName = "plantry-fuej: journal rows in a different unit than the product's display unit are converted before summing")]
@@ -480,9 +608,9 @@ public sealed class InventoryQueryServiceTests
             .GetConsumptionStatsAsync(_productId);
 
         Assert.NotNull(stats);
-        // On hand: 1000g - 180g = 820g, at 2g/day pace (180g / 90 days) = 410 days — same figure as
-        // the identity-converter test, proving the mixed-unit journal rows converted correctly.
-        Assert.Equal(410m, stats!.DaysOfSupply);
+        // On hand: 1000g - 180g = 820g, at 180g / 14-day minimum pace = 63.8 days,
+        // proving mixed-unit journal rows converted correctly under the clamped denominator.
+        Assert.Equal(63.8m, stats!.DaysOfSupply);
     }
 
     [Fact(DisplayName = "plantry-fuej: WasteRate is null when the product has no Consumed or Discarded history")]

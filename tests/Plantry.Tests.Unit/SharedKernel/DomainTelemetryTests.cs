@@ -482,7 +482,7 @@ internal sealed class MetricsTestIntakeSessionRepository : IImportSessionReposit
 
 internal sealed class MetricsTestCreateProductPort : ICreateProductPort
 {
-    public Task<Guid> CreateAsync(string name, Guid categoryId, Guid defaultUnitId, CancellationToken ct = default) =>
+    public Task<Guid> CreateAsync(string name, Guid? categoryId, Guid defaultUnitId, Guid? defaultLocationId, CancellationToken ct = default) =>
         Task.FromResult(Guid.CreateVersion7());
 }
 
@@ -706,13 +706,13 @@ internal sealed class MetricsTestCatalogWriter : ICatalogWriter
     public Task<Guid> CreateUntrackedStapleAsync(string name, Guid defaultUnitId, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
-    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, bool isProduced = false, CancellationToken ct = default) =>
+    public Task<Guid> CreateTrackedProductAsync(string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, bool isProduced = false, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
-    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, CancellationToken ct = default) =>
+    public Task<Guid> CreateTrackedVariantAsync(Guid parentGroupId, string variantName, Guid? unitOverride, Guid? categoryOverride, Guid? locationOverride = null, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
-    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, CancellationToken ct = default) =>
+    public Task<Guid> CreateTrackedGroupedProductAsync(string groupName, string variantName, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId = null, CancellationToken ct = default) =>
         Task.FromResult(Guid.NewGuid());
 
     public Task AddConversionAsync(Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default) =>
