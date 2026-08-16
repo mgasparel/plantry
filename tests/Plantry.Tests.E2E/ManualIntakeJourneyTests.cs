@@ -189,16 +189,33 @@ public sealed class ManualIntakeJourneyTests(AppHostFixture appHost) : IAsyncLif
             await nameInput.FillAsync(newProductName);
             await sheet.Locator("#create-product-qty").FillAsync("1");
             await sheet.Locator("#create-product-category").SelectOptionAsync(new SelectOptionValue { Label = "Dairy & Eggs" });
-            // Keep the product default independent from this purchase's lot destination.
-            await sheet.Locator("#create-product-location").SelectOptionAsync(new SelectOptionValue { Label = "Fridge" });
+            // Default location is a one-way convenience copy into the lot location. Exercise select,
+            // reselect, clear (which must not clear the lot), then an independent lot edit.
+            var defaultLocation = sheet.Locator("#create-product-location");
+            await defaultLocation.SelectOptionAsync(new SelectOptionValue { Label = "Fridge" });
+            await Assertions.Expect(lineLocation).ToHaveValueAsync(locationId);
+            await defaultLocation.SelectOptionAsync(new SelectOptionValue { Label = "Fridge" });
+            await Assertions.Expect(lineLocation).ToHaveValueAsync(locationId);
+            await defaultLocation.SelectOptionAsync(new SelectOptionValue { Label = "— None —" });
+            await Assertions.Expect(lineLocation).ToHaveValueAsync(locationId);
+            await defaultLocation.SelectOptionAsync(new SelectOptionValue { Label = "Fridge" });
             await lineLocation.SelectOptionAsync(new SelectOptionValue { Label = "Pantry" });
+            var pantryLocationId = await lineLocation.InputValueAsync();
+            await Assertions.Expect(lineLocation).ToHaveValueAsync(pantryLocationId);
+            await Assertions.Expect(defaultLocation).ToHaveValueAsync(locationId);
 
+            // Reopening the saved row must retain the independently edited lot location.
             await createButton.ClickAsync();
             await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
-            await Assertions.Expect(page.Locator(".manual-line-row__summary", new() { HasText = newProductName }))
-                .ToBeVisibleAsync();
+            var savedRow = page.Locator(".manual-line-row__summary", new() { HasText = newProductName });
+            await savedRow.ClickAsync();
+            await Assertions.Expect(sheet).ToBeVisibleAsync();
+            await Assertions.Expect(lineLocation).ToHaveValueAsync(pantryLocationId);
+            await Assertions.Expect(defaultLocation).ToHaveValueAsync(locationId);
+            await sheet.Locator("button[aria-label='Close']").ClickAsync();
+            await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
 
-            // ── One submit commits both lines and lands on the session detail ─────
+            // Re-opened row is now the one that will be committed.
             await page.ClickAsync("button[type=submit]:has-text('Log purchase')");
             await page.WaitForURLAsync("**/Intake/Session/**");
 
@@ -223,6 +240,7 @@ public sealed class ManualIntakeJourneyTests(AppHostFixture appHost) : IAsyncLif
 
             Assert.Equal("Fridge", defaultLocationName);
             Assert.Equal("Pantry", lotLocationName);
+
         }
         finally
         {

@@ -1280,7 +1280,7 @@
 							<div class="form-grid__field form-grid__field--full">
 								<label class="form-grid__field__label" for="create-product-location">Default location</label>
 								<div class="form-grid__field__control">
-									<select id="create-product-location" class="field__input" x-model="draft.newStapleDefaultLocationId">
+									<select id="create-product-location" class="field__input" x-model="draft.newStapleDefaultLocationId" @change="if ($event.target.value) draft.locationId = $event.target.value">
 										<option value="">— None —</option>
 										<option value="Guid_10">Fridge</option>
 										<option value="Guid_11">Pantry</option>
