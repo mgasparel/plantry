@@ -564,7 +564,7 @@ public sealed class ReviewModel(
 
         return new JsonResult(new
         {
-            redirectUrl = Url.Page("/Pantry/Index")!,
+            redirectUrl = Url.Page("/Intake/Upload")!,
             error = (string?)null,
         });
     }

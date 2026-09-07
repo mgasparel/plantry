@@ -500,7 +500,7 @@ public sealed class ReviewBoundaryTests(ReviewFragmentFactory factory) : IClassF
 
         Assert.True(doc.RootElement.TryGetProperty("redirectUrl", out var redirectUrl));
         Assert.False(string.IsNullOrEmpty(redirectUrl.GetString()), "Discard must return a redirectUrl.");
-        Assert.Contains("/Pantry", redirectUrl.GetString()!);
+        Assert.Contains("/Intake/Upload", redirectUrl.GetString()!);
     }
 
     // ── JSON endpoint: ConfirmLines (plantry-kr9h) ────────────────────────────────────────────
