@@ -1009,7 +1009,7 @@ function App({ lines, order, skipStack, baseline, products, stagedProducts, unit
 
         <div id="commit-bar" class="review__commit">
           <div class="commit-bar">
-            <button type="button" class="btn btn--ghost commit-bar__cancel" onClick=${handlers.discard}>Cancel</button>
+            <button type="button" class="btn btn--ghost commit-bar__cancel" onClick=${handlers.discard}>Discard</button>
             <span class="commit-bar__spacer"></span>
             ${bar.value.remaining > 0 && html`
               <span class="commit-bar__warn"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> ${bar.value.remaining} to resolve</span>`}
@@ -1398,6 +1398,7 @@ export function mountIntakeReview(root, hydration) {
     } catch { alertMsg.value = "Network error — please try again."; }
   }
   async function discard() {
+    if (!confirm("Discard this receipt? The lines you've reviewed will be lost and the import can't be recovered.")) return;
     try {
       const resp = await postJson(hydration.discardUrl, {}, token);
       const data = await resp.json();
