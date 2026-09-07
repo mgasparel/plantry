@@ -1362,6 +1362,174 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
     }
 
+    // ── NeedsConversion backstop, part 2: existing unreachable lot (plantry-bxzh) ──
+    // Part 1 (above) only checks countedUnit → product-default-unit. These cover the recovery
+    // fix: a product that ALREADY has a lot in a unit unreachable from the counted unit (e.g. one
+    // minted by the pre-fix quick-add bug) must be held for a conversion factor rather than
+    // surfacing RecordCountCommand.ApplyDeltaAsync's raw Catalog.UnresolvableConversion error.
+
+    [Fact(DisplayName = "POST Save with an existing unconvertible lot at this location holds for a conversion factor (plantry-bxzh)")]
+    public async Task Post_Save_ExistingUnconvertibleLot_HoldsForConversionFactor()
+    {
+        using var factory = new TakeStockExistingLotConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Count the same product in its OWN default unit (gram) — part 1's countedUnit-vs-default
+        // check does not trip (they're equal), but ApplyDeltaAsync would still need to convert the
+        // pre-existing Cup lot into gram to compute the recorded sum, and no such conversion is
+        // registered yet.
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = TakeStockFixture.FlourId,
+                    countedValue  = 600m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason        = "Correction",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        var result = Assert.Single(root.GetProperty("results").EnumerateArray());
+        Assert.False(result.GetProperty("isSuccess").GetBoolean());
+        Assert.True(result.GetProperty("needsConversion").GetBoolean());
+        Assert.Equal(factory.CupUnitId, result.GetProperty("fromUnitId").GetGuid());
+        Assert.Equal(TakeStockFixture.GramUnitId, result.GetProperty("toUnitId").GetGuid());
+
+        // No write — the two seeded gram lots are untouched. (The third, unconvertible Cup lot is
+        // modelled only in LotOverrideTakeStockReader.ListLotsAsync — see its doc comment — not in
+        // the underlying stock aggregate, since only OnPostSaveAsync's reader-backed check needs it
+        // to exist for this test.)
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == TakeStockFixture.FlourId);
+        Assert.Equal(2, stock.Entries.Count(e => e.IsActive));
+    }
+
+    [Fact(DisplayName = "POST Save with an existing lot once its conversion is known records the count (plantry-bxzh)")]
+    public async Task Post_Save_ExistingUnconvertibleLot_OnceConversionKnown_Records()
+    {
+        // Same seeded product/lot shape as the test above, but the conversion is already known
+        // (the state the product would be in immediately after the user supplies the factor via
+        // the needsConversion prompt's POST AddConversion, which persists into exactly this kind
+        // of provider in production — CatalogConversionProvider).
+        using var factory = new TakeStockExistingLotConversionFactory();
+        factory.Conversions.Factors[(factory.CupUnitId, TakeStockFixture.GramUnitId)] = 240m; // 1 cup = 240 g
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = TakeStockFixture.FlourId,
+                    countedValue  = 600m,
+                    countedUnitId = TakeStockFixture.GramUnitId,
+                    reason        = "Correction",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<SaveResponse>();
+        Assert.NotNull(data);
+        var result = Assert.Single(data.Results);
+        Assert.True(result.IsSuccess, $"Expected success but got error: {result.Error}");
+    }
+
+    [Fact(DisplayName = "POST Save maps a raw Catalog.UnresolvableConversion description to unit codes (plantry-bxzh backstop, FIX pass 1)")]
+    public async Task Post_Save_UnresolvableConversionBackstop_MapsGuidsToUnitCodes()
+    {
+        using var factory = new TakeStockUnresolvableBackstopFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Count in the product's OWN default unit — part 1's countedUnit-vs-default check does not
+        // trip (they're equal). Part 2's guard reads reader.ListLotsAsync, which (unlike the real
+        // stock repository wired into this factory) reports NO lots for this product — so neither
+        // NeedsConversion guard holds the row, and RecordCountCommand.ApplyDeltaAsync's own read of
+        // stock.Entries hits the real Cup lot directly and fails to convert it, surfacing the raw
+        // UnitConverter-shaped error this test asserts gets mapped to unit codes.
+        var payload = new
+        {
+            items = new[]
+            {
+                new
+                {
+                    productId     = factory.ProductId,
+                    countedValue  = 5m,
+                    countedUnitId = factory.GramUnitId,
+                    reason        = "Correction",
+                }
+            }
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=Save")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        var result = Assert.Single(root.GetProperty("results").EnumerateArray());
+        Assert.False(result.GetProperty("isSuccess").GetBoolean());
+
+        var error = result.GetProperty("error").GetString();
+        Assert.NotNull(error);
+        Assert.DoesNotMatch(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", error);
+        Assert.Contains("cup2", error);
+        Assert.Contains("g2", error);
+    }
+
     // ── Expiry on found/increased items (plantry-4onl) ────────────────────────
     // Each test spins up its own TakeStockGroupedProductFactory (a fresh FakeTsStockRepository
     // seeding Flour at 500g recorded — 300g + 200g lots) so the assertions don't depend on test
@@ -1665,6 +1833,361 @@ public sealed class TakeStockFragmentTests : IClassFixture<TakeStockFragmentFact
         var lot = stock.Entries.Single(e => e.IsActive);
         Assert.Equal(100m, lot.Quantity);
         Assert.Equal(new DateOnly(2027, 9, 1), lot.ExpiryDate);
+    }
+
+    // ── Unit-convertibility gate on quick-add (plantry-bxzh) ──────────────────
+
+    [Fact(DisplayName = "POST AddItem with an unconvertible counted unit returns needsConversion and creates nothing (plantry-bxzh)")]
+    public async Task Post_AddItem_UnconvertibleCountedUnit_ReturnsNeedsConversion_CreatesNothing()
+    {
+        // TakeStockConversionFactory registers a FailingConversionProvider (fails any cross-unit
+        // conversion — models a brand-new product with no ProductConversion rows) and a CupUnitId
+        // distinct from the default GramUnitId. Standalone Path C payload.
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name          = "Bubly Strawberry",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue  = 12m,
+            countedUnitId = factory.CupUnitId,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(root.GetProperty("isSuccess").GetBoolean());
+        Assert.True(root.GetProperty("needsConversion").GetBoolean());
+        Assert.Equal(factory.CupUnitId, root.GetProperty("fromUnitId").GetGuid());
+        Assert.Equal(TakeStockFixture.GramUnitId, root.GetProperty("toUnitId").GetGuid());
+
+        // Nothing was created at all — no orphan Catalog product, no stock lot in an unreachable
+        // unit (the exact symptom this issue closes: quick-add previously minted a lot in "cup" on
+        // a product with no path back to its default unit).
+        Assert.Equal(0, factory.CatalogWriter.CreateCalls);
+        // FakeTsStockRepository always seeds two gram lots for TakeStockFixture.FlourId in its
+        // constructor (unrelated to this test's "Bubly Strawberry" product) — assert no NEW stock
+        // root was added rather than that the repository is empty.
+        Assert.DoesNotContain(factory.StockRepository.Items, s => s.ProductId != TakeStockFixture.FlourId);
+    }
+
+    [Fact(DisplayName = "POST AddItem with a supplied conversionFactor creates product + conversion + opening lot in one round trip (plantry-bxzh)")]
+    public async Task Post_AddItem_WithConversionFactor_CreatesProductConversionAndLot()
+    {
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        // Same unconvertible pairing as the test above, but this time the client supplies the
+        // factor it would have gathered from the needsConversion prompt (1 cup = 120 g).
+        var payload = new
+        {
+            name             = "Bubly Strawberry",
+            defaultUnitId    = TakeStockFixture.GramUnitId,
+            countedValue     = 12m,
+            countedUnitId    = factory.CupUnitId,
+            conversionFactor = 120m,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess, $"Expected success but got error: {data.Error}");
+
+        // Product created.
+        Assert.Equal(1, factory.CatalogWriter.CreateCalls);
+        Assert.Equal("Bubly Strawberry", factory.CatalogWriter.LastName);
+
+        // Conversion persisted BEFORE the count (order matters for RecordCountCommand's own
+        // fallback path) — 1 CupUnitId = 120 GramUnitId.
+        Assert.Equal(1, factory.CatalogWriter.ConversionCalls);
+        Assert.Equal(data.ProductId, factory.CatalogWriter.LastConversionProductId);
+        Assert.Equal(factory.CupUnitId, factory.CatalogWriter.LastConversionFromUnitId);
+        Assert.Equal(TakeStockFixture.GramUnitId, factory.CatalogWriter.LastConversionToUnitId);
+        Assert.Equal(120m, factory.CatalogWriter.LastConversionFactor);
+
+        // Opening-balance lot recorded in the counted unit (cup), same as the ungated success path.
+        var stock = factory.StockRepository.Items.Single(s => s.ProductId == data.ProductId);
+        var lot = stock.Entries.Single(e => e.IsActive);
+        Assert.Equal(12m, lot.Quantity);
+        Assert.Equal(factory.CupUnitId, lot.UnitId);
+    }
+
+    [Fact(DisplayName = "POST AddItem with a zero/negative conversionFactor is re-held, not applied — no orphan product (plantry-bxzh FIX pass 1)")]
+    public async Task Post_AddItem_WithNonPositiveConversionFactor_ReHeld_CreatesNothing()
+    {
+        // Without a server-side conversionFactor <= 0 guard, this payload would skip the
+        // needsConversion gate (payload.ConversionFactor is not null), create the product, and
+        // only THEN have AddConversionAsync reject the factor — leaving an orphan Catalog product
+        // behind an error response. That is exactly the "partial effect survives a reported
+        // failure" shape this issue exists to close.
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name             = "Bubly Strawberry",
+            defaultUnitId    = TakeStockFixture.GramUnitId,
+            countedValue     = 12m,
+            countedUnitId    = factory.CupUnitId,
+            conversionFactor = 0m,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(root.GetProperty("isSuccess").GetBoolean());
+        Assert.True(root.GetProperty("needsConversion").GetBoolean());
+        Assert.Equal(factory.CupUnitId, root.GetProperty("fromUnitId").GetGuid());
+        Assert.Equal(TakeStockFixture.GramUnitId, root.GetProperty("toUnitId").GetGuid());
+
+        Assert.Equal(0, factory.CatalogWriter.CreateCalls);
+        Assert.Equal(0, factory.CatalogWriter.ConversionCalls);
+        Assert.DoesNotContain(factory.StockRepository.Items, s => s.ProductId != TakeStockFixture.FlourId);
+    }
+
+    [Fact(DisplayName = "POST AddItem with an unknown countedUnitId and a supplied conversionFactor is rejected — no orphan product (plantry-bxzh FIX pass 3)")]
+    public async Task Post_AddItem_UnknownCountedUnitId_WithConversionFactor_Rejected_CreatesNothing()
+    {
+        // A hand-crafted /AddItem payload can carry a countedUnitId that isn't a real unit at all
+        // (never offered by any dropdown). Before this fix, supplying a positive conversionFactor
+        // skipped BOTH needsConversion branches (neither is reached once a valid-looking factor is
+        // present), so the request fell straight through to Path C's CreateProductAsync, then
+        // AddCountedItemCommand's Step 1b called AddConversionAsync, which hit
+        // AddConversionCommand's Catalog.UnknownUnit branch and threw — leaving a durably
+        // persisted orphan Catalog product with nothing recorded (AC1 violation: an unresolvable
+        // counted unit must create NOTHING, not create-then-fail).
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var unknownUnitId = Guid.CreateVersion7(); // never added to factory's IUnitRepository fake
+
+        var payload = new
+        {
+            name             = "Bubly Strawberry",
+            defaultUnitId    = TakeStockFixture.GramUnitId,
+            countedValue     = 12m,
+            countedUnitId    = unknownUnitId,
+            conversionFactor = 120m,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(root.GetProperty("isSuccess").GetBoolean());
+
+        Assert.Equal(0, factory.CatalogWriter.CreateCalls);
+        Assert.Equal(0, factory.CatalogWriter.ConversionCalls);
+        Assert.DoesNotContain(factory.StockRepository.Items, s => s.ProductId != TakeStockFixture.FlourId);
+    }
+
+    [Fact(DisplayName = "POST AddItem (Path A, join group) with a missing default unit and a supplied conversionFactor is rejected — no orphan variant (plantry-bxzh FIX pass 3)")]
+    public async Task Post_AddItem_PathA_MissingDefaultUnit_WithConversionFactor_Rejected_CreatesNothing()
+    {
+        // AddItemRequest.DefaultUnitId is a non-nullable Guid, so an omitted field deserializes to
+        // Guid.Empty silently. For Path B/C (and even Path A's OWN CreateVariantCommand call),
+        // ValidateCrossReferencesAsync would reject any OTHER unknown unitId before insert — but
+        // Path A passes `unitOverride: unitId == Guid.Empty ? null : unitId`, and
+        // CreateVariantCommand then inherits the PARENT GROUP's own unit when the override is
+        // null, so validation passes and the variant IS created. CreateAndCountAsync then calls
+        // AddConversionAsync(productId, countUnit, Guid.Empty, factor), which — in production —
+        // AddConversionCommand rejects with Catalog.UnknownUnit, leaving a durably persisted
+        // orphan variant product with nothing recorded (AC1 violation via a different reachable
+        // path than the unknown-countedUnitId case above). The guard must reject this BEFORE any
+        // create, so no create/conversion call ever reaches the fake writer.
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name             = "Bubly Strawberry",
+            countedValue     = 12m,
+            countedUnitId    = factory.CupUnitId,
+            conversionFactor = 120m,
+            newGroupId       = factory.FlourProductId.ToString(), // Path A: join an existing group
+            // defaultUnitId intentionally omitted — deserializes to Guid.Empty.
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(root.GetProperty("isSuccess").GetBoolean());
+
+        Assert.Equal(0, factory.CatalogWriter.CreateCalls);
+        Assert.Equal(0, factory.CatalogWriter.ConversionCalls);
+        Assert.DoesNotContain(factory.StockRepository.Items, s => s.ProductId != TakeStockFixture.FlourId);
+    }
+
+    [Fact(DisplayName = "POST AddItem with countedValue 0 and a non-positive conversionFactor is still re-held — no orphan product, no unhandled 500 (plantry-bxzh FIX pass 2)")]
+    public async Task Post_AddItem_ZeroCountedValue_WithNonPositiveConversionFactor_ReHeld_CreatesNothing()
+    {
+        // The pass-1 fix gated the conversionFactor<=0 re-hold on `payload.CountedValue > 0m`, so
+        // this exact combination (countedValue 0, a bad factor) still slipped past it: the
+        // product got created, then AddCountedItemCommand's Step 1b called AddConversionAsync
+        // unconditionally on countedUnitId != defaultUnitId (it does not check countedValue),
+        // which reached ProductConversion.Create and threw ArgumentOutOfRangeException — a type
+        // the InvalidOperationException catch did not cover, i.e. an unhandled 500 behind an
+        // already-persisted orphan product.
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name             = "Bubly Strawberry",
+            defaultUnitId    = TakeStockFixture.GramUnitId,
+            countedValue     = 0m,
+            countedUnitId    = factory.CupUnitId,
+            conversionFactor = 0m,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var root = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(root.GetProperty("isSuccess").GetBoolean());
+        Assert.True(root.GetProperty("needsConversion").GetBoolean());
+        Assert.Equal(factory.CupUnitId, root.GetProperty("fromUnitId").GetGuid());
+        Assert.Equal(TakeStockFixture.GramUnitId, root.GetProperty("toUnitId").GetGuid());
+
+        Assert.Equal(0, factory.CatalogWriter.CreateCalls);
+        Assert.Equal(0, factory.CatalogWriter.ConversionCalls);
+        Assert.DoesNotContain(factory.StockRepository.Items, s => s.ProductId != TakeStockFixture.FlourId);
+    }
+
+    [Fact(DisplayName = "POST AddItem in the product default unit is not gated (no false needsConversion) (plantry-bxzh)")]
+    public async Task Post_AddItem_DefaultUnit_NotGated()
+    {
+        using var factory = new TakeStockConversionFactory();
+        var client = factory.CreateAuthClient(TakeStockFixture.HouseholdAId);
+
+        var pageResp = await client.GetAsync($"/pantry/take-stock/{TakeStockFixture.PantryLocId}");
+        var token = ExtractAntiforgeryToken(await pageResp.Content.ReadAsStringAsync());
+
+        var payload = new
+        {
+            name          = "Same Unit Item",
+            defaultUnitId = TakeStockFixture.GramUnitId,
+            countedValue  = 5m,
+            countedUnitId = TakeStockFixture.GramUnitId,
+        };
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/pantry/take-stock/{TakeStockFixture.PantryLocId}?handler=AddItem")
+        {
+            Content = JsonContent.Create(payload, options: new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            })
+        };
+        request.Headers.Add("RequestVerificationToken", token);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+
+        var resp = await client.SendAsync(request);
+        resp.EnsureSuccessStatusCode();
+
+        var data = await resp.Content.ReadFromJsonAsync<AddItemResponse>();
+        Assert.NotNull(data);
+        Assert.True(data.IsSuccess, $"Expected success but got error: {data.Error}");
+        Assert.Equal(1, factory.CatalogWriter.CreateCalls);
+        Assert.Equal(0, factory.CatalogWriter.ConversionCalls);
     }
 
     [Fact(DisplayName = "POST AddConversion persists the factor via the catalog writer (plantry-3mwx)")]
@@ -2415,6 +2938,8 @@ public sealed class FailingConversionProvider : IProductConversionProvider
 public sealed class TakeStockConversionFactory : WebApplicationFactory<Program>
 {
     public FakeTsStockRepository StockRepository { get; } = new FakeTsStockRepository();
+    /// <summary>Exposed so AddItem gate tests (plantry-bxzh) can inspect create/conversion calls.</summary>
+    public FakeTsCatalogWriter CatalogWriter { get; } = new FakeTsCatalogWriter();
     public Guid FlourProductId { get; }
     public Guid CupUnitId { get; }
 
@@ -2442,7 +2967,7 @@ public sealed class TakeStockConversionFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
-            TakeStockFragmentFactory.RegisterFakes(services, stockRepo: StockRepository);
+            TakeStockFragmentFactory.RegisterFakes(services, stockRepo: StockRepository, catalogWriter: CatalogWriter);
 
             services.RemoveAll<IProductRepository>();
             services.AddSingleton<IProductRepository>(_productRepo);
@@ -2452,6 +2977,242 @@ public sealed class TakeStockConversionFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IProductConversionProvider>();
             services.AddSingleton<IProductConversionProvider, FailingConversionProvider>();
+        });
+    }
+
+    public HttpClient CreateAuthClient(Guid householdId)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, householdId.ToString());
+        return client;
+    }
+}
+
+/// <summary>
+/// Fake <see cref="IProductConversionProvider"/> backed by a mutable per-(fromUnit,toUnit) factor
+/// table (plantry-bxzh). Unlike <see cref="FailingConversionProvider"/> (fixed fail-all) or
+/// <see cref="FakeTsConversionProvider"/> (fixed identity), this one lets a test register a
+/// conversion mid-test — modelling the state <c>CatalogConversionProvider</c> would be in once
+/// <see cref="ITakeStockCatalogWriter.AddConversionAsync"/> has actually persisted a factor.
+/// </summary>
+public sealed class MutableConversionProvider : IProductConversionProvider
+{
+    public Dictionary<(Guid From, Guid To), decimal> Factors { get; } = [];
+
+    public Task<IQuantityConverter> ForProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IQuantityConverter>(new Converter(Factors));
+
+    public Task<IReadOnlyDictionary<Guid, IQuantityConverter>> ForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, IQuantityConverter> result =
+            productIds.ToDictionary(id => id, _ => (IQuantityConverter)new Converter(Factors));
+        return Task.FromResult(result);
+    }
+
+    private sealed class Converter(Dictionary<(Guid From, Guid To), decimal> factors) : IQuantityConverter
+    {
+        public Result<decimal> Convert(decimal amount, Guid fromUnitId, Guid toUnitId)
+        {
+            if (fromUnitId == toUnitId) return amount;
+            if (factors.TryGetValue((fromUnitId, toUnitId), out var factor)) return amount * factor;
+            return Error.Custom("Units.NoConversion", "No conversion path.");
+        }
+    }
+}
+
+/// <summary>
+/// Wraps <see cref="FakeTakeStockReader"/> but overrides <see cref="ListLotsAsync"/> to return one
+/// extra lot in <see cref="ExtraUnitId"/> alongside the base fixture's two gram Flour lots
+/// (plantry-bxzh) — models a product that already has a lot minted in a unit unreachable from its
+/// default unit, e.g. by the pre-fix quick-add bug this issue closes. The base
+/// <see cref="FakeTakeStockReader.ListLotsAsync"/> is hard-coded to the two-gram-lot fixture and is
+/// not backed by any injected <see cref="IProductStockRepository"/>, so a test that wants the walk
+/// SAVE handler's lot-unit backstop (OnPostSaveAsync part 2) to see a third, incompatible lot must
+/// override this method rather than seed the stock repository.
+/// </summary>
+public sealed class LotOverrideTakeStockReader(Guid extraUnitId) : ITakeStockReader
+{
+    private readonly FakeTakeStockReader _inner = new();
+
+    public Task<IReadOnlyList<TakeStockLocationRow>> ListLocationsAsync(CancellationToken ct = default) =>
+        _inner.ListLocationsAsync(ct);
+
+    public Task<IReadOnlyList<TakeStockLocationProductRow>> ListLocationRowsAsync(
+        Guid locationId, CancellationToken ct = default) =>
+        _inner.ListLocationRowsAsync(locationId, ct);
+
+    public Task<IReadOnlyList<TakeStockNoLocationRow>> ListNoLocationRowsAsync(CancellationToken ct = default) =>
+        _inner.ListNoLocationRowsAsync(ct);
+
+    public Task<IReadOnlyList<TakeStockLotRow>> ListLotsAsync(
+        Guid productId, Guid locationId, CancellationToken ct = default)
+    {
+        if (productId != TakeStockFixture.FlourId || locationId != TakeStockFixture.PantryLocId)
+            return Task.FromResult<IReadOnlyList<TakeStockLotRow>>([]);
+
+        IReadOnlyList<TakeStockLotRow> rows =
+        [
+            new TakeStockLotRow(TakeStockFixture.LotAId, 300m, "g", TakeStockFixture.GramUnitId, null, false),
+            new TakeStockLotRow(TakeStockFixture.LotBId, 200m, "g", TakeStockFixture.GramUnitId, new DateOnly(2026, 12, 31), false),
+            new TakeStockLotRow(Guid.CreateVersion7(), 12m, "cup", extraUnitId, null, false),
+        ];
+        return Task.FromResult(rows);
+    }
+
+    public Task<IReadOnlyList<TakeStockProductMatch>> SearchProductsAsync(
+        string query, CancellationToken ct = default) =>
+        _inner.SearchProductsAsync(query, ct);
+}
+
+/// <summary>
+/// L4 WebApplicationFactory for the NeedsConversion backstop's recovery half (plantry-bxzh, part
+/// 2): a product with an already-existing lot in a unit unreachable from its default unit. Wires
+/// <see cref="LotOverrideTakeStockReader"/> (so <c>reader.ListLotsAsync</c> sees the extra Cup lot)
+/// and <see cref="MutableConversionProvider"/> (so a test can register the conversion mid-test to
+/// prove the recovery half — once known, the held count records).
+/// </summary>
+public sealed class TakeStockExistingLotConversionFactory : WebApplicationFactory<Program>
+{
+    public FakeTsStockRepository StockRepository { get; } = new FakeTsStockRepository();
+    public MutableConversionProvider Conversions { get; } = new MutableConversionProvider();
+    public Guid CupUnitId { get; }
+
+    private readonly FakeTsUnitRepository _unitRepo = new();
+
+    public TakeStockExistingLotConversionFactory()
+    {
+        var cup = CatalogUnit.Create(
+            TakeStockFixture.Household, "cup", "cup", Dimension.Volume, factorToBase: 1m, isBase: true);
+        CupUnitId = cup.Id.Value;
+        _unitRepo.AddAsync(cup).GetAwaiter().GetResult();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddFakeExpiringSoonHorizon();
+            TakeStockFragmentFactory.RegisterFakes(services, StockRepository);
+
+            services.RemoveAll<ITakeStockReader>();
+            services.AddSingleton<ITakeStockReader>(new LotOverrideTakeStockReader(CupUnitId));
+
+            services.RemoveAll<IUnitRepository>();
+            services.AddSingleton<IUnitRepository>(_unitRepo);
+
+            services.RemoveAll<IProductConversionProvider>();
+            services.AddSingleton<IProductConversionProvider>(Conversions);
+        });
+    }
+
+    public HttpClient CreateAuthClient(Guid householdId)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, householdId.ToString());
+        return client;
+    }
+}
+
+/// <summary>
+/// Fake <see cref="IProductConversionProvider"/> that always fails a cross-unit conversion with
+/// the SAME error code and GUID-bearing message shape <c>UnitConverter.Convert</c> uses
+/// (<c>Catalog.UnresolvableConversion</c>, src/Plantry.Pantry/Domain/Catalog/UnitConverter.cs)
+/// (plantry-bxzh FIX pass 1). Unlike <see cref="FailingConversionProvider"/> and
+/// <see cref="MutableConversionProvider"/> (both use a test-only "Units.NoConversion" code), this
+/// one exists specifically to prove the OnPostSaveAsync unit-code legibility backstop (DESIGN work
+/// item 3, bullet 2) — that backstop keys off the real error code, so the fake must emit it too.
+/// </summary>
+public sealed class UnresolvableConversionProvider : IProductConversionProvider
+{
+    public Task<IQuantityConverter> ForProductAsync(Guid productId, CancellationToken ct = default) =>
+        Task.FromResult<IQuantityConverter>(new Converter());
+
+    public Task<IReadOnlyDictionary<Guid, IQuantityConverter>> ForProductsAsync(
+        IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, IQuantityConverter> result =
+            productIds.ToDictionary(id => id, _ => (IQuantityConverter)new Converter());
+        return Task.FromResult(result);
+    }
+
+    private sealed class Converter : IQuantityConverter
+    {
+        public Result<decimal> Convert(decimal amount, Guid fromUnitId, Guid toUnitId) =>
+            fromUnitId == toUnitId
+                ? amount
+                : Error.Custom("Catalog.UnresolvableConversion",
+                    $"No conversion is known from unit '{fromUnitId}' to unit '{toUnitId}'.");
+    }
+}
+
+/// <summary>
+/// L4 WebApplicationFactory proving the OnPostSaveAsync unit-code legibility backstop
+/// (plantry-bxzh DESIGN work item 3, bullet 2; FIX pass 1) — the case where BOTH NeedsConversion
+/// guards pass clean (the reader-backed part-2 check never sees the offending lot, because
+/// <see cref="FakeTakeStockReader.ListLotsAsync"/> is hard-coded to
+/// <see cref="TakeStockFixture.FlourId"/>/<see cref="TakeStockFixture.PantryLocId"/> and this
+/// factory deliberately uses a DIFFERENT product id) but RecordCountCommand.ApplyDeltaAsync's own
+/// read of the real stock aggregate still hits an unconvertible lot and fails loud. Seeds a fresh
+/// product whose only stock lot is in a unit the wired <see cref="UnresolvableConversionProvider"/>
+/// can never convert to the product's default unit.
+/// </summary>
+public sealed class TakeStockUnresolvableBackstopFactory : WebApplicationFactory<Program>
+{
+    public FakeTsStockRepository StockRepository { get; } = new FakeTsStockRepository();
+    public Guid ProductId { get; }
+    public Guid GramUnitId { get; }
+    public Guid CupUnitId { get; }
+
+    private readonly FakeTsProductRepository _productRepo = new();
+    private readonly FakeTsUnitRepository _unitRepo = new();
+
+    public TakeStockUnresolvableBackstopFactory()
+    {
+        var clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+
+        var gram = CatalogUnit.Create(
+            TakeStockFixture.Household, "g2", "gram2", Dimension.Mass, factorToBase: 1m, isBase: true);
+        GramUnitId = gram.Id.Value;
+        _unitRepo.AddAsync(gram).GetAwaiter().GetResult();
+
+        var cup = CatalogUnit.Create(
+            TakeStockFixture.Household, "cup2", "cup2", Dimension.Volume, factorToBase: 1m, isBase: true);
+        CupUnitId = cup.Id.Value;
+        _unitRepo.AddAsync(cup).GetAwaiter().GetResult();
+
+        var product = Product.Create(TakeStockFixture.Household, "Backstop Product", UnitId.From(GramUnitId), clock);
+        ProductId = product.Id.Value;
+        _productRepo.AddAsync(product).GetAwaiter().GetResult();
+
+        // The only lot for this product is in CupUnitId — invisible to
+        // FakeTakeStockReader.ListLotsAsync (hard-coded to TakeStockFixture.FlourId only), so the
+        // OnPostSaveAsync part-2 guard sees zero lots for THIS product and does not hold. The real
+        // stock repository (below) does have the lot, so RecordCountCommand.ApplyDeltaAsync's own
+        // read hits it directly — the exact divergence the backstop exists to cover.
+        var userId = Guid.Parse("00000000-0000-0000-0000-0000000000bb");
+        var stock = ProductStock.Start(TakeStockFixture.Household, ProductId, clock);
+        stock.AddStock(12m, CupUnitId, TakeStockFixture.PantryLocId, userId, clock);
+        StockRepository.AddAsync(stock).GetAwaiter().GetResult();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddFakeExpiringSoonHorizon();
+            TakeStockFragmentFactory.RegisterFakes(services, stockRepo: StockRepository);
+
+            services.RemoveAll<IProductRepository>();
+            services.AddSingleton<IProductRepository>(_productRepo);
+
+            services.RemoveAll<IUnitRepository>();
+            services.AddSingleton<IUnitRepository>(_unitRepo);
+
+            services.RemoveAll<IProductConversionProvider>();
+            services.AddSingleton<IProductConversionProvider, UnresolvableConversionProvider>();
         });
     }
 

@@ -70,7 +70,8 @@ import {
   setCount, makeRow as makeRowFromSeed, buildSaveItems, reconcileResults, saveStatusMessage,
   mergeSheetUnitIntoRow, shouldShowMarkCounted, rowStatus, toggleRowCheck, confirmRow,
   groupRowsByCategory, readyToSaveCount as computeReadyToSaveCount,
-} from "./take-stock-logic.js?v=7";
+  makePendingAddRow, buildPendingAddReplayBody, resolveConversionUnitRestore,
+} from "./take-stock-logic.js?v=9";
 import { createToast, createToastHost } from "./toast.js?v=1";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
@@ -122,6 +123,11 @@ import { createToast, createToastHost } from "./toast.js?v=1";
  * @property {import("@preact/signals").Signal<string>} convToCode
  * @property {import("@preact/signals").Signal<string>} convFactor
  * @property {import("@preact/signals").Signal<string>} expiryDate   optional yyyy-MM-dd for a found/increased lot (plantry-4onl)
+ * @property {Object} [pendingAddPayload]   plain (non-signal) field — set only on the transient
+ *   quick-add "pending" row opened by handleSheetAdd's Path B when /AddItem returns
+ *   needsConversion (plantry-bxzh). Never present on a hydrated or already-created row; never
+ *   added to rowsSignal. Holds the original /AddItem request body so addConversion() can replay
+ *   it with a conversionFactor once the user supplies one.
  */
 
 const REASON_LABEL = { Correction: "correction", Consumed: "used it", Discarded: "spoiled" };
@@ -831,7 +837,19 @@ export function mountTakeStockWalk(root, config) {
 
         const data = await resp.json();
         if (!data.isSuccess) {
-          toast.show(data.error ?? "Failed to create product");
+          if (data.needsConversion) {
+            // Unit-convertibility gate (plantry-bxzh) — the counted unit has no conversion path
+            // to the chosen default unit. Nothing was created (no orphan product, no bad lot) —
+            // surface the SAME inline conversion-factor prompt the Save-path NeedsConversion
+            // backstop uses (AdjusterSheet, take-stock.js:303), but do NOT inject a row into the
+            // working set: makePendingAddRow's row is only ever assigned to sheetRow, never
+            // pushed onto rowsSignal, so it never appears in the check-off list. addConversion()
+            // detects pendingAddPayload and resubmits /AddItem with the factor instead of posting
+            // to OnPostAddConversionAsync (which requires a product that doesn't exist yet).
+            openSheet(makePendingAddRow(name, counted, data, payload, signal, computed));
+          } else {
+            toast.show(data.error ?? "Failed to create product");
+          }
           return;
         }
 
@@ -920,6 +938,55 @@ export function mountTakeStockWalk(root, config) {
       toast.show("Enter a conversion factor greater than zero.");
       return;
     }
+
+    // Quick-add gate (plantry-bxzh) — `row` here is the pending row built by makePendingAddRow in
+    // handleSheetAdd's Path B, not a saved working-set row: the product does not exist yet, so
+    // there is nothing for OnPostAddConversionAsync to attach a conversion to. Resubmit /AddItem
+    // with the factor instead — create + conversion + opening count land together, in the order
+    // AddCountedItemCommand/CreateAndCountAsync require (conversion persisted before the count).
+    // buildPendingAddReplayBody reads the row's LIVE counted/unitId signals (not the payload
+    // snapshot from the first /AddItem call) — the sheet's stepper/unit controls stay editable
+    // while this prompt is showing, so a user who nudges the count before saving the conversion
+    // must not have that edit silently discarded (plantry-bxzh FIX pass 1).
+    if (row.pendingAddPayload) {
+      try {
+        const resp = await postJson(
+          config.addItemUrl,
+          buildPendingAddReplayBody(row, factor),
+          config.token);
+        if (!resp.ok) {
+          toast.show(`Add item failed (${resp.status}) — please try again`);
+          return;
+        }
+        const data = await resp.json();
+        if (!data.isSuccess) {
+          toast.show(data.error ?? "Failed to create product");
+          return;
+        }
+        const newRow = makeRow({
+          productId: data.productId,
+          productName: data.productName,
+          recorded: 0,
+          unitCode: data.unitCode,
+          unitId: data.unitId,
+          hasActiveStock: false,
+          lotsUrl: "",
+          saveLotsUrl: "",
+          categoryName: null,
+          categorySortOrder: Number.MAX_SAFE_INTEGER,
+          supportedUnits: [],
+          isNewRow: true,
+        });
+        newRow.counted.value = data.countedValue;
+        rowsSignal.value = [...rowsSignal.value, newRow];
+        closeSheetPanel();
+        toast.show(data.productName + " added" + (data.countedValue > 0 ? " with " + data.countedValue + " " + data.unitCode : "") + ".");
+      } catch {
+        toast.show("Network error — please try again");
+      }
+      return;
+    }
+
     try {
       const resp = await postJson(config.addConversionUrl, {
         productId: row.productId,
@@ -936,9 +1003,15 @@ export function mountTakeStockWalk(root, config) {
         toast.show(data.error ?? "Couldn't save the conversion.");
         return;
       }
-      // Conversion stored — clear the prompt and ensure the row keeps the counted unit, then re-save.
+      // Conversion stored — clear the prompt, then re-save. Two DIFFERENT hold shapes reach this
+      // same call site (plantry-3mwx part 1: counted-unit -> product-default; plantry-bxzh part 2:
+      // existing-lot-unit -> counted-unit) and only part 1's "restore row.unitId to convFromUnitId"
+      // is safe — for part 2 that would silently flip the row to the stuck lot's unit and record
+      // the count against the wrong unit (plantry-bxzh pass-3 critic finding). Let the pure
+      // discriminator in take-stock-logic.js decide.
       row.needsConversion.value = false;
-      if (row.convFromUnitId.value) row.unitId.value = row.convFromUnitId.value;
+      const restoreUnitId = resolveConversionUnitRestore(row);
+      if (restoreUnitId) row.unitId.value = restoreUnitId;
       row.convFactor.value = "";
       await save(rowsSignal, config.saveUrl, config.token, toast, saving, countedAgo, markedThisSession, dirtyLotIds);
     } catch {

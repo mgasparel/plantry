@@ -44,7 +44,8 @@ public sealed class WalkModel(
     ITenantContext tenant,
     VoidDeferredUnitGapLines voidDeferredUnitGaps,
     ILogger<WalkModel> logger,
-    ILogger<SaveLotAdjustmentsCommand> saveLotsLogger) : PageModel
+    ILogger<SaveLotAdjustmentsCommand> saveLotsLogger,
+    ILogger<AddCountedItemCommand> addCountedItemLogger) : PageModel
 {
     // ── Read model ────────────────────────────────────────────────────────────
 
@@ -171,6 +172,107 @@ public sealed class WalkModel(
         var newGroupId  = payload.NewGroupId?.Trim() ?? string.Empty;
         var newGroupName = payload.NewGroupName?.Trim() ?? string.Empty;
 
+        // Unit-convertibility gate (plantry-bxzh) — the quick-add analogue of the Save-path
+        // NeedsConversion backstop (plantry-3mwx), but run BEFORE any create so an unresolvable
+        // counted unit creates nothing at all: no orphan Catalog product, no stock lot minted in
+        // a unit nothing can reach. A brand-new product has no ProductConversion rows yet, so
+        // resolving against Guid.Empty (a nonexistent product — the same "no product-specific
+        // overrides" state a real new product would have) exercises only identity and
+        // same-dimension Mass/Volume scaling, exactly like the real product would once created.
+        // When the client already supplied a conversionFactor (the round-trip after this same
+        // gate fired once), skip the check — the factor is applied below instead. A supplied
+        // factor that is zero or negative is NOT a valid round-trip, though — falling through
+        // would create the product, then AddCountedItemCommand's Step 1b calls
+        // AddConversionAsync unconditionally on countedUnitId != defaultUnitId (it does not check
+        // countedValue), which reaches ProductConversion.Create and throws
+        // ArgumentOutOfRangeException — a type NOT caught by the surrounding
+        // InvalidOperationException/ArgumentException catches, i.e. an unhandled 500 with a
+        // durably persisted orphan product (plantry-bxzh FIX pass 2 — the pass-1 fix gated this
+        // re-hold on countedValue > 0m, which a countedValue: 0 payload still slipped past).
+        // Re-hold for a valid factor regardless of countedValue, mirroring
+        // OnPostAddConversionAsync's own `Factor <= 0m` guard (below) and reusing its wording.
+        //
+        // Missing-default-unit guard (plantry-bxzh FIX pass 2): a missing default unit must be
+        // rejected before any create. `AddItemRequest.DefaultUnitId` is a non-nullable `Guid`, so
+        // an omitted field deserializes to `Guid.Empty` silently. `ValidateCrossReferencesAsync`
+        // rejects any OTHER unknown `unitId` before insert (Path B/C, and Path A's own
+        // CreateVariantCommand) — but Path A passes `unitOverride: unitId == Guid.Empty ? null :
+        // unitId` (below), and `CreateVariantCommand` then inherits the PARENT GROUP's own unit
+        // when the override is null, so validation passes and the variant IS created.
+        // `CreateAndCountAsync` then calls AddConversionAsync(productId, countUnit, Guid.Empty,
+        // factor), which
+        // AddConversionCommand rejects with Catalog.UnknownUnit — leaving a durably persisted
+        // orphan variant product (AC1). Guid.Empty is the only unitId shape that survives
+        // validation this way, so this one check closes the class.
+        if (unitId == Guid.Empty)
+        {
+            return new JsonResult(new
+            {
+                isSuccess = false,
+                error = "Pick a default unit for this item.",
+            });
+        }
+
+        // Unknown-unit guard (plantry-bxzh FIX pass 1) — scoped to ONLY the positive-factor round
+        // trip. A hand-crafted /AddItem payload can carry a countedUnitId that doesn't exist in
+        // the household at all — that is a different failure mode than "no conversion path
+        // exists" (the two branches below handle that one via AddConversionCommand/gateConverter,
+        // both of which already fail gracefully for an unknown unit). The positive-factor branch
+        // is the one gap: it skips both of those checks entirely (that's the whole point of
+        // supplying a factor), so today it falls straight through to Path A/B/C, creates the
+        // product, and only THEN has AddConversionAsync reject the unknown unit
+        // (AddConversionCommand's Catalog.UnknownUnit branch) — leaving a durably persisted orphan
+        // product with nothing recorded (AC1: an unresolvable counted unit must create NOTHING).
+        // A single targeted FindAsync (not the full ListAsync used below for code lookups) keeps
+        // this to one extra round trip only on the path that actually needs it. unitId (the
+        // default unit) is deliberately NOT re-validated here — it comes from the same trusted
+        // catalog dropdown the create form itself populates and is never the "from" side of a
+        // conversion lookup; a bad value there is a pre-existing concern this ticket did not
+        // introduce and is out of scope for this fix.
+        if (countUnit != unitId && payload.ConversionFactor is > 0m
+            && await unitRepository.FindAsync(UnitId.From(countUnit), ct) is null)
+        {
+            return new JsonResult(new
+            {
+                isSuccess = false,
+                error = "That unit no longer exists — pick another.",
+            });
+        }
+
+        if (countUnit != unitId && payload.ConversionFactor is <= 0m)
+        {
+            var badFactorUnits = await unitRepository.ListAsync(ct);
+            return new JsonResult(new
+            {
+                isSuccess = false,
+                needsConversion = true,
+                fromUnitId = countUnit,
+                fromUnitCode = badFactorUnits.FirstOrDefault(u => u.Id.Value == countUnit)?.Code ?? "?",
+                toUnitId = unitId,
+                toUnitCode = badFactorUnits.FirstOrDefault(u => u.Id.Value == unitId)?.Code ?? "?",
+                error = "Enter a conversion factor greater than zero.",
+            });
+        }
+
+        if (payload.CountedValue > 0m && countUnit != unitId && payload.ConversionFactor is null)
+        {
+            var gateConverter = await conversions.ForProductAsync(Guid.Empty, ct);
+            if (gateConverter.Convert(1m, countUnit, unitId).IsFailure)
+            {
+                var gateUnits = await unitRepository.ListAsync(ct);
+                return new JsonResult(new
+                {
+                    isSuccess = false,
+                    needsConversion = true,
+                    fromUnitId = countUnit,
+                    fromUnitCode = gateUnits.FirstOrDefault(u => u.Id.Value == countUnit)?.Code ?? "?",
+                    toUnitId = unitId,
+                    toUnitCode = gateUnits.FirstOrDefault(u => u.Id.Value == unitId)?.Code ?? "?",
+                    error = "This unit needs a conversion factor before it can be recorded.",
+                });
+            }
+        }
+
         Result<Guid> result;
 
         if (!string.IsNullOrEmpty(newGroupId) && Guid.TryParse(newGroupId, out var parentGroupId))
@@ -185,8 +287,10 @@ public sealed class WalkModel(
                     ct2),
                 countedValue: payload.CountedValue,
                 countUnit:    countUnit,
+                defaultUnit:  unitId,
                 userId:       userId,
                 expiryDate:   payload.ExpiryDate,
+                conversionFactor: payload.ConversionFactor,
                 ct:           ct);
         }
         else if (!string.IsNullOrEmpty(newGroupName))
@@ -201,8 +305,10 @@ public sealed class WalkModel(
                     ct2),
                 countedValue: payload.CountedValue,
                 countUnit:    countUnit,
+                defaultUnit:  unitId,
                 userId:       userId,
                 expiryDate:   payload.ExpiryDate,
+                conversionFactor: payload.ConversionFactor,
                 ct:           ct);
         }
         else
@@ -215,7 +321,9 @@ public sealed class WalkModel(
                 userId, catalogWriter, stocks, conversions, clock, tenant,
                 categoryId: payload.CategoryId,
                 defaultLocationId: payload.DefaultLocationId,
-                expiryDate: payload.ExpiryDate);
+                expiryDate: payload.ExpiryDate,
+                conversionFactor: payload.ConversionFactor,
+                logger: addCountedItemLogger);
             result = await cmd.ExecuteAsync(ct);
         }
 
@@ -315,10 +423,11 @@ public sealed class WalkModel(
             // product cannot be resolved we fall through to the command (which fails loudly on an
             // unresolvable unit as the backstop) rather than guessing.
             var product = await productRepository.FindAsync(ProductId.From(i.ProductId), ct);
+            IQuantityConverter? converter = null;
             if (product is not null && unitId != product.DefaultUnitId.Value)
             {
                 var defaultUnitId = product.DefaultUnitId.Value;
-                var converter = await conversions.ForProductAsync(i.ProductId, ct);
+                converter = await conversions.ForProductAsync(i.ProductId, ct);
                 if (converter.Convert(1m, unitId, defaultUnitId).IsFailure)
                 {
                     unitCodesById ??= (await unitRepository.ListAsync(ct))
@@ -333,6 +442,42 @@ public sealed class WalkModel(
                         fromUnitCode = unitCodesById.GetValueOrDefault(unitId, "?"),
                         toUnitId = defaultUnitId,
                         toUnitCode = unitCodesById.GetValueOrDefault(defaultUnitId, "?"),
+                        error = "This unit needs a conversion factor before it can be recorded.",
+                    });
+                    continue;
+                }
+            }
+
+            // NeedsConversion backstop, part 2 (plantry-bxzh) — the recovery fix. Part 1 above only
+            // checks countedUnit → product-default-unit; it never checks the units of this
+            // product's OWN existing active lots at this location, which is what
+            // RecordCountCommand.ApplyDeltaAsync actually needs (it converts each lot's quantity
+            // into the counted unit to compute the recorded sum). A lot already stuck in an
+            // unreachable unit — e.g. one minted by the pre-fix quick-add bug this issue closes —
+            // would otherwise surface ApplyDeltaAsync's raw Catalog.UnresolvableConversion error
+            // with no recovery path short of direct DB access. Hold for a conversion factor
+            // instead, same shape as part 1, but rooted at the offending lot's unit.
+            var lotsAtLocation = await reader.ListLotsAsync(i.ProductId, LocationId, ct);
+            if (lotsAtLocation.Count > 0)
+            {
+                converter ??= await conversions.ForProductAsync(i.ProductId, ct);
+                var badLot = lotsAtLocation.FirstOrDefault(l =>
+                    l.UnitId != unitId && converter.Convert(l.Quantity, l.UnitId, unitId).IsFailure);
+
+                if (badLot is not null)
+                {
+                    unitCodesById ??= (await unitRepository.ListAsync(ct))
+                        .ToDictionary(u => u.Id.Value, u => u.Code);
+
+                    needsConversionResults.Add(new
+                    {
+                        ProductId = i.ProductId,
+                        IsSuccess = false,
+                        needsConversion = true,
+                        fromUnitId = badLot.UnitId,
+                        fromUnitCode = unitCodesById.GetValueOrDefault(badLot.UnitId, "?"),
+                        toUnitId = unitId,
+                        toUnitCode = unitCodesById.GetValueOrDefault(unitId, "?"),
                         error = "This unit needs a conversion factor before it can be recorded.",
                     });
                     continue;
@@ -409,11 +554,20 @@ public sealed class WalkModel(
 
             anyCountRecorded = result.Value.Any(r => r.IsSuccess);
 
+            // Backstop (plantry-bxzh DESIGN work item 3, bullet 2): the two NeedsConversion guards
+            // above cover the reachable Take Stock cases, but ApplyDeltaAsync's own recorded-sum
+            // read (stock.Entries, not reader.ListLotsAsync) can still diverge from what the guards
+            // just saw and surface UnitConverter's raw Catalog.UnresolvableConversion message —
+            // which names units by GUID, not code. Map it to codes here rather than in
+            // UnitConverter itself (its error code/shape stay untouched).
+            if (result.Value.Any(r => !r.IsSuccess && r.FailureReason?.Code == UnresolvableConversionCode))
+                unitCodesById ??= (await unitRepository.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
+
             perRowResults.AddRange(result.Value.Select(r => (object)new
             {
                 r.ProductId,
                 r.IsSuccess,
-                error = r.IsSuccess ? null : r.FailureReason?.Description,
+                error = r.IsSuccess ? null : DescribeFailure(r.FailureReason, unitCodesById),
             }));
         }
 
@@ -609,17 +763,54 @@ public sealed class WalkModel(
             return StatusCode(500, new { error = outcome.FailureReason?.Description });
         }
 
+        // Backstop (plantry-bxzh DESIGN work item 3, bullet 2) — see the identical mapping in
+        // OnPostSaveAsync for why: a Consume-side UnresolvableConversion here would otherwise also
+        // surface raw unit GUIDs to the client.
+        Dictionary<Guid, string>? lotsUnitCodesById = null;
+        if (outcome.Results.Any(r => !r.IsSuccess && r.FailureReason?.Code == UnresolvableConversionCode))
+            lotsUnitCodesById = (await unitRepository.ListAsync(ct)).ToDictionary(u => u.Id.Value, u => u.Code);
+
         var responseItems = outcome.Results.Select(r => new
         {
             r.EntryId,
             r.IsSuccess,
-            error = r.IsSuccess ? null : r.FailureReason?.Description,
+            error = r.IsSuccess ? null : DescribeFailure(r.FailureReason, lotsUnitCodesById),
         });
 
         return new JsonResult(new { results = responseItems });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Error code UnitConverter.Convert stamps on an unresolvable cross-unit conversion
+    /// (src/Plantry.Pantry/Domain/Catalog/UnitConverter.cs). Its <c>Description</c> names the two
+    /// units by raw GUID — <see cref="DescribeFailure"/> below is the page-handler-side backstop
+    /// (plantry-bxzh DESIGN work item 3, bullet 2) that makes that description user-legible
+    /// without changing UnitConverter's error code or message shape.
+    /// </summary>
+    private const string UnresolvableConversionCode = "Catalog.UnresolvableConversion";
+
+    private static readonly System.Text.RegularExpressions.Regex GuidToken = new(
+        @"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Returns <paramref name="error"/>'s description, substituting each unit GUID it names with
+    /// that unit's code when the error is <see cref="UnresolvableConversionCode"/> and
+    /// <paramref name="unitCodesById"/> is available. Any other failure (or a GUID this household's
+    /// units don't cover) passes through unchanged — this is strictly a display-legibility mapping,
+    /// never a change to which failure is reported.
+    /// </summary>
+    private static string? DescribeFailure(Error? error, IReadOnlyDictionary<Guid, string>? unitCodesById)
+    {
+        if (error is null) return null;
+        if (error.Code != UnresolvableConversionCode || unitCodesById is null)
+            return error.Description;
+
+        return GuidToken.Replace(error.Description, m =>
+            Guid.TryParse(m.Value, out var id) && unitCodesById.TryGetValue(id, out var code) ? code : m.Value);
+    }
 
     /// <summary>
     /// Shared "create then count" helper for the group-aware create paths (Paths A/B in
@@ -631,9 +822,11 @@ public sealed class WalkModel(
         Func<CancellationToken, Task<Guid>> createAsync,
         decimal countedValue,
         Guid countUnit,
+        Guid defaultUnit,
         Guid userId,
         CancellationToken ct,
-        DateOnly? expiryDate = null)
+        DateOnly? expiryDate = null,
+        decimal? conversionFactor = null)
     {
         Guid productId;
         try
@@ -642,7 +835,32 @@ public sealed class WalkModel(
         }
         catch (InvalidOperationException ex)
         {
+            logger.LogWarning(ex, "Inline add (group-aware) create failed at location {LocationId}.", LocationId);
             return Error.Custom("Inventory.InlineAddFailed", ex.Message);
+        }
+
+        // Persist the user-supplied conversion factor before recording the count (plantry-bxzh) —
+        // same ordering as AddCountedItemCommand's Step 1b, and for the same reason:
+        // RecordCountCommand needs the conversion in place to accept the counted unit.
+        if (conversionFactor is { } factor && countUnit != defaultUnit)
+        {
+            try
+            {
+                await catalogWriter.AddConversionAsync(productId, countUnit, defaultUnit, factor, ct);
+            }
+            // ArgumentException (e.g. ProductConversion.Create's factor guard throwing
+            // ArgumentOutOfRangeException) alongside the usual Catalog-rejection
+            // InvalidOperationException — a caller-supplied factor can be structurally invalid in
+            // ways the page-handler gate above does not fully pre-validate (plantry-bxzh FIX pass
+            // 2), and an uncaught exception here would surface as an unhandled 500 behind an
+            // already-created product.
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                logger.LogWarning(ex,
+                    "Inline add (group-aware) conversion persist failed for product {ProductId} ({FromUnitId}→{ToUnitId}) at location {LocationId}.",
+                    productId, countUnit, defaultUnit, LocationId);
+                return Error.Custom("Inventory.InlineAddFailed", ex.Message);
+            }
         }
 
         if (countedValue > 0m)
@@ -834,6 +1052,14 @@ public sealed class WalkModel(
         public Guid?  DefaultLocationId { get; set; }
         /// <summary>Optional expiry for the opening-balance lot (plantry-4onl).</summary>
         public DateOnly? ExpiryDate  { get; set; }
+        /// <summary>
+        /// Conversion factor (1 CountedUnitId = ConversionFactor DefaultUnitId) supplied on the
+        /// round-trip after a prior /AddItem call returned <c>needsConversion</c> (plantry-bxzh —
+        /// the quick-add analogue of <see cref="AddConversionRequest"/>/OnPostAddConversionAsync).
+        /// Null on the first attempt for any item whose counted and default units match, or
+        /// haven't yet been checked.
+        /// </summary>
+        public decimal? ConversionFactor { get; set; }
     }
 }
 

@@ -455,7 +455,17 @@ public sealed class AddCountedItemCommand(
     /// <summary>Optional Catalog default location; the walk location remains the opening-lot location.</summary>
     Guid? defaultLocationId = null,
     /// <summary>Optional expiry for the opening-balance lot (plantry-4onl).</summary>
-    DateOnly? expiryDate = null)
+    DateOnly? expiryDate = null,
+    /// <summary>
+    /// Conversion factor (1 countedUnitId = factor defaultUnitId) supplied by the caller after the
+    /// unit-convertibility gate in <c>OnPostAddItemAsync</c> (plantry-bxzh) reported
+    /// <c>needsConversion</c> for a counted unit with no path to <paramref name="defaultUnitId"/>.
+    /// Persisted via <see cref="ITakeStockCatalogWriter.AddConversionAsync"/> once the product
+    /// exists, BEFORE the opening count is recorded — order matters, since
+    /// <see cref="RecordCountCommand"/> needs the conversion in place to accept the counted unit.
+    /// </summary>
+    decimal? conversionFactor = null,
+    ILogger<AddCountedItemCommand>? logger = null)
 {
     /// <summary>
     /// Creates the tracked product and records the opening-balance count.
@@ -475,7 +485,33 @@ public sealed class AddCountedItemCommand(
         catch (InvalidOperationException ex)
         {
             // Surface the Catalog rejection inline (duplicate name, unknown unit, etc.).
+            logger?.LogWarning(ex,
+                "AddCountedItem create failed for product '{ProductName}' at location {LocationId}.",
+                name, locationId);
             return Error.Custom("Inventory.InlineAddFailed", ex.Message);
+        }
+
+        // Step 1b — persist the user-supplied conversion factor before recording the count
+        // (plantry-bxzh). Only relevant when the counted unit differs from the product's default.
+        if (conversionFactor is { } factor && countedUnitId != defaultUnitId)
+        {
+            try
+            {
+                await writer.AddConversionAsync(productId, countedUnitId, defaultUnitId, factor, ct);
+            }
+            // ArgumentException (e.g. ProductConversion.Create's factor guard throwing
+            // ArgumentOutOfRangeException) alongside the usual Catalog-rejection
+            // InvalidOperationException — a caller-supplied factor can be structurally invalid in
+            // ways the page-handler gate does not fully pre-validate (plantry-bxzh FIX pass 2),
+            // and an uncaught exception here would surface as an unhandled 500 behind an
+            // already-created product.
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                logger?.LogWarning(ex,
+                    "AddCountedItem conversion persist failed for product {ProductId} ({FromUnitId}→{ToUnitId}) at location {LocationId}.",
+                    productId, countedUnitId, defaultUnitId, locationId);
+                return Error.Custom("Inventory.InlineAddFailed", ex.Message);
+            }
         }
 
         // Step 2 — record the opening-balance Correction for a positive count (C8).
