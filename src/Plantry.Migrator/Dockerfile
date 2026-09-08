@@ -5,7 +5,11 @@
 # Build: docker build -f src/Plantry.Migrator/Dockerfile -t <image-ref> .
 
 # ── Stage 1: restore ─────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS restore
+# Pinned by digest to SDK 10.0.300 (matches global.json's rollForward:latestPatch
+# band) — the floating `:10.0` tag drifted to SDK 10.0.401, a different feature
+# band, which broke `dotnet restore` in the container. Update global.json and this
+# digest together when intentionally moving to a new SDK feature band.
+FROM mcr.microsoft.com/dotnet/sdk@sha256:c0790639332692a0d56cdd81ed581cfd24d040d9839764c138994866df89a3b6 AS restore
 WORKDIR /src
 
 # Copy global.json and every .csproj (structure preserved via COPY --parents) so the
