@@ -27,7 +27,8 @@ public sealed class AddCountedItemCommandTests
     /// Fake <see cref="ITakeStockCatalogWriter"/> that returns a pre-configured product id on create
     /// or throws <see cref="InvalidOperationException"/> to simulate a Catalog rejection.
     /// </summary>
-    private sealed class FakeTakeStockCatalogWriter(Guid? returnProductId = null, string? throwMessage = null)
+    private sealed class FakeTakeStockCatalogWriter(
+        Guid? returnProductId = null, string? throwMessage = null, bool addConversionThrows = false)
         : ITakeStockCatalogWriter
     {
         public int CreateCalls { get; private set; }
@@ -35,6 +36,13 @@ public sealed class AddCountedItemCommandTests
         public string? LastName { get; private set; }
         public Guid? LastUnitId { get; private set; }
         public Guid? LastLocationId { get; private set; }
+
+        // ── AddConversion capture (plantry-bxzh) ──────────────────────────────
+        public int ConversionCalls { get; private set; }
+        public Guid LastConversionProductId { get; private set; }
+        public Guid LastConversionFromUnitId { get; private set; }
+        public Guid LastConversionToUnitId { get; private set; }
+        public decimal LastConversionFactor { get; private set; }
 
         public Task<Guid> CreateTrackedProductAsync(
             string name, Guid defaultUnitId, Guid? categoryId, Guid? defaultLocationId, CancellationToken ct = default)
@@ -88,8 +96,20 @@ public sealed class AddCountedItemCommandTests
         }
 
         public Task AddConversionAsync(
-            Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default) =>
-            Task.CompletedTask;
+            Guid productId, Guid fromUnitId, Guid toUnitId, decimal factor, CancellationToken ct = default)
+        {
+            ConversionCalls++;
+            LastConversionProductId = productId;
+            LastConversionFromUnitId = fromUnitId;
+            LastConversionToUnitId = toUnitId;
+            LastConversionFactor = factor;
+
+            if (addConversionThrows)
+                throw new InvalidOperationException(
+                    "Add product conversion failed (Catalog.InvalidConversion): factor must be positive.");
+
+            return Task.CompletedTask;
+        }
 
         public Task MarkLocationCountedAsync(Guid locationId, CancellationToken ct = default) =>
             Task.CompletedTask;
@@ -189,6 +209,99 @@ public sealed class AddCountedItemCommandTests
         Assert.Contains("Flour", result.Error.Description);
 
         // No stock should have been written.
+        Assert.Empty(stocks.Items);
+    }
+
+    // ── L2: conversionFactor persistence (plantry-bxzh) ───────────────────────
+    // The unit-convertibility gate itself lives in Walk.cshtml.cs (OnPostAddItemAsync, mirroring
+    // the pre-existing Save-path NeedsConversion backstop's page-handler placement) — it runs
+    // BEFORE this command is ever constructed, so an unconvertible counted unit with no supplied
+    // factor never reaches AddCountedItemCommand at all. These tests cover what IS this command's
+    // responsibility: persisting a supplied factor, in the right order, once the gate has cleared it.
+
+    [Fact(DisplayName = "conversionFactor: persisted via the writer BEFORE the opening count is recorded")]
+    public async Task ConversionFactor_PersistedBeforeOpeningCount()
+    {
+        var newProductId = Guid.CreateVersion7();
+        var writer = new FakeTakeStockCatalogWriter(returnProductId: newProductId);
+        var stocks = new FakeProductStockRepository();
+        var cupUnitId = Guid.CreateVersion7();
+
+        var tenant = new FakeTenantContext(_household);
+        var converter = new FakeConversionProvider(new IdentityQuantityConverter());
+        var cmd = new AddCountedItemCommand(
+            "Bubly Strawberry", _unitId, _locationId,
+            12m, cupUnitId,
+            _userId, writer, stocks, converter, Clock, tenant,
+            conversionFactor: 120m);
+
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsSuccess, $"Expected success but got: {result.Error.Description}");
+        Assert.Equal(newProductId, result.Value);
+
+        // Product created.
+        Assert.Equal(1, writer.CreateCalls);
+
+        // Conversion persisted for the right (product, fromUnit, toUnit, factor).
+        Assert.Equal(1, writer.ConversionCalls);
+        Assert.Equal(newProductId, writer.LastConversionProductId);
+        Assert.Equal(cupUnitId, writer.LastConversionFromUnitId);
+        Assert.Equal(_unitId, writer.LastConversionToUnitId);
+        Assert.Equal(120m, writer.LastConversionFactor);
+
+        // Opening-balance lot recorded in the counted unit (cup).
+        var stock = stocks.Items.SingleOrDefault(s => s.ProductId == newProductId);
+        Assert.NotNull(stock);
+        var lot = Assert.Single(stock.Entries);
+        Assert.Equal(12m, lot.Quantity);
+        Assert.Equal(cupUnitId, lot.UnitId);
+    }
+
+    [Fact(DisplayName = "conversionFactor: not persisted when the counted unit already equals the default unit")]
+    public async Task ConversionFactor_NotPersisted_WhenCountedUnitEqualsDefaultUnit()
+    {
+        var newProductId = Guid.CreateVersion7();
+        var writer = new FakeTakeStockCatalogWriter(returnProductId: newProductId);
+        var stocks = new FakeProductStockRepository();
+
+        // The command below builds with unitId == countedUnitId (same _unitId), so even if the
+        // (redundant) caller supplied a factor it must not be forwarded to the writer.
+        var tenant = new FakeTenantContext(_household);
+        var converter = new FakeConversionProvider(new IdentityQuantityConverter());
+        var cmdWithFactor = new AddCountedItemCommand(
+            "Same Unit Item", _unitId, _locationId, 5m, _unitId,
+            _userId, writer, stocks, converter, Clock, tenant,
+            conversionFactor: 99m);
+
+        var result = await cmdWithFactor.ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, writer.ConversionCalls);
+    }
+
+    [Fact(DisplayName = "conversionFactor: a writer rejection surfaces as Inventory.InlineAddFailed and records no count")]
+    public async Task ConversionFactor_WriterRejection_SurfacesAsInlineAddFailed()
+    {
+        var newProductId = Guid.CreateVersion7();
+        var writer = new FakeTakeStockCatalogWriter(returnProductId: newProductId, addConversionThrows: true);
+        var stocks = new FakeProductStockRepository();
+        var cupUnitId = Guid.CreateVersion7();
+
+        var tenant = new FakeTenantContext(_household);
+        var converter = new FakeConversionProvider(new IdentityQuantityConverter());
+        var cmd = new AddCountedItemCommand(
+            "Bubly Strawberry", _unitId, _locationId, 12m, cupUnitId,
+            _userId, writer, stocks, converter, Clock, tenant,
+            conversionFactor: 120m);
+
+        var result = await cmd.ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Inventory.InlineAddFailed", result.Error.Code);
+
+        // The product itself was created (Catalog write succeeded) but no stock was recorded —
+        // the conversion write failed, so RecordCountCommand never ran.
         Assert.Empty(stocks.Items);
     }
 

@@ -207,6 +207,85 @@ export function makeRow(seed, signalFn, computedFn) {
   };
 }
 
+// ── Quick-add unit-convertibility gate (plantry-bxzh) ───────────────────────
+
+/**
+ * Builds the transient "pending" row shown in the AdjusterSheet's conversion prompt when
+ * /AddItem returns `needsConversion` (the counted unit has no path to the chosen default unit).
+ * The caller must NEVER push this row onto the working-set rows array — it is only ever assigned
+ * to the sheet's own open-row signal, so the product it describes (which does not exist yet)
+ * never appears in the check-off list. `data` is the needsConversion JSON body
+ * (`fromUnitId`/`fromUnitCode`/`toUnitId`/`toUnitCode`); `payload` is the ORIGINAL /AddItem
+ * request body, carried on the returned row as `pendingAddPayload` so
+ * {@link buildPendingAddReplayBody} can replay it once a factor is supplied.
+ *
+ * Pure function of its arguments — `signalFn`/`computedFn` are injected the same way
+ * {@link makeRow} takes them, so this is testable without a real Preact runtime.
+ *
+ * @template {SignalLike<any>} S
+ * @param {string} name
+ * @param {number} counted
+ * @param {{fromUnitId: string, fromUnitCode: string, toUnitId: string, toUnitCode: string}} data
+ * @param {Object} payload
+ * @param {(v: any) => S} signalFn
+ * @param {(fn: () => any) => S} computedFn
+ * @returns {Row & { pendingAddPayload: Object }}
+ */
+export function makePendingAddRow(name, counted, data, payload, signalFn, computedFn) {
+  const row = /** @type {Row & { pendingAddPayload: Object }} */ (makeRow(
+    {
+      productId: "__pending-add__",
+      productName: name,
+      recorded: 0,
+      unitCode: data.fromUnitCode,
+      unitId: data.fromUnitId,
+      hasActiveStock: false,
+      lotsUrl: "",
+      saveLotsUrl: "",
+      categoryName: null,
+      categorySortOrder: Number.MAX_SAFE_INTEGER,
+      supportedUnits: [],
+      isNewRow: true,
+    },
+    signalFn,
+    computedFn,
+  ));
+
+  row.counted.value = counted;
+  row.needsConversion.value = true;
+  row.convFromUnitId.value = data.fromUnitId;
+  row.convFromCode.value = data.fromUnitCode;
+  row.convToUnitId.value = data.toUnitId;
+  row.convToCode.value = data.toUnitCode;
+  // Plain field (not a signal) — the original create payload, replayed with a factor once the
+  // user supplies one. Not part of the RowSeed/Row contract, so it is set here rather than
+  // threaded through makeRow.
+  row.pendingAddPayload = payload;
+
+  return row;
+}
+
+/**
+ * Builds the /AddItem replay POST body for a pending row once the user has supplied a conversion
+ * factor. Reads the row's CURRENT `counted`/`unitId` signal values — not the snapshot captured in
+ * `pendingAddPayload` when the sheet first opened — because the AdjusterSheet's quantity/unit
+ * controls stay live and editable while the conversion prompt is showing (plantry-bxzh FIX pass
+ * 1): replaying the stale payload would silently record whatever value was on screen at the FIRST
+ * /AddItem call rather than what the user left the sheet showing.
+ *
+ * @param {Row & { pendingAddPayload: Object }} row
+ * @param {number} factor
+ * @returns {Object}
+ */
+export function buildPendingAddReplayBody(row, factor) {
+  return {
+    ...row.pendingAddPayload,
+    countedValue: row.counted.value,
+    countedUnitId: row.unitId.value || row.pendingAddPayload.countedUnitId,
+    conversionFactor: factor,
+  };
+}
+
 // ── rowStatus / toggleRowCheck / confirmRow (plantry-vvqt walk redesign) ───────
 
 /**
@@ -407,6 +486,41 @@ export function reconcileResults(rows, results) {
     }
   }
   return { saved, failed, needsConversion };
+}
+
+// ── resolveConversionUnitRestore ─────────────────────────────────────────────
+
+/**
+ * Decide whether resolving a NeedsConversion hold should restore `row.unitId` to the
+ * counted unit that triggered the hold, once the user has supplied a factor (plantry-bxzh
+ * data-corruption fix, pass-3 critic finding).
+ *
+ * Two distinct hold shapes reach the SAME prompt and the same `addConversion` call site,
+ * and they anchor `fromUnitId`/`toUnitId` in opposite directions:
+ * - Part 1 (plantry-3mwx, counted-unit → product-default): `convFromUnitId` is the counted
+ *   unit itself (already `row.unitId.value` — nothing has changed it), `convToUnitId` is the
+ *   product's default unit, which differs from the counted unit by construction (that
+ *   mismatch is exactly why the hold fired). Restoring `row.unitId` to `convFromUnitId` here
+ *   is a safe no-op: it is already that value.
+ * - Part 2 (plantry-bxzh, existing-lot-unit → counted-unit, the recovery backstop this issue
+ *   added): `convFromUnitId` is the STUCK LOT's unit, `convToUnitId` is the counted unit —
+ *   which already equals `row.unitId.value`. Restoring `row.unitId` to `convFromUnitId` here
+ *   would silently flip the row from the counted unit to the lot's unit, so the re-save would
+ *   record the count against the WRONG unit with no error surfaced.
+ *
+ * The discriminator: `convToUnitId === row.unitId.value` is true only for part 2 (by
+ * construction — a part-1 hold's `toUnitId` differs from the counted unit, a part-2 hold's
+ * `toUnitId` IS the counted unit). So restore only when that is false.
+ *
+ * Pure transform: only reads `.value` on signal-like objects; no network I/O, no DOM access.
+ *
+ * @param {{ unitId: SignalLike<string>, convFromUnitId: SignalLike<string>, convToUnitId: SignalLike<string> }} row
+ * @returns {string|null} the unit id `row.unitId` should be set to, or `null` if no restore should happen
+ */
+export function resolveConversionUnitRestore(row) {
+  if (!row.convFromUnitId.value) return null;
+  if (row.convToUnitId.value === row.unitId.value) return null; // part 2 — do NOT overwrite
+  return row.convFromUnitId.value; // part 1 — safe/no-op-equivalent restore
 }
 
 // ── saveStatusMessage ─────────────────────────────────────────────────────────

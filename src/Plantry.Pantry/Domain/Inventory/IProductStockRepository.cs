@@ -64,8 +64,13 @@ public interface IProductStockRepository
     /// <summary>
     /// Runs <paramref name="work"/> inside a single database transaction so the row lock taken by
     /// <see cref="FindForUpdateAsync"/> is held through <see cref="SaveChangesAsync"/> (a bare
-    /// <c>FOR UPDATE</c> would otherwise release at autocommit). Commits on success, rolls back on
-    /// throw. In-memory fakes may simply invoke <paramref name="work"/> inline.
+    /// <c>FOR UPDATE</c> would otherwise release at autocommit). Commits when the delegate
+    /// completes and its return value is not a failed <c>Result</c>/<c>Result&lt;T&gt;</c>; rolls
+    /// back on a throw AND on a returned failure, so a write flushed before a failure was
+    /// detected never survives a reported error (plantry-bxzh). In-memory fakes may simply invoke
+    /// <paramref name="work"/> inline — they therefore do NOT model the rollback-on-failed-Result
+    /// behaviour, so that behaviour must be proven at L3 (see
+    /// <c>tests/Plantry.Tests.Integration/Inventory/ExecuteInTransactionRollbackTests.cs</c>).
     /// </summary>
     Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default);
 }

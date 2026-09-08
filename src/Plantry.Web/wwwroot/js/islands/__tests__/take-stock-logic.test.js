@@ -30,6 +30,9 @@ import {
   confirmRow,
   groupRowsByCategory,
   readyToSaveCount,
+  makePendingAddRow,
+  buildPendingAddReplayBody,
+  resolveConversionUnitRestore,
 } from "../take-stock-logic.js";
 
 // Import the vendored reactive runtime so dirty/down computed tests exercise
@@ -394,6 +397,112 @@ describe("makeRow", () => {
   });
 });
 
+// ── makePendingAddRow / buildPendingAddReplayBody (plantry-bxzh) ──────────────
+//
+// Quick-add unit-convertibility gate: OnPostAddItemAsync returns needsConversion when the
+// counted unit has no path to the chosen default unit. makePendingAddRow builds the transient
+// row the AdjusterSheet shows for that prompt; buildPendingAddReplayBody builds the /AddItem
+// replay POST once the user supplies a factor. Neither function touches a rows array — the
+// caller (take-stock.js) is responsible for never pushing the pending row onto rowsSignal.
+
+describe("makePendingAddRow", () => {
+  const needsConversionData = {
+    fromUnitId: "unit-cup",
+    fromUnitCode: "cup",
+    toUnitId: "unit-g",
+    toUnitCode: "g",
+  };
+  const addItemPayload = {
+    name: "Bubly Strawberry",
+    defaultUnitId: "unit-g",
+    countedValue: 12,
+    countedUnitId: "unit-cup",
+    newGroupId: "",
+    newGroupName: "",
+    categoryId: null,
+    expiryDate: null,
+  };
+
+  it("returns a row, not a rows collection — the caller decides whether/where to place it", () => {
+    const row = makePendingAddRow("Bubly Strawberry", 12, needsConversionData, addItemPayload, sig, comp);
+    assert.equal(Array.isArray(row), false);
+    assert.equal(typeof row, "object");
+  });
+
+  it("seeds productName, isNewRow, and the counted quantity from the caller's arguments", () => {
+    const row = makePendingAddRow("Bubly Strawberry", 12, needsConversionData, addItemPayload, sig, comp);
+    assert.equal(row.productName, "Bubly Strawberry");
+    assert.equal(row.isNewRow, true);
+    assert.equal(row.counted.value, 12);
+    assert.equal(row.recorded.value, 0);
+    assert.equal(row.hasActiveStock, false);
+  });
+
+  it("sets needsConversion true and mirrors the server's from/to unit id+code onto conv* fields", () => {
+    const row = makePendingAddRow("Bubly Strawberry", 12, needsConversionData, addItemPayload, sig, comp);
+    assert.equal(row.needsConversion.value, true);
+    assert.equal(row.convFromUnitId.value, "unit-cup");
+    assert.equal(row.convFromCode.value, "cup");
+    assert.equal(row.convToUnitId.value, "unit-g");
+    assert.equal(row.convToCode.value, "g");
+    // unitCode/unitId also seed from the FROM side (what was actually counted) — the row
+    // displays the just-attempted count in the unit the user entered it in.
+    assert.equal(row.unitCode, "cup");
+    assert.equal(row.unitId.value, "unit-cup");
+  });
+
+  it("round-trips the original /AddItem payload verbatim on pendingAddPayload", () => {
+    const row = makePendingAddRow("Bubly Strawberry", 12, needsConversionData, addItemPayload, sig, comp);
+    assert.deepEqual(row.pendingAddPayload, addItemPayload);
+    // Not the same values by coincidence — the exact object identity is not required, but every
+    // field must be present and unchanged.
+    assert.equal(row.pendingAddPayload.countedUnitId, "unit-cup");
+    assert.equal(row.pendingAddPayload.defaultUnitId, "unit-g");
+  });
+});
+
+describe("buildPendingAddReplayBody", () => {
+  const pendingAddPayload = {
+    name: "Bubly Strawberry",
+    defaultUnitId: "unit-g",
+    countedValue: 12,
+    countedUnitId: "unit-cup",
+    newGroupId: "",
+    newGroupName: "",
+  };
+
+  it("carries the supplied factor as conversionFactor", () => {
+    const row = { pendingAddPayload, counted: sig(12), unitId: sig("unit-cup") };
+    const body = buildPendingAddReplayBody(row, 120);
+    assert.equal(body.conversionFactor, 120);
+  });
+
+  it("reads the row's CURRENT counted/unitId signal values, not the stale payload snapshot", () => {
+    // The user nudged the stepper from 12 to 15 and left the unit alone while the conversion
+    // prompt was open — the replay must reflect that edit (plantry-bxzh FIX pass 1), not the
+    // count captured when the sheet first opened.
+    const row = { pendingAddPayload, counted: sig(15), unitId: sig("unit-cup") };
+    const body = buildPendingAddReplayBody(row, 120);
+    assert.equal(body.countedValue, 15);
+    assert.equal(body.countedUnitId, "unit-cup");
+  });
+
+  it("falls back to the payload's countedUnitId when the row's unitId signal is empty", () => {
+    const row = { pendingAddPayload, counted: sig(12), unitId: sig("") };
+    const body = buildPendingAddReplayBody(row, 120);
+    assert.equal(body.countedUnitId, "unit-cup");
+  });
+
+  it("preserves every other field from the original payload untouched", () => {
+    const row = { pendingAddPayload, counted: sig(12), unitId: sig("unit-cup") };
+    const body = buildPendingAddReplayBody(row, 120);
+    assert.equal(body.name, "Bubly Strawberry");
+    assert.equal(body.defaultUnitId, "unit-g");
+    assert.equal(body.newGroupId, "");
+    assert.equal(body.newGroupName, "");
+  });
+});
+
 // ── buildSaveItems ────────────────────────────────────────────────────────────
 
 describe("buildSaveItems", () => {
@@ -630,6 +739,44 @@ describe("reconcileResults", () => {
     assert.equal(row.recorded.value, 2);
     assert.equal(saved, 1);
     assert.equal(needsConversion, 0);
+  });
+});
+
+// ── resolveConversionUnitRestore (plantry-bxzh pass-3 critic fix) ────────────────
+
+describe("resolveConversionUnitRestore", () => {
+  it("part 1 (counted-unit -> product-default) hold: restores row.unitId (safe no-op)", () => {
+    // Part 1 anchoring: fromUnitId is the counted unit itself (== row.unitId already),
+    // toUnitId is the product's default unit, which differs from the counted unit.
+    const row = makeTestRow({ unitId: "unit-cup" });
+    row.convFromUnitId.value = "unit-cup";
+    row.convToUnitId.value = "unit-g";
+
+    const restoreUnitId = resolveConversionUnitRestore(row);
+
+    assert.equal(restoreUnitId, "unit-cup", "part 1 restore is safe/no-op-equivalent");
+  });
+
+  it("part 2 (existing-lot-unit -> counted-unit) hold: does NOT overwrite row.unitId", () => {
+    // Part 2 anchoring (the recovery backstop): fromUnitId is the STUCK LOT's unit,
+    // toUnitId is the counted unit — which already equals row.unitId. Restoring to
+    // convFromUnitId here would silently flip the row to the lot's unit and re-save
+    // the count against the wrong unit (the pass-3 critic's data-corruption finding).
+    const row = makeTestRow({ unitId: "unit-g" });
+    row.convFromUnitId.value = "unit-cup"; // the stuck lot's unit
+    row.convToUnitId.value = "unit-g";     // the counted unit, same as row.unitId
+
+    const restoreUnitId = resolveConversionUnitRestore(row);
+
+    assert.equal(restoreUnitId, null, "part 2 must not overwrite the counted unit");
+  });
+
+  it("no pending conversion (convFromUnitId empty): no restore", () => {
+    const row = makeTestRow({ unitId: "unit-g" });
+    row.convFromUnitId.value = "";
+    row.convToUnitId.value = "";
+
+    assert.equal(resolveConversionUnitRestore(row), null);
   });
 });
 

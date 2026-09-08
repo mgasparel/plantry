@@ -1,7 +1,17 @@
 namespace Plantry.SharedKernel;
 
+/// <summary>
+/// Non-generic marker so infrastructure can inspect whether a returned Result/Result&lt;T&gt;
+/// represents failure without knowing the generic parameter T. Implemented by both Result and
+/// Result&lt;T&gt; below (both already expose IsFailure; this is additive and non-breaking).
+/// </summary>
+public interface IResultOutcome
+{
+    bool IsFailure { get; }
+}
+
 /// <summary>Discriminated-union result type: Success or Failure with an Error.</summary>
-public sealed class Result<T>
+public sealed class Result<T> : IResultOutcome
 {
     public bool IsSuccess { get; }
     public bool IsFailure => !IsSuccess;
@@ -21,7 +31,7 @@ public sealed class Result<T>
         IsSuccess ? onSuccess(Value) : onFailure(Error);
 }
 
-public sealed class Result
+public sealed class Result : IResultOutcome
 {
     public bool IsSuccess { get; }
     public bool IsFailure => !IsSuccess;

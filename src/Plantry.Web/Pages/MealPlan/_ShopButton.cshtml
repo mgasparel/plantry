@@ -1,0 +1,27 @@
+@model Plantry.Web.Pages.MealPlan.IndexModel.ShopButtonVm
+@{
+    // When rendered out-of-band (alongside a grid swap), the button carries hx-swap-oob so htmx
+    // replaces the live Shop control in place, rehydrating its Alpine weekDate from the week
+    // actually represented by the swap response. When rendered inline on a full GET (Oob=false)
+    // it is a plain child of .plan-bar. See _GridWithBarNav.cshtml (plantry-pl5u).
+    var oob = Model.Oob ? "true" : null;
+    var weekJson = System.Text.Json.JsonSerializer.Serialize(Model.WeekStart.ToString("yyyy-MM-dd"));
+}
+
+@* Shop for this week — calls ShopForWeek application service (P3-4).
+   id="plan-shop-btn" is the OOB swap target: every htmx grid swap (Previous/Next/This-week nav,
+   Generate, AcceptAll, Discard, AcceptCell, RejectCell, Move) re-emits this fragment via
+   _GridWithBarNav so a fresh x-init(week) rehydrates Alpine's weekDate to the week the swap
+   response actually represents. The whole node is replaced outerHTML, so a stale in-flight
+   click's loading/done state cannot survive past a week navigation (plantry-pl5u). *@
+<div id="plan-shop-btn" x-data="shopWeek()" x-init="init(@weekJson)" hx-swap-oob="@oob">
+    <button type="button" class="btn btn--primary"
+            :disabled="loading || done"
+            @@click="shop()"
+            :title="done ? 'Items added to shopping list' : 'Add all missing planned meal ingredients to the shopping list'">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+        <span x-show="!loading && !done">Shop for this week</span>
+        <span x-show="loading" x-cloak>Adding…</span>
+        <span x-show="done" x-cloak x-text="addedLabel"></span>
+    </button>
+</div>

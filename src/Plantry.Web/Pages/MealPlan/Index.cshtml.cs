@@ -2294,13 +2294,30 @@ public sealed class IndexModel(
     public sealed record CellWithRailVm(CellFragmentVm Cell, PlanRailVm Rail, PlanBarNavVm BarNav, bool CloseSheet = false);
 
     /// <summary>
-    /// Combines the week grid with an out-of-band plan-bar nav refresh. Returned by any handler
-    /// that swaps the full grid (Grid, Generate, AcceptAll, Discard, AcceptCell, RejectCell, Move)
-    /// so the command bar (nav URLs, week label, This-week visibility, Auto-fill state, budget chip)
-    /// updates atomically with the grid swap — eliminating the plan-bar staleness bug this ticket
-    /// was filed to fix.
+    /// Combines the week grid with an out-of-band plan-bar nav refresh and an out-of-band Shop
+    /// button refresh. Returned by any handler that swaps the full grid (Grid, Generate, AcceptAll,
+    /// Discard, AcceptCell, RejectCell, Move) so the command bar (nav URLs, week label, This-week
+    /// visibility, Auto-fill state, budget chip) AND the Shop control's Alpine week context update
+    /// atomically with the grid swap. The Shop refresh eliminates the plantry-pl5u bug where
+    /// navigating weeks via htmx left the Shop button posting the stale initial-load week; the
+    /// plan-bar refresh eliminates the plan-bar staleness bug this ticket was originally filed to fix.
     /// </summary>
-    public sealed record GridWithBarNavVm(IndexModel Grid, PlanBarNavVm BarNav);
+    public sealed record GridWithBarNavVm(IndexModel Grid, PlanBarNavVm BarNav)
+    {
+        /// <summary>OOB Shop-button view model, derived from <see cref="BarNav"/>'s WeekStart so the
+        /// two projections can never disagree about which week is currently viewed.</summary>
+        public ShopButtonVm ShopButton => new(BarNav.WeekStart, Oob: true);
+    }
+
+    /// <summary>
+    /// View model for the Shop-for-week button partial (<c>_ShopButton.cshtml</c>). Carries only the
+    /// currently-viewed week; when <paramref name="Oob"/> is true the partial renders with
+    /// hx-swap-oob so htmx replaces the live Shop control (and reinitializes its Alpine weekDate)
+    /// in place after any htmx grid swap. When false it renders inline on first page load.
+    /// See plantry-pl5u: the button used to live outside the swapped fragment entirely and never
+    /// re-hydrate, so it kept posting the initial page-load week after week navigation.
+    /// </summary>
+    public sealed record ShopButtonVm(DateOnly WeekStart, bool Oob = false);
 
     /// <summary>
     /// View model for the plan-bar nav partial (<c>_PlanBarNav.cshtml</c>). Carries the week-level
