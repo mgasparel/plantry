@@ -31,20 +31,12 @@
             HasWeekPlanningWeightsOverride: Model.HasWeekPlanningWeightsOverride))
         <div class="plan-bar-spacer"></div>
         <span class="autofill-spinner htmx-indicator" aria-hidden="true"></span>
-        @* Shop for this week — calls ShopForWeek application service (P3-4).
-           This button is NOT in _PlanBarNav because it uses Alpine fetch state (loading/done)
-           and its week context is stable for the lifetime of the page session. *@
-        <div x-data="shopWeek()" x-init="init(@System.Text.Json.JsonSerializer.Serialize(Model.WeekStart.ToString("yyyy-MM-dd")))">
-            <button type="button" class="btn btn--primary"
-                    :disabled="loading || done"
-                    @@click="shop()"
-                    :title="done ? 'Items added to shopping list' : 'Add all missing planned meal ingredients to the shopping list'">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
-                <span x-show="!loading && !done">Shop for this week</span>
-                <span x-show="loading" x-cloak>Adding…</span>
-                <span x-show="done" x-cloak x-text="addedLabel"></span>
-            </button>
-        </div>
+        @* Shop for this/that week — calls ShopForWeek application service (P3-4).
+           Re-emitted OOB by _GridWithBarNav alongside every htmx grid swap (plantry-pl5u) so its
+           Alpine weekDate always reflects the currently-viewed week, not the week from the initial
+           full-page GET. Without this, navigating weeks via Previous/Next/This-week left the Shop
+           button posting the stale initial week (the plantry-pl5u dogfood bug). *@
+        @await Html.PartialAsync("_ShopButton", new Plantry.Web.Pages.MealPlan.IndexModel.ShopButtonVm(Model.WeekStart, Oob: false))
     </div>
 
     @* Body: grid *@

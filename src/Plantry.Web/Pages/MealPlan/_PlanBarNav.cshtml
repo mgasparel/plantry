@@ -64,27 +64,37 @@
 @* Week nav: prev/next buttons + week label + This-week button.
    Extracted so the same fragment can be re-emitted OOB after htmx week navigation,
    preventing the nav URLs, label, and This-week visibility from going stale
-   (all are derived from WeekStart which changes on every nav swap). *@
+   (all are derived from WeekStart which changes on every nav swap).
+   hx-sync="#plan-main-content:replace" (plantry-pl5u) makes rapid clicks across these three
+   buttons cancel-and-replace each other client-side: firing a second nav request aborts any
+   still-in-flight one sharing this sync scope, so an out-of-order/delayed response for an
+   abandoned week can never land and overwrite the grid, plan-bar, or Shop-button OOB
+   projections with a stale week. Only the most recently fired navigation's response is ever
+   applied — the rendered grid/nav and the Shop control's week can never disagree. *@
 <nav id="plan-bar-nav" class="wknav" aria-label="Week navigation" hx-swap-oob="@oob">
     <button type="button" class="wknav-btn" aria-label="Previous week"
             hx-get="/MealPlan?handler=Grid&amp;week=@Model.PrevWeekStart.ToString("yyyy-MM-dd")"
             hx-target="#plan-main-content"
-            hx-swap="innerHTML">
+            hx-swap="innerHTML"
+            hx-sync="#plan-main-content:replace">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
     </button>
     <span class="wk-label">@Model.WeekLabel</span>
     <button type="button" class="wknav-btn" aria-label="Next week"
             hx-get="/MealPlan?handler=Grid&amp;week=@Model.NextWeekStart.ToString("yyyy-MM-dd")"
             hx-target="#plan-main-content"
-            hx-swap="innerHTML">
+            hx-swap="innerHTML"
+            hx-sync="#plan-main-content:replace">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
     </button>
     @if (Model.WeekStart != Model.ThisWeekStart)
     {
         <button type="button" class="wk-today"
+                hx-sync="#plan-main-content:replace"
                 hx-get="/MealPlan?handler=Grid&amp;week=@Model.ThisWeekStart.ToString("yyyy-MM-dd")"
                 hx-target="#plan-main-content"
-                hx-swap="innerHTML">This week</button>
+                hx-swap="innerHTML"
+                >This week</button>
     }
 </nav>
 
