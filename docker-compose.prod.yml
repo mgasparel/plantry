@@ -208,7 +208,8 @@ services:
   # Documented by Grafana as suited for single-node use; acceptable for a
   # single-household VPS (ADR-016).  Upgrade path if outgrown: SigNoz or Uptrace.
   lgtm:
-    image: grafana/otel-lgtm:latest
+    # Pin the verified image so retention behavior cannot change on an implicit pull.
+    image: grafana/otel-lgtm@sha256:10f48eb2f8670134df542177bb19536c55421b089e43f9dfc2a27d4c078204d8
     restart: unless-stopped
     environment:
       # Grafana admin password — set GF_SECURITY_ADMIN_PASSWORD in .env.
@@ -231,8 +232,11 @@ services:
       # configured here). Verified together via `loki -verify-config` (plantry-032n).
       PROMETHEUS_EXTRA_ARGS: "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}"
       LOKI_EXTRA_ARGS: "--store.retention=${LOKI_RETENTION_PERIOD:-744h} --compactor.retention-enabled=true --compactor.working-directory=/data/loki/compactor --compactor.delete-request-store=filesystem"
-      # Tempo: block-retention is not exposed as a CLI flag in the bundled version;
-      # the built-in default applies. Revisit when otel-lgtm exposes a TEMPO_EXTRA_ARGS knob.
+      # Keep a bounded trace window and avoid the image's 1-second development
+      # block settings, which otherwise create millions of tiny files.
+      TEMPO_EXTRA_ARGS: "--compactor.compaction.block-retention=${TEMPO_BLOCK_RETENTION:-168h} --ingester.max-block-duration=${TEMPO_MAX_BLOCK_DURATION:-30m} --ingester.trace-idle-period=${TEMPO_TRACE_IDLE_PERIOD:-10s}"
+      # Tempo retention and block sizing are configurable through the variables
+      # documented in .env.example; the defaults are safe for this single-host stack.
     ports:
       # Bound to localhost only — not exposed to the internet.  Access via SSH tunnel.
       - "127.0.0.1:3000:3000"
