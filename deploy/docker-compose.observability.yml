@@ -59,7 +59,8 @@ services:
   # for a single-household VPS (ADR-016).  Upgrade path if outgrown: SigNoz or
   # Uptrace (ClickHouse-backed, production-grade, heavier).
   lgtm:
-    image: grafana/otel-lgtm:latest
+    # Pin the verified image so retention behavior cannot change on an implicit pull.
+    image: grafana/otel-lgtm@sha256:10f48eb2f8670134df542177bb19536c55421b089e43f9dfc2a27d4c078204d8
     restart: unless-stopped
     environment:
       # Grafana admin password — REQUIRED. No default is accepted; set this in .env.
@@ -85,12 +86,11 @@ services:
       # container — don't assume passthrough behaves identically across all of them.
       PROMETHEUS_EXTRA_ARGS: "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}"
       LOKI_EXTRA_ARGS: "--store.retention=${LOKI_RETENTION_PERIOD:-744h} --compactor.retention-enabled=true --compactor.working-directory=/data/loki/compactor --compactor.delete-request-store=filesystem"
-      # Note: Tempo retention in otel-lgtm is controlled by its built-in block
-      # retention config.  OTEL_TEMPO_RETENTION is documented in .env.example as
-      # a user-facing label only; pass it as TEMPO_EXTRA_ARGS if the bundled Tempo
-      # version supports --block-retention (v2.x does not expose this as a flag —
-      # the default retention of the bundled version applies until otel-lgtm exposes
-      # a supported knob or is upgraded to a version that does).
+      # Keep a bounded trace window and avoid the image's 1-second development
+      # block settings, which otherwise create millions of tiny files.
+      TEMPO_EXTRA_ARGS: "--compactor.compaction.block-retention=${TEMPO_BLOCK_RETENTION:-168h} --ingester.max-block-duration=${TEMPO_MAX_BLOCK_DURATION:-30m} --ingester.trace-idle-period=${TEMPO_TRACE_IDLE_PERIOD:-10s}"
+      # Tempo retention and block sizing are configurable through the variables
+      # documented in .env.example; the defaults are safe for this single-host stack.
     ports:
       # Bind Grafana to localhost only — routing through Caddy or an SSH tunnel
       # is required to reach it from outside the host.
