@@ -51,6 +51,9 @@ import {
  * @property {string} displayName              server title-cased name (DealReviewDisplay.TitleCase)
  * @property {string|null} brand
  * @property {string} price                    server-formatted currency string
+ * @property {string|null} priceBasis           advertised quantity/unit qualifier (e.g. "/ 2 kg")
+ * @property {string|null} inventoryUnitCode    matched product's household stock unit
+ * @property {string|null} unitMismatchHint     accessible explanation when the unit identities differ
  * @property {boolean} hasSuggestion
  * @property {string|null} suggestedProductName
  * @property {string|null} reasoning
@@ -296,7 +299,10 @@ export function mountDealDeck(mount, config) {
             </div>
             <div class="focus-card__meta">
               ${card.brand ? `<span class="deal-review-row__brand">${escapeHtml(card.brand)}</span>` : ""}
-              <span class="deal-row__amount">${escapeHtml(card.price)}</span>
+              <span class="price-basis">
+                <span class="price-basis__amount deal-row__amount">${escapeHtml(card.price)}</span>
+                ${card.priceBasis ? `<span class="price-basis__unit">${escapeHtml(card.priceBasis)}</span>` : ""}
+              </span>
             </div>
             ${card.isNoise ? `<div class="focus-card__noise"><svg class="icon" aria-hidden="true"><use href="#i-alert" /></svg> Flyer noise — no usable price</div>` : ""}
           </div>
@@ -304,8 +310,24 @@ export function mountDealDeck(mount, config) {
           ${confirmable ? `
           <div class="focus-card__link">Plantry thinks this is</div>
           <div class="focus-card__match">
-            <div class="focus-card__src">Your catalog</div>
-            <div class="focus-card__product">${escapeHtml(card.suggestedProductName ?? "")}</div>
+            <div class="focus-card__match-head">
+              <div>
+                <div class="focus-card__src">Your catalog</div>
+                <div class="focus-card__product">${escapeHtml(card.suggestedProductName ?? "")}</div>
+              </div>
+              ${card.inventoryUnitCode ? `
+              <span class="inventory-unit">
+                Stocked as <b>${escapeHtml(card.inventoryUnitCode)}</b>
+                ${card.unitMismatchHint ? `
+                <button type="button" class="unit-hint"
+                        data-unit-hint="${escapeHtml(card.unitMismatchHint)}"
+                        aria-label="Why do the units differ?"
+                        aria-expanded="false"
+                        aria-controls="deal-unit-popover"
+                        aria-describedby="deal-unit-description-${escapeHtml(card.dealId)}"></button>
+                <span id="deal-unit-description-${escapeHtml(card.dealId)}" class="sr-only">${escapeHtml(card.unitMismatchHint)}</span>` : ""}
+              </span>` : ""}
+            </div>
             ${card.reasoning ? `<div class="focus-card__reasoning">${escapeHtml(card.reasoning)}</div>` : ""}
           </div>` : `
           <div class="focus-card__link">No catalog match</div>

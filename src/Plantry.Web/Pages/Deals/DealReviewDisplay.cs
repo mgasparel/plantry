@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
+using Plantry.Market.Application;
 
 namespace Plantry.Web.Pages.Deals;
 
@@ -36,6 +38,53 @@ public static partial class DealReviewDisplay
     /// no domain state (the deal is still a normal Pending deal the user can reject).
     /// </summary>
     public static bool IsNoise(decimal price) => price <= 0m;
+
+    /// <summary>
+    /// Formats the advertised price qualifier. A missing unit leaves the amount unqualified; a quantity of
+    /// one uses the compact unit form ("/ each"), while other positive quantities remain explicit.
+    /// </summary>
+    public static string? FormatPriceBasis(decimal? quantity, string? unitCode)
+    {
+        if (string.IsNullOrWhiteSpace(unitCode))
+            return null;
+
+        var normalizedCode = unitCode.Trim();
+        var quantityPrefix = quantity is > 0m && quantity != 1m
+            ? $"{quantity.Value.ToString("0.###", CultureInfo.InvariantCulture)} "
+            : string.Empty;
+        return $"/ {quantityPrefix}{normalizedCode}";
+    }
+
+    /// <summary>Converts a normalized base-unit price to the product's displayed inventory unit.</summary>
+    public static decimal PriceForUnit(decimal normalizedPrice, decimal? factorToBase) =>
+        factorToBase is > 0m ? normalizedPrice * factorToBase.Value : normalizedPrice;
+
+    /// <summary>
+    /// Builds the copy for the unit warning. The warning is deliberately gated by unit identity and by both
+    /// display codes, so missing reference data never invents a mismatch.
+    /// </summary>
+    public static string? BuildUnitMismatchHint(DealReviewView view)
+    {
+        if (!view.HasKnownUnitMismatch
+            || string.IsNullOrWhiteSpace(view.DealUnitCode)
+            || string.IsNullOrWhiteSpace(view.SuggestedProductUnitCode)
+            || string.IsNullOrWhiteSpace(view.SuggestedProductName))
+            return null;
+
+        return $"This deal is priced per {view.DealUnitCode.Trim()}. You stock {view.SuggestedProductName} by {view.SuggestedProductUnitCode.Trim()}. Check how many are in a {view.DealUnitCode.Trim()} before comparing prices or confirming the match.";
+    }
+
+    /// <summary>Quiet explanation shown when a purchase context exists but its percent comparison is unavailable.</summary>
+    public static string BuildPriceComparisonNote(DealReviewView view)
+    {
+        if (string.IsNullOrWhiteSpace(view.DealUnitCode))
+            return "The flyer did not provide a usable unit, so the advertised price remains unqualified.";
+        if (string.IsNullOrWhiteSpace(view.SuggestedProductUnitCode))
+            return "Price delta is withheld because Plantry cannot identify the inventory unit.";
+        if (!string.Equals(view.DealUnitCode.Trim(), view.SuggestedProductUnitCode.Trim(), StringComparison.OrdinalIgnoreCase))
+            return $"Price delta is withheld because Plantry cannot compare a {view.DealUnitCode.Trim()} with {view.SuggestedProductUnitCode.Trim()} without a conversion.";
+        return "Price delta is withheld because the advertised price could not be normalized to the inventory unit.";
+    }
 
     /// <summary>
     /// Renders a purchase-cadence <see cref="TimeSpan"/> as the "every ~3 weeks" copy (plantry-gtgl, Deals

@@ -32,6 +32,14 @@
     // Household display currency (plantry-2x6e.2) — set by the hosting _ReviewQueue; defaults to USD if a
     // future host renders this card without it, matching MoneyDisplay's own fallback.
     var displayCurrency = ViewData["DisplayCurrency"] as string ?? "USD";
+    var dealPriceBasis = DealReviewDisplay.FormatPriceBasis(Model.Quantity, Model.DealUnitCode);
+    var unitMismatchHint = DealReviewDisplay.BuildUnitMismatchHint(Model);
+    var comparisonNote = Model.Purchase is { PercentDelta: null }
+        ? DealReviewDisplay.BuildPriceComparisonNote(Model)
+        : null;
+    var averagePriceBasis = string.IsNullOrWhiteSpace(Model.SuggestedProductUnitCode)
+        ? string.Empty
+        : $" / {Model.SuggestedProductUnitCode}";
 }
 
 <li class="catalog-list__item deal-review-row @(isNoise ? "deal-review-row--noise" : null)"
@@ -56,7 +64,13 @@
             }
         </div>
         <div class="deal-review-row__price">
-            <span class="deal-row__amount">@MoneyDisplay.Format(Model.Price, displayCurrency)</span>
+            <span class="price-basis">
+                <span class="price-basis__amount deal-row__amount">@MoneyDisplay.Format(Model.Price, displayCurrency)</span>
+                @if (dealPriceBasis is { } basis)
+                {
+                    <span class="price-basis__unit">@basis</span>
+                }
+            </span>
             <partial name="Shared/_ConfidenceBadge" model="confidence" />
         </div>
     </div>
@@ -74,9 +88,27 @@
         @* Single-suggestion "did you mean" chip (reused .match-suggest). For an already-confirmed deal it
            shows the current match; for a pending deal it is the AI proposal to accept. *@
         <div class="match-suggest deal-review-row__suggest">
-            <div class="match-suggest__label">
-                @(Model.IsAlreadyConfirmed ? "Currently matched to" : "Did you mean") &mdash;
-                <span>@Model.SuggestedProductName</span>
+            <div class="match-suggest__main">
+                <div class="match-suggest__label">
+                    @(Model.IsAlreadyConfirmed ? "Currently matched to" : "Did you mean") &mdash;
+                    <span>@Model.SuggestedProductName</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(Model.SuggestedProductUnitCode))
+                {
+                    <div class="inventory-unit">
+                        Stocked as <b>@Model.SuggestedProductUnitCode</b>
+                        @if (unitMismatchHint is { } hint)
+                        {
+                            <button type="button" class="unit-hint"
+                                    data-unit-hint="@hint"
+                                    aria-label="Why do the units differ?"
+                                    aria-expanded="false"
+                                    aria-controls="deal-unit-popover"
+                                    aria-describedby="deal-unit-description-@dealId"></button>
+                            <span id="deal-unit-description-@dealId" class="sr-only">@hint</span>
+                        }
+                    </div>
+                }
             </div>
             @if (!string.IsNullOrWhiteSpace(Model.Reasoning))
             {
@@ -95,12 +127,16 @@
            history — never rendered with a blank/zero stand-in. *@
         <div class="deal-review-row__purchase-context">
             <span class="chip-stat">
-                You pay <b>@MoneyDisplay.Format(purchase.AverageUnitPrice, displayCurrency)</b> avg
+                You pay <b>@MoneyDisplay.Format(DealReviewDisplay.PriceForUnit(purchase.AverageUnitPrice, Model.SuggestedProductUnitFactorToBase), displayCurrency)@averagePriceBasis</b> avg
                 @if (purchase.PercentDelta is { } pct)
                 {
                     <text>&rarr; deal is <b class="@(pct < 0 ? "delta--good" : "delta--bad")">@Math.Abs(pct)% @(pct < 0 ? "below" : "above")</b></text>
                 }
             </span>
+            @if (comparisonNote is { } note)
+            {
+                <span class="purchase-context__note">@note</span>
+            }
             @if (purchase.AveragePurchaseInterval is { } interval)
             {
                 <span class="chip-stat">You buy this every <b>~@DealReviewDisplay.FormatPurchaseInterval(interval)</b></span>

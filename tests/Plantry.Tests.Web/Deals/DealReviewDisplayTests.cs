@@ -1,3 +1,5 @@
+using Plantry.Market.Application;
+using Plantry.Market.Domain;
 using Plantry.Web.Pages.Deals;
 
 namespace Plantry.Tests.Web.Deals;
@@ -27,6 +29,38 @@ public sealed class DealReviewDisplayTests
     [InlineData(4.99, false)]
     public void IsNoise_Flags_NonPositive_Prices(double price, bool expected) =>
         Assert.Equal(expected, DealReviewDisplay.IsNoise((decimal)price));
+
+    [Theory]
+    [InlineData(1.0, "each", "/ each")]
+    [InlineData(4.0, "L", "/ 4 L")]
+    public void FormatPriceBasis_Renders_Quantity_And_Unit(double quantity, string unit, string expected) =>
+        Assert.Equal(expected, DealReviewDisplay.FormatPriceBasis((decimal)quantity, unit));
+
+    [Fact]
+    public void FormatPriceBasis_Leaves_Unknown_Unit_Unqualified()
+    {
+        Assert.Equal("/ kg", DealReviewDisplay.FormatPriceBasis(null, "kg"));
+        Assert.Null(DealReviewDisplay.FormatPriceBasis(4m, null));
+    }
+
+    [Fact]
+    public void UnitMismatchHint_Requires_Different_Known_Unit_Ids()
+    {
+        var dealUnit = Guid.NewGuid();
+        var productUnit = Guid.NewGuid();
+        var view = new DealReviewView(
+            DealId.New(), Guid.NewGuid(), "Store", "MANGOES CASE", null, null, 18m, 1m,
+            DateOnly.FromDateTime(DateTime.UtcNow), DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
+            MatchConfidence.High, null, Guid.NewGuid(), "Mangoes", DealStatus.Pending, false,
+            dealUnit, null, [], productUnit, "crate", "each");
+
+        Assert.True(view.HasKnownUnitMismatch);
+        Assert.Contains("priced per crate", DealReviewDisplay.BuildUnitMismatchHint(view));
+
+        var sameUnit = view with { SuggestedProductUnitId = dealUnit, SuggestedProductUnitCode = "crate" };
+        Assert.False(sameUnit.HasKnownUnitMismatch);
+        Assert.Null(DealReviewDisplay.BuildUnitMismatchHint(sameUnit));
+    }
 
     // ── FormatPurchaseInterval (plantry-gtgl, Deals-review "you buy this every ~N" cadence copy) ──────────
 

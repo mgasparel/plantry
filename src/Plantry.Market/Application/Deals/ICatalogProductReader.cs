@@ -5,7 +5,11 @@ namespace Plantry.Market.Application;
 /// is null when the product has no category assigned — the Deals page files those under an "Uncategorized"
 /// group when grouping by category.
 /// </summary>
-public sealed record DealProductInfo(Guid ProductId, string Name, string? CategoryName);
+public sealed record DealProductInfo(
+    Guid ProductId,
+    string Name,
+    string? CategoryName,
+    Guid? DefaultUnitId = null);
 
 /// <summary>
 /// Read port onto Catalog for product validation (deals-domain-model §7/§8). Before <c>ConfirmDeal</c>

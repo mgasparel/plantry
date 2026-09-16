@@ -31,17 +31,47 @@
         {
             var dealId = d.DealId.Value;
             var isChecked = !Model.UncheckedIds.Contains(dealId);
+            var dealPriceBasis = DealReviewDisplay.FormatPriceBasis(d.Quantity, d.DealUnitCode);
+            var unitMismatchHint = DealReviewDisplay.BuildUnitMismatchHint(d);
             @* Clicking anywhere on the row toggles the checkbox (and fires its change handlers). *@
-            <li class="check-row" data-deal-id="@dealId" x-on:click="toggleRow($event)">
+            <li class="check-row @(unitMismatchHint is not null ? "check-row--context" : null)" data-deal-id="@dealId" x-on:click="toggleRow($event)">
                 <input type="checkbox" name="dealIds" value="@dealId" checked="@(isChecked ? "checked" : null)"
                        x-on:change="recount()"
                        hx-post="/Deals/Review?handler=SetCheck"
                        hx-vals='js:{"dealId": "@dealId", "isChecked": event.target.checked}'
                        hx-trigger="change"
                        hx-swap="none" />
-                @* Verbatim ALL-CAPS flyer string stays one hover away in the title attribute (DD6 / q9zr.10). *@
-                <span class="raw"><b title="@d.RawName">@DealReviewDisplay.TitleCase(d.RawName)</b></span>
-                <span class="to">&rarr; <span class="product">@d.SuggestedProductName</span></span>
+                <span class="check-row__deal">
+                    @* Verbatim ALL-CAPS flyer string stays one hover away in the title attribute (DD6 / q9zr.10). *@
+                    <span class="check-row__name" title="@d.RawName">@DealReviewDisplay.TitleCase(d.RawName)</span>
+                    <span class="check-row__meta price-basis">
+                        <span class="price-basis__amount">@MoneyDisplay.Format(d.Price, Model.DisplayCurrency)</span>
+                        @if (dealPriceBasis is { } basis)
+                        {
+                            <span class="price-basis__unit">@basis</span>
+                        }
+                    </span>
+                </span>
+                <span class="check-row__arrow" aria-hidden="true">&rarr;</span>
+                <span class="check-row__match">
+                    <span class="check-row__product">@d.SuggestedProductName</span>
+                    @if (!string.IsNullOrWhiteSpace(d.SuggestedProductUnitCode))
+                    {
+                        <span class="check-row__meta inventory-unit">
+                            Stocked as <b>@d.SuggestedProductUnitCode</b>
+                            @if (unitMismatchHint is { } hint)
+                            {
+                                <button type="button" class="unit-hint"
+                                        data-unit-hint="@hint"
+                                        aria-label="Why do the units differ?"
+                                        aria-expanded="false"
+                                        aria-controls="deal-unit-popover"
+                                        aria-describedby="deal-unit-description-@dealId"></button>
+                                <span id="deal-unit-description-@dealId" class="sr-only">@hint</span>
+                            }
+                        </span>
+                    }
+                </span>
             </li>
         }
     </ul>
