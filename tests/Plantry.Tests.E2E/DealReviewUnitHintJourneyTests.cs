@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using Microsoft.Playwright;
@@ -59,6 +60,11 @@ public sealed class DealReviewUnitHintJourneyTests : IAsyncLifetime
         await Assertions.Expect(popover).ToBeVisibleAsync();
 
         await page.Mouse.ClickAsync(4, 4);
+        await Assertions.Expect(popover).ToBeHiddenAsync();
+
+        await deckHint.ClickAsync();
+        await Assertions.Expect(popover).ToBeVisibleAsync();
+        await page.EvaluateAsync("() => document.querySelector('.focus-card .unit-hint')?.remove()");
         await Assertions.Expect(popover).ToBeHiddenAsync();
     }
 

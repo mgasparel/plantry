@@ -150,6 +150,19 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.DoesNotContain("/ 2", unknownUnitHtml);
         Assert.Contains("Stocked as <b>g</b>", unknownUnitHtml);
         Assert.DoesNotContain("data-unit-hint=", unknownUnitHtml);
+
+        factory.Reset();
+        var fullCardKilogram = factory.Units.Seed("kg", "kilogram", Dimension.Mass, factorToBase: 1000m, isBase: false);
+        factory.SeedPending("MILK FULL CARD", MatchConfidence.Low, factory.MilkProduct,
+            price: 18m, quantity: 2m, unitId: fullCardKilogram);
+        var fullCardHtml = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review?step=2")).Content.ReadAsStringAsync());
+
+        // Step 2's no-JS fallback uses _DealReviewCard; keep its unit context pinned separately from the
+        // compact checklist and the imperative deck payload.
+        Assert.Contains("/ 2 kg", fullCardHtml);
+        Assert.Contains("Stocked as <b>g</b>", fullCardHtml);
+        Assert.Contains("data-unit-hint=\"This deal is priced per kg.", fullCardHtml);
     }
 
     [Fact(DisplayName = "Deal review with an unconvertible unit explains the withheld price delta")]
