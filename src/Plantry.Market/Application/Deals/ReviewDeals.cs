@@ -30,7 +30,11 @@ public sealed record DealReviewView(
     bool AutoMatched,
     Guid? UnitId = null,
     DealPurchaseContext? Purchase = null,
-    IReadOnlyList<Guid>? duplicateDealIds = null)
+    IReadOnlyList<Guid>? duplicateDealIds = null,
+    Guid? SuggestedProductUnitId = null,
+    string? DealUnitCode = null,
+    string? SuggestedProductUnitCode = null,
+    decimal? SuggestedProductUnitFactorToBase = null)
 {
     /// <summary>
     /// IDs of other pending deals with the same advertised identity as this view's deal. The projection and
@@ -46,6 +50,15 @@ public sealed record DealReviewView(
     /// Confirm verb. A <see cref="MatchConfidence.None"/>/"Unrecognized" deal has none, so it can only be
     /// Corrected (search) or Rejected.</summary>
     public bool HasSuggestion => SuggestedProductId is not null && SuggestedProductName is not null;
+
+    /// <summary>
+    /// True only when both sides have a resolved unit identity and those identities differ. Quantity does not
+    /// participate in this check: 4 L and stocked-as L are the same unit for this warning's purposes.
+    /// </summary>
+    public bool HasKnownUnitMismatch =>
+        UnitId is { } dealUnitId && dealUnitId != Guid.Empty
+        && SuggestedProductUnitId is { } productUnitId && productUnitId != Guid.Empty
+        && dealUnitId != productUnitId;
 
     /// <summary>True for the already-confirmed correction entry path (the DJ3 → DJ4 edge from the active list).</summary>
     public bool IsAlreadyConfirmed => Status == DealStatus.Confirmed;
@@ -463,6 +476,10 @@ public sealed class ReviewDeals(
                                 && suggestionNames.TryGetValue(sid, out var info)
             ? info.Name
             : null;
+        Guid? suggestedProductUnitId = deal.SuggestedProductId is { } productId
+                                       && suggestionNames.TryGetValue(productId, out var productInfo)
+            ? productInfo.DefaultUnitId
+            : null;
 
         return new DealReviewView(
             deal.Id,
@@ -482,7 +499,8 @@ public sealed class ReviewDeals(
             deal.Status,
             deal.AutoMatched,
             deal.UnitId,
-            duplicateDealIds: duplicateDealIds ?? []);
+            duplicateDealIds: duplicateDealIds ?? [],
+            SuggestedProductUnitId: suggestedProductUnitId);
     }
 
 

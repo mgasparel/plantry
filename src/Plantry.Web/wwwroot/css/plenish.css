@@ -7507,6 +7507,43 @@ tr.line--dismissed .data-grid__cell:first-child {
 .deal-row__amount { font-weight: 600; color: var(--color-text); }
 .deal-row__until { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 
+/* Deal unit context (plantry-o95j): keep the advertised basis and the catalog's stocking unit visible at
+   the decision point. The hint button reserves a 28px target while its visible amber circle remains 15px. */
+.price-basis { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.price-basis__amount { font-family: var(--font-mono); font-weight: 700; color: var(--color-text); }
+.price-basis__unit { color: var(--color-text-muted); font-size: 0.78rem; font-weight: 600; }
+.inventory-unit {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--color-text-muted); font-size: 0.75rem; white-space: nowrap;
+}
+.inventory-unit b { color: var(--color-text); font-weight: 650; }
+.unit-hint {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; padding: 0; flex: none;
+  border: 0; background: transparent; color: var(--color-warning);
+  vertical-align: middle; cursor: help;
+}
+.unit-hint::before {
+  content: '?'; display: grid; place-items: center;
+  width: 15px; height: 15px;
+  border: 1px solid currentColor; border-radius: 50%;
+  font-size: 11px; font-weight: 700; line-height: 1;
+}
+.unit-hint:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; border-radius: var(--radius-full); }
+.unit-popover {
+  position: fixed; z-index: 100; width: 280px; max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px); overflow-y: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border-strong); border-radius: 10px;
+  background: var(--color-surface); box-shadow: 0 6px 24px #0002;
+  font-size: 0.8125rem; color: var(--color-text-muted);
+}
+.unit-popover[hidden] { display: none; }
+.unit-popover strong { display: block; color: var(--color-text); margin-bottom: 5px; }
+.unit-popover p { margin: 0; }
+.match-suggest__main { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.purchase-context__note { flex: 1 1 100%; color: var(--color-text-faint); font-size: var(--font-size-xs); line-height: 1.4; }
+
 /* Stock-up alerts (P5-10 / DJ5): the add-to-list action is pushed to the row's trailing edge. */
 .deal-row__action { margin-left: auto; white-space: nowrap; }
 .deal-alerts { border-color: var(--color-success); }
@@ -7660,6 +7697,7 @@ tr.line--dismissed .data-grid__cell:first-child {
   background: color-mix(in srgb, var(--color-accent-subtle) 45%, var(--color-surface));
   border-radius: var(--radius-md); padding: var(--space-4);
 }
+.focus-card__match-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .focus-card__match--none { background: var(--color-surface-2); border-color: var(--color-border); }
 .focus-card__match .focus-card__src { color: var(--color-accent); }
 .focus-card__product { font-weight: 700; font-size: 1.2rem; }
@@ -7919,7 +7957,7 @@ kbd, .kbd {
 .check-list { list-style: none; }
 .check-list .check-row:first-child { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
 .check-row {
-  display: flex; align-items: baseline; gap: var(--space-3); padding: 0.6rem var(--space-5);
+  display: flex; align-items: center; gap: var(--space-3); padding: 0.6rem var(--space-5);
   border-top: 1px solid var(--color-border-subtle); font-size: 0.9rem; cursor: pointer;
 }
 .check-row:first-child { border-top: none; }
@@ -7929,6 +7967,26 @@ kbd, .kbd {
 .check-row .raw b { font-weight: 650; }
 .check-row .to { color: var(--color-text-muted); white-space: nowrap; }
 .check-row .to .product { color: var(--color-text); font-weight: 650; }
+.check-row__deal, .check-row__match { min-width: 0; flex: 1 1 10rem; display: flex; flex-direction: column; gap: 2px; }
+.check-row__name, .check-row__product { overflow-wrap: anywhere; }
+.check-row__name { color: var(--color-text); font-weight: 650; }
+.check-row__product { color: var(--color-text); font-weight: 650; }
+.check-row__meta { min-height: 28px; }
+.check-row__arrow { color: var(--color-text-muted); flex: none; }
+.check-row--context { background: color-mix(in srgb, var(--color-warning-bg) 35%, transparent); }
+
+@media (max-width: 640px) {
+  .deal-review-row__head { grid-template-columns: 1fr; }
+  .deal-review-row__price { align-items: flex-start; }
+  .focus-card__match-head { align-items: flex-start; flex-direction: column; gap: var(--space-2); }
+}
+
+@media (max-width: 420px) {
+  .check-row { align-items: flex-start; flex-wrap: wrap; }
+  .check-row__deal { flex-basis: calc(100% - 2rem); }
+  .check-row__arrow { margin-left: 2rem; }
+  .check-row__match { flex-basis: calc(100% - 2rem); margin-left: 2rem; }
+}
 .step-foot {
   display: flex; gap: var(--space-3); align-items: center; padding: var(--space-4) var(--space-5);
   border-top: 1px solid var(--color-border-subtle); background: var(--color-surface-2);

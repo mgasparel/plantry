@@ -116,6 +116,60 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.DoesNotContain("You buy this every", html);
     }
 
+    [Fact(DisplayName = "Deal review renders the advertised basis, stocked unit and mismatch hint")]
+    public async Task Renders_Deal_And_Inventory_Unit_Context()
+    {
+        factory.Reset();
+        var kilogram = factory.Units.Seed("kg", "kilogram", Dimension.Mass, factorToBase: 1000m, isBase: false);
+        factory.SeedPending("MILK CASE", MatchConfidence.High, factory.MilkProduct,
+            price: 18m, quantity: 2m, unitId: kilogram);
+
+        var mismatchHtml = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        Assert.Contains("/ 2 kg", mismatchHtml);
+        Assert.Contains("Stocked as <b>g</b>", mismatchHtml);
+        Assert.Contains("data-unit-hint=\"This deal is priced per kg.", mismatchHtml);
+        Assert.Contains("id=\"deal-unit-popover\"", mismatchHtml);
+
+        factory.Reset();
+        factory.SeedPending("MILK PACK", MatchConfidence.High, factory.MilkProduct,
+            price: 4m, quantity: 4m, unitId: factory.UnitId);
+        var sameUnitHtml = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        Assert.Contains("/ 4 g", sameUnitHtml);
+        Assert.DoesNotContain("data-unit-hint=", sameUnitHtml);
+
+        factory.Reset();
+        factory.SeedPending("MILK UNKNOWN BASIS", MatchConfidence.High, factory.MilkProduct,
+            price: 4m, quantity: 2m);
+        var unknownUnitHtml = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync());
+
+        Assert.DoesNotContain("/ 2", unknownUnitHtml);
+        Assert.Contains("Stocked as <b>g</b>", unknownUnitHtml);
+        Assert.DoesNotContain("data-unit-hint=", unknownUnitHtml);
+    }
+
+    [Fact(DisplayName = "Deal review with an unconvertible unit explains the withheld price delta")]
+    public async Task Withholds_Unavailable_Price_Delta_With_Quiet_Explanation()
+    {
+        factory.Reset();
+        var crate = factory.Units.Seed("crate", "crate", Dimension.Count);
+        factory.SeedPending("MILK CASE", MatchConfidence.Low, factory.MilkProduct,
+            price: 18m, quantity: 1m, unitId: crate);
+        factory.SeedPurchase(factory.MilkProduct, 5m, DateTimeOffset.UtcNow.AddDays(-10));
+
+        var html = System.Net.WebUtility.HtmlDecode(
+            await (await AuthedClient().GetAsync("/Deals/Review?step=2")).Content.ReadAsStringAsync());
+
+        Assert.Contains("Stocked as <b>g</b>", html);
+        Assert.Contains("Price delta is withheld because Plantry cannot compare a crate with g without a conversion.", html);
+        Assert.DoesNotContain("delta--good", html);
+        Assert.DoesNotContain("delta--bad", html);
+    }
+
     [Fact(DisplayName = "The step views render each confidence treatment + the single-suggestion chip (q9zr.13)")]
     public async Task Renders_Confidence_Treatments()
     {
@@ -298,7 +352,9 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         factory.Reset();
         // A single Low deal lands the default entry on step 2 (no confirmable Highs). ALL-CAPS proves the
         // server title-cases the display name while keeping the verbatim raw string.
-        var deal = factory.SeedPending("BREYERS CREAMERY STYLE ICE CREAM", MatchConfidence.Low, factory.MilkProduct);
+        var kilogram = factory.Units.Seed("kg", "kilogram", Dimension.Mass, factorToBase: 1000m, isBase: false);
+        var deal = factory.SeedPending("BREYERS CREAMERY STYLE ICE CREAM", MatchConfidence.Low, factory.MilkProduct,
+            quantity: 2m, unitId: kilogram);
 
         var html = await HxGetAsync(AuthedClient(), "/Deals/Review?step=2");
 
@@ -316,6 +372,9 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.Contains("\"rawName\":\"BREYERS CREAMERY STYLE ICE CREAM\"", json);
         Assert.Contains("\"displayName\":\"Breyers Creamery Style Ice Cream\"", json);
         Assert.Contains("\"hasSuggestion\":true", json);
+        Assert.Contains("\"priceBasis\":\"/ 2 kg\"", json);
+        Assert.Contains("\"inventoryUnitCode\":\"g\"", json);
+        Assert.Contains("\"unitMismatchHint\":\"This deal is priced per kg.", json);
         Assert.Contains(deal.Id.Value.ToString(), json);
 
         // Every verb still posts through the existing htmx endpoints, threaded onto this step.
@@ -1703,8 +1762,8 @@ public class DealReviewFactory : WebApplicationFactory<Program>
     public DealReviewFactory()
     {
         UnitId = Units.Seed("g", "gram");
-        ProductReader.Names[MilkProduct] = new DealProductInfo(MilkProduct, "Whole Milk", "Dairy");
-        ProductReader.Names[BreadProduct] = new DealProductInfo(BreadProduct, "Sourdough", "Bakery");
+        ProductReader.Names[MilkProduct] = new DealProductInfo(MilkProduct, "Whole Milk", "Dairy", UnitId);
+        ProductReader.Names[BreadProduct] = new DealProductInfo(BreadProduct, "Sourdough", "Bakery", UnitId);
         ProductReader.Candidates.Add(new ProductCandidate(MilkProduct, "Whole Milk"));
         ProductReader.Candidates.Add(new ProductCandidate(BreadProduct, "Sourdough"));
         Stores.Names[Store] = "FreshCo";
@@ -1949,10 +2008,15 @@ public sealed class FakeReviewUnitRepo : IUnitRepository
 {
     private readonly List<CatalogUnit> _items = [];
 
-    public Guid Seed(string code, string name)
+    public Guid Seed(
+        string code,
+        string name,
+        Dimension dimension = Dimension.Mass,
+        decimal factorToBase = 1m,
+        bool isBase = true)
     {
         var unit = CatalogUnit.Create(
-            HouseholdId.From(Guid.NewGuid()), code, name, Dimension.Mass, factorToBase: 1m, isBase: true);
+            HouseholdId.From(Guid.NewGuid()), code, name, dimension, factorToBase, isBase);
         _items.Add(unit);
         return unit.Id.Value;
     }

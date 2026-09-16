@@ -10,6 +10,8 @@
         ViewContext.HttpContext.Request.PathBase, "/js/islands/deal-deck.js");
     var deckHelpersSrc = FileVersionProvider.AddFileVersionToPath(
         ViewContext.HttpContext.Request.PathBase, "/js/islands/helpers.js");
+    var unitHintIslandSrc = FileVersionProvider.AddFileVersionToPath(
+        ViewContext.HttpContext.Request.PathBase, "/js/islands/deal-unit-hint.js");
 }
 
 <div class="cfg-wrap" data-screen-label="Review deals">
@@ -39,6 +41,13 @@
              x-show="toast !== null" x-on:click="toast = null" x-cloak>
             <svg class="icon" aria-hidden="true"><use href="#i-check" /></svg>
             <span x-text="toast"></span>
+        </div>
+
+        @* One persistent tooltip portal. It lives outside #review-region so every htmx queue swap can close
+           and replace deal cards without leaving a stale popover behind. *@
+        <div id="deal-unit-popover" class="unit-popover" role="tooltip" hidden>
+            <strong data-unit-popover-title>Different units</strong>
+            <p data-unit-popover-copy></p>
         </div>
 
         @* Shared catalog search + inline-create sheet (P4-6). Composed, not rebuilt: TrackStock=false and
@@ -248,7 +257,7 @@ function reviewChecklist() {
         // Clicking the row (but not the checkbox itself) toggles the box and fires its change handlers
         // (Alpine recount + the htmx SetCheck persist) via a dispatched change event.
         toggleRow(e) {
-            if (e.target.tagName === 'INPUT') return;
+            if (e.target.closest && e.target.closest('input, button, a')) return;
             const box = e.currentTarget.querySelector('input[type="checkbox"]');
             if (!box) return;
             box.checked = !box.checked;
@@ -269,6 +278,9 @@ function reviewChecklist() {
        idempotent (mountDealDeck guards per node), so a later onLoad for the same node never double-mounts.
        htmx.onLoad then handles every subsequent swapped-in fragment. *@
     <script type="module">
+        const { mountDealUnitHints } = await import('@Html.Raw(unitHintIslandSrc)');
+        mountDealUnitHints();
+
         const { mountDealDeck, teardownDealDeck } = await import('@Html.Raw(deckIslandSrc)');
         const { readHydration } = await import('@Html.Raw(deckHelpersSrc)');
 

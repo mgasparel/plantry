@@ -59,6 +59,7 @@ public sealed class DealCatalogProductReaderAdapter(
             p => new DealProductInfo(
                 p.Id.Value,
                 p.Name,
-                p.CategoryId is { } cid && categoryNames.TryGetValue(cid, out var name) ? name : null));
+                p.CategoryId is { } cid && categoryNames.TryGetValue(cid, out var name) ? name : null,
+                p.DefaultUnitId.Value));
     }
 }

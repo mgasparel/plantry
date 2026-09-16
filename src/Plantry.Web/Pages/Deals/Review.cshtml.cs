@@ -147,6 +147,12 @@ public sealed class ReviewModel(
     public IReadOnlyList<SelectListItem> CategoryOptions { get; private set; } = [];
     public IReadOnlyList<SelectListItem> LocationOptions { get; private set; } = [];
 
+    // The correction sheet already loads the household's units for its Defaults picker. Keep that same
+    // request-scoped lookup available to the deal review display so unit labels/factors never require a
+    // second repository round trip.
+    private IReadOnlyDictionary<Guid, Unit> UnitDisplayById { get; set; } =
+        new Dictionary<Guid, Unit>();
+
     // ── GET ─────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -165,7 +171,7 @@ public sealed class ReviewModel(
             if (one is not null)
             {
                 IsSingleCorrection = true;
-                Deals = [one];
+                Deals = HydrateUnitDisplays([one]);
                 return Page();
             }
             // Unknown/rejected — nothing to correct; drop to the queue.
@@ -641,7 +647,8 @@ public sealed class ReviewModel(
     {
         await LoadSheetOptionsAsync(ct);
         DisplayCurrency = await displayCurrency.GetAsync(ct);
-        ApplyQueue(await queueBuilder.BuildAsync(flyer, step, autoAdvance, ct));
+        var queue = await queueBuilder.BuildAsync(flyer, step, autoAdvance, ct);
+        ApplyQueue(HydrateUnitDisplays(queue));
 
         // Keep the address bar (and therefore a refresh) on the effective step. The step buttons and rail chips
         // carry their own hx-push-url for GET jumps; a POST verb that auto-advanced needs the header to update.
@@ -668,8 +675,12 @@ public sealed class ReviewModel(
 
     private async Task LoadSheetOptionsAsync(CancellationToken ct)
     {
+        var unitList = await units.ListAsync(ct);
+        UnitDisplayById = unitList
+            .Where(u => u.Id.Value != Guid.Empty)
+            .ToDictionary(u => u.Id.Value);
         UnitOptions = UnitSelectListBuilder.BuildFromUnits(
-            await units.ListAsync(ct),
+            unitList,
             u => u.Id.Value.ToString(),
             u => u.Code);
 
@@ -681,6 +692,79 @@ public sealed class ReviewModel(
             .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
             .Select(l => new SelectListItem(l.Name, l.Id.Value.ToString()))
             .ToList();
+    }
+
+    /// <summary>
+    /// Adds the unit labels and conversion factor needed by the three deal-review surfaces. The queue
+    /// projection remains unit-id based; this page-level hydration keeps presentation concerns at the Web
+    /// boundary and leaves matcher/acceptance behavior unchanged.
+    /// </summary>
+    private DealReviewQueueView HydrateUnitDisplays(DealReviewQueueView queue)
+    {
+        var hydratedDeals = HydrateUnitDisplays(queue.Deals);
+        var hydratedById = hydratedDeals.ToDictionary(d => d.DealId.Value);
+
+        IReadOnlyList<DealReviewView> Hydrate(IReadOnlyList<DealReviewView> deals) =>
+            deals.Select(d => hydratedById.TryGetValue(d.DealId.Value, out var hydrated) ? hydrated : d).ToList();
+
+        return queue with
+        {
+            Deals = hydratedDeals,
+            Step1Deals = Hydrate(queue.Step1Deals),
+            Step2Deals = Hydrate(queue.Step2Deals),
+            Step3Deals = Hydrate(queue.Step3Deals),
+            ActiveFlyer = queue.ActiveFlyer is { } flyer
+                ? flyer with { Deals = Hydrate(flyer.Deals) }
+                : null,
+        };
+    }
+
+    private IReadOnlyList<DealReviewView> HydrateUnitDisplays(IReadOnlyList<DealReviewView> deals) =>
+        deals.Select(HydrateUnitDisplay).ToList();
+
+    private DealReviewView HydrateUnitDisplay(DealReviewView deal) => deal with
+    {
+        DealUnitCode = deal.UnitId is { } dealUnitId
+                       && UnitDisplayById.TryGetValue(dealUnitId, out var dealUnit)
+            ? dealUnit.Code
+            : null,
+        SuggestedProductUnitCode = deal.SuggestedProductUnitId is { } productUnitId
+                                   && UnitDisplayById.TryGetValue(productUnitId, out var productUnit)
+            ? productUnit.Code
+            : null,
+        SuggestedProductUnitFactorToBase = deal.SuggestedProductUnitId is { } factorUnitId
+                                           && UnitDisplayById.TryGetValue(factorUnitId, out var factorUnit)
+            ? factorUnit.FactorToBase
+            : null,
+        Purchase = HydratePurchaseContext(deal),
+    };
+
+    private DealPurchaseContext? HydratePurchaseContext(DealReviewView deal)
+    {
+        if (deal.Purchase is not { } purchase)
+            return null;
+
+        var dealUnit = deal.UnitId is { } dealUnitId
+            && UnitDisplayById.TryGetValue(dealUnitId, out var resolvedDealUnit)
+            ? resolvedDealUnit
+            : null;
+        var productUnit = deal.SuggestedProductUnitId is { } productUnitId
+            && UnitDisplayById.TryGetValue(productUnitId, out var resolvedProductUnit)
+            ? resolvedProductUnit
+            : null;
+
+        // ReviewDeals already uses the existing unit-price normalizer for the deal side. The product side is
+        // comparable only when both units resolve and the same conversion rules can connect them: identity,
+        // or a physical mass/volume dimension. Count units are deliberately not treated as interchangeable
+        // because a crate/pack/each ratio is product-specific and is not present in this read model.
+        var comparable = dealUnit is not null && productUnit is not null
+            && (dealUnit.Id == productUnit.Id
+                || (dealUnit.Dimension == productUnit.Dimension
+                    && dealUnit.Dimension is Dimension.Mass or Dimension.Volume));
+
+        return comparable
+            ? purchase
+            : purchase with { DealUnitPrice = null, PercentDelta = null };
     }
 
     /// <summary>
