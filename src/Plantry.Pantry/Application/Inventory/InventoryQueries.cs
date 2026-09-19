@@ -187,6 +187,7 @@ public sealed record ProductConsumptionStats(
 /// </summary>
 public class InventoryQueryService(
     IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
     IExpiringSoonHorizon horizon,
@@ -228,6 +229,7 @@ public class InventoryQueryService(
         var unitCodes = await catalog.GetUnitCodesAsync(ct);
         var today = Today();
         var expiringSoonDays = await horizon.GetDaysAsync(ct);
+        var rulesByProduct = await rules.ListForHouseholdAsync(HouseholdId.From(householdId), ct);
 
         var convertersByProduct = await conversions.ForProductsAsync(allStock.Select(s => s.ProductId), ct);
 
@@ -243,6 +245,7 @@ public class InventoryQueryService(
             var converter = convertersByProduct[stock.ProductId];
             var (total, displayUnitCode) = DisplayQuantity(activeLots, product.DefaultUnitId, product.DefaultUnitCode, converter, unitCodes);
             var soonest = activeLots.Where(l => l.ExpiryDate is not null).Min(l => l.ExpiryDate);
+            rulesByProduct.TryGetValue(stock.ProductId, out var rule);
 
             var distinctLocations = activeLots.Select(l => l.LocationId).Distinct().ToList();
             var locationDisplay = distinctLocations.Count switch
@@ -264,8 +267,8 @@ public class InventoryQueryService(
                 soonest,
                 ToneFor(soonest, today, expiringSoonDays),
                 CategoryHue: product.CategoryHue,
-                LowStockThreshold: stock.LowStockThreshold,
-                IsRunningLow: stock.IsRunningLow(total),
+                LowStockThreshold: rule?.Threshold,
+                IsRunningLow: rule is not null && rule.IsRunningLow(total),
                 IsArchived: product.IsArchived,
                 IsProduced: product.IsProduced));
         }
@@ -391,6 +394,7 @@ public class InventoryQueryService(
 
         var stock = await stocks.FindWithHistoryAsync(HouseholdId.From(householdId), productId, ct);
         var product = await catalog.FindProductAsync(productId, ct);
+        var rule = await rules.FindAsync(HouseholdId.From(householdId), productId, ct);
 
         if (stock is null)
         {
@@ -398,13 +402,15 @@ public class InventoryQueryService(
             // products straight to this page, so a product that exists in the catalog but has no
             // ProductStock record yet renders the zero-lot empty state rather than 404ing — the
             // Detail page model then decides what "no lots" looks like (Add stock CTA, Consume
-            // omitted). A stale/removed id still genuinely 404s, same as before.
+            // omitted). A stale/removed id still genuinely 404s, same as before. A LowStockRule can
+            // exist here even with no stock (e.g. a parent product, plantry-oh27.1) — surface it,
+            // though IsRunningLow is always false at zero on-hand.
             if (product is null) return null;
             return new ProductStockDetail(
                 productId, product.Name, product.DefaultUnitCode, 0m, [], [],
                 CategoryName: product.CategoryName,
                 CategoryHue: product.CategoryHue,
-                LowStockThreshold: null,
+                LowStockThreshold: rule?.Threshold,
                 IsRunningLow: false);
         }
 
@@ -455,8 +461,8 @@ public class InventoryQueryService(
             history,
             CategoryName: product?.CategoryName,
             CategoryHue: product?.CategoryHue,
-            LowStockThreshold: stock.LowStockThreshold,
-            IsRunningLow: stock.IsRunningLow(total));
+            LowStockThreshold: rule?.Threshold,
+            IsRunningLow: rule is not null && rule.IsRunningLow(total));
     }
 
     /// <summary>

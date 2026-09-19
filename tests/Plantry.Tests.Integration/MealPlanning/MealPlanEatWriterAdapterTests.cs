@@ -383,10 +383,11 @@ public sealed class MealPlanEatWriterAdapterTests(PostgresFixture db) : IAsyncLi
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
         var catalog = new CatalogReadFacade(productRepo, new UnitCodesAccessor(unitRepo), categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var stocks = new ProductStockRepository(invDb);
+        var rules = new LowStockRuleRepository(invDb);
         var journalReader = new JournalEntriesBySourceRefReader(invDb);
         var tenant = new TestTenant(_household.Value);
         return new MealPlanEatWriterAdapter(
-            stocks, catalog, conversions, journalReader, locationRepo, Clock, tenant,
+            stocks, rules, catalog, conversions, journalReader, locationRepo, Clock, tenant,
             NullLogger<ConsumeStockCommand>.Instance, NullLogger<AddStockCommand>.Instance);
     }
 

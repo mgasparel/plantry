@@ -50,12 +50,32 @@ public sealed class StockFactsReadModel(
         }
 
         // ── Query 1: product_stock roots (inventory) — the household's whole stock list ──────────
+        // The threshold itself no longer lives on product_stock (plantry-oh27.1) — this query only
+        // enumerates which products currently hold stock; Query 1b below joins the LowStockRule value
+        // onto that set.
         var thresholdByProduct = new Dictionary<Guid, decimal?>();
         await using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT product_id, low_stock_threshold
+                SELECT product_id
                 FROM inventory.product_stock
+                WHERE household_id = @household_id
+                """;
+            cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+                thresholdByProduct[reader.GetGuid(0)] = null;
+        }
+
+        // ── Query 1b: low_stock_rule (inventory, plantry-oh27.1) — overlays the configured threshold
+        // onto the stocked-product set above. A rule for a product with no stock row (e.g. a parent
+        // product) is simply not represented in stockByProduct — the stock-family detectors are
+        // leaf-only today, matching pre-plantry-oh27.1 behaviour exactly. ──────────────────────────
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT product_id, threshold
+                FROM inventory.low_stock_rule
                 WHERE household_id = @household_id
                 """;
             cmd.Parameters.AddWithValue("household_id", tenant.HouseholdId ?? Guid.Empty);
@@ -63,8 +83,8 @@ public sealed class StockFactsReadModel(
             while (await reader.ReadAsync(ct))
             {
                 var productId = reader.GetGuid(0);
-                var threshold = reader.IsDBNull(1) ? (decimal?)null : reader.GetDecimal(1);
-                thresholdByProduct[productId] = threshold;
+                if (thresholdByProduct.ContainsKey(productId))
+                    thresholdByProduct[productId] = reader.GetDecimal(1);
             }
         }
 

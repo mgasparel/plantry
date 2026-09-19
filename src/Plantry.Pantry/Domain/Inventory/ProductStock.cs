@@ -22,31 +22,10 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
-    /// <summary>
-    /// The per-household, per-product low stock threshold (i.e. the "running low at" quantity).
-    /// Null or zero means no threshold is set — <see cref="IsRunningLow"/> is always false in that case.
-    /// When set, <see cref="IsRunningLow"/> is true when total on-hand ≤ this threshold.
-    /// Belongs in Inventory (household-specific setting), NOT in Catalog.
-    /// </summary>
-    public decimal? LowStockThreshold { get; private set; }
-
-    /// <summary>
-    /// Derives the running-low state from the persisted <see cref="LowStockThreshold"/> and the supplied
-    /// <paramref name="onHand"/> quantity. Null/zero threshold → always false; onHand ≤ threshold → true.
-    /// </summary>
-    public bool IsRunningLow(decimal onHand) =>
-        LowStockThreshold is { } t && t > 0m && onHand <= t;
-
-    /// <summary>Sets or clears the low stock threshold for this product in this household, and bumps
-    /// <see cref="UpdatedAt"/> to the clock's current instant — matching the house style of
-    /// <see cref="AddStock"/> and <see cref="Consume"/>.</summary>
-    public void SetLowStockThreshold(decimal? threshold, IClock clock)
-    {
-        if (threshold < 0m)
-            throw new ArgumentOutOfRangeException(nameof(threshold), "Low stock threshold must be non-negative.");
-        LowStockThreshold = threshold;
-        UpdatedAt = clock.UtcNow;
-    }
+    // The low-stock threshold used to live here (LowStockThreshold/IsRunningLow/SetLowStockThreshold).
+    // It moved to the Inventory-context LowStockRule record (plantry-oh27.1) so a threshold can target
+    // a parent product without a parent ever owning a ProductStock — ProductStock remains leaf-only
+    // and gains nothing.
 
     private readonly List<StockEntry> _entries = [];
     private readonly List<StockJournalEntry> _journal = [];
@@ -135,6 +114,9 @@ public sealed class ProductStock : AggregateRoot<ProductStockId>
     }
 
     /// <summary>
+    /// <para>Note: the low-stock check that used to run here against <c>IsRunningLow</c> was moved to the
+    /// caller (<c>ConsumeStockCommand</c>), which now looks up a <see cref="LowStockRule"/> instead
+    /// (plantry-oh27.1) — this primitive itself never touched the threshold.</para>
     /// The single consumption primitive (ADR-011). Converts <paramref name="amount"/> from
     /// <paramref name="unitId"/> into each lot's unit, deducts FEFO across lots (or only
     /// <paramref name="targetEntry"/> when set — "this carton is empty/spoiled"), writes one signed

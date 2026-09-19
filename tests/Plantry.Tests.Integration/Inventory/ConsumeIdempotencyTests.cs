@@ -209,6 +209,7 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
         var catalog = new CatalogReadFacade(productRepo, new UnitCodesAccessor(unitRepo), categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var stocks = new ProductStockRepository(invDb);
+        var rules = new LowStockRuleRepository(invDb);
         var tenant = new TestTenant(_household.Value);
 
         var command = new ConsumeStockCommand(
@@ -216,7 +217,7 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
             StockReason.Consumed, _userId,
             targetEntryId: null,
             sourceRef: cookEventId,
-            stocks, catalog, conversions, Clock, tenant,
+            stocks, rules, catalog, conversions, Clock, tenant,
             StockSourceType.Cook,
             sourceLineRef: sourceLineRef);
 
@@ -235,6 +236,7 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
         var conversions = new CatalogConversionProvider(productRepo, unitRepo);
         var catalog = new CatalogReadFacade(productRepo, new UnitCodesAccessor(unitRepo), categoryRepo, locationRepo, new FakeHouseholdExpiryDefaultsReader());
         var stocks = new ProductStockRepository(invDb);
+        var rules = new LowStockRuleRepository(invDb);
         var tenant = new TestTenant(_household.Value);
 
         // Manual path: no sourceLineRef (null).
@@ -242,7 +244,7 @@ public sealed class ConsumeIdempotencyTests(PostgresFixture db) : IAsyncLifetime
             _productId, amount, _unitId,
             StockReason.Consumed, _userId,
             targetEntryId: null, sourceRef: null,
-            stocks, catalog, conversions, Clock, tenant);
+            stocks, rules, catalog, conversions, Clock, tenant);
 
         var result = await command.ExecuteAsync();
         Assert.True(result.IsSuccess, $"Consume failed: {result.Error?.Description}");

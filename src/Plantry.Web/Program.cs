@@ -248,6 +248,9 @@ builder.Services.AddScoped<ProductQueryService>();
 
 // Inventory context
 builder.Services.AddScoped<IProductStockRepository, ProductStockRepository>();
+// Low-stock threshold record (plantry-oh27.1) — keyed by product id, leaf OR parent, independent of
+// whether a ProductStock row exists.
+builder.Services.AddScoped<ILowStockRuleRepository, LowStockRuleRepository>();
 builder.Services.AddScoped<InventoryQueryService>();
 // Per-household "expiring soon" horizon (plantry-5yhd): one settings service backs both the read
 // port (IExpiringSoonHorizon, consumed by InventoryQueryService and the Recipes adapter) and the

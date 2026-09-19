@@ -33,13 +33,19 @@ public sealed class ShoppingPantryReaderAdapterTests
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private static ShoppingPantryReaderAdapter BuildAdapter(
+    /// <summary>Backs every <see cref="BuildAdapter"/> call in this test class by default — the
+    /// low-stock threshold record (plantry-oh27.1), populated per test via
+    /// <see cref="MakeStockWithLotAndThreshold"/>/<see cref="MakeStockWithThresholdNoLots"/>.</summary>
+    private readonly FakeLowStockRuleRepository _rules = new();
+
+    private ShoppingPantryReaderAdapter BuildAdapter(
         IProductStockRepository stocks,
         ICatalogReadFacade catalog,
-        ITenantContext? tenantCtx = null)
+        ITenantContext? tenantCtx = null,
+        ILowStockRuleRepository? rules = null)
     {
         var tenant = tenantCtx ?? new FakePantryTenantContext(HouseholdGuid);
-        return new ShoppingPantryReaderAdapter(stocks, catalog, new FakePantryConversionProvider(), tenant);
+        return new ShoppingPantryReaderAdapter(stocks, rules ?? _rules, catalog, new FakePantryConversionProvider(), tenant);
     }
 
     private static ProductStock MakeStock(Guid productId) =>
@@ -52,19 +58,20 @@ public sealed class ShoppingPantryReaderAdapterTests
         return stock;
     }
 
-    /// <summary>Stock with an active lot and a low stock threshold set (for running-low tests).</summary>
-    private static ProductStock MakeStockWithLotAndThreshold(Guid productId, decimal quantity, Guid unitId, decimal threshold)
+    /// <summary>Stock with an active lot and a low stock threshold set (for running-low tests) — the
+    /// threshold is recorded as a <see cref="LowStockRule"/> in <see cref="_rules"/>, not on the stock.</summary>
+    private ProductStock MakeStockWithLotAndThreshold(Guid productId, decimal quantity, Guid unitId, decimal threshold)
     {
         var stock = MakeStockWithLot(productId, quantity, unitId);
-        stock.SetLowStockThreshold(threshold, Clock);
+        _rules.Items.Add(LowStockRule.Create(Household, productId, threshold, Clock));
         return stock;
     }
 
     /// <summary>Stock with a threshold set but no active lots (out, but with a threshold configured).</summary>
-    private static ProductStock MakeStockWithThresholdNoLots(Guid productId, decimal threshold)
+    private ProductStock MakeStockWithThresholdNoLots(Guid productId, decimal threshold)
     {
         var stock = ProductStock.Start(Household, productId, Clock);
-        stock.SetLowStockThreshold(threshold, Clock);
+        _rules.Items.Add(LowStockRule.Create(Household, productId, threshold, Clock));
         return stock;
     }
 
@@ -392,7 +399,7 @@ public sealed class ShoppingPantryReaderAdapterTests
         catalog.AddUnitCode(PoundId, "lb");
 
         var adapter = new ShoppingPantryReaderAdapter(
-            stocks, catalog, new FakeMismatchConversionProvider(), new FakePantryTenantContext(HouseholdGuid));
+            stocks, new FakeLowStockRuleRepository(), catalog, new FakeMismatchConversionProvider(), new FakePantryTenantContext(HouseholdGuid));
         var result = await adapter.GetStockLevelsAsync([MilkId]);
 
         var level = Assert.Single(result).Value;
@@ -412,7 +419,7 @@ public sealed class ShoppingPantryReaderAdapterTests
         catalog.AddUnitCode(PoundId, "lb");
 
         var adapter = new ShoppingPantryReaderAdapter(
-            stocks, catalog, new FakeMismatchConversionProvider(), new FakePantryTenantContext(HouseholdGuid));
+            stocks, new FakeLowStockRuleRepository(), catalog, new FakeMismatchConversionProvider(), new FakePantryTenantContext(HouseholdGuid));
         var result = await adapter.GetLowStockProductsAsync();
 
         // No threshold set, and the fallback quantity (3 lb) is positive — this product is neither

@@ -19,8 +19,8 @@ public sealed class InventoryQueryServiceTests
 
     private InventoryQueryService Service(
         FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, IQuantityConverter converter, Guid? household,
-        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays) =>
-        new(stocks, catalog, new FakeConversionProvider(converter),
+        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays, FakeLowStockRuleRepository? rules = null) =>
+        new(stocks, rules ?? new FakeLowStockRuleRepository(), catalog, new FakeConversionProvider(converter),
             new FakeExpiringSoonHorizon(horizonDays), Clock, new FakeTenantContext(household));
 
     private FakeCatalogReadFacade Catalog()
@@ -319,10 +319,11 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(4m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m, Clock); // 4 ≤ 5 → running low
         stocks.Items.Add(stock);
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), _productId, 5m, Clock)); // 4 ≤ 5 → running low
 
-        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household, rules: rules).ListPantryAsync();
 
         var item = Assert.Single(pantry);
         Assert.Equal(5m, item.LowStockThreshold);
@@ -335,10 +336,11 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(10m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m, Clock); // 10 > 5 → not running low
         stocks.Items.Add(stock);
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), _productId, 5m, Clock)); // 10 > 5 → not running low
 
-        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household, rules: rules).ListPantryAsync();
 
         var item = Assert.Single(pantry);
         Assert.Equal(5m, item.LowStockThreshold);
@@ -369,10 +371,11 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(5m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m, Clock); // exactly at threshold → running low
         stocks.Items.Add(stock);
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), _productId, 5m, Clock)); // exactly at threshold → running low
 
-        var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).FindDetailAsync(_productId);
+        var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household, rules: rules).FindDetailAsync(_productId);
 
         Assert.NotNull(detail);
         Assert.Equal(5m, detail!.LowStockThreshold);
@@ -404,7 +407,7 @@ public sealed class InventoryQueryServiceTests
 
     private InventoryQueryService ServiceWithClock(
         FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, IQuantityConverter converter, IClock clock) =>
-        new(stocks, catalog, new FakeConversionProvider(converter),
+        new(stocks, new FakeLowStockRuleRepository(), catalog, new FakeConversionProvider(converter),
             new FakeExpiringSoonHorizon(), clock, new FakeTenantContext(_household));
 
     [Fact(DisplayName = "plantry-fuej: returns null when the product has no stock record at all")]

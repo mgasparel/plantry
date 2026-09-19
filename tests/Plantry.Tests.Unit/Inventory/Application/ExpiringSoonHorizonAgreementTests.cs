@@ -74,7 +74,7 @@ public sealed class ExpiringSoonHorizonAgreementTests
         }
 
         var service = new InventoryQueryService(
-            stocks, catalog, new FakeConversionProvider(new IdentityQuantityConverter()),
+            stocks, new FakeLowStockRuleRepository(), catalog, new FakeConversionProvider(new IdentityQuantityConverter()),
             new FakeExpiringSoonHorizon(Horizon), Clock, new FakeTenantContext(Household.Value));
 
         var widget = await service.ExpiringSoonAsync();

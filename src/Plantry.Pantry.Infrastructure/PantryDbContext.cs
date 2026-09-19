@@ -44,6 +44,7 @@ public sealed class PantryDbContext(DbContextOptions<PantryDbContext> options) :
     public DbSet<StockEntry> StockEntries => Set<StockEntry>();
     public DbSet<StockJournalEntry> StockJournalEntries => Set<StockJournalEntry>();
     public DbSet<HouseholdInventorySettings> HouseholdInventorySettings => Set<HouseholdInventorySettings>();
+    public DbSet<LowStockRule> LowStockRules => Set<LowStockRule>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -329,7 +330,6 @@ public sealed class PantryDbContext(DbContextOptions<PantryDbContext> options) :
 
             b.Property(p => p.CreatedAt).HasColumnName("created_at");
             b.Property(p => p.UpdatedAt).HasColumnName("updated_at");
-            b.Property(p => p.LowStockThreshold).HasColumnName("low_stock_threshold").HasPrecision(12, 3);
 
             // Optimistic-concurrency backstop: Postgres' xmin system column, no stored column and
             // no app-side increment (inventory.md resolved-call #1). Npgsql maps a uint shadow
@@ -475,6 +475,26 @@ public sealed class PantryDbContext(DbContextOptions<PantryDbContext> options) :
                 .HasColumnName("default_produced_category_id");
 
             b.HasQueryFilter(s => s.HouseholdId == HouseholdId.From(_householdId));
+        });
+
+        // ── LowStockRule (inventory schema, plantry-oh27.1) ──────────────────────
+        // Composite PK (household_id, product_id) mirrors ProductStock's keying (ADR-010), but this
+        // record has no ProductStock counterpart — product_id may be a leaf OR a parent product; a
+        // parent never owns a ProductStock row.
+        builder.Entity<LowStockRule>(b =>
+        {
+            b.ToTable("low_stock_rule", "inventory");
+            b.Property(r => r.HouseholdId)
+                .HasConversion(id => id.Value, v => HouseholdId.From(v))
+                .HasColumnName("household_id")
+                .IsRequired();
+            b.Property(r => r.ProductId).HasColumnName("product_id").IsRequired();
+            b.HasKey(r => new { r.HouseholdId, r.ProductId });
+
+            b.Property(r => r.Threshold).HasColumnName("threshold").HasPrecision(12, 3);
+            b.Property(r => r.UpdatedAt).HasColumnName("updated_at");
+
+            b.HasQueryFilter(r => r.HouseholdId == HouseholdId.From(_householdId));
         });
     }
 

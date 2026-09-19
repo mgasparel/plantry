@@ -21,6 +21,7 @@ namespace Plantry.Web.Shopping;
 /// </summary>
 public sealed class ShoppingPantryReaderAdapter(
     IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
     ITenantContext tenant)
@@ -47,7 +48,8 @@ public sealed class ShoppingPantryReaderAdapter(
         if (relevantStock.Count == 0)
             return new Dictionary<Guid, ShoppingPantryStockLevel>();
 
-        var levels = await AggregateStockLevelsAsync(relevantStock, ct);
+        var rulesByProduct = await rules.ListForHouseholdAsync(householdId, ct);
+        var levels = await AggregateStockLevelsAsync(relevantStock, rulesByProduct, ct);
         return levels.ToDictionary(l => l.ProductId);
     }
 
@@ -65,11 +67,13 @@ public sealed class ShoppingPantryReaderAdapter(
         if (allStock.Count == 0)
             return [];
 
+        var rulesByProduct = await rules.ListForHouseholdAsync(householdId, ct);
+
         // excludeProduced: a produced product (recipe yield / cook leftover, plantry-sn6v) is never
         // a restock candidate by definition — "made at home, not bought" — regardless of how low or
         // out it reads. Filtered inside the shared aggregation helper (which already loads catalog
         // info per product) rather than with a second catalog.ListProductsAsync call here.
-        var levels = await AggregateStockLevelsAsync(allStock, ct, excludeProduced: true);
+        var levels = await AggregateStockLevelsAsync(allStock, rulesByProduct, ct, excludeProduced: true);
 
         // Restock candidates = running-low ∪ out. IsLow now means running-low only (false when out),
         // so out products (OnHand ≤ 0) must be re-included explicitly — a fully-depleted staple is
@@ -83,10 +87,12 @@ public sealed class ShoppingPantryReaderAdapter(
         if (tenant.HouseholdId is not { } householdGuid)
             return [];
 
-        var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdGuid), ct);
+        var householdId = HouseholdId.From(householdGuid);
+        var allStock = await stocks.ListForHouseholdAsync(householdId, ct);
         if (allStock.Count == 0)
             return [];
 
+        var rulesByProduct = await rules.ListForHouseholdAsync(householdId, ct);
         var catalogProducts = await catalog.ListProductsAsync(ct);
         var catalogByProduct = catalogProducts.ToDictionary(p => p.Id);
         var result = new List<ShoppingPantryStockLevel>();
@@ -94,12 +100,12 @@ public sealed class ShoppingPantryReaderAdapter(
         {
             if (!catalogByProduct.TryGetValue(stock.ProductId, out var product) || product.IsProduced)
                 continue;
-            if (stock.LowStockThreshold is not null)
+            if (rulesByProduct.ContainsKey(stock.ProductId))
                 continue;
             var dates = stock.Entries.Select(entry => entry.PurchasedAt);
             if (!FrequentStaplePredicate.IsFrequent(dates, today))
                 continue;
-            var aggregated = await AggregateStockLevelsAsync([stock], ct);
+            var aggregated = await AggregateStockLevelsAsync([stock], rulesByProduct, ct);
             if (aggregated.Count > 0)
                 result.Add(aggregated[0]);
         }
@@ -122,6 +128,7 @@ public sealed class ShoppingPantryReaderAdapter(
     /// </param>
     private async Task<List<ShoppingPantryStockLevel>> AggregateStockLevelsAsync(
         List<ProductStock> stockRecords,
+        IReadOnlyDictionary<Guid, LowStockRule> rulesByProduct,
         CancellationToken ct,
         bool excludeProduced = false)
     {
@@ -161,19 +168,20 @@ public sealed class ShoppingPantryReaderAdapter(
                 activeLots, defaultUnitId, catalogInfo.DefaultUnitCode, converter, unitCodes);
 
             // IsLow means "running low" only: a positive but low quantity, 0 < onHand ≤ threshold
-            // (per ProductStock.IsRunningLow). It is deliberately false when out (onHand ≤ 0) so the
-            // Shopping subline renders out and low as distinct, mutually-exclusive states and never
-            // shows "out · low" together. Out is surfaced separately via OnHand ≤ 0. The extra
-            // total > 0m guard excludes the out-with-threshold case, which IsRunningLow alone treats
-            // as low (onHand ≤ threshold is satisfied by onHand = 0).
-            var isLow = total > 0m && productStock.IsRunningLow(total);
+            // (per LowStockRule.IsRunningLow, plantry-oh27.1). It is deliberately false when out
+            // (onHand ≤ 0) so the Shopping subline renders out and low as distinct, mutually-exclusive
+            // states and never shows "out · low" together. Out is surfaced separately via OnHand ≤ 0.
+            // The extra total > 0m guard excludes the out-with-threshold case, which IsRunningLow alone
+            // treats as low (onHand ≤ threshold is satisfied by onHand = 0).
+            var hasRule = rulesByProduct.TryGetValue(productStock.ProductId, out var rule);
+            var isLow = total > 0m && hasRule && rule!.IsRunningLow(total);
 
             result.Add(new ShoppingPantryStockLevel(
                 ProductId: productStock.ProductId,
                 OnHand: total,
                 UnitCode: unitCode,
                 IsLow: isLow,
-                HasLowStockThreshold: productStock.LowStockThreshold is not null));
+                HasLowStockThreshold: hasRule));
         }
 
         return result;

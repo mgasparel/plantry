@@ -35,7 +35,7 @@ public sealed class InventoryCountQueriesTests
     private InventoryQueryService Service(
         FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, Guid? household,
         int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays) =>
-        new(stocks, catalog, new FakeConversionProvider(new IdentityQuantityConverter()),
+        new(stocks, new FakeLowStockRuleRepository(), catalog, new FakeConversionProvider(new IdentityQuantityConverter()),
             new FakeExpiringSoonHorizon(horizonDays), Clock, new FakeTenantContext(household));
 
     private FakeCatalogReadFacade Catalog(params (Guid id, string name)[] products)

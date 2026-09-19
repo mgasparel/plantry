@@ -423,8 +423,9 @@ public sealed class StockDetectorsTests(PostgresFixture db) : IAsyncLifetime
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            UPDATE inventory.product_stock SET low_stock_threshold = @threshold
-            WHERE household_id = @hid AND product_id = @pid
+            INSERT INTO inventory.low_stock_rule (household_id, product_id, threshold, updated_at)
+            VALUES (@hid, @pid, @threshold, NOW())
+            ON CONFLICT (household_id, product_id) DO UPDATE SET threshold = EXCLUDED.threshold, updated_at = NOW()
             """;
         cmd.Parameters.AddWithValue("threshold", threshold);
         cmd.Parameters.AddWithValue("hid", _household.Value);

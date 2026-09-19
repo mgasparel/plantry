@@ -22,6 +22,7 @@ namespace Plantry.Web.Pages.Pantry.Products;
 public sealed class DetailModel(
     InventoryQueryService queries,
     IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     IProductConversionProvider conversions,
     IProductRepository productRepository,
     ICatalogReadFacade catalog,
@@ -697,7 +698,7 @@ public sealed class DetailModel(
         }
 
         var result = await new SetLowStockThresholdCommand(
-            id, ThresholdInput.Threshold, stocks, catalog, clock, tenant, thresholdLogger).ExecuteAsync();
+            id, ThresholdInput.Threshold, rules, catalog, clock, tenant, thresholdLogger).ExecuteAsync();
 
         if (result.IsFailure)
         {
@@ -972,7 +973,7 @@ public sealed class DetailModel(
         Guid id, decimal amount, Guid unitId, StockReason reason, Guid? targetEntryId) =>
         new ConsumeStockCommand(
             id, amount, unitId, reason, CurrentUserId, targetEntryId, sourceRef: null,
-            stocks, catalog, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
+            stocks, rules, catalog, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
 
     private async Task<IActionResult> ReloadSheetAsync(Guid id)
     {

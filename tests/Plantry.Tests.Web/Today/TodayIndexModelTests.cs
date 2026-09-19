@@ -10,6 +10,7 @@ using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Pages.Today;
 
 namespace Plantry.Tests.Web.Today;
@@ -180,6 +181,7 @@ public sealed class TodayIndexModelTests
         var sessionRepo = new FakeSessionRepository(hasPendingIntake);
         var inventoryQueries = new InventoryQueryService(
             stockRepo,
+            new FakeLowStockRuleRepository(),
             new FakeEmptyCatalogReadFacade(),
             new FakeNullConversionProvider(),
             new FakeExpiringHorizon(),
@@ -430,6 +432,7 @@ public sealed class ExpiringWidgetModelTests
         var inventoryQueries = expiringSoon is null
             ? new InventoryQueryService(
                 stockRepo,
+                new FakeLowStockRuleRepository(),
                 new FakeEmptyCatalog(),
                 new FakeConvProvider(),
                 new FakeExpiringHorizon(),
@@ -662,6 +665,7 @@ public sealed class ExpiringWidgetModelTests
         IReadOnlyList<ExpiringSoonItem> items, ITenantContext tenant)
         : InventoryQueryService(
             new FakeStockRepo(hasStock: true),
+            new FakeLowStockRuleRepository(),
             new FakeEmptyCatalog(),
             new FakeConvProvider(),
             new FakeExpiringHorizon(),

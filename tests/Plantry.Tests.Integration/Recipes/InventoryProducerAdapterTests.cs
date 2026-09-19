@@ -450,12 +450,13 @@ public sealed class InventoryProducerAdapterTests(PostgresFixture db) : IAsyncLi
         // Real consumer, wired so ReconcilePendingCooks is fully composed even though these cooks carry
         // no consume lines (its ctor requires a non-null consumer).
         var (catalog, stocks, _, tenant) = BuildInventoryDependencies(household);
+        var rules = new LowStockRuleRepository(NewInventoryDb(household));
         var catDb = NewCatalogDb(household);
         var conversions = new CatalogConversionProvider(
             new Plantry.Pantry.Infrastructure.ProductRepository(catDb),
             new Plantry.Pantry.Infrastructure.UnitRepository(catDb));
         var consumer = new InventoryConsumerAdapter(
-            stocks, catalog, conversions, Clock, tenant, NullLogger<ConsumeStockCommand>.Instance);
+            stocks, rules, catalog, conversions, Clock, tenant, NullLogger<ConsumeStockCommand>.Instance);
 
         var lineDriver = new CookLineDriver(consumer, producer);
         return new ReconcilePendingCooks(
