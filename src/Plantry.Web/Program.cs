@@ -252,6 +252,10 @@ builder.Services.AddScoped<IProductStockRepository, ProductStockRepository>();
 // whether a ProductStock row exists.
 builder.Services.AddScoped<ILowStockRuleRepository, LowStockRuleRepository>();
 builder.Services.AddScoped<InventoryQueryService>();
+// Parent-aware on-hand rollup (plantry-oh27.2) — one shared read model for "how much of X is on
+// hand" whether X is a leaf or a parent. No production callers yet; consumers arrive in the
+// suggestions/shopping/detail-page beads later in this epic.
+builder.Services.AddScoped<IOnHandRollupQuery, OnHandRollupQuery>();
 // Per-household "expiring soon" horizon (plantry-5yhd): one settings service backs both the read
 // port (IExpiringSoonHorizon, consumed by InventoryQueryService and the Recipes adapter) and the
 // /Settings/Pantry write path.
