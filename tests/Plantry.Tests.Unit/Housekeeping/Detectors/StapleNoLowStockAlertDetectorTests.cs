@@ -28,11 +28,18 @@ public sealed class StapleNoLowStockAlertDetectorTests
         var lots = purchaseDates
             .Select(d => new StockLotFact(Guid.NewGuid(), MilkId, EachId, 1m, null, d, true))
             .ToArray();
+        // LowStockThresholds mirrors StockProductFact.LowStockThreshold here — StockFactsReadModel keeps
+        // the two in sync from the same low_stock_rule query (see its Query 1b comment); a hand-built bag
+        // must preserve that invariant for GroupKey's threshold check to agree with StockProductFact's.
+        var thresholds = threshold is { } t
+            ? new Dictionary<Guid, decimal> { [MilkId] = t }
+            : new Dictionary<Guid, decimal>();
         return new StockFactsBag(
             new Dictionary<Guid, StockProductFact> { [MilkId] = new(MilkId, threshold, lots) },
             new Dictionary<Guid, ProductFact> { [MilkId] = Milk },
             new Dictionary<Guid, UnitFact> { [EachId] = Each },
-            new Dictionary<Guid, IReadOnlyList<ConversionFact>>());
+            new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            thresholds);
     }
 
     private static StapleNoLowStockAlertDetector BuildDetector(StockFactsBag bag, ITenantContext? tenant = null) =>
@@ -122,5 +129,100 @@ public sealed class StapleNoLowStockAlertDetectorTests
             BagWithPurchases(null, new DateOnly(2026, 7, 10), new DateOnly(2026, 6, 1), new DateOnly(2026, 5, 1), new DateOnly(2026, 4, 25))).DetectAsync());
 
         Assert.Equal(findingA.FactsFingerprint, findingB.FactsFingerprint);
+    }
+
+    // ── Parent fold (plantry-oh27.3) ─────────────────────────────────────────
+
+    [Fact(DisplayName = "Frequent purchases spread across variants with no own rule produce one finding on the parent")]
+    public async Task VariantsWithoutOwnRule_FrequentAcrossVariants_ProducesFindingOnParent()
+    {
+        var parentId = Guid.NewGuid();
+        var variantAId = Guid.NewGuid();
+        var variantBId = Guid.NewGuid();
+
+        var parent = new ProductFact(parentId, "Bubly", false, EachId, IsParent: true);
+        var variantA = new ProductFact(variantAId, "Bubly Orange", true, EachId, ParentProductId: parentId);
+        var variantB = new ProductFact(variantBId, "Bubly Lime", true, EachId, ParentProductId: parentId);
+
+        // Neither variant is purchased 3+ times on its own, but the UNION across both variants is.
+        var lotsA = new[]
+        {
+            new StockLotFact(Guid.NewGuid(), variantAId, EachId, 1m, null, new DateOnly(2026, 7, 1), true),
+        };
+        var lotsB = new[]
+        {
+            new StockLotFact(Guid.NewGuid(), variantBId, EachId, 1m, null, new DateOnly(2026, 6, 15), true),
+            new StockLotFact(Guid.NewGuid(), variantBId, EachId, 1m, null, new DateOnly(2026, 5, 25), true),
+        };
+
+        var bag = new StockFactsBag(
+            new Dictionary<Guid, StockProductFact>
+            {
+                [variantAId] = new(variantAId, null, lotsA),
+                [variantBId] = new(variantBId, null, lotsB),
+            },
+            new Dictionary<Guid, ProductFact> { [parentId] = parent, [variantAId] = variantA, [variantBId] = variantB },
+            new Dictionary<Guid, UnitFact> { [EachId] = Each },
+            new Dictionary<Guid, IReadOnlyList<ConversionFact>>());
+
+        var finding = Assert.Single(await BuildDetector(bag).DetectAsync());
+
+        Assert.Equal(parentId, finding.SubjectId);
+        Assert.Equal("Bubly", finding.SubjectName);
+    }
+
+    [Fact(DisplayName = "A variant with its own rule is never folded into its parent — no finding when the parent alone would qualify")]
+    public async Task VariantWithOwnRule_NotFoldedIntoParent()
+    {
+        var parentId = Guid.NewGuid();
+        var variantId = Guid.NewGuid();
+
+        var parent = new ProductFact(parentId, "Bubly", false, EachId, IsParent: true);
+        var variant = new ProductFact(variantId, "Bubly Orange", true, EachId, ParentProductId: parentId);
+
+        var lots = new[]
+        {
+            new StockLotFact(Guid.NewGuid(), variantId, EachId, 1m, null, new DateOnly(2026, 7, 1), true),
+            new StockLotFact(Guid.NewGuid(), variantId, EachId, 1m, null, new DateOnly(2026, 6, 15), true),
+            new StockLotFact(Guid.NewGuid(), variantId, EachId, 1m, null, new DateOnly(2026, 5, 25), true),
+        };
+
+        var bag = new StockFactsBag(
+            new Dictionary<Guid, StockProductFact> { [variantId] = new(variantId, 2m, lots) },
+            new Dictionary<Guid, ProductFact> { [parentId] = parent, [variantId] = variant },
+            new Dictionary<Guid, UnitFact> { [EachId] = Each },
+            new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            new Dictionary<Guid, decimal> { [variantId] = 2m });
+
+        // The variant already has its own rule (2m) — it stays its own group and is filtered out by the
+        // "group already has a threshold" check, exactly like a leaf with its own rule. It must never be
+        // folded into the parent's group (the parent has no rule of its own here).
+        Assert.Empty(await BuildDetector(bag).DetectAsync());
+    }
+
+    [Fact(DisplayName = "Parent already has a rule — frequent variant purchases do not fire")]
+    public async Task ParentWithOwnRule_VariantPurchases_DoNotFire()
+    {
+        var parentId = Guid.NewGuid();
+        var variantId = Guid.NewGuid();
+
+        var parent = new ProductFact(parentId, "Bubly", false, EachId, IsParent: true);
+        var variant = new ProductFact(variantId, "Bubly Orange", true, EachId, ParentProductId: parentId);
+
+        var lots = new[]
+        {
+            new StockLotFact(Guid.NewGuid(), variantId, EachId, 1m, null, new DateOnly(2026, 7, 1), true),
+            new StockLotFact(Guid.NewGuid(), variantId, EachId, 1m, null, new DateOnly(2026, 6, 15), true),
+            new StockLotFact(Guid.NewGuid(), variantId, EachId, 1m, null, new DateOnly(2026, 5, 25), true),
+        };
+
+        var bag = new StockFactsBag(
+            new Dictionary<Guid, StockProductFact> { [variantId] = new(variantId, null, lots) },
+            new Dictionary<Guid, ProductFact> { [parentId] = parent, [variantId] = variant },
+            new Dictionary<Guid, UnitFact> { [EachId] = Each },
+            new Dictionary<Guid, IReadOnlyList<ConversionFact>>(),
+            new Dictionary<Guid, decimal> { [parentId] = 4m }); // parent-only rule — never on a stock row
+
+        Assert.Empty(await BuildDetector(bag).DetectAsync());
     }
 }

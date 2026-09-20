@@ -68,9 +68,13 @@ public sealed class StockFactsReadModel(
         }
 
         // ── Query 1b: low_stock_rule (inventory, plantry-oh27.1) — overlays the configured threshold
-        // onto the stocked-product set above. A rule for a product with no stock row (e.g. a parent
-        // product) is simply not represented in stockByProduct — the stock-family detectors are
-        // leaf-only today, matching pre-plantry-oh27.1 behaviour exactly. ──────────────────────────
+        // onto the stocked-product set above, AND separately captures every household rule (leaf or
+        // parent, stocked or not) into lowStockThresholds. A parent never holds stock, so a rule keyed
+        // by a parent id has no entry in thresholdByProduct/stockByProduct — but D4
+        // (StapleNoLowStockAlertDetector, plantry-oh27.3) needs exactly that fact to know whether a
+        // variant's parent already has a threshold before folding the variant's purchase history into
+        // the parent's group. ──────────────────────────────────────────────────────────────────────
+        var lowStockThresholds = new Dictionary<Guid, decimal>();
         await using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
@@ -83,8 +87,10 @@ public sealed class StockFactsReadModel(
             while (await reader.ReadAsync(ct))
             {
                 var productId = reader.GetGuid(0);
+                var threshold = reader.GetDecimal(1);
+                lowStockThresholds[productId] = threshold;
                 if (thresholdByProduct.ContainsKey(productId))
-                    thresholdByProduct[productId] = reader.GetDecimal(1);
+                    thresholdByProduct[productId] = threshold;
             }
         }
 
@@ -136,7 +142,7 @@ public sealed class StockFactsReadModel(
         await using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT id, name, track_stock, default_unit_id, default_location_id, has_variants
+                SELECT id, name, track_stock, default_unit_id, default_location_id, has_variants, parent_product_id
                 FROM catalog.products
                 WHERE household_id = @household_id AND archived_at IS NULL
                 """;
@@ -155,7 +161,8 @@ public sealed class StockFactsReadModel(
                     reader.GetBoolean(2),
                     reader.GetGuid(3),
                     reader.IsDBNull(4) ? null : reader.GetGuid(4),
-                    reader.GetBoolean(5));
+                    reader.GetBoolean(5),
+                    reader.IsDBNull(6) ? null : reader.GetGuid(6));
             }
         }
 
@@ -212,7 +219,8 @@ public sealed class StockFactsReadModel(
             stockByProduct,
             products,
             units,
-            conversionsByProduct.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<ConversionFact>)kvp.Value));
+            conversionsByProduct.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<ConversionFact>)kvp.Value),
+            lowStockThresholds);
     }
 }
 
@@ -227,12 +235,24 @@ public sealed class StockFactsBag(
     IReadOnlyDictionary<Guid, StockProductFact> stockByProduct,
     IReadOnlyDictionary<Guid, ProductFact> products,
     IReadOnlyDictionary<Guid, UnitFact> units,
-    IReadOnlyDictionary<Guid, IReadOnlyList<ConversionFact>> conversionsByProduct)
+    IReadOnlyDictionary<Guid, IReadOnlyList<ConversionFact>> conversionsByProduct,
+    IReadOnlyDictionary<Guid, decimal>? lowStockThresholds = null)
 {
     public IReadOnlyDictionary<Guid, StockProductFact> StockByProduct { get; } = stockByProduct;
     public IReadOnlyDictionary<Guid, ProductFact> Products { get; } = products;
     public IReadOnlyDictionary<Guid, UnitFact> Units { get; } = units;
     public IReadOnlyDictionary<Guid, IReadOnlyList<ConversionFact>> ConversionsByProduct { get; } = conversionsByProduct;
+
+    /// <summary>
+    /// Every household low-stock rule (plantry-oh27.1), keyed by product id — leaf or parent, stocked or
+    /// not. Unlike <see cref="StockProductFact.LowStockThreshold"/> (only populated for products that
+    /// hold stock), this covers a parent-only rule too, so <see cref="StapleNoLowStockAlertDetector"/> can
+    /// fold a variant without its own rule into its parent's group and know whether the PARENT already has
+    /// a threshold. Defaults to empty so other bag constructors (e.g. tests that don't care about D4) need
+    /// not supply it.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, decimal> LowStockThresholds { get; } =
+        lowStockThresholds ?? new Dictionary<Guid, decimal>();
 
     /// <summary>Builds the shared unit-conversion delegate over this bag's Units/ConversionsByProduct (see
     /// <c>HousekeepingConversions.BuildConverter</c>).</summary>

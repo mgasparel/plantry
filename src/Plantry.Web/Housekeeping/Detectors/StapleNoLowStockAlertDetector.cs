@@ -26,6 +26,14 @@ namespace Plantry.Web.Housekeeping;
 /// D1/D3/D6) rather than the retired <c>IProductStockRepository</c>/<c>ICatalogReadFacade</c> ports —
 /// the math below is unchanged from the original port-backed version.
 /// </para>
+/// <para>
+/// Parent fold (plantry-oh27.3): a variant with no rule of its own is never evaluated on its own —
+/// its stock facts are folded into its parent's group (grouped by <see cref="ProductFact.ParentProductId"/>),
+/// and the union of the group's purchase dates decides whether the finding fires, targeting the PARENT
+/// (matches the epic rule: intent — including "we buy this often" — lives at the parent when no variant
+/// opts out with its own rule). A variant WITH its own rule stays its own group and is evaluated exactly
+/// as before. A leaf with no parent is unaffected (its own group is itself, same as pre-plantry-oh27.3).
+/// </para>
 /// </summary>
 public sealed class StapleNoLowStockAlertDetector(
     IStockFactsReadModel factsReadModel,
@@ -55,13 +63,22 @@ public sealed class StapleNoLowStockAlertDetector(
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
         var cutoff = today.AddDays(-LookbackDays);
 
-        var findings = new List<Finding>();
-        foreach (var stock in bag.StockByProduct.Values)
-        {
-            if (stock.LowStockThreshold is not null)
-                continue;
+        // Fold every variant without its own rule into its parent's group (plantry-oh27.3); a variant
+        // WITH its own rule, or a leaf with no parent, is its own group — same shape GetFrequentStapleProductsAsync
+        // uses on the Shopping side (ShoppingPantryReaderAdapter).
+        var groups = bag.StockByProduct.Values.GroupBy(stock => GroupKey(stock.ProductId, bag));
 
-            var purchaseDates = stock.Entries.Select(e => e.PurchasedAt);
+        var findings = new List<Finding>();
+        foreach (var group in groups)
+        {
+            var groupId = group.Key;
+            if (bag.LowStockThresholds.ContainsKey(groupId))
+                continue; // the group's own product (parent or leaf) already has a threshold
+
+            if (!bag.Products.TryGetValue(groupId, out var groupProduct))
+                continue; // product archived/removed from catalog — skip, same as D1/D3
+
+            var purchaseDates = group.SelectMany(stock => stock.Entries.Select(e => e.PurchasedAt));
             if (!FrequentStaplePredicate.IsFrequent(purchaseDates, today))
                 continue;
             var distinctPurchaseDates = purchaseDates
@@ -69,22 +86,30 @@ public sealed class StapleNoLowStockAlertDetector(
                 .Select(d => d!.Value)
                 .Distinct()
                 .Count();
-            if (!bag.Products.TryGetValue(stock.ProductId, out var product))
-                continue; // product archived/removed from catalog — skip, same as D1/D3
 
             findings.Add(new Finding(
                 Id,
-                SubjectId: stock.ProductId,
-                SubjectName: product.Name,
+                SubjectId: groupId,
+                SubjectName: groupProduct.Name,
                 Specifics: $"Purchased on {distinctPurchaseDates} separate occasions in the last {LookbackDays} days, no low-stock alert set",
                 Consequence: "Never appears in \"Running low\" — only surfaces once fully out",
-                FixUrl: $"/Pantry/Products/Detail/{stock.ProductId}",
+                FixUrl: $"/Pantry/Products/Detail/{groupId}",
                 FixLabel: "Set alert in Pantry",
                 FactsFingerprint: ConstantFingerprint));
         }
 
         return findings;
     }
+
+    /// <summary>Group key for the parent fold: a product with its own low-stock rule stays its own group
+    /// (it is filtered out immediately below since it has a threshold); otherwise a variant's group is its
+    /// parent, and a parentless product's group is itself.</summary>
+    private static Guid GroupKey(Guid productId, StockFactsBag bag) =>
+        bag.LowStockThresholds.ContainsKey(productId)
+            ? productId
+            : bag.Products.TryGetValue(productId, out var product) && product.ParentProductId is { } parentId
+                ? parentId
+                : productId;
 
     /// <summary>Constant per subject (§4): the gap is binary — a threshold exists or it doesn't — so
     /// dismissal is permanent. Setting then clearing a threshold deliberately does not reopen this finding.</summary>

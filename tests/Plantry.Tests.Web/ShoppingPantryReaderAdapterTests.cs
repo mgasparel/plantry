@@ -42,10 +42,16 @@ public sealed class ShoppingPantryReaderAdapterTests
         IProductStockRepository stocks,
         ICatalogReadFacade catalog,
         ITenantContext? tenantCtx = null,
-        ILowStockRuleRepository? rules = null)
+        ILowStockRuleRepository? rules = null,
+        IProductConversionProvider? conversions = null)
     {
         var tenant = tenantCtx ?? new FakePantryTenantContext(HouseholdGuid);
-        return new ShoppingPantryReaderAdapter(stocks, rules ?? _rules, catalog, new FakePantryConversionProvider(), tenant);
+        var conversionProvider = conversions ?? new FakePantryConversionProvider();
+        // The real OnHandRollupQuery over the same test doubles (mirrors production DI, Program.cs) —
+        // the adapter and the rollup query share the exact same repositories/facades/tenant so this
+        // exercises the real parent-fold arithmetic rather than a hand-rolled fake.
+        var rollup = new OnHandRollupQuery(stocks, catalog, conversionProvider, tenant);
+        return new ShoppingPantryReaderAdapter(stocks, rules ?? _rules, catalog, rollup, tenant);
     }
 
     private static ProductStock MakeStock(Guid productId) =>
@@ -398,8 +404,7 @@ public sealed class ShoppingPantryReaderAdapterTests
         catalog.AddProduct(MilkId, defaultUnitId: EachId, defaultUnitCode: "ea");
         catalog.AddUnitCode(PoundId, "lb");
 
-        var adapter = new ShoppingPantryReaderAdapter(
-            stocks, new FakeLowStockRuleRepository(), catalog, new FakeMismatchConversionProvider(), new FakePantryTenantContext(HouseholdGuid));
+        var adapter = BuildAdapter(stocks, catalog, rules: new FakeLowStockRuleRepository(), conversions: new FakeMismatchConversionProvider());
         var result = await adapter.GetStockLevelsAsync([MilkId]);
 
         var level = Assert.Single(result).Value;
@@ -418,13 +423,189 @@ public sealed class ShoppingPantryReaderAdapterTests
         catalog.AddProduct(MilkId, defaultUnitId: EachId, defaultUnitCode: "ea");
         catalog.AddUnitCode(PoundId, "lb");
 
-        var adapter = new ShoppingPantryReaderAdapter(
-            stocks, new FakeLowStockRuleRepository(), catalog, new FakeMismatchConversionProvider(), new FakePantryTenantContext(HouseholdGuid));
+        var adapter = BuildAdapter(stocks, catalog, rules: new FakeLowStockRuleRepository(), conversions: new FakeMismatchConversionProvider());
         var result = await adapter.GetLowStockProductsAsync();
 
         // No threshold set, and the fallback quantity (3 lb) is positive — this product is neither
         // running low nor out, so it must not surface as a restock candidate at all.
         Assert.DoesNotContain(result, l => l.ProductId == MilkId);
+    }
+
+    // ── Parent fold (plantry-oh27.3): "The rule" scenarios from the bead description ────────────────
+
+    private static readonly Guid ParentId = Guid.Parse("33333333-3333-3333-3333-000000000001");
+    private static readonly Guid OrangeId = Guid.Parse("33333333-3333-3333-3333-000000000002");
+    private static readonly Guid LimeId = Guid.Parse("33333333-3333-3333-3333-000000000003");
+
+    [Fact(DisplayName = "GetLowStockProducts — parent with a rule and two low variants: one Tier-1 parent row, no variant rows")]
+    public async Task GetLowStockProducts_ParentWithRule_TwoLowVariants_OneParentRow()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLot(OrangeId, 1m, EachId)); // variant, no own rule
+        stocks.Add(MakeStockWithLot(LimeId, 1m, EachId));   // variant, no own rule
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddParentProduct(ParentId, "Bubly", EachId, "ea");
+        catalog.AddNamedProduct(OrangeId, "Bubly Orange", EachId, "ea", ParentId);
+        catalog.AddNamedProduct(LimeId, "Bubly Lime", EachId, "ea", ParentId);
+
+        _rules.Items.Add(LowStockRule.Create(Household, ParentId, threshold: 4m, Clock)); // parent-only rule
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetLowStockProductsAsync();
+
+        var row = Assert.Single(result);
+        Assert.Equal(ParentId, row.ProductId);
+        Assert.True(row.IsParent);
+        Assert.Equal(2m, row.OnHand); // 1 + 1, both "ea"
+        Assert.True(row.IsLow);       // 2 <= threshold 4
+    }
+
+    [Fact(DisplayName = "GetLowStockProducts — a variant with its own rule appears alongside the parent's row")]
+    public async Task GetLowStockProducts_VariantWithOwnRule_AppearsAlongsideParent()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLot(OrangeId, 1m, EachId)); // has its own rule below
+        stocks.Add(MakeStockWithLot(LimeId, 1m, EachId));   // no own rule — represented by parent
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddParentProduct(ParentId, "Bubly", EachId, "ea");
+        catalog.AddNamedProduct(OrangeId, "Bubly Orange", EachId, "ea", ParentId);
+        catalog.AddNamedProduct(LimeId, "Bubly Lime", EachId, "ea", ParentId);
+
+        _rules.Items.Add(LowStockRule.Create(Household, ParentId, threshold: 4m, Clock));
+        _rules.Items.Add(LowStockRule.Create(Household, OrangeId, threshold: 3m, Clock)); // own rule, running low at 1
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetLowStockProductsAsync();
+
+        Assert.Equal(2, result.Count);
+        var orangeRow = Assert.Single(result, r => r.ProductId == OrangeId);
+        Assert.False(orangeRow.IsParent);
+        Assert.True(orangeRow.IsLow);
+        var parentRow = Assert.Single(result, r => r.ProductId == ParentId);
+        Assert.True(parentRow.IsParent);
+        Assert.Equal(2m, parentRow.OnHand); // still sums BOTH live variants
+    }
+
+    [Fact(DisplayName = "GetLowStockProducts — parent without a rule, all live variants out: Tier-3 parent row")]
+    public async Task GetLowStockProducts_ParentWithoutRule_AllVariantsOut_TierThreeParentRow()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStock(OrangeId)); // no lots
+        stocks.Add(MakeStock(LimeId));   // no lots
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddParentProduct(ParentId, "Bubly", EachId, "ea");
+        catalog.AddNamedProduct(OrangeId, "Bubly Orange", EachId, "ea", ParentId);
+        catalog.AddNamedProduct(LimeId, "Bubly Lime", EachId, "ea", ParentId);
+        // No rule anywhere.
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetLowStockProductsAsync();
+
+        var row = Assert.Single(result);
+        Assert.Equal(ParentId, row.ProductId);
+        Assert.True(row.IsParent);
+        Assert.Equal(0m, row.OnHand);
+        Assert.False(row.IsLow); // out, not "running low"
+        Assert.False(row.HasLowStockThreshold);
+    }
+
+    [Fact(DisplayName = "GetLowStockProducts — parent whose only live variant is unconvertible: NOT classified as out (plantry-2hfi extended to parents)")]
+    public async Task GetLowStockProducts_ParentWithUnconvertibleVariant_NotClassifiedOut()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLot(OrangeId, 3m, PoundId)); // positive stock, but "lb" cannot convert to the parent's "ea"
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddParentProduct(ParentId, "Bubly", EachId, "ea");
+        catalog.AddNamedProduct(OrangeId, "Bubly Orange", PoundId, "lb", ParentId);
+        catalog.AddUnitCode(PoundId, "lb");
+        // No rule anywhere.
+
+        var adapter = BuildAdapter(stocks, catalog, conversions: new FakeMismatchConversionProvider());
+        var result = await adapter.GetLowStockProductsAsync();
+
+        // The variant genuinely has 3 lb on hand — the parent's rolled-up OnHand reads 0 only because
+        // the "lb" -> "ea" conversion failed, not because the household is actually out. Must not
+        // surface as a Tier-3 "out" restock candidate.
+        Assert.DoesNotContain(result, r => r.ProductId == ParentId);
+    }
+
+    [Fact(DisplayName = "GetFrequentStapleProducts — a produced parent is excluded even with frequently-purchased ruleless variants (plantry-sn6v)")]
+    public async Task GetFrequentStapleProducts_ProducedParent_Excluded()
+    {
+        var today = new DateOnly(2026, 9, 19);
+
+        var orangeStock = ProductStock.Start(Household, OrangeId, Clock);
+        orangeStock.AddStock(1m, EachId, Guid.NewGuid(), Guid.NewGuid(), Clock, purchasedAt: today.AddDays(-7));
+        orangeStock.AddStock(1m, EachId, Guid.NewGuid(), Guid.NewGuid(), Clock, purchasedAt: today.AddDays(-21));
+        var limeStock = ProductStock.Start(Household, LimeId, Clock);
+        limeStock.AddStock(1m, EachId, Guid.NewGuid(), Guid.NewGuid(), Clock, purchasedAt: today.AddDays(-14));
+
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(orangeStock);
+        stocks.Add(limeStock);
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProducedParentProduct(ParentId, "Frozen Dinner Portions", EachId, "ea");
+        catalog.AddNamedProduct(OrangeId, "Frozen Dinner Portion A", EachId, "ea", ParentId);
+        catalog.AddNamedProduct(LimeId, "Frozen Dinner Portion B", EachId, "ea", ParentId);
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetFrequentStapleProductsAsync(today);
+
+        Assert.Empty(result);
+    }
+
+    [Fact(DisplayName = "GetFrequentStapleProducts — parent without a rule, variants bought weekly in rotation: Tier-2 parent")]
+    public async Task GetFrequentStapleProducts_ParentWithoutRule_VariantsBoughtWeekly_TierTwoParent()
+    {
+        var today = new DateOnly(2026, 9, 19);
+
+        // Union of purchase dates across the two variants satisfies the frequent-staple predicate even
+        // though neither variant alone was purchased 3+ times: orange twice, lime once, 3 distinct dates.
+        var orangeStock = ProductStock.Start(Household, OrangeId, Clock);
+        orangeStock.AddStock(1m, EachId, Guid.NewGuid(), Guid.NewGuid(), Clock, purchasedAt: today.AddDays(-7));
+        orangeStock.AddStock(1m, EachId, Guid.NewGuid(), Guid.NewGuid(), Clock, purchasedAt: today.AddDays(-21));
+        var limeStock = ProductStock.Start(Household, LimeId, Clock);
+        limeStock.AddStock(1m, EachId, Guid.NewGuid(), Guid.NewGuid(), Clock, purchasedAt: today.AddDays(-14));
+
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(orangeStock);
+        stocks.Add(limeStock);
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddParentProduct(ParentId, "Bubly", EachId, "ea");
+        catalog.AddNamedProduct(OrangeId, "Bubly Orange", EachId, "ea", ParentId);
+        catalog.AddNamedProduct(LimeId, "Bubly Lime", EachId, "ea", ParentId);
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetFrequentStapleProductsAsync(today);
+
+        var row = Assert.Single(result);
+        Assert.Equal(ParentId, row.ProductId);
+        Assert.True(row.IsParent);
+        Assert.Equal(3m, row.OnHand); // 2 (orange) + 1 (lime)
+    }
+
+    [Fact(DisplayName = "GetLowStockProducts — leaf with no parent is unaffected by the fold")]
+    public async Task GetLowStockProducts_LeafWithNoParent_Unaffected()
+    {
+        var stocks = new FakePantryStockRepository();
+        stocks.Add(MakeStockWithLotAndThreshold(MilkId, quantity: 1m, LitreId, threshold: 3m));
+
+        var catalog = new FakePantryCatalogFacade();
+        catalog.AddProduct(MilkId, defaultUnitId: LitreId, defaultUnitCode: "L");
+
+        var adapter = BuildAdapter(stocks, catalog);
+        var result = await adapter.GetLowStockProductsAsync();
+
+        var row = Assert.Single(result);
+        Assert.Equal(MilkId, row.ProductId);
+        Assert.False(row.IsParent);
+        Assert.True(row.IsLow);
     }
 }
 
@@ -470,6 +651,18 @@ file sealed class FakePantryCatalogFacade : ICatalogReadFacade
 
     public void AddProduct(Guid id, Guid defaultUnitId, string defaultUnitCode, bool isProduced = false) =>
         _products.Add(new CatalogProductInfo(id, "Product", null, defaultUnitId, defaultUnitCode, CanHoldStock: true, IsProduced: isProduced));
+
+    public void AddNamedProduct(Guid id, string name, Guid defaultUnitId, string defaultUnitCode, Guid? parentProductId = null) =>
+        _products.Add(new CatalogProductInfo(id, name, null, defaultUnitId, defaultUnitCode, CanHoldStock: true, ParentProductId: parentProductId));
+
+    /// <summary>Registers a parent product — never holds stock (epic constraint, plantry-oh27).</summary>
+    public void AddParentProduct(Guid id, string name, Guid defaultUnitId, string defaultUnitCode) =>
+        _products.Add(new CatalogProductInfo(id, name, null, defaultUnitId, defaultUnitCode, CanHoldStock: false));
+
+    /// <summary>Registers a produced parent product (plantry-sn6v — "made at home, not bought") — never
+    /// holds stock, and never a restock candidate regardless of how its variants read.</summary>
+    public void AddProducedParentProduct(Guid id, string name, Guid defaultUnitId, string defaultUnitCode) =>
+        _products.Add(new CatalogProductInfo(id, name, null, defaultUnitId, defaultUnitCode, CanHoldStock: false, IsProduced: true));
 
     /// <summary>Registers a unit id → code mapping for <see cref="GetUnitCodesAsync"/>. Needed when a
     /// test exercises the DisplayQuantity fallback-to-lot-unit path (plantry-2hfi), which reports the
