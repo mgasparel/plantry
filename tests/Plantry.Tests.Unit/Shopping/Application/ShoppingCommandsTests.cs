@@ -1066,4 +1066,19 @@ public sealed class ShoppingCommandsTests
         Assert.True(result.IsFailure);
         Assert.Equal(Error.Unauthorized.Code, result.Error.Code);
     }
+
+    // ── AddItemCommand — parent product as an item (plantry-oh27.4) ──────────
+
+    [Fact(DisplayName = "AddItem — a parent product id is accepted like any other product id (no CanHoldStock gate at the application layer)")]
+    public async Task AddItem_AcceptsParentProductId()
+    {
+        var (repo, list) = SeedList();
+        var parentId = Guid.CreateVersion7(); // "Bubly" — a parent standing in for its variants
+
+        var result = await AddProduct(repo, parentId, qty: 1m).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var item = Assert.Single(list.Items);
+        Assert.Equal(parentId, item.ProductId);
+    }
 }

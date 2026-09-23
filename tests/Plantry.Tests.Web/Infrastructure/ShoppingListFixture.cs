@@ -153,9 +153,13 @@ public sealed class FakeShoppingRepository(ITenantContext tenant, ShoppingList l
 public sealed class FakeShoppingCatalogReader(
     IReadOnlyDictionary<Guid, ShoppingProductSummary> summaries,
     IReadOnlyDictionary<Guid, string> unitCodes,
-    IReadOnlyList<ShoppingProductCandidate> candidates)
+    IReadOnlyList<ShoppingProductCandidate> candidates,
+    IReadOnlyDictionary<Guid, ShoppingProductFamily>? families = null)
     : IShoppingCatalogReader
 {
+    private readonly IReadOnlyDictionary<Guid, ShoppingProductFamily> _families =
+        families ?? new Dictionary<Guid, ShoppingProductFamily>();
+
     public Task<IReadOnlyDictionary<Guid, ShoppingProductSummary>> ResolveSummariesAsync(
         IReadOnlyList<Guid> productIds, CancellationToken ct = default)
     {
@@ -188,4 +192,13 @@ public sealed class FakeShoppingCatalogReader(
     /// <summary>Returns the fixture category list for snapshot tests.</summary>
     public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>(ShoppingListFixture.CategoryOptionsList());
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingProductFamily>> ResolveFamilyAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, ShoppingProductFamily> result = productIds
+            .Where(_families.ContainsKey)
+            .ToDictionary(id => id, id => _families[id]);
+        return Task.FromResult(result);
+    }
 }

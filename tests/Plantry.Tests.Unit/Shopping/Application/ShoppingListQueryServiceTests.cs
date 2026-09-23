@@ -1075,4 +1075,8 @@ internal sealed class FakeShoppingCatalogReaderWithSummaries : IShoppingCatalogR
 
     public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>(_categories.Values.ToList());
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingProductFamily>> ResolveFamilyAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, ShoppingProductFamily>>(new Dictionary<Guid, ShoppingProductFamily>());
 }

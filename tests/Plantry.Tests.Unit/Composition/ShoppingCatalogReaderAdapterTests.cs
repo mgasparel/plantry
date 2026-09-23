@@ -74,8 +74,8 @@ public sealed class ShoppingCatalogReaderAdapterTests
         Assert.Empty(result);
     }
 
-    [Fact(DisplayName = "ListProductsAsync excludes parent products and orders by name")]
-    public async Task ListProductsAsync_Excludes_Parents_And_Orders_By_Name()
+    [Fact(DisplayName = "ListProductsAsync includes parent products, flagged IsParent, ordered by name (plantry-oh27.4)")]
+    public async Task ListProductsAsync_Includes_Parents_Flagged_And_Orders_By_Name()
     {
         var b = Product.Create(Household, "Bananas", Unit.Id, SystemClock.Instance);
         var a = Product.Create(Household, "Apples", Unit.Id, SystemClock.Instance);
@@ -88,7 +88,61 @@ public sealed class ShoppingCatalogReaderAdapterTests
 
         var result = await Adapter(products).ListProductsAsync();
 
-        Assert.Equal(["Apples", "Bananas"], result.Select(p => p.Name));
+        Assert.Equal(["Apples", "Bananas", "Bubly"], result.Select(p => p.Name));
+        Assert.True(result.Single(p => p.Name == "Bubly").IsParent);
+        Assert.False(result.Single(p => p.Name == "Apples").IsParent);
+    }
+
+    [Fact(DisplayName = "ListProductsAsync excludes archived products")]
+    public async Task ListProductsAsync_Excludes_Archived()
+    {
+        var active = Product.Create(Household, "Apples", Unit.Id, SystemClock.Instance);
+        var archived = Product.Create(Household, "Old Bread", Unit.Id, SystemClock.Instance);
+        archived.Archive(SystemClock.Instance);
+        var products = new FakeProductRepository();
+        products.Items.Add(active);
+        products.Items.Add(archived);
+
+        var result = await Adapter(products).ListProductsAsync();
+
+        Assert.Equal(["Apples"], result.Select(p => p.Name));
+    }
+
+    [Fact(DisplayName = "ResolveFamilyAsync resolves a parent's live variants and a variant's parent id")]
+    public async Task ResolveFamilyAsync_Resolves_Parent_And_Variant()
+    {
+        var parent = Product.Create(Household, "Bubly", Unit.Id, SystemClock.Instance);
+        parent.SetHasVariants(true, SystemClock.Instance);
+        var orange = Product.Create(Household, "Bubly Orange", Unit.Id, SystemClock.Instance);
+        orange.MakeVariantOf(parent.Id, SystemClock.Instance);
+        var lime = Product.Create(Household, "Bubly Lime", Unit.Id, SystemClock.Instance);
+        lime.MakeVariantOf(parent.Id, SystemClock.Instance);
+        lime.Archive(SystemClock.Instance); // archived variant — excluded from the live family
+
+        var products = new FakeProductRepository();
+        products.Items.Add(parent);
+        products.Items.Add(orange);
+        products.Items.Add(lime);
+
+        var result = await Adapter(products).ResolveFamilyAsync([parent.Id.Value, orange.Id.Value]);
+
+        var parentFamily = result[parent.Id.Value];
+        Assert.True(parentFamily.IsParent);
+        Assert.Null(parentFamily.ParentId);
+        Assert.Equal([orange.Id.Value], parentFamily.Variants.Select(v => v.ProductId));
+
+        var orangeFamily = result[orange.Id.Value];
+        Assert.False(orangeFamily.IsParent);
+        Assert.Equal(parent.Id.Value, orangeFamily.ParentId);
+        Assert.Empty(orangeFamily.Variants);
+    }
+
+    [Fact(DisplayName = "ResolveFamilyAsync short-circuits on an empty product id list")]
+    public async Task ResolveFamilyAsync_ShortCircuits_On_Empty_Input()
+    {
+        var result = await Adapter(new FakeProductRepository()).ResolveFamilyAsync([]);
+
+        Assert.Empty(result);
     }
 
     [Fact(DisplayName = "TryConvertAsync returns the amount unchanged for a same-unit conversion")]
