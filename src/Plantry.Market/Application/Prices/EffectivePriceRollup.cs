@@ -55,42 +55,82 @@ public static class EffectivePriceRollup
         EffectivePriceCandidate? best = null;
         foreach (var reference in Refs(product))
         {
-            if (!observations.TryGetValue(reference.Id, out var observation)
-                || observation.Quantity <= 0m || observation.UnitId == Guid.Empty)
+            if (!observations.TryGetValue(reference.Id, out var observation))
                 continue; // no usable candidate from this ref
 
-            // Reference unit for comparison/projection (rule 3): a parent compares its variants after
-            // converting each observation into the parent's (requested/reference) default unit; a
-            // concrete product resolves to itself with NO forced conversion — the observation stays in
-            // its own unit (identity, no catalog round-trip just to price a leaf). Pre-DM-19 behaviour.
-            var referenceUnit = product.IsParent && product.DefaultUnitId != Guid.Empty
-                ? product.DefaultUnitId
-                : observation.UnitId;
-
-            decimal factor;
-            if (referenceUnit == observation.UnitId)
-            {
-                factor = 1m;
-            }
-            else
-            {
-                var converted = await convert(reference.Id, 1m, observation.UnitId, referenceUnit, ct);
-                if (converted.IsFailure || converted.Value <= 0m) continue; // unusable — skip this candidate only
-                factor = converted.Value;
-            }
-
-            var convertedQuantity = observation.Quantity * factor;
-            if (convertedQuantity <= 0m) continue;
+            var referenceUnit = ReferenceUnitFor(product, observation);
+            var converted = await ConvertToReferenceUnitAsync(reference.Id, observation, referenceUnit, convert, ct);
+            if (converted.IsFailure) continue; // unusable — skip this candidate only
 
             var candidate = new EffectivePriceCandidate(product.Id, reference.Id, observation,
-                convertedQuantity, observation.Price / convertedQuantity, referenceUnit);
+                converted.Value.ConvertedQuantity, converted.Value.UnitPrice, referenceUnit);
             if (best is null || candidate.ConvertedUnitPrice < best.ConvertedUnitPrice)
                 best = candidate;
         }
         return best;
     }
 
-    private static IReadOnlyList<PriceRollupVariant> Refs(PriceRollupProduct product) =>
+    /// <summary>
+    /// The reference unit selection compares/projects an observation into (rule 3): a parent compares its
+    /// variants after converting each observation into the parent's (requested/reference) default unit; a
+    /// concrete product resolves to itself with NO forced conversion — the observation stays in its own
+    /// unit (identity, no catalog round-trip just to price a leaf). Pre-DM-19 behaviour. Shared by
+    /// <see cref="PriceHistoryRollup"/> (plantry-oh27.5) so the two rollups can never disagree on which
+    /// unit an observation is being expressed in.
+    /// </summary>
+    internal static Guid ReferenceUnitFor(PriceRollupProduct product, PriceObservation observation) =>
+        product.IsParent && product.DefaultUnitId != Guid.Empty
+            ? product.DefaultUnitId
+            : observation.UnitId;
+
+    /// <summary>The result of converting one observation into a reference unit — the quantity expressed
+    /// in that unit, and the derived price per 1 of it.</summary>
+    internal readonly record struct ConvertedObservation(decimal ConvertedQuantity, decimal UnitPrice);
+
+    /// <summary>
+    /// Converts one observation into <paramref name="referenceUnitId"/>, deriving the price per 1
+    /// reference unit exactly as <see cref="SelectFromObservationsAsync"/> always has. Extracted so
+    /// <see cref="PriceHistoryRollup"/> shares this exact math instead of a second copy that could drift
+    /// (plantry-oh27.5 design instruction). Fails when the observation itself is unusable (non-positive
+    /// quantity, no unit) or when <paramref name="convert"/> has no path — the caller skips that
+    /// candidate/point rather than treating a failure as identity.
+    /// </summary>
+    internal static async Task<Result<ConvertedObservation>> ConvertToReferenceUnitAsync(
+        Guid variantId, PriceObservation observation, Guid referenceUnitId,
+        Func<Guid, decimal, Guid, Guid, CancellationToken, Task<Result<decimal>>> convert,
+        CancellationToken ct)
+    {
+        if (observation.Quantity <= 0m || observation.UnitId == Guid.Empty)
+            return Result<ConvertedObservation>.Failure(Error.Custom(
+                "Market.UnusableObservation", "Observation has no usable quantity/unit."));
+
+        decimal factor;
+        if (referenceUnitId == observation.UnitId)
+        {
+            factor = 1m;
+        }
+        else
+        {
+            var converted = await convert(variantId, 1m, observation.UnitId, referenceUnitId, ct);
+            if (converted.IsFailure || converted.Value <= 0m)
+                return Result<ConvertedObservation>.Failure(Error.Custom(
+                    "Market.UnconvertibleObservation", "No conversion path to the reference unit."));
+            factor = converted.Value;
+        }
+
+        var convertedQuantity = observation.Quantity * factor;
+        if (convertedQuantity <= 0m)
+            return Result<ConvertedObservation>.Failure(Error.Custom(
+                "Market.NonPositiveConvertedQuantity", "Converted quantity is not positive."));
+
+        return Result<ConvertedObservation>.Success(
+            new ConvertedObservation(convertedQuantity, observation.Price / convertedQuantity));
+    }
+
+    /// <summary>The product's live price refs: its non-archived variants when a parent, or itself when a
+    /// concrete leaf. Internal so <see cref="PriceHistoryRollup"/> resolves the exact same variant set
+    /// (plantry-oh27.5) — one live/non-archived resolution, not two.</summary>
+    internal static IReadOnlyList<PriceRollupVariant> Refs(PriceRollupProduct product) =>
         product.IsParent
             ? product.Variants.Where(v => !v.IsArchived).ToList()
             : [new PriceRollupVariant(product.Id, product.DefaultUnitId)];

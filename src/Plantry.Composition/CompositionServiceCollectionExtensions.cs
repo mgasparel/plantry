@@ -9,6 +9,7 @@ using Plantry.Web.Deals;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.MealPlanning;
+using Plantry.Web.Market;
 using Plantry.Web.Pricing;
 using Plantry.Web.Recipes;
 using Plantry.Web.Shopping;
@@ -133,6 +134,10 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<Plantry.Recipes.Application.IExpiringSoonHorizonReader,
             Plantry.Web.Recipes.ExpiringSoonHorizonReaderAdapter>();
         services.AddScoped<IPriceReader, PriceReaderAdapter>();
+        // Parent-aware price-history rollup (plantry-oh27.5) — registered as a concrete scoped type
+        // rather than behind a port: no consumer exists yet (the parent detail-page and deals beads
+        // wire it in), so there is nothing to define an anti-corruption port against.
+        services.AddScoped<PriceHistoryReaderAdapter>();
         services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
         // Recipes → Identity household-member directory ACL (plantry-zlwp.1): the per-rating-member
         // breakdown popover's display-name/initials source, a Recipes-local copy of the same
