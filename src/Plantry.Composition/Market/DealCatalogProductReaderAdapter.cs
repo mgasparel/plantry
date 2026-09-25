@@ -8,7 +8,9 @@ namespace Plantry.Web.Deals;
 /// product is a live catalog product before <c>ConfirmDeal</c> commits it into memory + price history, over
 /// Catalog's <see cref="IProductRepository"/>. Lives in Plantry.Web (the composition root that already
 /// references both contexts) so <c>Plantry.Market</c> stays free of any Catalog dependency (ADR-010/DM-3),
-/// mirroring <see cref="CatalogStoreReaderAdapter"/>.
+/// mirroring <see cref="CatalogStoreReaderAdapter"/>. A deal may resolve to a parent product (plantry-oh27.6);
+/// <see cref="ForProductsAsync"/> resolves its live variant ids so <c>ConfirmDeal</c> can fan the observation
+/// out to each of them.
 /// </summary>
 public sealed class DealCatalogProductReaderAdapter(
     IProductRepository products, ICategoryRepository categories) : ICatalogProductReader
@@ -21,12 +23,13 @@ public sealed class DealCatalogProductReaderAdapter(
 
     public async Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default)
     {
-        // Active, stock-eligible products only: a deal can never resolve to a parent product (it holds no
-        // stock and carries no price), mirroring Intake's CatalogHintProvider.
+        // Active products, parents included (plantry-oh27.6): a deal may now resolve to a parent — the
+        // fan-out to every live variant happens at confirm (ConfirmDeal), never here. The CanHoldStock
+        // filter that used to exclude parents (mirroring Intake's CatalogHintProvider, which never
+        // resolves a leaf-only ingredient line to a parent) is dropped for Deals specifically.
         var active = await products.ListActiveAsync(ct);
         return active
-            .Where(p => p.CanHoldStock)
-            .Select(p => new ProductCandidate(p.Id.Value, p.Name))
+            .Select(p => new ProductCandidate(p.Id.Value, p.Name, IsParent: p.IsParent))
             .ToList();
     }
 
@@ -44,6 +47,13 @@ public sealed class DealCatalogProductReaderAdapter(
         var all = await products.ListActiveAsync(ct);
         var matched = all.Where(p => wanted.Contains(p.Id.Value)).ToList();
 
+        // Live (non-archived) variants for every parent, grouped from the same active-products load
+        // (plantry-oh27.6) — one query total, no per-parent ListVariantsAsync round trip.
+        var variantsByParent = all
+            .Where(p => p.ParentProductId is not null)
+            .GroupBy(p => p.ParentProductId!.Value.Value)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<Guid>)g.Select(p => p.Id.Value).ToList());
+
         // Any id not among the active products (e.g. archived) — resolve individually so it still renders.
         foreach (var missing in wanted.Where(id => matched.All(p => p.Id.Value != id)))
         {
@@ -54,12 +64,29 @@ public sealed class DealCatalogProductReaderAdapter(
         var categoryNames = (await categories.ListAsync(ct))
             .ToDictionary(c => c.Id, c => c.Name);
 
-        return matched.ToDictionary(
-            p => p.Id.Value,
-            p => new DealProductInfo(
+        var result = new Dictionary<Guid, DealProductInfo>();
+        foreach (var p in matched)
+        {
+            // An archived parent resolved via the individual fallback above never made it into the batch
+            // grouping (that grouping only covers `all`, the active set) — fall back to a per-parent
+            // ListVariantsAsync read for that rare path, filtered to still-live variants.
+            IReadOnlyList<Guid> liveVariantIds = !p.IsParent
+                ? []
+                : variantsByParent.TryGetValue(p.Id.Value, out var grouped)
+                    ? grouped
+                    : (await products.ListVariantsAsync(p.Id, ct))
+                        .Where(v => !v.IsArchived)
+                        .Select(v => v.Id.Value)
+                        .ToList();
+
+            result[p.Id.Value] = new DealProductInfo(
                 p.Id.Value,
                 p.Name,
                 p.CategoryId is { } cid && categoryNames.TryGetValue(cid, out var name) ? name : null,
-                p.DefaultUnitId.Value));
+                p.DefaultUnitId.Value,
+                IsParent: p.IsParent,
+                liveVariantIds: liveVariantIds);
+        }
+        return result;
     }
 }

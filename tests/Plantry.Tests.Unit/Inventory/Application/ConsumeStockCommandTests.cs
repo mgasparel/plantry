@@ -27,7 +27,7 @@ public sealed class ConsumeStockCommandTests
         FakeProductStockRepository stocks, IQuantityConverter converter, Guid? household,
         decimal amount = 30m, Guid? unitId = null, StockReason reason = StockReason.Consumed) =>
         new(_productId, amount, unitId ?? _unitId, reason, _userId, null, null,
-            stocks, new FakeCatalogReadFacade(), new FakeConversionProvider(converter), Clock, new FakeTenantContext(household));
+            stocks, new FakeLowStockRuleRepository(), new FakeCatalogReadFacade(), new FakeConversionProvider(converter), Clock, new FakeTenantContext(household));
 
     [Fact]
     public async Task Consumes_Across_The_Lot_And_Saves_Inside_A_Transaction()
@@ -150,7 +150,7 @@ public sealed class ConsumeStockCommandTests
         };
         var command = new ConsumeStockCommand(
             _productId, 30m, _unitId, StockReason.Consumed, _userId, null, null,
-            stocks, catalog, new FakeConversionProvider(new IdentityQuantityConverter()), Clock, new FakeTenantContext(_household));
+            stocks, new FakeLowStockRuleRepository(), catalog, new FakeConversionProvider(new IdentityQuantityConverter()), Clock, new FakeTenantContext(_household));
 
         var result = await command.ExecuteAsync();
 
@@ -172,7 +172,7 @@ public sealed class ConsumeStockCommandTests
         };
         var command = new ConsumeStockCommand(
             _productId, 30m, _unitId, StockReason.Consumed, _userId, null, null,
-            stocks, catalog, new FakeConversionProvider(new IdentityQuantityConverter()), Clock, new FakeTenantContext(_household));
+            stocks, new FakeLowStockRuleRepository(), catalog, new FakeConversionProvider(new IdentityQuantityConverter()), Clock, new FakeTenantContext(_household));
 
         var result = await command.ExecuteAsync();
 

@@ -156,10 +156,14 @@ internal sealed class FakeShoppingPantryReader : IShoppingPantryReader
 internal sealed class FakeShoppingCatalogReader : IShoppingCatalogReader
 {
     private readonly Dictionary<(Guid from, Guid to, Guid product), decimal> _conversions = [];
+    private readonly Dictionary<Guid, ShoppingProductFamily> _families = [];
 
     /// <summary>Registers a conversion outcome that TryConvertAsync will return.</summary>
     public void RegisterConversion(Guid fromUnitId, Guid toUnitId, Guid productId, decimal convertedAmount) =>
         _conversions[(fromUnitId, toUnitId, productId)] = convertedAmount;
+
+    /// <summary>Registers a product's parent/variant family that ResolveFamilyAsync will return.</summary>
+    public void RegisterFamily(ShoppingProductFamily family) => _families[family.ProductId] = family;
 
     public Task<IReadOnlyDictionary<Guid, ShoppingProductSummary>> ResolveSummariesAsync(
         IReadOnlyList<Guid> productIds, CancellationToken ct = default) =>
@@ -185,6 +189,15 @@ internal sealed class FakeShoppingCatalogReader : IShoppingCatalogReader
 
     public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>([]);
+
+    public Task<IReadOnlyDictionary<Guid, ShoppingProductFamily>> ResolveFamilyAsync(
+        IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+    {
+        IReadOnlyDictionary<Guid, ShoppingProductFamily> result = productIds
+            .Where(_families.ContainsKey)
+            .ToDictionary(id => id, id => _families[id]);
+        return Task.FromResult(result);
+    }
 }
 
 /// <summary>

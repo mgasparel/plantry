@@ -10,6 +10,7 @@ using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Tests.Web.Infrastructure;
 using Plantry.Web.Pages.Today;
 
 namespace Plantry.Tests.Web.Today;
@@ -178,13 +179,18 @@ public sealed class TodayIndexModelTests
         var tenant = new FakeStaticTenantContext(TestHousehold.Value);
         var stockRepo = new FakeProductStockRepository(hasStock);
         var sessionRepo = new FakeSessionRepository(hasPendingIntake);
+        var inventoryTenant = expiringSoon is null ? tenant : new FakeStaticTenantContext(TestHousehold.Value);
+        var inventoryCatalog = new FakeEmptyCatalogReadFacade();
+        var inventoryConversions = new FakeNullConversionProvider();
         var inventoryQueries = new InventoryQueryService(
             stockRepo,
-            new FakeEmptyCatalogReadFacade(),
-            new FakeNullConversionProvider(),
+            new FakeLowStockRuleRepository(),
+            inventoryCatalog,
+            inventoryConversions,
             new FakeExpiringHorizon(),
             FixedClock,
-            expiringSoon is null ? tenant : new FakeStaticTenantContext(TestHousehold.Value));
+            inventoryTenant,
+            new OnHandRollupQuery(stockRepo, inventoryCatalog, inventoryConversions, inventoryTenant));
 
         // Minimal stubs for the MealPlanning seams introduced by plantry-zp7.
         // These tests only exercise IsColdStart / BuildGreeting / ShowTakeStockCta, so the
@@ -430,11 +436,13 @@ public sealed class ExpiringWidgetModelTests
         var inventoryQueries = expiringSoon is null
             ? new InventoryQueryService(
                 stockRepo,
+                new FakeLowStockRuleRepository(),
                 new FakeEmptyCatalog(),
                 new FakeConvProvider(),
                 new FakeExpiringHorizon(),
                 FixedClock,
-                tenant)
+                tenant,
+                new OnHandRollupQuery(stockRepo, new FakeEmptyCatalog(), new FakeConvProvider(), tenant))
             : (InventoryQueryService)new FakeInventoryQueryService2(expiringSoon, tenant);
 
         var mealPlanRepo = new NullMealPlanRepo2();
@@ -662,11 +670,13 @@ public sealed class ExpiringWidgetModelTests
         IReadOnlyList<ExpiringSoonItem> items, ITenantContext tenant)
         : InventoryQueryService(
             new FakeStockRepo(hasStock: true),
+            new FakeLowStockRuleRepository(),
             new FakeEmptyCatalog(),
             new FakeConvProvider(),
             new FakeExpiringHorizon(),
             new FakeClock2(new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero)),
-            tenant)
+            tenant,
+            new OnHandRollupQuery(new FakeStockRepo(hasStock: true), new FakeEmptyCatalog(), new FakeConvProvider(), tenant))
     {
         public override Task<IReadOnlyList<ExpiringSoonItem>> ExpiringSoonAsync(CancellationToken ct = default) =>
             Task.FromResult(items);

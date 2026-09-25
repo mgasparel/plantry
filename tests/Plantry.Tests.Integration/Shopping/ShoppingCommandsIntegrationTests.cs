@@ -265,4 +265,6 @@ internal sealed class NullShoppingCatalogReader : IShoppingCatalogReader
         => Task.FromResult<IReadOnlyList<ShoppingUnitOption>>([]);
     public Task<IReadOnlyList<ShoppingCategoryOption>> ListCategoriesAsync(CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<ShoppingCategoryOption>>([]);
+    public Task<IReadOnlyDictionary<Guid, ShoppingProductFamily>> ResolveFamilyAsync(IReadOnlyList<Guid> productIds, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyDictionary<Guid, ShoppingProductFamily>>(new Dictionary<Guid, ShoppingProductFamily>());
 }

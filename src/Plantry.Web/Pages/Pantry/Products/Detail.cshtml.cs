@@ -22,6 +22,7 @@ namespace Plantry.Web.Pages.Pantry.Products;
 public sealed class DetailModel(
     InventoryQueryService queries,
     IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     IProductConversionProvider conversions,
     IProductRepository productRepository,
     ICatalogReadFacade catalog,
@@ -107,6 +108,21 @@ public sealed class DetailModel(
     public bool IsParentProduct { get; private set; }
     public bool SetPriceDisabled => IsParentProduct;
     public const string ParentPriceHint = "Prices can only be set on variants, not on parent products.";
+
+    /// <summary>Request-lifetime memo for <see cref="CatalogProductAsync"/> — the page model is
+    /// per-request scoped (a fresh instance per HTTP request), so this never leaks across requests; it
+    /// only collapses the repeat <c>catalog.FindProductAsync(id)</c> calls <see cref="OnGetAsync"/>'s own
+    /// call graph makes for the SAME id within one GET (<see cref="BuildStatsAsync"/> and
+    /// <see cref="BuildPriceDisplayAsync"/> both need it, on top of <see cref="OnGetAsync"/> itself).</summary>
+    private CatalogProductInfo? _catalogProduct;
+    private bool _catalogProductLoaded;
+
+    /// <summary>Request-lifetime memo for <see cref="BuildParentPriceRollupAsync"/> — same reasoning as
+    /// <see cref="_catalogProduct"/>: <see cref="BuildStatsAsync"/> and <see cref="BuildPriceDisplayAsync"/>
+    /// both need the parent's live-variant rollup context on the same GET, and without this they'd each
+    /// independently re-run <c>IProductRepository.ListVariantsAsync</c>.</summary>
+    private (PriceRollupProduct Context, Func<Guid, decimal, Guid, Guid, CancellationToken, Task<Result<decimal>>> Convert)? _parentPriceRollup;
+    private bool _parentPriceRollupLoaded;
 
 
     /// <summary>
@@ -261,12 +277,23 @@ public sealed class DetailModel(
         public decimal? Quantity { get; set; }
     }
 
+    /// <summary>Request-lifetime-memoized <c>catalog.FindProductAsync(id)</c> — see
+    /// <see cref="_catalogProduct"/>'s doc comment. Every caller in this class passes the SAME id within
+    /// one request (the page's own route id), so a single memo slot (no id-keyed dictionary) is enough.</summary>
+    private async Task<CatalogProductInfo?> CatalogProductAsync(Guid id)
+    {
+        if (_catalogProductLoaded) return _catalogProduct;
+        _catalogProduct = await catalog.FindProductAsync(id);
+        _catalogProductLoaded = true;
+        return _catalogProduct;
+    }
+
     public async Task<IActionResult> OnGetAsync(Guid id)
     {
         ProductId = id;
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
-        IsParentProduct = !(await catalog.FindProductAsync(id))?.CanHoldStock ?? false;
+        IsParentProduct = !(await CatalogProductAsync(id))?.CanHoldStock ?? false;
         await LoadChipsAsync(Detail);
         PriceDisplayText = await BuildPriceDisplayAsync(id);
         RecipeUsages = await recipeUsages.ExecuteAsync(id);
@@ -679,6 +706,7 @@ public sealed class DetailModel(
         ProductId = id;
         Detail = await queries.FindDetailAsync(id);
         if (Detail is null) return NotFound();
+        IsParentProduct = !(await catalog.FindProductAsync(id))?.CanHoldStock ?? false;
 
         ThresholdInput = new ThresholdInputModel { Threshold = Detail.LowStockThreshold };
         return Partial("_SetThresholdSheet", this);
@@ -688,6 +716,7 @@ public sealed class DetailModel(
     {
         ProductId = id;
         ClearOtherSheetValidation(nameof(ThresholdInput));
+        IsParentProduct = !(await catalog.FindProductAsync(id))?.CanHoldStock ?? false;
 
         if (!ModelState.IsValid)
         {
@@ -697,7 +726,7 @@ public sealed class DetailModel(
         }
 
         var result = await new SetLowStockThresholdCommand(
-            id, ThresholdInput.Threshold, stocks, catalog, clock, tenant, thresholdLogger).ExecuteAsync();
+            id, ThresholdInput.Threshold, rules, catalog, clock, tenant, thresholdLogger).ExecuteAsync();
 
         if (result.IsFailure)
         {
@@ -826,11 +855,36 @@ public sealed class DetailModel(
     /// consumption history but no recorded price (a gifted/homemade item), or neither. Returns null only
     /// when NEITHER half has anything to show, so <c>_StatsPanel</c> can render nothing at all rather than
     /// an empty card.
+    ///
+    /// <para>Parent-aware (plantry-oh27.7): a parent's price half comes from <see cref="PriceHistoryRollup"/>
+    /// — the union of its live variants' history converted into the parent's default unit, the same
+    /// selection policy <see cref="BuildPriceDisplayAsync"/> already uses for the price tile. The
+    /// consumption half is deliberately OUT OF SCOPE for a parent here: summing days-of-supply/waste-rate
+    /// across variants would need its own per-variant journal fold (a separate piece of work, not this
+    /// bead's <c>InventoryQueryService.GetConsumptionStatsAsync</c>, which is leaf-only) — a parent simply
+    /// never shows that half, degrading exactly like a freshly-stocked leaf with no consumption yet.</para>
     /// </summary>
     private async Task<StatsPanelViewModel?> BuildStatsAsync(Guid productId)
     {
-        var priceHistory = await pricingQueries.PriceHistoryAsync(productId);
-        var consumption = await queries.GetConsumptionStatsAsync(productId);
+        var catalogProduct = await CatalogProductAsync(productId);
+        var isParent = catalogProduct is not null && !catalogProduct.CanHoldStock;
+
+        IReadOnlyList<PriceHistoryPoint> priceHistory;
+        if (isParent)
+        {
+            var rollupCtx = await BuildParentPriceRollupAsync(productId);
+            priceHistory = rollupCtx is null
+                ? []
+                : (await PriceHistoryRollup.ForProductAsync(pricingQueries, rollupCtx.Value.Context, rollupCtx.Value.Convert)).Points;
+        }
+        else
+        {
+            priceHistory = await pricingQueries.PriceHistoryAsync(productId);
+        }
+
+        // Consumption stats have no parent-aware shape yet (see doc comment above) — a parent simply
+        // never has a half to show here.
+        var consumption = isParent ? null : await queries.GetConsumptionStatsAsync(productId);
 
         var showPriceHistory = priceHistory.Count >= MinPricePointsForSparkline;
         if (!showPriceHistory && consumption is null)
@@ -842,17 +896,16 @@ public sealed class DetailModel(
         if (showPriceHistory)
         {
             currency = await displayCurrency.GetAsync();
-            if (PriceHistoryStats.Median(priceHistory) is { } normalizedMedian)
+            if (PriceHistoryStats.Median(priceHistory) is { } normalizedMedian && catalogProduct is not null)
             {
-                var product = await catalog.FindProductAsync(productId);
-                if (product is not null)
+                // The reference unit for both a leaf's own points and a parent's rolled-up points is
+                // this same product id's DefaultUnitId — PriceHistoryRollup converts every contributing
+                // variant's observation into exactly that unit (see RolledUpPriceHistory.ReferenceUnitId).
+                var unit = await units.FindAsync(UnitId.From(catalogProduct.DefaultUnitId));
+                if (unit is { FactorToBase: > 0 } && !string.IsNullOrWhiteSpace(unit.Code))
                 {
-                    var unit = await units.FindAsync(UnitId.From(product.DefaultUnitId));
-                    if (unit is { FactorToBase: > 0 } && !string.IsNullOrWhiteSpace(unit.Code))
-                    {
-                        displayMedianUnitPrice = normalizedMedian * unit.FactorToBase;
-                        displayMedianUnitCode = unit.Code;
-                    }
+                    displayMedianUnitPrice = normalizedMedian * unit.FactorToBase;
+                    displayMedianUnitCode = unit.Code;
                 }
             }
         }
@@ -873,27 +926,19 @@ public sealed class DetailModel(
     private async Task<string> BuildPriceDisplayAsync(Guid productId)
     {
         var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
-        var catalogProduct = await catalog.FindProductAsync(productId);
+        var catalogProduct = await CatalogProductAsync(productId);
         if (catalogProduct is not null && !catalogProduct.CanHoldStock)
         {
-            var parent = await productRepository.FindAsync(Plantry.Pantry.Domain.ProductId.From(productId));
-            var variants = parent is null ? [] : await productRepository.ListVariantsAsync(parent.Id);
-            var live = variants.Where(v => !v.IsArchived).ToList();
+            var rollupCtx = await BuildParentPriceRollupAsync(productId);
+            if (rollupCtx is null) return "No price recorded yet";
+
             var parentCurrency = await displayCurrency.GetAsync();
             var parentUnits = await catalog.GetUnitCodesAsync();
-            if (live.Count == 0) return "No price recorded yet";
 
             // Shared parent-aware rollup (plantry-i07l) — the same selection policy and batched read
             // CostingService uses, so the parent's displayed price and recipe costing agree on which
             // live variant wins (cheapest usable candidate converted to the parent's default unit).
-            var context = new PriceRollupProduct(productId, parent!.DefaultUnitId.Value, IsParent: true,
-                live.Select(v => new PriceRollupVariant(v.Id.Value, v.DefaultUnitId.Value)).ToList());
-
-            Func<Guid, decimal, Guid, Guid, CancellationToken, Task<Result<decimal>>> convert = async
-                (variantId, amount, from, to, token) =>
-                    (await conversions.ForProductAsync(variantId, token)).Convert(amount, from, to);
-
-            var candidate = await EffectivePriceRollup.SelectAsync(pricingQueries, context, today, convert);
+            var candidate = await EffectivePriceRollup.SelectAsync(pricingQueries, rollupCtx.Value.Context, today, rollupCtx.Value.Convert);
             if (candidate is null) return "No price recorded yet";
             return $"{MoneyDisplay.Format(candidate.Observation.Price, parentCurrency)} for {candidate.ConvertedQuantity:0.###} {parentUnits.GetValueOrDefault(candidate.RequestedUnitId, "?")}";
         }
@@ -905,6 +950,48 @@ public sealed class DetailModel(
         var unitCodes = await catalog.GetUnitCodesAsync();
         var unitCode = unitCodes.GetValueOrDefault(observation.UnitId, "?");
         return $"{MoneyDisplay.Format(observation.Price, currency)} for {observation.Quantity.ToString("0.###")} {unitCode}";
+    }
+
+    /// <summary>
+    /// Shared parent-aware price-rollup context (plantry-oh27.7) — the live-variant list, the
+    /// <see cref="PriceRollupProduct"/> shape, and the per-variant <c>convert</c> delegate both
+    /// <see cref="BuildPriceDisplayAsync"/> (via <see cref="EffectivePriceRollup"/>) and
+    /// <see cref="BuildStatsAsync"/> (via <see cref="PriceHistoryRollup"/>) need to agree on which
+    /// variants are live and how to convert their observations — extracted so the two rollups can never
+    /// independently diverge on that question. Request-lifetime memoized (see
+    /// <see cref="_parentPriceRollup"/>): both callers run on the SAME GET for the SAME <paramref name="productId"/>
+    /// (the page's own route id), so without the memo each would independently re-run
+    /// <c>IProductRepository.FindAsync</c> + <c>ListVariantsAsync</c> for identical results — the memo
+    /// collapses that pair of calls to exactly one per request. Null when the product isn't a parent
+    /// (not found via <see cref="IProductRepository"/>) or has no live variants at all.
+    /// </summary>
+    private async Task<(PriceRollupProduct Context, Func<Guid, decimal, Guid, Guid, CancellationToken, Task<Result<decimal>>> Convert)?>
+        BuildParentPriceRollupAsync(Guid productId)
+    {
+        if (_parentPriceRollupLoaded) return _parentPriceRollup;
+
+        var parent = await productRepository.FindAsync(Plantry.Pantry.Domain.ProductId.From(productId));
+        var variants = parent is null ? [] : await productRepository.ListVariantsAsync(parent.Id);
+        var live = variants.Where(v => !v.IsArchived).ToList();
+
+        if (parent is null || live.Count == 0)
+        {
+            _parentPriceRollup = null;
+        }
+        else
+        {
+            var context = new PriceRollupProduct(productId, parent.DefaultUnitId.Value, IsParent: true,
+                live.Select(v => new PriceRollupVariant(v.Id.Value, v.DefaultUnitId.Value)).ToList());
+
+            Func<Guid, decimal, Guid, Guid, CancellationToken, Task<Result<decimal>>> convert = async
+                (variantId, amount, from, to, token) =>
+                    (await conversions.ForProductAsync(variantId, token)).Convert(amount, from, to);
+
+            _parentPriceRollup = (context, convert);
+        }
+
+        _parentPriceRollupLoaded = true;
+        return _parentPriceRollup;
     }
 
     /// <summary>
@@ -972,7 +1059,7 @@ public sealed class DetailModel(
         Guid id, decimal amount, Guid unitId, StockReason reason, Guid? targetEntryId) =>
         new ConsumeStockCommand(
             id, amount, unitId, reason, CurrentUserId, targetEntryId, sourceRef: null,
-            stocks, catalog, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
+            stocks, rules, catalog, conversions, clock, tenant, logger: consumeLogger).ExecuteAsync();
 
     private async Task<IActionResult> ReloadSheetAsync(Guid id)
     {
@@ -987,10 +1074,18 @@ public sealed class DetailModel(
     /// stock and re-renders the lots/history/vitals block funnels through here so the vitals strip's
     /// "expiring soon" horizon (<see cref="ExpiringSoonDays"/>) is loaded exactly once per call, the
     /// same way <see cref="Detail"/>/<see cref="Chips"/> already are by each caller before this runs.
+    ///
+    /// <para>Parent-aware (plantry-oh27.7): only <see cref="OnPostSetThresholdAsync"/> can reach this
+    /// method for a parent (Consume/Discard/Move/Add-stock never route to a parent id in the first
+    /// place), and it sets <see cref="IsParentProduct"/> before calling — every other caller leaves it
+    /// at its default <c>false</c>, which is always correct for them. A parent has nothing for
+    /// <c>_StockDetail</c> (no lots, no journal) so it renders <c>_VariantBreakdown</c> instead.</para>
     /// </summary>
     private async Task<IActionResult> BuildStockDetailPartialAsync(bool oob, string? notice)
     {
         ExpiringSoonDays = await expiringSoonHorizon.GetDaysAsync();
+        if (IsParentProduct)
+            return Partial("_VariantBreakdown", new VariantBreakdownPartialModel(Detail!, oob, TodayDate, ExpiringSoonDays));
         return Partial("_StockDetail", new StockDetailPartialModel(
             Detail!, oob, notice, Chips, AmendableLines, HistoryWhenLocal, TodayDate, ExpiringSoonDays));
     }
@@ -1075,6 +1170,17 @@ public sealed record StockDetailPartialModel(
     /// strip's Next-expiry/On-hand tiles, which this fragment OOB-re-emits alongside the lots/history
     /// block (plantry-sbpk).</summary>
     int ExpiringSoonDays);
+
+/// <summary>
+/// View model for <c>_VariantBreakdown.cshtml</c> (plantry-oh27.7) — the parent-product replacement for
+/// <see cref="StockDetailPartialModel"/>'s lots/history block: a parent never owns lots or a journal, so
+/// instead it shows one row per live variant (name, own-unit on-hand, converted amount, low/out marker)
+/// straight off <see cref="ProductStockDetail.Variants"/>. <see cref="Oob"/> mirrors
+/// <see cref="StockDetailPartialModel.Oob"/>'s role for the one mutation a parent page can trigger here
+/// (Set threshold) — see <see cref="DetailModel.BuildStockDetailPartialAsync"/>.
+/// </summary>
+public sealed record VariantBreakdownPartialModel(
+    ProductStockDetail Detail, bool Oob, DateOnly Today, int ExpiringSoonDays);
 
 /// <summary>View model for the price-line fragment (plantry-3fqm). <see cref="Oob"/> drives the htmx
 /// out-of-band swap after a "Set price" submission — mirrors <see cref="StockDetailPartialModel.Oob"/>'s

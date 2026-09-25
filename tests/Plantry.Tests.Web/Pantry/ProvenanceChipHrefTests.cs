@@ -175,6 +175,9 @@ internal sealed class ProvenanceChipHrefFactory : WebApplicationFactory<Program>
             services.RemoveAll<IProductStockRepository>();
             services.AddSingleton<IProductStockRepository>(stockRepo);
 
+            services.RemoveAll<ILowStockRuleRepository>();
+            services.AddSingleton<ILowStockRuleRepository>(new FakeLowStockRuleRepository());
+
             services.RemoveAll<ICatalogReadFacade>();
             services.AddSingleton<ICatalogReadFacade>(new FakeTodayCatalogReadFacade());
 

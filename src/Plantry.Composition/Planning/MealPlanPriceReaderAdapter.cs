@@ -2,6 +2,7 @@ using Plantry.Planning.Application;
 using Plantry.Market.Application;
 using Plantry.SharedKernel.Domain;
 using Plantry.Recipes.Application;
+using Plantry.Web.Market;
 
 namespace Plantry.Web.MealPlanning;
 
@@ -24,18 +25,7 @@ public sealed class MealPlanPriceReaderAdapter(
             candidate.Observation.UnitPrice);
     }
 
-    /// <summary>
-    /// Rollup context for a requested id. A product absent from the catalog is a concrete leaf (self)
-    /// with an unknown default unit — pre-DM-19 behaviour the meal-plan deal-aware costing tests rely on
-    /// (a leaf needs no catalog round-trip to price). Mirrors <c>PriceReaderAdapter.CreateContext</c>.
-    /// </summary>
-    private static PriceRollupProduct CreateContext(Guid productId, CatalogProduct? product)
-    {
-        if (product is null)
-            return new PriceRollupProduct(productId, Guid.Empty, IsParent: false, []);
-
-        return new PriceRollupProduct(product.Id, product.DefaultUnitId, product.IsParent,
-            product.VariantProductIds.Select(id => new PriceRollupVariant(id,
-                product.VariantDefaultUnitIds?.GetValueOrDefault(id) ?? product.DefaultUnitId)).ToList());
-    }
+    /// <summary>Rollup context for a requested id — see <see cref="PriceRollupContextBuilder"/>.</summary>
+    private static PriceRollupProduct CreateContext(Guid productId, CatalogProduct? product) =>
+        PriceRollupContextBuilder.Build(productId, product);
 }

@@ -116,6 +116,48 @@ public sealed class DealReviewPageTests(DealReviewFactory factory) : IClassFixtu
         Assert.DoesNotContain("You buy this every", html);
     }
 
+    [Fact(DisplayName = "A deal matched to a parent product renders the 'any variant' hint and the rolled-up purchase context (plantry-oh27.6)")]
+    public async Task Parent_Suggestion_Renders_AnyVariant_Hint_And_Rolled_Up_Purchase_Context()
+    {
+        factory.Reset();
+        var bubly = Guid.NewGuid();
+        var orange = Guid.NewGuid();
+        var lime = Guid.NewGuid();
+        // Parent's DefaultUnitId is a DIFFERENT unit (kg) from the variants'/deal's own advertised unit (g)
+        // — a non-identity conversion factor, deliberately, so the reference-unit basis fix (plantry-oh27.6)
+        // is pinned at the render layer: a prior pre-flight pass left the rollup's average in the parent's
+        // reference unit but re-scaled it a SECOND time by the display FactorToBase, turning a real 10%-below
+        // deal into a ~1000×-inflated "You pay" figure. factory.Converter.Factor = 0.001 (1 g == 0.001 kg) is
+        // the true conversion, applied consistently to every variant observation and to the deal's own price.
+        var kgUnit = factory.Units.Seed("kg", "kilogram", Dimension.Mass, factorToBase: 1000m, isBase: false);
+        factory.Converter.Factor = 0.001m;
+        factory.ProductReader.Names[bubly] = new DealProductInfo(
+            bubly, "Bubly", "Beverages", kgUnit, IsParent: true, liveVariantIds: [orange, lime]);
+        factory.ProductReader.Names[orange] = new DealProductInfo(orange, "Bubly Orange", "Beverages", factory.UnitId);
+        factory.ProductReader.Names[lime] = new DealProductInfo(lime, "Bubly Lime", "Beverages", factory.UnitId);
+
+        factory.SeedPending("Bubly 12pk", MatchConfidence.Low, bubly, price: 4.50m, quantity: 1m, unitId: factory.UnitId);
+        factory.SeedPurchase(orange, 4.00m, DateTimeOffset.UtcNow.AddDays(-10));
+        factory.SeedPurchase(lime, 6.00m, DateTimeOffset.UtcNow.AddDays(-31));
+        factory.Frequency.Dates[orange] = [DateTimeOffset.UtcNow.AddDays(-10)];
+        factory.Frequency.Dates[lime] = [DateTimeOffset.UtcNow.AddDays(-31)];
+
+        var html = await (await AuthedClient().GetAsync("/Deals/Review")).Content.ReadAsStringAsync();
+
+        Assert.Contains("any variant", html);
+        Assert.Contains("You pay", html);
+        // Each observation's per-gram price scaled onto per-kg (×1000): (4.00→4000, 6.00→6000) avg 5000,
+        // rendered with NO further FactorToBase multiply — never the raw per-gram average ($5.00), and never
+        // a further ×1000 double-scale ($5,000,000.00).
+        Assert.Contains("$5000.00", html);
+        // The deal's own 4.50-per-gram price on the SAME per-kg basis (4500): a genuine 10% discount off the
+        // $5000 average — never the ~99.9%-below artifact the pre-fix double-scale produced.
+        Assert.Contains("10.0%", html);
+        Assert.Contains("below", html);
+        Assert.Contains("You buy this every", html);
+        Assert.Contains("Last bought", html);
+    }
+
     [Fact(DisplayName = "Deal review renders the advertised basis, stocked unit and mismatch hint")]
     public async Task Renders_Deal_And_Inventory_Unit_Context()
     {
@@ -1769,6 +1811,7 @@ public class DealReviewFactory : WebApplicationFactory<Program>
     public FakeReviewLocationRepo Locations { get; } = new();
     public FakeReviewFlyerImportRepo FlyerImports { get; } = new();
     public FakeDealFrequency Frequency { get; } = new();
+    public FakeProductUnitConverter Converter { get; } = new();
 
     private static readonly IClock Clock = SystemClock.Instance;
 
@@ -1796,6 +1839,7 @@ public class DealReviewFactory : WebApplicationFactory<Program>
         Frequency.Dates.Clear();
         Repo.ThrowOnFindIds.Clear();
         Repo.CancelOnFindIds.Clear();
+        Converter.Factor = 1m;
     }
 
     /// <summary>
@@ -1911,11 +1955,32 @@ public class DealReviewFactory : WebApplicationFactory<Program>
             // Postgres/Inventory stack is needed, mirroring DealsPageTests' stock-up-alert fake.
             services.RemoveAll<IPurchaseFrequencyReader>();
             services.AddScoped<IPurchaseFrequencyReader>(_ => Frequency);
+            // Parent-matched purchase-context rollup (plantry-oh27.6): fake the Market-side unit converter
+            // too, same isolation reasoning as every other cross-context port above — a real conversion
+            // chain would need genuine Catalog ProductConversion rules wired into this fake-repo harness
+            // for a non-identity factor, which nothing else in this file sets up.
+            services.RemoveAll<IProductUnitConverter>();
+            services.AddScoped<IProductUnitConverter>(_ => Converter);
         });
     }
 }
 
 // ── fakes specific to the review page (Deal repo + store reader are shared from DealsPageTests) ──────
+
+/// <summary>
+/// Fake <see cref="IProductUnitConverter"/> (plantry-oh27.6) — isolates the review page's parent purchase-
+/// context rollup from Catalog's real unit-conversion machinery, same reasoning as every other cross-context
+/// fake in this file. Defaults to identity (factor 1) so every existing test (no parent scenario, or a
+/// parent whose default unit already matches its variants'/deal's unit) is unaffected.
+/// </summary>
+public sealed class FakeProductUnitConverter : IProductUnitConverter
+{
+    public decimal Factor { get; set; } = 1m;
+
+    public Task<Result<decimal>> ConvertAsync(
+        Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default) =>
+        Task.FromResult(Result<decimal>.Success(amount * Factor));
+}
 
 public sealed class FakeReviewProductReader : ICatalogProductReader
 {
@@ -2002,6 +2067,12 @@ public sealed class FakeReviewObservationWriter : IPriceObservationRepository
                 && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
                 && p.SupersededById is null)
             .OrderBy(p => p.ObservedAt)
+            .ToList());
+
+    public Task<IReadOnlyList<PriceObservation>> ListLiveBySourceRefAsync(
+        PriceSource source, Guid sourceRef, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>(Items
+            .Where(p => p.Source == source && p.SourceRef == sourceRef && p.SupersededById is null)
             .ToList());
 
     public Task<PriceObservation?> CheapestActiveDealForProductAsync(

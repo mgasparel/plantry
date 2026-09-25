@@ -63,6 +63,56 @@ internal sealed class FakeProductStockRepository : IProductStockRepository
     }
 }
 
+/// <summary>In-memory <see cref="ILowStockRuleRepository"/> keyed by (household, product).</summary>
+internal sealed class FakeLowStockRuleRepository : ILowStockRuleRepository
+{
+    public List<LowStockRule> Items { get; } = [];
+    public int SaveChangesCalls { get; private set; }
+
+    /// <summary>When true, the next <see cref="TryAddAndSaveAsync"/> call simulates a losing race
+    /// (returns false without adding) and resets itself — lets a test drive the "another request won
+    /// the insert" fallback path without a real database.</summary>
+    public bool FailNextTryAdd { get; set; }
+
+    public Task<LowStockRule?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(r => r.HouseholdId == householdId && r.ProductId == productId));
+
+    public Task<IReadOnlyDictionary<Guid, LowStockRule>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyDictionary<Guid, LowStockRule>)Items
+            .Where(r => r.HouseholdId == householdId)
+            .ToDictionary(r => r.ProductId));
+
+    public Task AddAsync(LowStockRule rule, CancellationToken ct = default)
+    {
+        Items.Add(rule);
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> TryAddAndSaveAsync(LowStockRule rule, CancellationToken ct = default)
+    {
+        if (FailNextTryAdd)
+        {
+            FailNextTryAdd = false;
+            return Task.FromResult(false);
+        }
+        Items.Add(rule);
+        SaveChangesCalls++;
+        return Task.FromResult(true);
+    }
+
+    public Task RemoveAsync(LowStockRule rule, CancellationToken ct = default)
+    {
+        Items.Remove(rule);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        SaveChangesCalls++;
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>Configurable stand-in for the Catalog read seam.</summary>
 internal sealed class FakeCatalogReadFacade : ICatalogReadFacade
 {

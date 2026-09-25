@@ -124,6 +124,30 @@ namespace Plantry.Pantry.Infrastructure.Migrations
                     b.ToTable("locations", "catalog");
                 });
 
+            modelBuilder.Entity("Plantry.Pantry.Domain.LowStockRule", b =>
+                {
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("household_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<decimal>("Threshold")
+                        .HasPrecision(12, 3)
+                        .HasColumnType("numeric(12,3)")
+                        .HasColumnName("threshold");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("HouseholdId", "ProductId");
+
+                    b.ToTable("low_stock_rule", "inventory");
+                });
+
             modelBuilder.Entity("Plantry.Pantry.Domain.Product", b =>
                 {
                     b.Property<Guid>("Id")
@@ -307,11 +331,6 @@ namespace Plantry.Pantry.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
-
-                    b.Property<decimal?>("LowStockThreshold")
-                        .HasPrecision(12, 3)
-                        .HasColumnType("numeric(12,3)")
-                        .HasColumnName("low_stock_threshold");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")

@@ -776,6 +776,15 @@
         re-applies the corner rounding directly to the first/last row) — see
         <code>Pantry/Products/_StockDetail.cshtml</code>'s lots list.
     </p>
+    <p>
+        <strong>Trigger-height modifier.</strong> <code>.row-actions-menu__panel</code>'s default
+        <code>top</code> offset is calibrated to the 26px <code>.row-actions-menu__trigger</code> ⋯
+        button. Wrapping a taller trigger instead (e.g. a full <code>.btn</code>) needs the
+        <code>.row-actions-menu--btn</code> modifier on the <code>.row-actions-menu</code> element, which
+        anchors the panel to <code>calc(100% + 4px)</code> — the trigger's real rendered height — instead
+        of the 26px assumption. See the parent product detail page's "Add stock to a variant" picker
+        (<code>Pantry/Products/Detail.cshtml</code>).
+    </p>
     <div class="row-actions-menu" x-data="{ open: false }" @@click.outside="open = false" style="display:inline-block">
         <button type="button" class="row-actions-menu__trigger" aria-label="More actions" aria-haspopup="true"
                 :aria-expanded="open.toString()" @@click="open = !open">⋯</button>

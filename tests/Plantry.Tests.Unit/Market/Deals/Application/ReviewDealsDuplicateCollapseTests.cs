@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
 using Plantry.SharedKernel;
@@ -30,7 +31,9 @@ public sealed class ReviewDealsDuplicateCollapseTests
         _deals, _products, _stores, _flyerImports, _clock,
         new PricingQueries(new FakePriceObservationRepository()),
         new FakePurchaseFrequencyReader(),
-        new FakeUnitPriceCalculator(null));
+        new FakeUnitPriceCalculator(null),
+        new FakeProductUnitConverter(),
+        NullLogger<ReviewDeals>.Instance);
 
     private static readonly DateOnly Today = new(2026, 8, 6);
     private static readonly DateOnly ValidFrom = Today.AddDays(-1);

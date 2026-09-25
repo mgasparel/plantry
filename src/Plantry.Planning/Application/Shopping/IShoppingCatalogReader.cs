@@ -24,9 +24,23 @@ public interface IShoppingCatalogReader
 
     /// <summary>
     /// Returns all active products ordered by name — used to populate the product search
-    /// dropdown on the add-item form (via the searchable-select handler).
+    /// dropdown on the add-item form (via the searchable-select handler). Includes parent products
+    /// (plantry-oh27.4 — "Bubly" is addable as a shopping-list item, representing "any variant";
+    /// intent lives at the parent, facts at the leaf). Archived products are still excluded.
     /// </summary>
     Task<IReadOnlyList<ShoppingProductCandidate>> ListProductsAsync(
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolves each requested id's parent/variant family in one batch call (plantry-oh27.4): a leaf's
+    /// <see cref="ShoppingProductFamily.ParentId"/> (if it belongs to a parent) and a parent's live
+    /// (non-archived) variant ids. Used to (a) expand the "already on the list" set so adding "Bubly
+    /// Orange" suppresses the "Bubly" suggestion and vice versa (dedup by family, not by exact id), and
+    /// (b) build the variant tree a parent-aware price rollup needs. Ids absent from the catalog are
+    /// simply omitted from the result.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, ShoppingProductFamily>> ResolveFamilyAsync(
+        IReadOnlyList<Guid> productIds,
         CancellationToken ct = default);
 
     /// <summary>
@@ -79,5 +93,33 @@ public sealed record ShoppingProductSummary(
     /// <summary>Hue in degrees (0–359) on the oklch colour wheel, inherited from the product's category. Null when uncategorised or category has no hue.</summary>
     int? CategoryHue = null);
 
-/// <summary>Lightweight product option for the add-item product search.</summary>
-public sealed record ShoppingProductCandidate(Guid ProductId, string Name);
+/// <summary>
+/// Lightweight product option for the add-item product search.
+/// </summary>
+/// <param name="IsParent">
+/// True when this candidate is a parent product (plantry-oh27.4) — the picker renders a subtle
+/// "any variant" hint for these so users understand adding it expresses intent for the group, not one
+/// specific flavour/size.
+/// </param>
+public sealed record ShoppingProductCandidate(Guid ProductId, string Name, bool IsParent = false);
+
+/// <summary>
+/// One product's parent/variant family, resolved by <see cref="IShoppingCatalogReader.ResolveFamilyAsync"/>.
+/// </summary>
+/// <param name="ProductId">The requested id (echoed back).</param>
+/// <param name="DefaultUnitId">The product's own default unit — the reference unit a parent's price
+/// rollup converts every live variant's observation into.</param>
+/// <param name="IsParent">True when this product has variants (Catalog's <c>Product.IsParent</c>).</param>
+/// <param name="ParentId">This product's parent id, when it is a leaf variant belonging to a parent;
+/// null for a leaf with no parent and for a parent itself.</param>
+/// <param name="Variants">Live (non-archived) variants, populated only when <see cref="IsParent"/> is
+/// true; empty for a leaf.</param>
+public sealed record ShoppingProductFamily(
+    Guid ProductId,
+    Guid DefaultUnitId,
+    bool IsParent,
+    Guid? ParentId,
+    IReadOnlyList<ShoppingFamilyVariant> Variants);
+
+/// <summary>One live variant in a parent's family — see <see cref="ShoppingProductFamily.Variants"/>.</summary>
+public sealed record ShoppingFamilyVariant(Guid ProductId, Guid DefaultUnitId);

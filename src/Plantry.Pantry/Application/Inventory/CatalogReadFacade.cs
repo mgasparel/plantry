@@ -116,5 +116,6 @@ public sealed class CatalogReadFacade(
             AfterThawingPolicy: ExpiryDefaultResolver.ResolveAfterThawing(p, parent, householdDefaults.AfterThawing),
             IsArchived: p.IsArchived,
             IsProduced: p.IsProduced,
-            DefaultLocationId: p.DefaultLocationId?.Value);
+            DefaultLocationId: p.DefaultLocationId?.Value,
+            ParentProductId: p.ParentProductId?.Value);
 }

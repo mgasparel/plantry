@@ -3,6 +3,7 @@ using Plantry.Market.Domain;
 using Plantry.Recipes.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
+using Plantry.Web.Market;
 
 namespace Plantry.Web.Recipes;
 
@@ -55,21 +56,9 @@ public sealed class PriceReaderAdapter(
     private Task<Result<decimal>> ConvertAsync(Guid productId, decimal amount, Guid from, Guid to, CancellationToken ct) =>
         converter.ConvertAsync(productId, amount, from, to, ct);
 
-    /// <summary>
-    /// Builds the rollup context for a requested id. A product absent from the catalog is treated as a
-    /// concrete leaf (self) with an unknown default unit — pre-DM-19 behaviour the recipe/meal-plan
-    /// deal-aware costing tests rely on (a leaf needs no catalog round-trip to price). A parent keeps
-    /// each live variant as its own rollup variant, populated with the variant's default unit.
-    /// </summary>
-    private static PriceRollupProduct CreateContext(Guid productId, CatalogProduct? product)
-    {
-        if (product is null)
-            return new PriceRollupProduct(productId, Guid.Empty, IsParent: false, []);
-
-        return new PriceRollupProduct(product.Id, product.DefaultUnitId, product.IsParent,
-            product.VariantProductIds.Select(id => new PriceRollupVariant(id,
-                product.VariantDefaultUnitIds?.GetValueOrDefault(id) ?? product.DefaultUnitId)).ToList());
-    }
+    /// <summary>Builds the rollup context for a requested id — see <see cref="PriceRollupContextBuilder"/>.</summary>
+    private static PriceRollupProduct CreateContext(Guid productId, CatalogProduct? product) =>
+        PriceRollupContextBuilder.Build(productId, product);
 
     /// <summary>
     /// Emits the returned <see cref="PricePoint"/> in the winning observation's own unit

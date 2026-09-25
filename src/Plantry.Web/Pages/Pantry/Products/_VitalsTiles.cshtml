@@ -6,7 +6,10 @@
     // (visually 3rd, via CSS `order`) lives entirely in _PriceDisplay.cshtml — see
     // VitalsTilesPartialModel's doc comment for why the two are split.
     var d = Model.Detail;
-    var hasStock = d.Lots.Count > 0;
+    // A parent (plantry-oh27.7) never owns lots, so Lots.Count alone would always read "not in stock"
+    // even when its variants' rolled-up total is > 0 — falling back to TotalQuantity covers that case
+    // and is a no-op for a leaf (a leaf's Lots.Count > 0 always implies TotalQuantity > 0 too).
+    var hasStock = d.Lots.Count > 0 || d.TotalQuantity > 0m;
     var oobAttr = Model.Oob ? "hx-swap-oob=true" : "";
 
     // Soonest dated lot across the active lots — mirrors InventoryQueryService's own soonest-expiry
@@ -20,13 +23,22 @@
     {
         <div class="vital__val@(d.IsRunningLow ? " vital__val--warn" : "")">@d.TotalQuantity.ToString("0.###")<small>@d.DisplayUnitCode</small></div>
         <div class="vital__sub@(d.IsRunningLow ? " vital__sub--warn" : "")">
-            @(d.IsRunningLow ? "Running low" : $"across {d.Lots.Count} lot{(d.Lots.Count == 1 ? "" : "s")}")
+            @(d.IsRunningLow ? "Running low" : d.Variants.Count > 0 ? $"across {d.Variants.Count} variant{(d.Variants.Count == 1 ? "" : "s")}" : $"across {d.Lots.Count} lot{(d.Lots.Count == 1 ? "" : "s")}")
         </div>
     }
     else
     {
         <div class="vital__val vital__val--empty">None</div>
         <div class="vital__sub">not in stock</div>
+    }
+    @if (d.UnconvertedVariantIds.Count > 0)
+    {
+        @* Parent aggregate (plantry-oh27.7): a live variant whose unit couldn't be converted into the
+           parent's display unit is excluded from TotalQuantity above but never silently dropped — this
+           note renders regardless of hasStock, since a parent whose ONLY live variants are unconverted
+           reads TotalQuantity == 0 (the "None / not in stock" branch above) and would otherwise silently
+           under-report real stock as nothing at all. *@
+        <div class="vital__sub">+ @d.UnconvertedVariantIds.Count variant@(d.UnconvertedVariantIds.Count == 1 ? "" : "s") in other units</div>
     }
 </div>
 <div class="vital" id="product-next-expiry" style="order:2" @oobAttr>

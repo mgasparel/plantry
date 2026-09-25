@@ -60,6 +60,21 @@ public static partial class DealReviewDisplay
         factorToBase is > 0m ? normalizedPrice * factorToBase.Value : normalizedPrice;
 
     /// <summary>
+    /// Renders a <see cref="DealPurchaseContext.AverageUnitPrice"/> for display (plantry-oh27.6 fix). A leaf
+    /// suggestion's average is per-BASE-unit (<see cref="DealPurchaseContext.AverageBasisUnitId"/> null) and
+    /// still needs the <see cref="PriceForUnit"/> lift into the displayed inventory unit. A parent
+    /// suggestion's average (<see cref="AverageBasisUnitId"/> set) is <b>already</b> expressed per 1 of the
+    /// parent's own default unit — the same unit <paramref name="factorToBase"/> would lift into — so
+    /// applying <see cref="PriceForUnit"/> again double-converts it (a real 10%-below deal rendering as
+    /// ~1000× the correct price). Route every "You pay" render through this one method instead of calling
+    /// <see cref="PriceForUnit"/> directly, so the basis check can never be forgotten at a call site.
+    /// </summary>
+    public static decimal AverageUnitPriceForDisplay(DealPurchaseContext purchase, decimal? factorToBase) =>
+        purchase.AverageBasisUnitId is null
+            ? PriceForUnit(purchase.AverageUnitPrice, factorToBase)
+            : purchase.AverageUnitPrice;
+
+    /// <summary>
     /// Builds the copy for the unit warning. The warning is deliberately gated by unit identity and by both
     /// display codes, so missing reference data never invents a mismatch.
     /// </summary>

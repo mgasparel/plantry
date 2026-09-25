@@ -115,4 +115,12 @@ public sealed record CatalogProductInfo(
     /// instead of an arbitrary alphabetically-first active location. Null when the product has no
     /// configured default (e.g. a freshly auto-created yield product).
     /// </summary>
-    Guid? DefaultLocationId = null);
+    Guid? DefaultLocationId = null,
+    /// <summary>
+    /// The parent product's id (DM-19) when this product is a variant; null for a root product (a
+    /// plain leaf or a parent). Added for <see cref="InventoryQueryService"/>'s
+    /// on-hand rollup (plantry-oh27.2) so a single <see cref="ICatalogReadFacade.ListProductsAsync"/>
+    /// batch load can group every household's variants by parent in memory, with no per-parent
+    /// round trip. <see cref="IsVariant"/> is the boolean-only equivalent kept for existing callers.
+    /// </summary>
+    Guid? ParentProductId = null);

@@ -188,7 +188,21 @@ public sealed class Deal : AggregateRoot<DealId>
         return Result.Success();
     }
 
-    /// <summary>Records the committed observation id after the service writes the Pricing row (DD2).</summary>
+    /// <summary>
+    /// Records the committed observation id after the service writes the Pricing row (DD2).
+    /// <para>
+    /// <b>plantry-oh27.6 — a parent-resolved deal fans out.</b> When this deal's <see cref="ProductId"/> is a
+    /// parent product, <c>ConfirmDeal</c> writes <b>one</b> <c>source='deal'</c> observation per live variant,
+    /// all sharing this deal's id as their <c>SourceRef</c> — never a single observation against the parent
+    /// itself (a parent holds no stock and carries no price). <see cref="CommittedPriceObservationId"/> still
+    /// only ever holds <b>one</b> id: the <b>lowest-ordered target variant's</b> observation, picked
+    /// deterministically so a re-drive always agrees on which one. It is provenance that the fan-out landed
+    /// (and the anchor <c>ConfirmDeal</c> checks to decide whether this call needs to (re)write at all) —
+    /// <b>never</b> "the only observation this deal produced". The full live set for a parent-resolved deal
+    /// is <c>IPriceObservationRepository.ListLiveBySourceRefAsync(PriceSource.Deal, this deal's id)</c>, not
+    /// this field.
+    /// </para>
+    /// </summary>
     public Result LinkObservation(Guid priceObservationId, IClock clock)
     {
         if (Status != DealStatus.Confirmed)

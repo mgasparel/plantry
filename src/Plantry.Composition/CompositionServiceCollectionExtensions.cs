@@ -9,6 +9,7 @@ using Plantry.Web.Deals;
 using Plantry.Web.Intake;
 using Plantry.Web.Inventory;
 using Plantry.Web.MealPlanning;
+using Plantry.Web.Market;
 using Plantry.Web.Pricing;
 using Plantry.Web.Recipes;
 using Plantry.Web.Shopping;
@@ -74,6 +75,11 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<Plantry.Market.Application.ICatalogProductReader, DealCatalogProductReaderAdapter>();
         services.AddScoped<IPurchaseFrequencyReader, PurchaseFrequencyReaderAdapter>();
         services.AddScoped<IDealShoppingListWriter, DealShoppingListWriterAdapter>();
+        // Deals→Catalog unit-conversion ACL (plantry-oh27.6): feeds PriceHistoryRollup.ForProductsAsync
+        // from ReviewDeals (which lives in Plantry.Market.Application, not Composition) when a pending
+        // deal's suggested product is a parent — rolling the "you pay $X" purchase context up across its
+        // live variants without ReviewDeals itself depending on Catalog (ADR-010/DM-3).
+        services.AddScoped<Plantry.Market.Application.IProductUnitConverter, DealUnitConverterAdapter>();
 
         // Meal Planning ACLs onto Recipes (tags, recipe read model), Identity (household members via the
         // ASP.NET-free IHouseholdDirectory port), Catalog, Inventory, Pricing, and Shopping.
@@ -133,6 +139,10 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<Plantry.Recipes.Application.IExpiringSoonHorizonReader,
             Plantry.Web.Recipes.ExpiringSoonHorizonReaderAdapter>();
         services.AddScoped<IPriceReader, PriceReaderAdapter>();
+        // Parent-aware price-history rollup (plantry-oh27.5) — registered as a concrete scoped type
+        // rather than behind a port: no consumer exists yet (the parent detail-page and deals beads
+        // wire it in), so there is nothing to define an anti-corruption port against.
+        services.AddScoped<PriceHistoryReaderAdapter>();
         services.AddScoped<IShoppingListWriter, ShoppingListWriterAdapter>();
         // Recipes → Identity household-member directory ACL (plantry-zlwp.1): the per-rating-member
         // breakdown popover's display-name/initials source, a Recipes-local copy of the same

@@ -14,7 +14,14 @@
             @Html.AntiForgeryToken()
             <div asp-validation-summary="ModelOnly" class="alert alert--danger" role="alert"></div>
 
-            <p class="field__hint">When total on-hand stock falls to or below this quantity, the item is marked as running low. Leave blank to disable the alert.</p>
+            @if (Model.IsParentProduct)
+            {
+                <p class="field__hint">Alert when total across all variants is at or below this quantity. Leave blank to disable the alert.</p>
+            }
+            else
+            {
+                <p class="field__hint">When total on-hand stock falls to or below this quantity, the item is marked as running low. Leave blank to disable the alert.</p>
+            }
 
             <div class="field field--inline">
                 <label asp-for="ThresholdInput.Threshold" class="field__label">Alert when below</label>

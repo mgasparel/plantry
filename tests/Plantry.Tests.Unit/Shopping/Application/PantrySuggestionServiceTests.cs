@@ -286,4 +286,41 @@ public sealed class PantrySuggestionServiceTests
         // After ordering by name ascending and taking 5, we expect A, B, C, D, E.
         Assert.Equal(new[] { "A", "B", "C", "D", "E" }, suggestions.Select(s => s.Name).ToArray());
     }
+
+    // ── Parent id flow (plantry-oh27.3) ───────────────────────────────────────
+    // PantrySuggestionService itself is id-agnostic — a parent id from the pantry port flows through
+    // tiering, dedup, and on-list exclusion exactly like a leaf id, since the fold to "one row per
+    // parent" already happened upstream in ShoppingPantryReaderAdapter. These tests pin that a parent
+    // id gets no special (and no missing) treatment here.
+
+    [Fact(DisplayName = "GetSuggestions — a parent product id (IsParent) surfaces as a single suggestion like any other id")]
+    public async Task GetSuggestions_ParentProductId_SurfacesAsSingleSuggestion()
+    {
+        var parentId = Guid.NewGuid();
+        var pantry = new FakeShoppingPantryReader();
+        pantry.RegisterStock(parentId, new ShoppingPantryStockLevel(parentId, OnHand: 2m, UnitCode: "ea", IsLow: true, IsParent: true));
+
+        var catalog = new FakeShoppingCatalogReaderWithSummaries();
+        catalog.RegisterSummary(parentId, new ShoppingProductSummary(parentId, "Bubly", "Drinks", CategoryHue: 210));
+
+        var svc = BuildService(pantry, catalog);
+        var suggestions = await svc.GetSuggestionsAsync(new HashSet<Guid>());
+
+        var suggestion = Assert.Single(suggestions);
+        Assert.Equal(parentId, suggestion.ProductId);
+        Assert.Equal("Bubly", suggestion.Name);
+    }
+
+    [Fact(DisplayName = "GetSuggestions — a parent product id already on the list is excluded, same as a leaf id")]
+    public async Task GetSuggestions_ParentProductIdOnList_IsExcluded()
+    {
+        var parentId = Guid.NewGuid();
+        var pantry = new FakeShoppingPantryReader();
+        pantry.RegisterStock(parentId, new ShoppingPantryStockLevel(parentId, OnHand: 0m, UnitCode: "ea", IsLow: false, IsParent: true));
+
+        var svc = BuildService(pantry);
+        var suggestions = await svc.GetSuggestionsAsync(new HashSet<Guid> { parentId });
+
+        Assert.Empty(suggestions);
+    }
 }

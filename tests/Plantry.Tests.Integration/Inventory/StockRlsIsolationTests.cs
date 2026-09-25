@@ -13,9 +13,9 @@ namespace Plantry.Tests.Integration.Inventory;
 
 /// <summary>
 /// L3 integration tests proving Postgres RLS isolates the Inventory tables (<c>product_stock</c>,
-/// <c>stock_entry</c>, <c>stock_journal_entry</c>) exactly like the Catalog tables — household A
-/// physically cannot read household B's stock (PHASE-1-PLAN.md Slice 2, Stage B done-when:
-/// "RLS isolation proven on the inventory schema"). Mirrors <c>ProductRlsIsolationTests</c>.
+/// <c>stock_entry</c>, <c>stock_journal_entry</c>, <c>low_stock_rule</c>) exactly like the Catalog
+/// tables — household A physically cannot read household B's stock (PHASE-1-PLAN.md Slice 2, Stage B
+/// done-when: "RLS isolation proven on the inventory schema"). Mirrors <c>ProductRlsIsolationTests</c>.
 /// </summary>
 [Collection(nameof(PostgresCollection))]
 public sealed class StockRlsIsolationTests(PostgresFixture db) : IAsyncLifetime
@@ -44,6 +44,7 @@ public sealed class StockRlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         stock.AddStock(100m, Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(),
             SystemClock.Instance, expiryDate: new DateOnly(2026, 7, 1));
         await seedDb.ProductStocks.AddAsync(stock);
+        await seedDb.LowStockRules.AddAsync(LowStockRule.Create(household, productId, 5m, SystemClock.Instance));
         await seedDb.SaveChangesAsync();
     }
 
@@ -82,6 +83,7 @@ public sealed class StockRlsIsolationTests(PostgresFixture db) : IAsyncLifetime
         await AssertOnlyHouseholdVisibleAsync(conn, "inventory.product_stock", _householdA.Value, _householdB.Value);
         await AssertOnlyHouseholdVisibleAsync(conn, "inventory.stock_entry", _householdA.Value, _householdB.Value);
         await AssertOnlyHouseholdVisibleAsync(conn, "inventory.stock_journal_entry", _householdA.Value, _householdB.Value);
+        await AssertOnlyHouseholdVisibleAsync(conn, "inventory.low_stock_rule", _householdA.Value, _householdB.Value);
     }
 
     [Fact(DisplayName = "RLS backstop (live path): interceptor arms app.household_id; only own household's stock visible")]

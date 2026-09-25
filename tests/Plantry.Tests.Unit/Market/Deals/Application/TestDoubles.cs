@@ -1,9 +1,34 @@
 using Plantry.Market.Application;
 using Plantry.Market.Domain;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Unit.Market;
 
 namespace Plantry.Tests.Unit.Market.Deals.Application;
+
+/// <summary>
+/// Fake <see cref="IProductUnitConverter"/> (plantry-oh27.6) — the Market-side unit-conversion port
+/// <c>ReviewDeals</c> uses both for <see cref="PriceHistoryRollup"/>'s per-observation conversion and for
+/// normalizing a deal's own price onto a parent's reference unit. Defaults to identity (factor 1, success)
+/// so tests with no parent scenario in play, or whose observations already share a unit with the reference,
+/// never need to configure it. Set <see cref="Factor"/>/<see cref="Fails"/> for a non-identity or
+/// no-conversion-path scenario.
+/// </summary>
+internal sealed class FakeProductUnitConverter : IProductUnitConverter
+{
+    public decimal Factor { get; set; } = 1m;
+    public bool Fails { get; set; }
+    public List<(Guid ProductId, Guid FromUnitId, Guid ToUnitId)> Calls { get; } = [];
+
+    public Task<Result<decimal>> ConvertAsync(
+        Guid productId, decimal amount, Guid fromUnitId, Guid toUnitId, CancellationToken ct = default)
+    {
+        Calls.Add((productId, fromUnitId, toUnitId));
+        return Task.FromResult(Fails
+            ? Result<decimal>.Failure(Error.Custom("Test.NoConversionPath", "No conversion path configured."))
+            : Result<decimal>.Success(amount * Factor));
+    }
+}
 
 internal sealed class FakeStoreSubscriptionRepository : IStoreSubscriptionRepository
 {

@@ -48,8 +48,8 @@ public sealed class DealCatalogProductReaderAdapterTests
         Assert.False(await Adapter(new FakeProductRepository()).ExistsAsync(Guid.NewGuid()));
     }
 
-    [Fact(DisplayName = "ListCandidatesAsync excludes parent products that cannot hold stock (DM-19)")]
-    public async Task ListCandidatesAsync_Excludes_Parents()
+    [Fact(DisplayName = "ListCandidatesAsync includes parent products, flagged IsParent (plantry-oh27.6)")]
+    public async Task ListCandidatesAsync_Includes_Parents()
     {
         var standalone = Product.Create(Household, "Milk", Unit.Id, SystemClock.Instance);
         var parent = Product.Create(Household, "Bubly", Unit.Id, SystemClock.Instance);
@@ -60,9 +60,11 @@ public sealed class DealCatalogProductReaderAdapterTests
 
         var candidates = await Adapter(products).ListCandidatesAsync();
 
-        var candidate = Assert.Single(candidates);
-        Assert.Equal(standalone.Id.Value, candidate.Id);
-        Assert.Equal("Milk", candidate.Name);
+        Assert.Equal(2, candidates.Count);
+        var milk = Assert.Single(candidates, c => c.Id == standalone.Id.Value);
+        Assert.False(milk.IsParent);
+        var bubly = Assert.Single(candidates, c => c.Id == parent.Id.Value);
+        Assert.True(bubly.IsParent);
     }
 
     [Fact(DisplayName = "ForProductsAsync short-circuits on an empty id list")]
@@ -104,6 +106,49 @@ public sealed class DealCatalogProductReaderAdapterTests
         var info = Assert.Single(result).Value;
         Assert.Equal("Discontinued Soda", info.Name);
         Assert.Null(info.CategoryName);
+    }
+
+    [Fact(DisplayName = "ForProductsAsync resolves a parent's live variant ids, excluding archived siblings (plantry-oh27.6)")]
+    public async Task ForProductsAsync_Resolves_Live_Variant_Ids()
+    {
+        var parent = Product.Create(Household, "Bubly", Unit.Id, SystemClock.Instance);
+        parent.SetHasVariants(true, SystemClock.Instance);
+        var orange = Product.Create(Household, "Bubly Orange", Unit.Id, SystemClock.Instance);
+        orange.MakeVariantOf(parent.Id, SystemClock.Instance);
+        var lime = Product.Create(Household, "Bubly Lime", Unit.Id, SystemClock.Instance);
+        lime.MakeVariantOf(parent.Id, SystemClock.Instance);
+        var discontinued = Product.Create(Household, "Bubly Grape", Unit.Id, SystemClock.Instance);
+        discontinued.MakeVariantOf(parent.Id, SystemClock.Instance);
+        discontinued.Archive(SystemClock.Instance);
+
+        var products = new FakeProductRepository();
+        products.Items.Add(parent);
+        products.Items.Add(orange);
+        products.Items.Add(lime);
+        products.Items.Add(discontinued);
+
+        var result = await Adapter(products).ForProductsAsync([parent.Id.Value]);
+
+        var info = Assert.Single(result).Value;
+        Assert.True(info.IsParent);
+        Assert.Equal(2, info.LiveVariantIds.Count);
+        Assert.Contains(orange.Id.Value, info.LiveVariantIds);
+        Assert.Contains(lime.Id.Value, info.LiveVariantIds);
+        Assert.DoesNotContain(discontinued.Id.Value, info.LiveVariantIds);
+    }
+
+    [Fact(DisplayName = "ForProductsAsync a leaf product has an empty LiveVariantIds (plantry-oh27.6)")]
+    public async Task ForProductsAsync_Leaf_Has_No_Variants()
+    {
+        var product = Product.Create(Household, "Milk", Unit.Id, SystemClock.Instance);
+        var products = new FakeProductRepository();
+        products.Items.Add(product);
+
+        var result = await Adapter(products).ForProductsAsync([product.Id.Value]);
+
+        var info = Assert.Single(result).Value;
+        Assert.False(info.IsParent);
+        Assert.Empty(info.LiveVariantIds);
     }
 
     [Fact(DisplayName = "ForProductsAsync omits an id that resolves to no product at all")]

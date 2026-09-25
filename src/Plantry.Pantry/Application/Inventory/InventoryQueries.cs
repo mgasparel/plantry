@@ -34,19 +34,28 @@ public sealed record PantryListItem(
     /// <summary>True when <see cref="TotalQuantity"/> ≤ <see cref="LowStockThreshold"/> and a threshold is set.</summary>
     bool IsRunningLow = false,
     /// <summary>
-    /// True for a genuine pantry row (came from <see cref="InventoryQueryService.ListPantryAsync"/>,
-    /// which only ever emits products with ≥1 active lot). False marks a synthesized row the Web
-    /// layer added for the Pantry "Everything" scope (plantry-sjfn) — a catalog product with no
-    /// active lots at all. Defaults true so every existing call site (which never sets it) keeps
-    /// today's behaviour unchanged; only the Web-layer merge sets it false.
+    /// True for a row backed by real, present stock. For a leaf this means the row came from
+    /// <see cref="InventoryQueryService.ListPantryAsync"/>'s own loop, which only ever emits products
+    /// with ≥1 active lot. False marks either a synthesized row the Web layer added for the Pantry
+    /// "Everything" scope (plantry-sjfn) — a catalog product with no active lots at all — or, since
+    /// plantry-oh27.7, a rolled-up parent row whose live variants are all a "depleted shell" (every
+    /// variant's <c>ProductStock</c> row survived past its last lot, so the parent is discoverable but
+    /// has zero on-hand); that parent shape only reaches this record at all because it carries a
+    /// household <see cref="LowStockRule"/> — see <see cref="InventoryQueryService.BuildParentPantryItemsAsync"/>.
+    /// Defaults true so every existing call site (which never sets it) keeps today's behaviour
+    /// unchanged; only the Web-layer merge and the parent fold set it false.
     /// </summary>
     bool IsStocked = true,
     /// <summary>
     /// True when this row represents a catalog "parent" product (plantry-sjfn) — a grouping product
-    /// that can never itself hold stock, so it only ever appears as a synthesized "Everything" scope
-    /// row. Mirrors <see cref="Plantry.Pantry.Application.ProductListItem.IsParent"/>; kept here
-    /// (rather than derived) so the pantry grid's Kind badge can render "Parent" for these rows the
-    /// same way <c>Catalog.Products</c> used to, without the grid reaching back into Catalog.
+    /// that can never itself hold stock. Originally this meant the row could only be a synthesized
+    /// "Everything" scope row; since plantry-oh27.7's rolled-up parent fold
+    /// (<see cref="InventoryQueryService.BuildParentPantryItemsAsync"/>), a parent row can also appear
+    /// in any pantry scope with a real, rolled-up <see cref="TotalQuantity"/> — either because it
+    /// carries a household rule or because at least one live variant is currently stocked. Mirrors
+    /// <see cref="Plantry.Pantry.Application.ProductListItem.IsParent"/>; kept here (rather than
+    /// derived) so the pantry grid's Kind badge can render "Parent" for these rows the same way
+    /// <c>Catalog.Products</c> used to, without the grid reaching back into Catalog.
     /// </summary>
     bool IsParent = false,
     /// <summary>
@@ -128,7 +137,30 @@ public sealed record ExpiringSoonItem(
     int DaysLeft,
     bool IsExpired);
 
-/// <summary>The product detail read model: live lots plus recent journal history.</summary>
+/// <summary>
+/// One live variant's contribution to a parent's on-hand breakdown (plantry-oh27.7) — the Parent
+/// Product Detail page's per-variant row. Mirrors <see cref="OnHandVariantContribution"/> plus a
+/// household-facing "low/out" marker; always empty for a leaf's own <see cref="ProductStockDetail"/>.
+/// </summary>
+/// <param name="IsLow">True when the variant breaches its OWN <see cref="LowStockRule"/> if one is set
+/// for it directly, else true when it is simply out of stock (<see cref="OnHand"/> ≤ 0) — a variant
+/// breakdown row degrades to the "out" marker rather than showing nothing when no per-variant threshold
+/// has ever been configured (thresholds in this epic are set at the parent level by default).</param>
+/// <param name="IsArchivedHidden">Always false today — <see cref="IOnHandRollupQuery"/> only ever folds
+/// in live (non-archived) variants, so an archived variant never reaches this list. Reserved so a future
+/// "show archived too" toggle has a field to flip without a breaking record change.</param>
+public sealed record VariantStockLine(
+    Guid VariantId,
+    string Name,
+    decimal OnHand,
+    string UnitCode,
+    decimal? ConvertedOnHand,
+    bool IsLow,
+    bool IsArchivedHidden = false);
+
+/// <summary>The product detail read model: live lots plus recent journal history — or, for a parent
+/// product (plantry-oh27.7), the rolled-up aggregate and per-variant breakdown in place of lots/history,
+/// which stay empty (a parent never owns a <see cref="ProductStock"/> row).</summary>
 public sealed record ProductStockDetail(
     Guid ProductId,
     string Name,
@@ -136,6 +168,16 @@ public sealed record ProductStockDetail(
     decimal TotalQuantity,
     IReadOnlyList<StockLotRow> Lots,
     IReadOnlyList<StockJournalRow> History,
+    /// <summary>Per-variant on-hand breakdown for a parent product (plantry-oh27.7), ordered by name.
+    /// Always empty for a leaf. No default value — a <c>[]</c> collection literal cannot be a C# default
+    /// parameter value (CS1736), so every constructor call passes this explicitly; positioned ahead of
+    /// the optional parameters below for the same reason (CS1737, optional params must trail).</summary>
+    IReadOnlyList<VariantStockLine> Variants,
+    /// <summary>Live variants whose on-hand could not be converted into the parent's display unit
+    /// (plantry-oh27.2) — excluded from <see cref="TotalQuantity"/>, never silently dropped from
+    /// <see cref="Variants"/>. Drives the vitals strip's "+ N variants in other units" note. Always
+    /// empty for a leaf. No default value, same CS1736/CS1737 reasons as <see cref="Variants"/>.</summary>
+    IReadOnlyList<Guid> UnconvertedVariantIds,
     string? CategoryName = null,
     /// <summary>Hue in degrees (0–359) from the product's category. Null when uncategorised or no hue assigned.</summary>
     int? CategoryHue = null,
@@ -187,11 +229,13 @@ public sealed record ProductConsumptionStats(
 /// </summary>
 public class InventoryQueryService(
     IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
     IExpiringSoonHorizon horizon,
     IClock clock,
-    ITenantContext tenant)
+    ITenantContext tenant,
+    IOnHandRollupQuery rollup)
 {
     /// <summary>Maximum number of rows returned by <see cref="ExpiringSoonAsync"/> (top-N soonest-first).</summary>
     public const int ExpiringSoonMaxItems = 10;
@@ -228,6 +272,7 @@ public class InventoryQueryService(
         var unitCodes = await catalog.GetUnitCodesAsync(ct);
         var today = Today();
         var expiringSoonDays = await horizon.GetDaysAsync(ct);
+        var rulesByProduct = await rules.ListForHouseholdAsync(HouseholdId.From(householdId), ct);
 
         var convertersByProduct = await conversions.ForProductsAsync(allStock.Select(s => s.ProductId), ct);
 
@@ -243,6 +288,7 @@ public class InventoryQueryService(
             var converter = convertersByProduct[stock.ProductId];
             var (total, displayUnitCode) = DisplayQuantity(activeLots, product.DefaultUnitId, product.DefaultUnitCode, converter, unitCodes);
             var soonest = activeLots.Where(l => l.ExpiryDate is not null).Min(l => l.ExpiryDate);
+            rulesByProduct.TryGetValue(stock.ProductId, out var rule);
 
             var distinctLocations = activeLots.Select(l => l.LocationId).Distinct().ToList();
             var locationDisplay = distinctLocations.Count switch
@@ -264,11 +310,23 @@ public class InventoryQueryService(
                 soonest,
                 ToneFor(soonest, today, expiringSoonDays),
                 CategoryHue: product.CategoryHue,
-                LowStockThreshold: stock.LowStockThreshold,
-                IsRunningLow: stock.IsRunningLow(total),
+                LowStockThreshold: rule?.Threshold,
+                IsRunningLow: rule is not null && rule.IsRunningLow(total),
                 IsArchived: product.IsArchived,
                 IsProduced: product.IsProduced));
         }
+
+        // Parent rollup (plantry-oh27.7): a parent never owns a ProductStock row, so it can never
+        // surface via the loop above — fold in every parent with a household rule (the alert must stay
+        // discoverable even before any variant is stocked) or with >= 1 live variant already contributing
+        // stock, using the same IOnHandRollupQuery every other rollup surface reads from. Guarded on
+        // productsById (already loaded above) actually containing a parent — rollup.ForHouseholdAsync
+        // re-runs a full household stock+catalog+converter load internally, so a household with no
+        // product groups at all (the common case) must not pay that doubling just to discover zero rows;
+        // BuildParentPantryItemsAsync's fold only ever emits ids present in productsById, so this check
+        // cannot miss a parent the fold would otherwise have surfaced.
+        if (productsById.Values.Any(p => !p.CanHoldStock))
+            items.AddRange(await BuildParentPantryItemsAsync(rulesByProduct, productsById, ct));
 
         return items
             .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
@@ -276,18 +334,95 @@ public class InventoryQueryService(
     }
 
     /// <summary>
-    /// The number of products currently in the pantry — the row count <see cref="ListPantryAsync"/>
-    /// would produce, computed without materializing names, locations, or unit conversions. Applies the
-    /// same inclusion predicate: a stock counts iff it has at least one active lot and its product still
-    /// exists in the catalog. Returns 0 when there is no household in the tenant context.
+    /// Parent rows for <see cref="ListPantryAsync"/> (plantry-oh27.7) — every parent product with a
+    /// household <see cref="LowStockRule"/> set OR with at least one live variant already contributing
+    /// stock (<see cref="IOnHandRollupQuery.ForHouseholdAsync"/>'s own discovery rule), rendered with the
+    /// rolled-up aggregate rather than being absent from the pantry list just because a parent itself
+    /// never owns a <see cref="ProductStock"/> row.
+    /// </summary>
+    private async Task<IReadOnlyList<PantryListItem>> BuildParentPantryItemsAsync(
+        IReadOnlyDictionary<Guid, LowStockRule> rulesByProduct,
+        IReadOnlyDictionary<Guid, CatalogProductInfo> productsById, CancellationToken ct)
+    {
+        var householdLevels = await rollup.ForHouseholdAsync(ct);
+        var discoveredParentIds = householdLevels
+            .Where(kv => kv.Value.IsParent)
+            .Select(kv => kv.Key)
+            .ToHashSet();
+
+        // A parent with a rule but no stocked variant yet is invisible to ForHouseholdAsync's discovery
+        // scan (rule 3 there is scoped to leaves) — resolve those explicitly so the alert still renders.
+        // rulesByProduct also carries LEAF rules (the common case), so this is pre-filtered to ids that
+        // are genuinely parents (via the already-loaded productsById) before spending a third
+        // OnHandRollupQuery.LoadAsync round trip on ids that would just be discarded below anyway.
+        var ruledParentIdsNeedingLookup = rulesByProduct.Keys
+            .Where(id => !discoveredParentIds.Contains(id)
+                && productsById.TryGetValue(id, out var p) && !p.CanHoldStock)
+            .ToList();
+        var extraLevels = ruledParentIdsNeedingLookup.Count == 0
+            ? new Dictionary<Guid, OnHandLevel>()
+            : await rollup.ForProductsAsync(ruledParentIdsNeedingLookup, ct);
+
+        var parentLevels = householdLevels.Where(kv => kv.Value.IsParent)
+            .Concat(extraLevels.Where(kv => kv.Value.IsParent))
+            .ToList();
+        if (parentLevels.Count == 0) return [];
+
+        var result = new List<PantryListItem>(parentLevels.Count);
+        foreach (var (parentId, level) in parentLevels)
+        {
+            if (!productsById.TryGetValue(parentId, out var product)) continue; // removed since the scan
+            rulesByProduct.TryGetValue(parentId, out var rule);
+
+            // A "depleted shell" parent — every live variant's ProductStock row survives after its
+            // last lot was consumed, which is exactly what makes ForHouseholdAsync/ForProductsAsync
+            // discover the parent at all, but with zero on-hand across every variant. Without a rule
+            // to alert on, that shell has nothing to show and must not become a permanent 0-quantity
+            // ghost row in the default "In stock" scope — ListPantryAsync's own leaf loop above drops
+            // the equivalent case (an empty shell is not a pantry row) for the same reason.
+            var hasStockedVariant = level.Variants.Any(v => v.OnHand > 0m);
+            if (rule is null && !hasStockedVariant) continue;
+
+            result.Add(new PantryListItem(
+                parentId,
+                product.Name,
+                product.CategoryName,
+                LocationDisplay: null, // no single lot location makes sense for a rolled-up parent
+                IsVariant: false,
+                level.OnHand,
+                level.UnitCode,
+                LotCount: level.Variants.Count(v => v.OnHand > 0m),
+                SoonestExpiry: null,
+                ExpiryTone.None,
+                CategoryHue: product.CategoryHue,
+                LowStockThreshold: rule?.Threshold,
+                IsRunningLow: rule is not null && rule.IsRunningLow(level.OnHand),
+                IsStocked: hasStockedVariant,
+                IsArchived: product.IsArchived,
+                IsProduced: product.IsProduced,
+                IsParent: true));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The number of leaf pantry rows — i.e. <see cref="ListPantryAsync"/>'s own leaf stock loop,
+    /// computed without materializing names, locations, or unit conversions. Deliberately EXCLUDES the
+    /// rolled-up parent rows <see cref="ListPantryAsync"/> folds in via <see cref="BuildParentPantryItemsAsync"/>
+    /// (plantry-oh27.7): a parent row is a grouping view over stock its variants already contribute, so
+    /// counting it too would double-count physical stock. Otherwise applies the same per-stock inclusion
+    /// predicate as the leaf loop: a stock counts iff it has at least one active lot and its product
+    /// still exists in the catalog. Returns 0 when there is no household in the tenant context.
     /// </summary>
     public virtual async Task<int> CountInStockAsync(CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdId)
             return 0;
         var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdId), ct);
-        // Same archived-inclusive predicate as ListPantryAsync (plantry-lxm2) — this count must keep
-        // agreeing with the rows that method would actually produce, per its own doc contract.
+        // Same archived-inclusive predicate as ListPantryAsync's leaf loop (plantry-lxm2) — but this
+        // count deliberately does NOT mirror ListPantryAsync's full result: it never folds in the
+        // rolled-up parent rows BuildParentPantryItemsAsync adds (plantry-oh27.7), since a parent row
+        // represents stock already counted through its variants, not additional physical stock.
         var knownProductIds = (await catalog.ListProductsAsync(ct))
             .Concat(await catalog.ListArchivedProductsAsync(ct))
             .Select(p => p.Id).ToHashSet();
@@ -389,8 +524,16 @@ public class InventoryQueryService(
         if (tenant.HouseholdId is not { } householdId)
             return null;
 
-        var stock = await stocks.FindWithHistoryAsync(HouseholdId.From(householdId), productId, ct);
         var product = await catalog.FindProductAsync(productId, ct);
+        var rule = await rules.FindAsync(HouseholdId.From(householdId), productId, ct);
+
+        // A parent never owns a ProductStock row (epic constraint, plantry-oh27) — route straight to
+        // the rolled-up aggregate/variant-breakdown shape instead of probing stocks.FindWithHistoryAsync
+        // for a row that structurally cannot exist.
+        if (product is { CanHoldStock: false })
+            return await BuildParentDetailAsync(HouseholdId.From(householdId), productId, product, rule, ct);
+
+        var stock = await stocks.FindWithHistoryAsync(HouseholdId.From(householdId), productId, ct);
 
         if (stock is null)
         {
@@ -398,14 +541,18 @@ public class InventoryQueryService(
             // products straight to this page, so a product that exists in the catalog but has no
             // ProductStock record yet renders the zero-lot empty state rather than 404ing — the
             // Detail page model then decides what "no lots" looks like (Add stock CTA, Consume
-            // omitted). A stale/removed id still genuinely 404s, same as before.
+            // omitted). A stale/removed id still genuinely 404s, same as before. A LowStockRule can
+            // exist here even with no stock (e.g. a parent product, plantry-oh27.1) — surface it,
+            // though IsRunningLow is always false at zero on-hand.
             if (product is null) return null;
             return new ProductStockDetail(
                 productId, product.Name, product.DefaultUnitCode, 0m, [], [],
                 CategoryName: product.CategoryName,
                 CategoryHue: product.CategoryHue,
-                LowStockThreshold: null,
-                IsRunningLow: false);
+                LowStockThreshold: rule?.Threshold,
+                IsRunningLow: false,
+                Variants: [],
+                UnconvertedVariantIds: []);
         }
 
         var unitCodes = await catalog.GetUnitCodesAsync(ct);
@@ -455,8 +602,53 @@ public class InventoryQueryService(
             history,
             CategoryName: product?.CategoryName,
             CategoryHue: product?.CategoryHue,
-            LowStockThreshold: stock.LowStockThreshold,
-            IsRunningLow: stock.IsRunningLow(total));
+            LowStockThreshold: rule?.Threshold,
+            IsRunningLow: rule is not null && rule.IsRunningLow(total),
+            Variants: [],
+            UnconvertedVariantIds: []);
+    }
+
+    /// <summary>
+    /// The parent-product shape of <see cref="FindDetailAsync"/> (plantry-oh27.7): aggregate on-hand and
+    /// the per-variant breakdown from the shared <see cref="IOnHandRollupQuery"/> — the same rollup and
+    /// selection policy the pantry list and the shopping/deals surfaces already use, so this page's
+    /// numbers can never disagree with theirs. Lots/History stay empty (a parent never owns a
+    /// <see cref="ProductStock"/> row to source them from).
+    /// </summary>
+    private async Task<ProductStockDetail> BuildParentDetailAsync(
+        HouseholdId householdId, Guid productId, CatalogProductInfo parent, LowStockRule? rule, CancellationToken ct)
+    {
+        var levels = await rollup.ForProductsAsync([productId], ct);
+        var level = levels.GetValueOrDefault(productId);
+        var variants = level?.Variants ?? [];
+
+        // Batch-loaded once (rule 5 discipline, mirrors OnHandRollupQuery itself) only when there is at
+        // least one variant to look up against — a per-variant threshold is the exception, not the norm,
+        // in this epic (thresholds are usually set at the parent level).
+        var variantRulesByProduct = variants.Count == 0
+            ? new Dictionary<Guid, LowStockRule>()
+            : await rules.ListForHouseholdAsync(householdId, ct);
+
+        var variantLines = variants
+            .Select(v => new VariantStockLine(
+                v.VariantId, v.Name, v.OnHand, v.UnitCode, v.ConvertedOnHand,
+                IsLow: variantRulesByProduct.TryGetValue(v.VariantId, out var vRule)
+                    ? vRule.IsRunningLow(v.OnHand)
+                    : v.OnHand <= 0m))
+            .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var total = level?.OnHand ?? 0m;
+        var unitCode = level?.UnitCode ?? parent.DefaultUnitCode;
+
+        return new ProductStockDetail(
+            productId, parent.Name, unitCode, total, Lots: [], History: [],
+            CategoryName: parent.CategoryName,
+            CategoryHue: parent.CategoryHue,
+            LowStockThreshold: rule?.Threshold,
+            IsRunningLow: rule is not null && rule.IsRunningLow(total),
+            Variants: variantLines,
+            UnconvertedVariantIds: level?.UnconvertedVariantIds ?? []);
     }
 
     /// <summary>

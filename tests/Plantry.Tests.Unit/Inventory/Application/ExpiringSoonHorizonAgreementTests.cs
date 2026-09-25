@@ -73,9 +73,12 @@ public sealed class ExpiringSoonHorizonAgreementTests
             stocks.Items.Add(stock);
         }
 
+        var tenant = new FakeTenantContext(Household.Value);
+        var conversions = new FakeConversionProvider(new IdentityQuantityConverter());
+        var rollup = new OnHandRollupQuery(stocks, catalog, conversions, tenant);
         var service = new InventoryQueryService(
-            stocks, catalog, new FakeConversionProvider(new IdentityQuantityConverter()),
-            new FakeExpiringSoonHorizon(Horizon), Clock, new FakeTenantContext(Household.Value));
+            stocks, new FakeLowStockRuleRepository(), catalog, conversions,
+            new FakeExpiringSoonHorizon(Horizon), Clock, tenant, rollup);
 
         var widget = await service.ExpiringSoonAsync();
         return widget.Select(i => i.ProductId).ToHashSet();

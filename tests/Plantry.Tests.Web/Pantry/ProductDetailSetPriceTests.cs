@@ -390,6 +390,9 @@ internal sealed class ProductDetailSetPriceFactory : WebApplicationFactory<Progr
             services.RemoveAll<IProductStockRepository>();
             services.AddSingleton<IProductStockRepository>(stockRepo);
 
+            services.RemoveAll<ILowStockRuleRepository>();
+            services.AddSingleton<ILowStockRuleRepository>(new FakeLowStockRuleRepository());
+
             services.RemoveAll<IProductConversionProvider>();
             services.AddSingleton<IProductConversionProvider>(new IdentityConversionProvider());
 
@@ -627,6 +630,12 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
                 && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual)
                 && p.SupersededById is null)
             .OrderBy(p => p.ObservedAt)
+            .ToList());
+
+    public Task<IReadOnlyList<PriceObservation>> ListLiveBySourceRefAsync(
+        PriceSource source, Guid sourceRef, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>(Items
+            .Where(p => p.Source == source && p.SourceRef == sourceRef && p.SupersededById is null)
             .ToList());
 
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>

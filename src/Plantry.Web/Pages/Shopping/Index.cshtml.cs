@@ -138,6 +138,7 @@ public sealed class IndexModel(
     public async Task<ContentResult> OnGetFilterProductsAsync(string? q)
     {
         var candidates = await catalog.ListProductsAsync();
+        var isParentById = candidates.ToDictionary(p => p.ProductId, p => p.IsParent);
 
         List<(Guid ProductId, string Name, string? RankLabel)> matches;
         if (string.IsNullOrWhiteSpace(q))
@@ -184,8 +185,16 @@ public sealed class IndexModel(
                     stockBadge = """<span class="ostock out">out</span>""";
                 }
             }
+
+            // Parent hint (plantry-oh27.4): a subtle "any variant" tag, reusing the .rk trailing-label
+            // pattern (already reused elsewhere for a non-rank badge, e.g. the incompatible-variant tag)
+            // rather than inventing a new component. Appears before the stock badge.
+            var parentHint = isParentById.GetValueOrDefault(match.ProductId)
+                ? """<span class="rk">any variant</span>"""
+                : null;
+
             html.Append(ProductSearchOptionRenderer.RenderSelectOption(
-                match.ProductId.ToString(), match.Name, match.RankLabel, stockBadge));
+                match.ProductId.ToString(), match.Name, match.RankLabel, parentHint + stockBadge));
         }
         return Content(html.ToString(), "text/html");
     }
@@ -512,19 +521,20 @@ public sealed class IndexModel(
 
     /// <summary>
     /// Builds the "Running low in your pantry" suggestion list (plantry-48l).
-    /// Collects product ids already on the list (checked and unchecked), then delegates
-    /// to <see cref="PantrySuggestionService"/> for the fetch → exclude → order → cap → enrich pipeline.
+    /// Collects product ids already on the list (checked and unchecked), expands each to its parent/variant
+    /// family (plantry-oh27.4 dedup — see <see cref="ExpandFamilyAsync"/>), then delegates to
+    /// <see cref="PantrySuggestionService"/> for the fetch → exclude → order → cap → enrich pipeline.
     /// Only called from handlers that change onListProductIds (AddItem product-backed, DeleteItem,
     /// ClearChecked) and the initial GET.
     /// </summary>
-    public Task<IReadOnlyList<PantrySuggestion>> LoadSuggestionsAsync(
+    public async Task<IReadOnlyList<PantrySuggestion>> LoadSuggestionsAsync(
         ShoppingListView? list,
         CancellationToken ct = default)
     {
         // Collect product ids already on the list (unchecked AND checked) so we can exclude them.
         // A checked item is "in progress" (user is buying it), so it should not appear as a suggestion.
-        IReadOnlySet<Guid> onListProductIds = list is null
-            ? (IReadOnlySet<Guid>)new HashSet<Guid>()
+        HashSet<Guid> onListProductIds = list is null
+            ? []
             : list.Groups.SelectMany(g => g.Items)
                 .Concat(list.UncategorizedItems)
                 .Concat(list.CheckedItems)
@@ -532,7 +542,38 @@ public sealed class IndexModel(
                 .Select(i => i.ProductId!.Value)
                 .ToHashSet();
 
-        return suggestionService.GetSuggestionsAsync(onListProductIds, ct);
+        var expanded = await ExpandFamilyAsync(onListProductIds, ct);
+        return await suggestionService.GetSuggestionsAsync(expanded, ct);
+    }
+
+    /// <summary>
+    /// Expands a set of on-list product ids to also cover their parent/variant family (plantry-oh27.4 —
+    /// "with 'Bubly Orange' on the list, 'Bubly' can still be suggested" is the bug this closes). A
+    /// variant on the list also counts its parent as on-list (and vice versa for a parent), so the
+    /// dedup rule is "family", not "exact id": having any one variant, or the parent itself, covers the
+    /// whole group for suggestion purposes.
+    /// </summary>
+    private async Task<IReadOnlySet<Guid>> ExpandFamilyAsync(
+        IReadOnlySet<Guid> onListProductIds, CancellationToken ct)
+    {
+        if (onListProductIds.Count == 0)
+            return onListProductIds;
+
+        var families = await catalog.ResolveFamilyAsync(onListProductIds.ToList(), ct);
+
+        var expanded = new HashSet<Guid>(onListProductIds);
+        foreach (var id in onListProductIds)
+        {
+            if (!families.TryGetValue(id, out var family))
+                continue;
+
+            if (family.ParentId is { } parentId)
+                expanded.Add(parentId);
+
+            foreach (var variant in family.Variants)
+                expanded.Add(variant.ProductId);
+        }
+        return expanded;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);

@@ -324,6 +324,12 @@ public sealed class DealAwareCostingAdapterTests
                 .OrderBy(o => o.ObservedAt)
                 .ToList());
 
+        public Task<IReadOnlyList<PriceObservation>> ListLiveBySourceRefAsync(
+            PriceSource source, Guid sourceRef, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<PriceObservation>>(_items
+                .Where(o => o.Source == source && o.SourceRef == sourceRef && o.SupersededById is null)
+                .ToList());
+
         public Task<PriceObservation?> ActiveDealForPurchaseAsync(
             Guid productId, Guid storeId, DateOnly observedDate, decimal purchaseUnitPrice, decimal tolerance, CancellationToken ct = default) =>
             Task.FromResult(_items

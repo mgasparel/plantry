@@ -31,9 +31,9 @@ public sealed class ProductDetailVitalsTests : IDisposable
 
     public void Dispose() => _factory?.Dispose();
 
-    private HttpClient AuthClient(ProductStock stock)
+    private HttpClient AuthClient(ProductStock stock, LowStockRule? rule = null)
     {
-        _factory = new ProductDetailVitalsFactory(stock);
+        _factory = new ProductDetailVitalsFactory(stock, rule);
         var client = _factory.CreateClient(new() { AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Add(TestAuthHandler.HouseholdHeader, ProductDetailVitalsFixture.HouseholdId.ToString());
         return client;
@@ -44,8 +44,9 @@ public sealed class ProductDetailVitalsTests : IDisposable
     {
         var stock = ProductStock.Start(ProductDetailVitalsFixture.Household, ProductDetailVitalsFixture.ProductId, ProductDetailVitalsFixture.Clock);
         stock.AddStock(4m, ProductDetailVitalsFixture.UnitId, ProductDetailVitalsFixture.LocationId, Guid.NewGuid(), ProductDetailVitalsFixture.Clock);
-        stock.SetLowStockThreshold(5m, ProductDetailVitalsFixture.Clock);
-        var client = AuthClient(stock);
+        var rule = LowStockRule.Create(
+            ProductDetailVitalsFixture.Household, ProductDetailVitalsFixture.ProductId, 5m, ProductDetailVitalsFixture.Clock);
+        var client = AuthClient(stock, rule);
 
         var html = await (await client.GetAsync($"/Pantry/Products/Detail/{ProductDetailVitalsFixture.ProductId}"))
             .Content.ReadAsStringAsync();
@@ -170,7 +171,7 @@ internal sealed class IdentityQuantityConverter : IQuantityConverter
 
 // ── WAF factory ───────────────────────────────────────────────────────────────
 
-internal sealed class ProductDetailVitalsFactory(ProductStock stock) : WebApplicationFactory<Program>
+internal sealed class ProductDetailVitalsFactory(ProductStock stock, LowStockRule? rule = null) : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -178,6 +179,12 @@ internal sealed class ProductDetailVitalsFactory(ProductStock stock) : WebApplic
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+
+            var rulesRepo = new FakeLowStockRuleRepository();
+            if (rule is not null)
+                rulesRepo.Items.Add(rule);
+            services.RemoveAll<ILowStockRuleRepository>();
+            services.AddSingleton<ILowStockRuleRepository>(rulesRepo);
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;

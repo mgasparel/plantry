@@ -47,6 +47,12 @@ public sealed class ConfirmDeal(
         "Deals.ConfirmDeal.CommitFailed",
         "A cross-context side effect failed mid-confirm; the confirm is resumable on retry.");
 
+    /// <summary>plantry-oh27.6: a deal resolved to a parent product with zero live variants can never hit
+    /// at intake (there is nothing to fan the observation out to) — confirm is rejected before any write.</summary>
+    public static readonly Error ParentHasNoVariants = Error.Custom(
+        "Deals.ParentHasNoVariants",
+        "This product has no variants to apply the deal to.");
+
     /// <summary>User confirm (DJ4): the reviewer resolves the (possibly unchanged) match. Valid from Pending.</summary>
     public Task<Result> ConfirmAsync(DealId dealId, Guid productId, Guid reviewedByUserId, CancellationToken ct = default) =>
         ResolveAsync(dealId, productId, reviewedByUserId, supersede: false, ct);
@@ -84,6 +90,22 @@ public sealed class ConfirmDeal(
             return UnknownProduct;
         }
 
+        // plantry-oh27.6: resolve IsParent/LiveVariantIds so a parent match fans out at write time. A miss
+        // here (a test double or a future adapter that doesn't yet populate ForProductsAsync) degrades to a
+        // concrete leaf — the pre-oh27.6 single-observation behaviour — never a hard failure.
+        var productInfoMap = await products.ForProductsAsync([productId], ct);
+        var productInfo = productInfoMap.TryGetValue(productId, out var info)
+            ? info
+            : new DealProductInfo(productId, string.Empty, null);
+
+        if (productInfo.IsParent && productInfo.LiveVariantIds.Count == 0)
+        {
+            logger.LogWarning(
+                "Confirm deal {DealId} rejected — resolved parent product {ProductId} has no live variants.",
+                dealId.Value, productId);
+            return ParentHasNoVariants;
+        }
+
         try
         {
             // ── Transaction A: flip the deal's state (idempotent by the aggregate's status guard). ──
@@ -103,7 +125,8 @@ public sealed class ConfirmDeal(
             // Correct: always supersede — a new append-only row + repointed committed id.
             if (supersede || deal.CommittedPriceObservationId is null)
             {
-                var observationId = await RecordDealObservationAsync(resolvedProduct, deal, reviewedByUserId, ct);
+                var observationId = await RecordDealObservationsAsync(
+                    resolvedProduct, productInfo, deal, reviewedByUserId, supersede, ct);
 
                 var link = deal.LinkObservation(observationId, clock);
                 if (link.IsFailure)
@@ -170,7 +193,81 @@ public sealed class ConfirmDeal(
     }
 
     /// <summary>
-    /// Writes a <b>deal-sourced</b> price observation directly against <see cref="RecordObservationCommand"/>
+    /// Writes the deal-sourced price observation(s) for a confirm/correct (plantry-oh27.6). A concrete
+    /// (leaf) resolution writes exactly one row — the pre-oh27.6 behaviour. A <b>parent</b> resolution fans
+    /// the same price/quantity/unit/window/store out to <b>every live variant</b>, one
+    /// <see cref="RecordObservationCommand"/> per variant, each stamped with the deal's id as
+    /// <c>SourceRef</c> — so Intake's leaf-keyed <see cref="DealHitMatcher"/> fires unchanged when any
+    /// variant is purchased at the deal price.
+    ///
+    /// <para><b>Resumability (DD2).</b> <paramref name="supersede"/> false (Confirm/AutoConfirm): a variant
+    /// that already has a live Deal observation with this deal's <c>SourceRef</c> is skipped — a re-drive
+    /// after a partial fan-out (crash mid-loop) writes only the variants still missing, never a duplicate.
+    /// <paramref name="supersede"/> true (Correct): <b>every</b> live Deal observation with this deal's
+    /// <c>SourceRef</c> is superseded (<see cref="PriceObservation.Supersede"/>) and a fresh row is written
+    /// for every current target variant, regardless of what existed before — the prior rows stay as history
+    /// (DM-17/R1).</para>
+    ///
+    /// <para><see cref="Deal.CommittedPriceObservationId"/> stays a single id (resumability, DD2): it links
+    /// the lowest-ordered target variant's observation (new or reused), deterministic across re-drives — it
+    /// is provenance for "the fan-out landed", never "the only observation" (see
+    /// <see cref="Deal.LinkObservation"/>'s doc comment).</para>
+    /// </summary>
+    private async Task<Guid> RecordDealObservationsAsync(
+        Guid resolvedProduct, DealProductInfo productInfo, Deal deal, Guid? reviewedByUserId, bool supersede,
+        CancellationToken ct)
+    {
+        var targetVariantIds = productInfo.IsParent
+            ? productInfo.LiveVariantIds.OrderBy(id => id).ToList()
+            : [resolvedProduct];
+
+        var existingLive = await priceObservations.ListLiveBySourceRefAsync(PriceSource.Deal, deal.Id.Value, ct);
+        var existingByProduct = existingLive
+            .GroupBy(o => o.ProductId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var newByProduct = new Dictionary<Guid, Guid>();
+        foreach (var variantId in targetVariantIds)
+        {
+            // Resumable skip: a Confirm/AutoConfirm re-drive never rewrites a variant that already landed.
+            // A Correct always rewrites every target variant fresh — its old rows are superseded below.
+            if (!supersede && existingByProduct.ContainsKey(variantId))
+                continue;
+
+            newByProduct[variantId] = await WriteOneObservationAsync(variantId, deal, reviewedByUserId, ct);
+        }
+
+        // Every target variant now resolves to an observation id — freshly written, or (Confirm/AutoConfirm
+        // only) reused from a prior partial fan-out.
+        var combined = new Dictionary<Guid, Guid>();
+        foreach (var variantId in targetVariantIds)
+        {
+            if (newByProduct.TryGetValue(variantId, out var freshId))
+                combined[variantId] = freshId;
+            else if (existingByProduct.TryGetValue(variantId, out var existing))
+                combined[variantId] = existing.Id.Value;
+        }
+
+        if (supersede && existingLive.Count > 0)
+        {
+            // Fallback replacement for an old row whose product fell out of the new target set entirely
+            // (e.g. Correct re-resolves to a different parent with no shared variants) — still needs SOME
+            // replacement id to satisfy the one-time Supersede bind; the lowest-ordered fresh row is as
+            // good as any, since this is audit provenance, not a per-product chain.
+            var fallbackReplacement = combined.OrderBy(kv => kv.Key).First().Value;
+            foreach (var old in existingLive)
+            {
+                var replacement = combined.TryGetValue(old.ProductId, out var r) ? r : fallbackReplacement;
+                old.Supersede(PriceObservationId.From(replacement));
+            }
+            await priceObservations.SaveChangesAsync(ct);
+        }
+
+        return combined.OrderBy(kv => kv.Key).First().Value;
+    }
+
+    /// <summary>
+    /// Writes one <b>deal-sourced</b> price observation directly against <see cref="RecordObservationCommand"/>
     /// (formerly the Deals→Pricing ACL adapter <c>RecordDealObservationAdapter</c>, plantry-riqy — collapsed
     /// into an intra-context call now that both halves live in Plantry.Market, ADR-024).
     ///
@@ -179,11 +276,11 @@ public sealed class ConfirmDeal(
     /// still recorded. A missing reviewer (memory auto-confirm) maps to <see cref="Guid.Empty"/>. Throws only
     /// on a hard command failure so the per-deal commit can abort that deal cleanly.</para>
     /// </summary>
-    private async Task<Guid> RecordDealObservationAsync(
-        Guid resolvedProduct, Deal deal, Guid? reviewedByUserId, CancellationToken ct)
+    private async Task<Guid> WriteOneObservationAsync(
+        Guid productId, Deal deal, Guid? reviewedByUserId, CancellationToken ct)
     {
         var command = new RecordObservationCommand(
-            resolvedProduct,
+            productId,
             skuId: null,
             deal.Price,
             deal.Quantity ?? 1m,

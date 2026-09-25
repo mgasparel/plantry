@@ -14,15 +14,25 @@ namespace Plantry.Web.Shopping;
 /// EF context or repositories (ADR-002). Follows the same adapter pattern as
 /// <c>InventoryStockReaderAdapter</c> (Recipes → Inventory ACL).
 ///
-/// <para>The adapter calls <see cref="IProductStockRepository.ListForHouseholdAsync"/> once
-/// (the same call <c>InventoryQueryService</c> makes for the pantry list) and derives on-hand
-/// quantities using the same display-unit aggregation logic. This is intentional sharing of
-/// the same underlying query path rather than adding a new repository method.</para>
+/// <para>On-hand numbers (leaf and parent alike) come from the single shared
+/// <see cref="IOnHandRollupQuery"/> (plantry-oh27.2/oh27.3) — this adapter no longer runs its own
+/// <c>InventoryQueryService.DisplayQuantity</c> aggregation, so the pantry list, the parent detail
+/// page, and this Shopping ACL adapter can never disagree about the same on-hand data.
+/// <see cref="IProductStockRepository.ListForHouseholdAsync"/> is still called, but only to know which
+/// leaf ids actually carry a stock row (preserving <see cref="GetStockLevelsAsync"/>'s "never-stocked
+/// leaf is omitted" contract) — never to re-derive quantities.</para>
+///
+/// <para><b>Parent fold (plantry-oh27.3):</b> a variant appears in restock candidates only through
+/// its OWN <see cref="LowStockRule"/>; otherwise its PARENT represents it — <see cref="IOnHandRollupQuery"/>
+/// supplies the parent's aggregate on-hand (Σ live variants, converted to the parent's default unit).
+/// A leaf with no parent is unaffected. See <see cref="GetLowStockProductsAsync"/> and
+/// <see cref="GetFrequentStapleProductsAsync"/> for the concrete tiering.</para>
 /// </summary>
 public sealed class ShoppingPantryReaderAdapter(
     IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     ICatalogReadFacade catalog,
-    IProductConversionProvider conversions,
+    IOnHandRollupQuery onHandRollup,
     ITenantContext tenant)
     : IShoppingPantryReader
 {
@@ -37,18 +47,41 @@ public sealed class ShoppingPantryReaderAdapter(
             return new Dictionary<Guid, ShoppingPantryStockLevel>();
 
         var householdId = HouseholdId.From(householdGuid);
-        var wanted = new HashSet<Guid>(productIds);
+        var distinctIds = productIds.Distinct().ToList();
 
-        // Load all household stock aggregates; the RLS interceptor enforces household scoping
-        // at the DB level (ADR-008 defense-in-depth — both EF filter and RLS must agree).
+        // Only used to preserve the pre-existing "a never-stocked LEAF is omitted" contract (see the
+        // port doc) — IOnHandRollupQuery.ForProductsAsync always resolves a directly-requested leaf
+        // (rule 3 of plantry-oh27.2, ZeroLeafLevel), so a plain HashSet of ids that actually carry a
+        // ProductStock row is enough to tell "never stocked, omit" apart from "has a row, OnHand may be
+        // zero, include". A PARENT never holds stock at all (epic constraint) so this check never applies
+        // to it — every parent entry from the rollup below is kept.
         var allStock = await stocks.ListForHouseholdAsync(householdId, ct);
-        var relevantStock = allStock.Where(s => wanted.Contains(s.ProductId)).ToList();
+        var stockedIds = allStock.Select(s => s.ProductId).ToHashSet();
 
-        if (relevantStock.Count == 0)
-            return new Dictionary<Guid, ShoppingPantryStockLevel>();
+        var rulesByProduct = await rules.ListForHouseholdAsync(householdId, ct);
 
-        var levels = await AggregateStockLevelsAsync(relevantStock, ct);
-        return levels.ToDictionary(l => l.ProductId);
+        // Single shared on-hand source for both leaf and parent (plantry-oh27.2/oh27.3) — no second
+        // DisplayQuantity-based aggregation path.
+        var rollup = await onHandRollup.ForProductsAsync(distinctIds, ct);
+
+        var result = new Dictionary<Guid, ShoppingPantryStockLevel>();
+        foreach (var (productId, level) in rollup)
+        {
+            if (!level.IsParent && !stockedIds.Contains(productId))
+                continue; // a genuinely never-stocked leaf stays omitted, matching the port's contract
+
+            var hasRule = rulesByProduct.TryGetValue(productId, out var rule);
+            var isLow = level.OnHand > 0m && hasRule && rule!.IsRunningLow(level.OnHand);
+            result[productId] = new ShoppingPantryStockLevel(
+                ProductId: productId,
+                OnHand: level.OnHand,
+                UnitCode: level.UnitCode,
+                IsLow: isLow,
+                HasLowStockThreshold: hasRule,
+                IsParent: level.IsParent);
+        }
+
+        return result;
     }
 
     /// <inheritdoc cref="IShoppingPantryReader.GetLowStockProductsAsync"/>
@@ -60,21 +93,61 @@ public sealed class ShoppingPantryReaderAdapter(
 
         var householdId = HouseholdId.From(householdGuid);
 
-        // Load all household stock aggregates; RLS scoping ensures household isolation.
-        var allStock = await stocks.ListForHouseholdAsync(householdId, ct);
-        if (allStock.Count == 0)
+        // Household-wide discovery scan: every leaf with a stock row, plus every parent with at least
+        // one live variant that has a stock row (IOnHandRollupQuery.ForHouseholdAsync's own contract).
+        var rollup = await onHandRollup.ForHouseholdAsync(ct);
+        if (rollup.Count == 0)
             return [];
 
-        // excludeProduced: a produced product (recipe yield / cook leftover, plantry-sn6v) is never
-        // a restock candidate by definition — "made at home, not bought" — regardless of how low or
-        // out it reads. Filtered inside the shared aggregation helper (which already loads catalog
-        // info per product) rather than with a second catalog.ListProductsAsync call here.
-        var levels = await AggregateStockLevelsAsync(allStock, ct, excludeProduced: true);
+        var rulesByProduct = await rules.ListForHouseholdAsync(householdId, ct);
+        var catalogProducts = await catalog.ListProductsAsync(ct);
+        var catalogByProduct = catalogProducts.ToDictionary(p => p.Id);
 
-        // Restock candidates = running-low ∪ out. IsLow now means running-low only (false when out),
-        // so out products (OnHand ≤ 0) must be re-included explicitly — a fully-depleted staple is
-        // just as much a restock candidate as one that is merely low.
-        return levels.Where(l => l.IsLow || l.OnHand <= 0m).ToList();
+        var result = new List<ShoppingPantryStockLevel>();
+
+        foreach (var (productId, level) in rollup)
+        {
+            if (!catalogByProduct.TryGetValue(productId, out var product))
+                continue; // product no longer in catalog — skip
+
+            // excludeProduced: a produced product (recipe yield / cook leftover, plantry-sn6v) is
+            // never a restock candidate by definition — "made at home, not bought" — regardless of
+            // how low or out it reads.
+            if (product.IsProduced)
+                continue;
+
+            if (!level.IsParent && product.ParentProductId is not null)
+            {
+                // A variant appears in restock candidates only through its OWN rule (epic rule 3) —
+                // without one it is represented by its parent's entry (handled in the `level.IsParent`
+                // branch below) and must not also surface itself.
+                if (!rulesByProduct.ContainsKey(productId))
+                    continue;
+            }
+
+            var hasRule = rulesByProduct.TryGetValue(productId, out var rule);
+
+            // IsLow means "running low" only: a positive but low quantity, 0 < onHand ≤ threshold (per
+            // LowStockRule.IsRunningLow, plantry-oh27.1) — deliberately false when out so the Shopping
+            // subline renders out and low as distinct, mutually-exclusive states. A parent/leaf with no
+            // rule can still be a Tier-3 "out" candidate (onHand ≤ 0) even though IsLow stays false.
+            var isLow = level.OnHand > 0m && hasRule && rule!.IsRunningLow(level.OnHand);
+            if (!isLow && level.OnHand > 0m)
+                continue; // in-stock and not low — not a restock candidate
+
+            if (level.IsParent && level.OnHand <= 0m && level.UnconvertedVariantIds.Count > 0)
+                continue; // every contributing variant failed conversion into the parent unit — unknown, not "out" (mirrors the plantry-2hfi leaf invariant below)
+
+            result.Add(new ShoppingPantryStockLevel(
+                ProductId: productId,
+                OnHand: level.OnHand,
+                UnitCode: level.UnitCode,
+                IsLow: isLow,
+                HasLowStockThreshold: hasRule,
+                IsParent: level.IsParent));
+        }
+
+        return result;
     }
 
     public async Task<IReadOnlyList<ShoppingPantryStockLevel>> GetFrequentStapleProductsAsync(
@@ -83,99 +156,72 @@ public sealed class ShoppingPantryReaderAdapter(
         if (tenant.HouseholdId is not { } householdGuid)
             return [];
 
-        var allStock = await stocks.ListForHouseholdAsync(HouseholdId.From(householdGuid), ct);
+        var householdId = HouseholdId.From(householdGuid);
+        var allStock = await stocks.ListForHouseholdAsync(householdId, ct);
         if (allStock.Count == 0)
             return [];
 
+        var rulesByProduct = await rules.ListForHouseholdAsync(householdId, ct);
         var catalogProducts = await catalog.ListProductsAsync(ct);
         var catalogByProduct = catalogProducts.ToDictionary(p => p.Id);
-        var result = new List<ShoppingPantryStockLevel>();
-        foreach (var stock in allStock)
+
+        // Group stock rows by (parent id ?? own id) — EXCEPT a row whose own product already has a
+        // rule stays its own group (GroupKey below), since a variant/leaf with its own rule is never
+        // folded into its parent (epic rule 3). A group is a Tier-2 candidate only if the group's own
+        // product (parent or leaf) has no rule and the UNION of the group's purchase dates is frequent.
+        var groups = allStock
+            .Where(s => catalogByProduct.TryGetValue(s.ProductId, out var p) && !p.IsProduced)
+            .GroupBy(s => GroupKey(s.ProductId, catalogByProduct, rulesByProduct));
+
+        var candidateGroupIds = new List<Guid>();
+        foreach (var group in groups)
         {
-            if (!catalogByProduct.TryGetValue(stock.ProductId, out var product) || product.IsProduced)
-                continue;
-            if (stock.LowStockThreshold is not null)
-                continue;
-            var dates = stock.Entries.Select(entry => entry.PurchasedAt);
-            if (!FrequentStaplePredicate.IsFrequent(dates, today))
-                continue;
-            var aggregated = await AggregateStockLevelsAsync([stock], ct);
-            if (aggregated.Count > 0)
-                result.Add(aggregated[0]);
+            var groupId = group.Key;
+            if (rulesByProduct.ContainsKey(groupId))
+                continue; // the group's own product (parent or leaf) already has a rule — Tier 1 territory
+            if (!catalogByProduct.TryGetValue(groupId, out var groupProduct))
+                continue; // group resolves to a parent no longer in the catalog — skip
+            if (groupProduct.IsProduced)
+                continue; // made at home, not bought — never a restock candidate (plantry-sn6v), same rule GetLowStockProductsAsync applies to its rows
+
+            var dates = group.SelectMany(s => s.Entries.Select(e => e.PurchasedAt));
+            if (FrequentStaplePredicate.IsFrequent(dates, today))
+                candidateGroupIds.Add(groupId);
         }
-        return result;
-    }
 
-    // ── Shared aggregation helper ─────────────────────────────────────────────
+        if (candidateGroupIds.Count == 0)
+            return [];
 
-    /// <summary>
-    /// Aggregates on-hand quantities for the given product-stock records into
-    /// <see cref="ShoppingPantryStockLevel"/> instances. Loads catalog product info and
-    /// unit converters in batch calls; skips products whose catalog entry is missing.
-    /// </summary>
-    /// <param name="excludeProduced">
-    /// When true, skips products flagged <c>Product.IsProduced</c> (recipe yield / cook leftover,
-    /// plantry-sn6v) — used only by <see cref="GetLowStockProductsAsync"/>. <see cref="GetStockLevelsAsync"/>
-    /// passes false: a produced product's on-hand level must still resolve correctly for surfaces
-    /// (e.g. a product detail page) that ask about it by id directly rather than treating it as a
-    /// restock candidate.
-    /// </param>
-    private async Task<List<ShoppingPantryStockLevel>> AggregateStockLevelsAsync(
-        List<ProductStock> stockRecords,
-        CancellationToken ct,
-        bool excludeProduced = false)
-    {
-        // Load catalog info for default unit id and unit code for relevant products.
-        var allCatalogProducts = await catalog.ListProductsAsync(ct);
-        var catalogByProduct = allCatalogProducts.ToDictionary(p => p.Id);
-        var unitCodes = await catalog.GetUnitCodesAsync(ct);
-
-        // Load converters for all relevant products in one batch call.
-        var stockProductIds = stockRecords.Select(s => s.ProductId).ToList();
-        var convertersByProduct = await conversions.ForProductsAsync(stockProductIds, ct);
-
-        var result = new List<ShoppingPantryStockLevel>(stockRecords.Count);
-
-        foreach (var productStock in stockRecords)
+        // On-hand for each candidate group's representative id — IOnHandRollupQuery resolves a leaf's
+        // own figure or a parent's Σ-of-live-variants figure through the same shared rollup (plantry-oh27.2).
+        var levels = await onHandRollup.ForProductsAsync(candidateGroupIds, ct);
+        var result = new List<ShoppingPantryStockLevel>(candidateGroupIds.Count);
+        foreach (var groupId in candidateGroupIds)
         {
-            if (!catalogByProduct.TryGetValue(productStock.ProductId, out var catalogInfo))
-                continue; // product no longer in catalog — skip
-
-            if (excludeProduced && catalogInfo.IsProduced)
-                continue; // made at home, not bought — never a restock candidate (plantry-sn6v)
-
-            var activeLots = productStock.ActiveLotsFefo().ToList();
-
-            var defaultUnitId = catalogInfo.DefaultUnitId;
-            var converter = convertersByProduct.TryGetValue(productStock.ProductId, out var c)
-                ? c
-                : await conversions.ForProductAsync(productStock.ProductId, ct);
-
-            // Aggregate quantity into the product's default unit, falling back to the lots' own
-            // unit when conversion fails entirely (e.g. "lb" lots on an "ea" product) — shares
-            // InventoryQueryService.DisplayQuantity so the pantry list and this Shopping ACL
-            // adapter can never disagree about the same on-hand data (plantry-2hfi). A lot that
-            // merely fails unit conversion must never read as "out" here while the pantry page
-            // shows its real quantity.
-            var (total, unitCode) = InventoryQueryService.DisplayQuantity(
-                activeLots, defaultUnitId, catalogInfo.DefaultUnitCode, converter, unitCodes);
-
-            // IsLow means "running low" only: a positive but low quantity, 0 < onHand ≤ threshold
-            // (per ProductStock.IsRunningLow). It is deliberately false when out (onHand ≤ 0) so the
-            // Shopping subline renders out and low as distinct, mutually-exclusive states and never
-            // shows "out · low" together. Out is surfaced separately via OnHand ≤ 0. The extra
-            // total > 0m guard excludes the out-with-threshold case, which IsRunningLow alone treats
-            // as low (onHand ≤ threshold is satisfied by onHand = 0).
-            var isLow = total > 0m && productStock.IsRunningLow(total);
-
+            if (!levels.TryGetValue(groupId, out var level))
+                continue;
             result.Add(new ShoppingPantryStockLevel(
-                ProductId: productStock.ProductId,
-                OnHand: total,
-                UnitCode: unitCode,
-                IsLow: isLow,
-                HasLowStockThreshold: productStock.LowStockThreshold is not null));
+                ProductId: groupId,
+                OnHand: level.OnHand,
+                UnitCode: level.UnitCode,
+                IsLow: false, // Tier 2 candidates have no threshold by construction — never "running low"
+                HasLowStockThreshold: false,
+                IsParent: level.IsParent));
         }
-
         return result;
     }
+
+    /// <summary>Group key for the staple fold: a product with its own <see cref="LowStockRule"/> stays
+    /// its own group (it is filtered out immediately by the caller since it has a rule — Tier 1
+    /// territory, not Tier 2); otherwise a variant's group is its parent, and a parentless product's
+    /// group is itself.</summary>
+    private static Guid GroupKey(
+        Guid productId,
+        Dictionary<Guid, CatalogProductInfo> catalogByProduct,
+        IReadOnlyDictionary<Guid, LowStockRule> rulesByProduct) =>
+        rulesByProduct.ContainsKey(productId)
+            ? productId
+            : catalogByProduct.TryGetValue(productId, out var product) && product.ParentProductId is { } parentId
+                ? parentId
+                : productId;
 }

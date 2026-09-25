@@ -104,15 +104,19 @@ public sealed class AddStockCommand(
 }
 
 /// <summary>
-/// Sets or clears the per-household, per-product low stock threshold and persists the change.
-/// Mirrors the load-or-start pattern from <see cref="AddStockCommand"/>: a household can set a
-/// threshold before any lot exists, so a missing root is started fresh and saved via
-/// <see cref="IProductStockRepository.TryAddAndSaveAsync"/>; if the insert races, reload and apply again.
+/// Sets or clears the per-household, per-product low stock threshold and persists the change
+/// (plantry-oh27.1). Backed by <see cref="ILowStockRuleRepository"/> rather than
+/// <see cref="ProductStock"/> — a threshold can target a parent product without a parent ever owning
+/// a <see cref="ProductStock"/> row, so this command no longer touches Inventory's stock repository
+/// at all. A null or non-positive <paramref name="threshold"/> removes the rule if one exists (the
+/// "no threshold" state is the absence of a row, not a null/zero field, per <see cref="LowStockRule"/>);
+/// otherwise the rule is created or its value updated. The command keeps its original name and
+/// (productId, decimal? threshold) signature so the detail page needs no change.
 /// </summary>
 public sealed class SetLowStockThresholdCommand(
     Guid productId,
     decimal? threshold,
-    IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     ICatalogReadFacade catalog,
     IClock clock,
     ITenantContext tenant,
@@ -129,34 +133,34 @@ public sealed class SetLowStockThresholdCommand(
             logger?.LogWarning("SetLowStockThreshold failed — product {ProductId} not found.", productId);
             return Error.Custom("Inventory.UnknownProduct", "The selected product does not exist.");
         }
-        if (!product.CanHoldStock)
-        {
-            logger?.LogWarning(
-                "SetLowStockThreshold failed — product {ProductId} cannot hold stock directly (is a parent).", productId);
-            return Error.Custom("Inventory.ProductCannotHoldStock", "A parent product cannot hold stock directly; choose a variant.");
-        }
 
         var household = HouseholdId.From(householdId);
-        var stock = await stocks.FindAsync(household, productId, ct);
-        var isNew = stock is null;
-        stock ??= ProductStock.Start(household, productId, clock);
+        var existing = await rules.FindAsync(household, productId, ct);
 
-        stock.SetLowStockThreshold(threshold, clock);
-
-        if (isNew)
+        if (threshold is not { } value || value <= 0m)
         {
-            if (!await stocks.TryAddAndSaveAsync(stock, ct))
+            if (existing is not null)
             {
-                // Concurrent first-intake race: another request won the root insert.
-                // Reload and re-apply the threshold to the existing root.
-                stock = (await stocks.FindAsync(household, productId, ct))!;
-                stock.SetLowStockThreshold(threshold, clock);
-                await stocks.SaveChangesAsync(ct);
+                await rules.RemoveAsync(existing, ct);
+                await rules.SaveChangesAsync(ct);
+            }
+        }
+        else if (existing is null)
+        {
+            var rule = LowStockRule.Create(household, productId, value, clock);
+            if (!await rules.TryAddAndSaveAsync(rule, ct))
+            {
+                // Concurrent create race (e.g. a double-submitted threshold-sheet POST): another
+                // request already won the insert — reload and apply this value to the existing row.
+                var winner = (await rules.FindAsync(household, productId, ct))!;
+                winner.SetThreshold(value, clock);
+                await rules.SaveChangesAsync(ct);
             }
         }
         else
         {
-            await stocks.SaveChangesAsync(ct);
+            existing.SetThreshold(value, clock);
+            await rules.SaveChangesAsync(ct);
         }
 
         logger?.LogInformation(
@@ -176,7 +180,8 @@ public sealed class SetLowStockThresholdCommand(
 ///
 /// The post-save low-stock check converts active lots to the product's display unit (via
 /// <see cref="ICatalogReadFacade.FindProductAsync"/> + <see cref="IProductConversionProvider"/>)
-/// before calling <see cref="ProductStock.IsRunningLow"/>, mirroring the pantry-list read path.
+/// before looking up a <see cref="LowStockRule"/> (plantry-oh27.1) and calling its
+/// <see cref="LowStockRule.IsRunningLow"/>, mirroring the pantry-list read path.
 ///
 /// <paramref name="sourceLineRef"/> is the per-consume-operation idempotency token (plantry-292a).
 /// When supplied, a re-driven consume with the same token is a no-op — the repository row-lock plus
@@ -192,6 +197,7 @@ public sealed class ConsumeStockCommand(
     Guid? targetEntryId,
     Guid? sourceRef,
     IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
     IClock clock,
@@ -208,12 +214,14 @@ public sealed class ConsumeStockCommand(
         if (!reason.IsRemoval())
             return Error.Custom("Inventory.InvalidConsumeReason", "Consume cannot record a Purchase; use AddStock.");
 
-        // Resolve the product's default display unit (for the low-stock check below) and the
-        // converter before entering the row-lock transaction, so the catalog read does not run
-        // under the Inventory row lock.
+        // Resolve the product's default display unit (for the low-stock check below), the converter,
+        // and the LowStockRule (plantry-oh27.1) before entering the row-lock transaction, so none of
+        // these reads run under the Inventory row lock — the rule's value is unaffected by the
+        // consume itself, so resolving it here is equivalent to resolving it inside the transaction.
         var product = await catalog.FindProductAsync(productId, ct);
         var converter = await conversions.ForProductAsync(productId, ct);
         var household = HouseholdId.From(householdId);
+        var rule = await rules.FindAsync(household, productId, ct);
 
         return await stocks.ExecuteInTransactionAsync(async innerCt =>
         {
@@ -248,12 +256,14 @@ public sealed class ConsumeStockCommand(
 
             // Emit a low-stock event when the consume drops on-hand to or below the threshold.
             // Mirrors the InventoryQueryService read path (DisplayQuantity): convert active lots
-            // to the product's display unit via IProductConversionProvider before calling
-            // IsRunningLow. Falls back to a raw sum when (a) the product is unknown or (b)
-            // conversion yields zero for a non-empty lot set (incompatible units — e.g. "ea"
-            // lots on a "g" product), mirroring DisplayQuantity's own incompatible-unit fallback
-            // so the counter always agrees with the displayed on-hand state.
-            // Uses the shared InventoryQueryService.SumInDisplayUnit helper (both paths must agree).
+            // to the product's display unit via IProductConversionProvider before looking up a
+            // LowStockRule (plantry-oh27.1) and calling IsRunningLow. Falls back to a raw sum when
+            // (a) the product is unknown or (b) conversion yields zero for a non-empty lot set
+            // (incompatible units — e.g. "ea" lots on a "g" product), mirroring DisplayQuantity's
+            // own incompatible-unit fallback so the counter always agrees with the displayed
+            // on-hand state. Uses the shared InventoryQueryService.SumInDisplayUnit helper (both
+            // paths must agree). Parent-level telemetry is out of scope here — this only fires for
+            // leaf-product rules, same as before.
             var activeLots = stock.Entries.Where(e => e.IsActive).ToList();
             decimal onHand;
             if (product is not null)
@@ -266,7 +276,7 @@ public sealed class ConsumeStockCommand(
             {
                 onHand = activeLots.Sum(e => e.Quantity);
             }
-            if (stock.IsRunningLow(onHand))
+            if (rule is not null && rule.IsRunningLow(onHand))
                 DomainTelemetry.LowStockEvents.Add(1);
 
             logger?.LogInformation(

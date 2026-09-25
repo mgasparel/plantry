@@ -1104,6 +1104,12 @@ button.bottom-nav__item {
   box-shadow: var(--shadow-card);
   padding: 4px;
 }
+/* `top: 30px` above is calibrated to .row-actions-menu__trigger's fixed 26px height (⋯ row actions).
+   A wrapper whose trigger is a full-size button instead (e.g. the parent product detail page's "Add
+   stock to a variant" primary action, plantry-oh27.7) is taller than that, so the panel would open
+   overlapping the trigger's own bottom edge — this modifier anchors it to the trigger's REAL rendered
+   height instead of the 26px assumption. */
+.row-actions-menu--btn .row-actions-menu__panel { top: calc(100% + 4px); }
 .row-actions-menu__item {
   display: block;
   width: 100%;
@@ -2428,6 +2434,19 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .suggest-opt:hover { border-color: var(--color-accent); background: var(--color-accent-subtle); }
 .suggest-opt.sel { border-color: var(--color-accent); background: var(--color-accent-subtle); color: var(--color-accent); font-weight: 600; }
 .suggest-opt .rk { font-size: 11px; color: var(--color-text-faint, var(--color-text-muted)); font-family: var(--font-mono, monospace); }
+
+/* "any variant" hint (plantry-oh27.6) — a deal or match matched to a parent product renders the same
+   trailing .rk label pattern in three Deals-review contexts that don't use .suggest-opt/.searchable-select:
+   the review card's "did you mean" chip, the step-1 checklist row's match column, and the judgement-call
+   deck's focus card. Same visual treatment as .suggest-opt .rk (muted, small, monospace). */
+.match-suggest__label .rk,
+.check-row__match .rk,
+.focus-card__product .rk {
+  font-size: 11px;
+  color: var(--color-text-faint, var(--color-text-muted));
+  font-family: var(--font-mono, monospace);
+  margin-left: 6px;
+}
 
 @media (max-width: 900px) {
   .review { grid-template-columns: 1fr; }

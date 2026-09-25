@@ -129,6 +129,9 @@ internal sealed class ProductDetailRecipesSectionFactory : WebApplicationFactory
             services.RemoveAll<IProductStockRepository>();
             services.AddSingleton<IProductStockRepository>(stockRepo);
 
+            services.RemoveAll<ILowStockRuleRepository>();
+            services.AddSingleton<ILowStockRuleRepository>(new FakeLowStockRuleRepository());
+
             services.RemoveAll<IProductConversionProvider>();
             services.AddSingleton<IProductConversionProvider>(new IdentityConversionProvider());
 

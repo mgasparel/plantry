@@ -82,12 +82,68 @@ public sealed class ShoppingCatalogReaderAdapter(
     public async Task<IReadOnlyList<ShoppingProductCandidate>> ListProductsAsync(
         CancellationToken ct = default)
     {
+        // plantry-oh27.4: parents are addable shopping-list items too ("Bubly" expresses intent for
+        // any variant), so the CanHoldStock filter that used to exclude them is dropped — ListActiveAsync
+        // already excludes archived products, which is the only exclusion this list needs.
         var allProducts = await products.ListActiveAsync(ct);
         return allProducts
-            .Where(p => p.CanHoldStock)
             .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(p => new ShoppingProductCandidate(p.Id.Value, p.Name))
+            .Select(p => new ShoppingProductCandidate(p.Id.Value, p.Name, p.IsParent))
             .ToList();
+    }
+
+    /// <summary>
+    /// Batch parent/variant family resolve (plantry-oh27.4) — mirrors
+    /// <c>CatalogProductReaderAdapter.FindManyWithVariantsAsync</c>'s one-query-plus-variants shape
+    /// (Recipes → Catalog ACL): one <see cref="IProductRepository.ListWithVariantsAsync"/> call loads
+    /// every requested product plus every live variant of any requested parent, avoiding a per-parent
+    /// round trip.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, ShoppingProductFamily>> ResolveFamilyAsync(
+        IReadOnlyList<Guid> productIds,
+        CancellationToken ct = default)
+    {
+        if (productIds.Count == 0)
+            return new Dictionary<Guid, ShoppingProductFamily>();
+
+        var distinctIds = productIds.Distinct().ToList();
+        var loadedRaw = await products.ListWithVariantsAsync(distinctIds.Select(ProductId.From).ToList(), ct);
+        // Deduplicate by id: a requested parent AND one of its own variants can both appear in the same
+        // call (e.g. the family lookup runs against every on-list product id, parent or leaf), and
+        // ListWithVariantsAsync's default fallback loads each requested id's variant tree independently —
+        // the same variant can come back once as "the requested id" and again as "a parent's variant".
+        var loaded = loadedRaw.GroupBy(p => p.Id.Value).Select(g => g.First()).ToList();
+        var byId = loaded.ToDictionary(p => p.Id.Value);
+
+        // Live (non-archived) variants grouped by parent id — a parent's family never surfaces an
+        // archived variant (it owns no current on-hand/price to roll up).
+        var liveVariantsByParent = loaded
+            .Where(p => p.ParentProductId is not null && !p.IsArchived)
+            .GroupBy(p => p.ParentProductId!.Value.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<ShoppingFamilyVariant>)g
+                    .Select(v => new ShoppingFamilyVariant(v.Id.Value, v.DefaultUnitId.Value))
+                    .ToList());
+
+        var result = new Dictionary<Guid, ShoppingProductFamily>(distinctIds.Count);
+        foreach (var id in distinctIds)
+        {
+            if (!byId.TryGetValue(id, out var product))
+                continue;
+
+            var variants = product.IsParent
+                ? liveVariantsByParent.GetValueOrDefault(id, [])
+                : [];
+
+            result[id] = new ShoppingProductFamily(
+                product.Id.Value,
+                product.DefaultUnitId.Value,
+                product.IsParent,
+                product.ParentProductId?.Value,
+                variants);
+        }
+        return result;
     }
 
     public async Task<decimal?> TryConvertAsync(

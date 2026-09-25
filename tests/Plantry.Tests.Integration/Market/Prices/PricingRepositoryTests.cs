@@ -1099,6 +1099,122 @@ public sealed class PricingRepositoryTests(PostgresFixture db) : IAsyncLifetime
         Assert.Single(entry.Value); // the repeated id did not double the rows
     }
 
+    // ── plantry-oh27.6: ListLiveBySourceRefAsync — the fan-out backbone ConfirmDeal's resumable skip
+    // and Correct-path supersede-all read against. ─────────────────────────────────────────────────
+
+    [Fact(DisplayName = "ListLiveBySourceRefAsync returns every live Deal-source row sharing a SourceRef, across different products, excluding a different SourceRef and a different Source")]
+    public async Task ListLiveBySourceRefAsync_Returns_Every_Live_Row_For_The_SourceRef()
+    {
+        var variantA = _productId;
+        var variantB = Guid.CreateVersion7();
+        var variantC = Guid.CreateVersion7();
+        var otherDealId = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            // Three fanned-out Deal rows sharing _sourceRef, across three different products.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, variantA, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, variantB, null, 6m, 1m, _unitId, 6m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, variantC, null, 5m, 1m, _unitId, 5m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            // Decoy: a different deal's Deal-source row — a different SourceRef, must not be returned.
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, variantA, null, 9m, 1m, _unitId, 9m,
+                PriceSource.Deal, "Flyer", otherDealId, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            // Decoy: a Purchase row carrying the SAME SourceRef value — a different Source, must not be
+            // returned (SourceRef is reused across sources incidentally; the method filters Source too).
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, variantA, null, 3m, 1m, _unitId, 3m,
+                PriceSource.Purchase, "Superstore", _sourceRef, DateTimeOffset.UtcNow, _userId));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo = new PriceObservationRepository(ctx2);
+        var rows = await repo.ListLiveBySourceRefAsync(PriceSource.Deal, _sourceRef);
+
+        Assert.Equal(3, rows.Count);
+        Assert.Equal(
+            new[] { variantA, variantB, variantC }.OrderBy(id => id),
+            rows.Select(r => r.ProductId).OrderBy(id => id));
+        Assert.All(rows, r => Assert.Equal(_sourceRef, r.SourceRef));
+        Assert.All(rows, r => Assert.Equal(PriceSource.Deal, r.Source));
+        Assert.All(rows, r => Assert.Null(r.SupersededById));
+    }
+
+    [Fact(DisplayName = "ListLiveBySourceRefAsync excludes a superseded row (ADR-023 A7) and a mutation on a returned entity persists on SaveChangesAsync (tracked entities)")]
+    public async Task ListLiveBySourceRefAsync_Excludes_Superseded_Rows_And_Persists_Mutations()
+    {
+        var variantA = _productId;
+        var variantB = Guid.CreateVersion7();
+        var variantC = Guid.CreateVersion7();
+
+        await using (var ctx = NewPricingDb())
+        {
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, variantA, null, 4m, 1m, _unitId, 4m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, variantB, null, 6m, 1m, _unitId, 6m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.PriceObservations.AddAsync(PriceObservation.Record(
+                _household, variantC, null, 5m, 1m, _unitId, 5m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7)));
+            await ctx.SaveChangesAsync();
+        }
+
+        PriceObservationId supersededId;
+        PriceObservationId replacementId;
+        await using (var ctx = NewPricingDb())
+        {
+            var repo = new PriceObservationRepository(ctx);
+            var rows = await repo.ListLiveBySourceRefAsync(PriceSource.Deal, _sourceRef);
+            Assert.Equal(3, rows.Count); // sanity: all three still live before the mutation
+
+            // Mirrors ConfirmDeal.RecordDealObservationsAsync's Correct path: a fresh replacement row for
+            // the SAME product/sourceRef is written first (the fk on superseded_by_id requires a real
+            // target — a fabricated id is rejected by Postgres, correctly), THEN the row returned by this
+            // exact read is superseded and saved through the SAME tracked entity — pins the "tracked
+            // entities so a caller's Supersede mutation persists" contract in
+            // IPriceObservationRepository's doc comment.
+            var toSupersede = rows[0];
+            supersededId = toSupersede.Id;
+            var replacement = PriceObservation.Record(
+                _household, toSupersede.ProductId, null, 4.50m, 1m, _unitId, 4.50m,
+                PriceSource.Deal, "Flyer", _sourceRef, DateTimeOffset.UtcNow, _userId,
+                validFrom: new(2026, 7, 1), validTo: new(2026, 7, 7));
+            await ctx.PriceObservations.AddAsync(replacement);
+            toSupersede.Supersede(replacement.Id);
+            await ctx.SaveChangesAsync();
+            replacementId = replacement.Id;
+        }
+
+        await using var ctx2 = NewPricingDb();
+        var repo2 = new PriceObservationRepository(ctx2);
+        var remaining = await repo2.ListLiveBySourceRefAsync(PriceSource.Deal, _sourceRef);
+
+        // The replacement row (same product, same SourceRef) is now live in its place, so the count is
+        // still 3 — the superseded original's own row id, specifically, is what must be gone.
+        Assert.Equal(3, remaining.Count);
+        Assert.DoesNotContain(remaining, r => r.Id == supersededId);
+        Assert.Contains(remaining, r => r.Id == replacementId);
+
+        var reloaded = await ctx2.PriceObservations.SingleAsync(p => p.Id == supersededId);
+        Assert.Equal(replacementId, reloaded.SupersededById); // the mutation genuinely persisted
+    }
+
     private DbContextOptions<MarketDbContext> PricingOptions() =>
         new DbContextOptionsBuilder<MarketDbContext>().UseNpgsql(db.ConnectionString).Options;
 

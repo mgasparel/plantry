@@ -306,4 +306,125 @@ public sealed class ConfirmDealTests
         Assert.Equal(ConfirmDeal.CommitFailed, result.Error);
         Assert.Empty(observations.Items);
     }
+
+    // ── Parent fan-out (plantry-oh27.6) — confirming a deal matched to a parent product writes one Deal
+    // observation per live variant, links the (deterministic) lowest variant id, and rejects a parent
+    // with zero live variants before any write. ──
+
+    private readonly Guid _parent = Guid.NewGuid();
+    private readonly Guid _variant1 = Guid.NewGuid();
+    private readonly Guid _variant2 = Guid.NewGuid();
+    private readonly Guid _variant3 = Guid.NewGuid();
+
+    [Fact(DisplayName = "Confirm to a parent writes one Deal observation per live variant and links the lowest-ordered one")]
+    public async Task Confirm_Parent_FansOutOneObservationPerLiveVariant()
+    {
+        var clock = new TestClock();
+        var deal = StageDeal();
+        var (deals, memories, products, observations) = Ports(deal);
+        var variantIds = new[] { _variant1, _variant2, _variant3 };
+        products.Products[_parent] = new DealProductInfo(
+            _parent, "Bubly", "Beverages", IsParent: true, liveVariantIds: variantIds);
+
+        var result = await Service(deals, memories, products, observations, clock)
+            .ConfirmAsync(deal.Id, _parent, _user);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, observations.Items.Count);
+        Assert.All(observations.Items, o => Assert.Equal(deal.Id.Value, o.SourceRef));
+        Assert.All(observations.Items, o => Assert.Equal(PriceSource.Deal, o.Source));
+        foreach (var variantId in variantIds)
+            Assert.Single(observations.Items, o => o.ProductId == variantId);
+
+        // Linked to the lowest-ordered variant's observation, deterministically.
+        var expectedLinkedId = observations.Items
+            .Where(o => o.ProductId == variantIds.OrderBy(id => id).First())
+            .Select(o => o.Id.Value)
+            .Single();
+        Assert.Equal(expectedLinkedId, deal.CommittedPriceObservationId);
+    }
+
+    [Fact(DisplayName = "Confirm to a parent with zero live variants is rejected as ParentHasNoVariants before any write")]
+    public async Task Confirm_Parent_NoLiveVariants_Rejected()
+    {
+        var clock = new TestClock();
+        var deal = StageDeal();
+        var (deals, memories, products, observations) = Ports(deal);
+        products.Products[_parent] = new DealProductInfo(_parent, "Bubly", "Beverages", IsParent: true);
+
+        var result = await Service(deals, memories, products, observations, clock)
+            .ConfirmAsync(deal.Id, _parent, _user);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ConfirmDeal.ParentHasNoVariants, result.Error);
+        Assert.Equal(DealStatus.Pending, deal.Status);
+        Assert.Empty(observations.Items);
+        Assert.Empty(memories.Items);
+    }
+
+    [Fact(DisplayName = "Re-driving a partial parent fan-out writes only the still-missing variants, never a duplicate")]
+    public async Task Confirm_Parent_ReDrive_WritesOnlyMissingVariants()
+    {
+        var clock = new TestClock();
+        var deal = StageDeal();
+        var (deals, memories, products, observations) = Ports(deal);
+        var variantIds = new[] { _variant1, _variant2, _variant3 };
+        products.Products[_parent] = new DealProductInfo(
+            _parent, "Bubly", "Beverages", IsParent: true, liveVariantIds: variantIds);
+        // Crash mid-fan-out: variant2's write throws — variant1 already landed, variant3 never attempted.
+        observations.ThrowOnAdd = 2;
+
+        var firstRun = await Service(deals, memories, products, observations, clock)
+            .ConfirmAsync(deal.Id, _parent, _user);
+
+        Assert.True(firstRun.IsFailure);
+        Assert.Equal(ConfirmDeal.CommitFailed, firstRun.Error);
+        Assert.Null(deal.CommittedPriceObservationId);
+        Assert.Single(observations.Items); // only the first variant's write landed before the throw
+
+        var secondRun = await Service(deals, memories, products, observations, clock)
+            .ConfirmAsync(deal.Id, _parent, _user);
+
+        Assert.True(secondRun.IsSuccess);
+        Assert.Equal(3, observations.Items.Count); // the missing two written, the first never duplicated
+        foreach (var variantId in variantIds)
+            Assert.Single(observations.Items, o => o.ProductId == variantId);
+        Assert.NotNull(deal.CommittedPriceObservationId);
+    }
+
+    [Fact(DisplayName = "Correct on a parent-confirmed deal supersedes every live fanned-out row and records fresh ones")]
+    public async Task Correct_Parent_SupersedesAllAndRecordsFresh()
+    {
+        var clock = new TestClock();
+        var deal = StageDeal();
+        var (deals, memories, products, observations) = Ports(deal);
+        var variantIds = new[] { _variant1, _variant2, _variant3 };
+        products.Products[_parent] = new DealProductInfo(
+            _parent, "Bubly", "Beverages", IsParent: true, liveVariantIds: variantIds);
+        var service = Service(deals, memories, products, observations, clock);
+
+        await service.ConfirmAsync(deal.Id, _parent, _user);
+        var originalIds = observations.Items.Select(o => o.Id).ToList();
+
+        var result = await service.CorrectAsync(deal.Id, _parent, _user);
+
+        Assert.True(result.IsSuccess);
+        // 3 original rows retained (append-only) + 3 fresh rows = 6 total.
+        Assert.Equal(6, observations.Items.Count);
+        foreach (var originalId in originalIds)
+        {
+            var original = observations.Items.Single(o => o.Id == originalId);
+            Assert.NotNull(original.SupersededById); // every prior live row was superseded
+        }
+        // Every original row's replacement is itself live (not further superseded) and shares the deal's SourceRef.
+        var freshRows = observations.Items.Where(o => !originalIds.Contains(o.Id)).ToList();
+        Assert.Equal(3, freshRows.Count);
+        Assert.All(freshRows, o => Assert.Null(o.SupersededById));
+        Assert.All(freshRows, o => Assert.Equal(deal.Id.Value, o.SourceRef));
+        foreach (var variantId in variantIds)
+            Assert.Single(freshRows, o => o.ProductId == variantId);
+
+        Assert.Contains(observations.Items, o => o.Id.Value == deal.CommittedPriceObservationId);
+        Assert.False(observations.Items.Single(o => o.Id.Value == deal.CommittedPriceObservationId).SupersededById.HasValue);
+    }
 }

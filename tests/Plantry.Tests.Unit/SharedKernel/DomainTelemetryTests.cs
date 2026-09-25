@@ -175,9 +175,9 @@ public sealed class DomainTelemetryTests
     {
         using var meter = new DomainMeterListener();
 
-        var (stocks, productId, unitId, locationId) = BuildInventoryWithLot(100m);
+        var (stocks, rules, productId, unitId, locationId) = BuildInventoryWithLot(100m);
 
-        var cmd = BuildConsumeCommand(stocks, productId, unitId, amount: 30m);
+        var cmd = BuildConsumeCommand(stocks, rules, productId, unitId, amount: 30m);
 
         var before = meter.Read("plantry.inventory.stock_consumed");
         await cmd.ExecuteAsync();
@@ -198,7 +198,7 @@ public sealed class DomainTelemetryTests
 
         var cmd = new ConsumeStockCommand(
             productId, 30m, unitId, InventoryDomain.StockReason.Consumed, Guid.CreateVersion7(), null, null,
-            stocks, new MetricsTestCatalogReadFacade(), new MetricsTestConversionProvider(), SystemClock.Instance,
+            stocks, new MetricsTestLowStockRuleRepository(), new MetricsTestCatalogReadFacade(), new MetricsTestConversionProvider(), SystemClock.Instance,
             new MetricsTestTenantContext(household));
 
         var before = meter.Read("plantry.inventory.stock_consumed");
@@ -216,9 +216,9 @@ public sealed class DomainTelemetryTests
         using var meter = new DomainMeterListener();
 
         // Threshold = 20; stock = 30; consume 20 → leaves 10 ≤ 20 → event fires.
-        var (stocks, productId, unitId, _) = BuildInventoryWithLot(30m, threshold: 20m);
+        var (stocks, rules, productId, unitId, _) = BuildInventoryWithLot(30m, threshold: 20m);
 
-        var cmd = BuildConsumeCommand(stocks, productId, unitId, amount: 20m);
+        var cmd = BuildConsumeCommand(stocks, rules, productId, unitId, amount: 20m);
 
         var before = meter.Read("plantry.inventory.low_stock_events");
         await cmd.ExecuteAsync();
@@ -232,9 +232,9 @@ public sealed class DomainTelemetryTests
     {
         using var meter = new DomainMeterListener();
 
-        var (stocks, productId, unitId, _) = BuildInventoryWithLot(100m); // no threshold
+        var (stocks, rules, productId, unitId, _) = BuildInventoryWithLot(100m); // no threshold
 
-        var cmd = BuildConsumeCommand(stocks, productId, unitId, amount: 30m);
+        var cmd = BuildConsumeCommand(stocks, rules, productId, unitId, amount: 30m);
 
         var before = meter.Read("plantry.inventory.low_stock_events");
         await cmd.ExecuteAsync();
@@ -249,9 +249,9 @@ public sealed class DomainTelemetryTests
         using var meter = new DomainMeterListener();
 
         // Threshold = 20; stock = 100; consume 10 → leaves 90 > 20 → no event.
-        var (stocks, productId, unitId, _) = BuildInventoryWithLot(100m, threshold: 20m);
+        var (stocks, rules, productId, unitId, _) = BuildInventoryWithLot(100m, threshold: 20m);
 
-        var cmd = BuildConsumeCommand(stocks, productId, unitId, amount: 10m);
+        var cmd = BuildConsumeCommand(stocks, rules, productId, unitId, amount: 10m);
 
         var before = meter.Read("plantry.inventory.low_stock_events");
         await cmd.ExecuteAsync();
@@ -280,9 +280,11 @@ public sealed class DomainTelemetryTests
         var stocks = new MetricsTestStockRepository();
         var stock = InventoryDomain.ProductStock.Start(HouseholdId.From(household), productId, clock);
         stock.AddStock(30_000m, gramUnitId, locationId, userId, clock);
-        stock.SetLowStockThreshold(25m, clock); // threshold in kg
         stocks.Items.Add(stock);
         stocks.HouseholdId = household;
+
+        var rules = new MetricsTestLowStockRuleRepository();
+        rules.Items.Add(InventoryDomain.LowStockRule.Create(HouseholdId.From(household), productId, 25m, clock)); // threshold in kg
 
         var factors = new Dictionary<(Guid From, Guid To), decimal>
         {
@@ -297,7 +299,7 @@ public sealed class DomainTelemetryTests
         var cmd = new ConsumeStockCommand(
             productId, 10_000m, gramUnitId, InventoryDomain.StockReason.Consumed,
             Guid.CreateVersion7(), null, null,
-            stocks, catalog, new MetricsTestSingleFactorConversionProvider(converter),
+            stocks, rules, catalog, new MetricsTestSingleFactorConversionProvider(converter),
             SystemClock.Instance, new MetricsTestTenantContext(household));
 
         var before = meter.Read("plantry.inventory.low_stock_events");
@@ -329,9 +331,11 @@ public sealed class DomainTelemetryTests
         var stocks = new MetricsTestStockRepository();
         var stock = InventoryDomain.ProductStock.Start(HouseholdId.From(household), productId, clock);
         stock.AddStock(5m, eaUnitId, locationId, userId, clock);
-        stock.SetLowStockThreshold(3m, clock); // threshold in display unit (g/ea-equivalent)
         stocks.Items.Add(stock);
         stocks.HouseholdId = household;
+
+        var rules = new MetricsTestLowStockRuleRepository();
+        rules.Items.Add(InventoryDomain.LowStockRule.Create(HouseholdId.From(household), productId, 3m, clock)); // threshold in display unit (g/ea-equivalent)
 
         // Converter with no ea→g factor — SumInDisplayUnit returns 0 for ea lots.
         var unconvertibleConverter = new MetricsTestFactorConverter(Guid.Empty, Guid.Empty, 1m); // never matches
@@ -340,7 +344,7 @@ public sealed class DomainTelemetryTests
         var cmd = new ConsumeStockCommand(
             productId, 0.001m, eaUnitId, InventoryDomain.StockReason.Consumed,
             Guid.CreateVersion7(), null, null,
-            stocks, catalog, new MetricsTestSingleFactorConversionProvider(unconvertibleConverter),
+            stocks, rules, catalog, new MetricsTestSingleFactorConversionProvider(unconvertibleConverter),
             SystemClock.Instance, new MetricsTestTenantContext(household));
 
         var before = meter.Read("plantry.inventory.low_stock_events");
@@ -423,7 +427,7 @@ public sealed class DomainTelemetryTests
 
     // ── Inventory helpers ────────────────────────────────────────────────────────────────────────
 
-    private static (MetricsTestStockRepository Stocks, Guid ProductId, Guid UnitId, Guid LocationId)
+    private static (MetricsTestStockRepository Stocks, MetricsTestLowStockRuleRepository Rules, Guid ProductId, Guid UnitId, Guid LocationId)
         BuildInventoryWithLot(decimal quantity, decimal? threshold = null)
     {
         var clock = SystemClock.Instance;
@@ -436,17 +440,20 @@ public sealed class DomainTelemetryTests
         var stocks = new MetricsTestStockRepository();
         var stock = InventoryDomain.ProductStock.Start(HouseholdId.From(household), productId, clock);
         stock.AddStock(quantity, unitId, locationId, userId, clock);
-        if (threshold.HasValue)
-            stock.SetLowStockThreshold(threshold, clock);
         stocks.Items.Add(stock);
         stocks.HouseholdId = household;
-        return (stocks, productId, unitId, locationId);
+
+        var rules = new MetricsTestLowStockRuleRepository();
+        if (threshold.HasValue)
+            rules.Items.Add(InventoryDomain.LowStockRule.Create(HouseholdId.From(household), productId, threshold.Value, clock));
+
+        return (stocks, rules, productId, unitId, locationId);
     }
 
     private static ConsumeStockCommand BuildConsumeCommand(
-        MetricsTestStockRepository stocks, Guid productId, Guid unitId, decimal amount) =>
+        MetricsTestStockRepository stocks, MetricsTestLowStockRuleRepository rules, Guid productId, Guid unitId, decimal amount) =>
         new(productId, amount, unitId, InventoryDomain.StockReason.Consumed, Guid.CreateVersion7(), null, null,
-            stocks, new MetricsTestCatalogReadFacade(productId, unitId), new MetricsTestConversionProvider(),
+            stocks, rules, new MetricsTestCatalogReadFacade(productId, unitId), new MetricsTestConversionProvider(),
             SystemClock.Instance, new MetricsTestTenantContext(stocks.HouseholdId));
 }
 
@@ -554,6 +561,30 @@ internal sealed class MetricsTestStockRepository : InventoryDomain.IProductStock
 
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct = default) =>
         await work(ct);
+}
+
+internal sealed class MetricsTestLowStockRuleRepository : InventoryDomain.ILowStockRuleRepository
+{
+    public List<InventoryDomain.LowStockRule> Items { get; } = [];
+
+    public Task<InventoryDomain.LowStockRule?> FindAsync(HouseholdId h, Guid p, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(r => r.HouseholdId == h && r.ProductId == p));
+
+    public Task<IReadOnlyDictionary<Guid, InventoryDomain.LowStockRule>> ListForHouseholdAsync(HouseholdId h, CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyDictionary<Guid, InventoryDomain.LowStockRule>)Items
+            .Where(r => r.HouseholdId == h).ToDictionary(r => r.ProductId));
+
+    public Task AddAsync(InventoryDomain.LowStockRule rule, CancellationToken ct = default) { Items.Add(rule); return Task.CompletedTask; }
+
+    public Task<bool> TryAddAndSaveAsync(InventoryDomain.LowStockRule rule, CancellationToken ct = default)
+    {
+        Items.Add(rule);
+        return Task.FromResult(true);
+    }
+
+    public Task RemoveAsync(InventoryDomain.LowStockRule rule, CancellationToken ct = default) { Items.Remove(rule); return Task.CompletedTask; }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 internal sealed class MetricsTestCatalogReadFacade : ICatalogReadFacade

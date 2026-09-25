@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Logging;
 using Plantry.Market.Domain;
+using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 
 namespace Plantry.Market.Application;
@@ -34,7 +36,8 @@ public sealed record DealReviewView(
     Guid? SuggestedProductUnitId = null,
     string? DealUnitCode = null,
     string? SuggestedProductUnitCode = null,
-    decimal? SuggestedProductUnitFactorToBase = null)
+    decimal? SuggestedProductUnitFactorToBase = null,
+    bool SuggestedProductIsParent = false)
 {
     /// <summary>
     /// IDs of other pending deals with the same advertised identity as this view's deal. The projection and
@@ -62,6 +65,10 @@ public sealed record DealReviewView(
 
     /// <summary>True for the already-confirmed correction entry path (the DJ3 → DJ4 edge from the active list).</summary>
     public bool IsAlreadyConfirmed => Status == DealStatus.Confirmed;
+
+    // SuggestedProductIsParent (plantry-oh27.6): true when SuggestedProductId is a parent product —
+    // confirming this deal fans the observation out to every live variant. Drives the "any variant" hint
+    // rendered alongside the suggestion chip in every review surface (card, checklist, judgement-call deck).
 }
 
 /// <summary>
@@ -144,7 +151,9 @@ public sealed class ReviewDeals(
     IClock clock,
     PricingQueries pricingQueries,
     IPurchaseFrequencyReader purchaseFrequency,
-    IUnitPriceCalculator unitPriceCalculator)
+    IUnitPriceCalculator unitPriceCalculator,
+    IProductUnitConverter productUnitConverter,
+    ILogger<ReviewDeals> logger)
 {
     /// <summary>The pending review queue (DD14: Pending ∧ not yet expired), oldest-expiring first.</summary>
     public async Task<IReadOnlyList<DealReviewView>> ListPendingAsync(CancellationToken ct = default)
@@ -201,7 +210,7 @@ public sealed class ReviewDeals(
         var (storeNames, suggestionNames) = await ResolveNamesAsync(collapsed.Select(x => x.Representative).ToList(), ct);
 
         var views = collapsed.Select(x => ToView(x.Representative, storeNames, suggestionNames, x.SiblingIds)).ToList();
-        var purchaseContexts = await BuildPurchaseContextsAsync(views, ct);
+        var purchaseContexts = await BuildPurchaseContextsAsync(views, suggestionNames, ct);
 
         return views
             .Select(v => purchaseContexts.TryGetValue(v.DealId, out var context) ? v with { Purchase = context } : v)
@@ -217,16 +226,25 @@ public sealed class ReviewDeals(
 
     /// <summary>
     /// Purchase-history context for each view with a resolved suggested product (plantry-gtgl), keyed by
-    /// <see cref="DealId"/> — batched over the whole card set (one price-history read, one purchase-dates
-    /// read, one latest-purchase read; no N+1 per card), so rendering a flyer with many cards costs three
-    /// round trips total instead of three per card. A view's suggested product with no purchase/manual price
-    /// history at all is simply absent from the result (the ticket's "skip the row silently") — no entry
-    /// with null/zero fields standing in for "unknown". The deal's own unit-price normalization
-    /// (<see cref="IUnitPriceCalculator"/>) still runs per-deal — price/quantity/unit are deal attributes,
-    /// not product attributes — but the calculator memoizes per unit, so this stays cheap.
+    /// <see cref="DealId"/> — batched over the whole card set (no N+1 per card). A view's suggested product
+    /// with no purchase/manual price history at all is simply absent from the result (the ticket's "skip
+    /// the row silently") — no entry with null/zero fields standing in for "unknown". The deal's own
+    /// unit-price normalization (<see cref="IUnitPriceCalculator"/>) still runs per-deal — price/quantity/
+    /// unit are deal attributes, not product attributes — but the calculator memoizes per unit, so this
+    /// stays cheap.
+    /// <para>
+    /// <b>Parent-matched deals (plantry-oh27.6).</b> When the suggested product is a parent, the "you pay
+    /// $X" context is the <b>union</b> of its live variants' purchase history: the price side reuses
+    /// <see cref="PriceHistoryRollup.ForProductsAsync"/> — the same shared, unit-converting rollup machinery
+    /// <c>PriceHistoryReaderAdapter</c> wires in for the parent detail page (plantry-oh27.5) — rather than a
+    /// hand-rolled raw average across variants' own <see cref="PriceObservation.UnitPrice"/> values, which
+    /// would silently mix incompatible unit dimensions across sibling variants; "last bought"/cadence union
+    /// every live variant's purchase-journal dates instead of reading just one.
+    /// </para>
     /// </summary>
     private async Task<IReadOnlyDictionary<DealId, DealPurchaseContext>> BuildPurchaseContextsAsync(
-        IReadOnlyList<DealReviewView> views, CancellationToken ct)
+        IReadOnlyList<DealReviewView> views, IReadOnlyDictionary<Guid, DealProductInfo> productInfo,
+        CancellationToken ct)
     {
         var productIds = views
             .Where(v => v.SuggestedProductId is not null)
@@ -236,22 +254,115 @@ public sealed class ReviewDeals(
         if (productIds.Count == 0)
             return EmptyPurchaseContexts;
 
-        var histories = await pricingQueries.PriceHistoryForProductsAsync(productIds, ct);
-        if (histories.Count == 0)
+        bool IsParent(Guid id) => productInfo.TryGetValue(id, out var info) && info.IsParent;
+
+        var leafIds = productIds.Where(id => !IsParent(id)).ToList();
+        var parentInfos = productIds
+            .Where(IsParent)
+            .Select(id => productInfo[id])
+            .ToList();
+
+        var leafHistories = leafIds.Count == 0
+            ? new Dictionary<Guid, IReadOnlyList<PriceHistoryPoint>>()
+            : await pricingQueries.PriceHistoryForProductsAsync(leafIds, ct);
+
+        // Keyed by parent id → the full rollup result, not just its Points: ReferenceUnitId is the basis
+        // AverageUnitPrice is actually expressed in (plantry-oh27.6 fix — see DealPurchaseContext.
+        // AverageBasisUnitId's doc) and must travel with the average, never be assumed to be the base unit.
+        var parentRollups = new Dictionary<Guid, RolledUpPriceHistory>();
+        var variantIds = new List<Guid>();
+        if (parentInfos.Count > 0)
+        {
+            variantIds = parentInfos.SelectMany(p => p.LiveVariantIds).Distinct().ToList();
+
+            // PriceRollupVariant.DefaultUnitId is never read by PriceHistoryRollup's parent path (only
+            // reference.Id, observation.UnitId and the parent's own DefaultUnitId participate) — so no
+            // per-variant catalog round trip is issued here for a value nothing consumes.
+            var rollupProducts = parentInfos.Select(p => new PriceRollupProduct(
+                p.ProductId,
+                p.DefaultUnitId ?? Guid.Empty,
+                IsParent: true,
+                Variants: p.LiveVariantIds
+                    .Select(vid => new PriceRollupVariant(vid, Guid.Empty))
+                    .ToList())).ToList();
+
+            var rolled = await PriceHistoryRollup.ForProductsAsync(
+                pricingQueries, rollupProducts, productUnitConverter.ConvertAsync, ct);
+            foreach (var (parentId, rolledHistory) in rolled)
+            {
+                if (rolledHistory.Points.Count > 0)
+                    parentRollups[parentId] = rolledHistory;
+
+                if (rolledHistory.SkippedProductIds.Count > 0)
+                    logger.LogWarning(
+                        "ReviewDeals: parent {ParentProductId}'s purchase-context rollup skipped {SkippedCount} " +
+                        "of its live variants' observations (no conversion path into the reference unit) — " +
+                        "the rendered average excludes them. Skipped variant ids: {SkippedVariantIds}.",
+                        parentId, rolledHistory.SkippedProductIds.Count, rolledHistory.SkippedProductIds);
+            }
+        }
+
+        if (leafHistories.Count == 0 && parentRollups.Count == 0)
             return EmptyPurchaseContexts;
 
-        var purchaseDates = await purchaseFrequency.PurchaseDatesForProductsAsync(histories.Keys, ct);
-        var latestPurchases = await pricingQueries.LatestPurchasePricesAsync(histories.Keys, ct);
+        var leafPurchaseDates = leafHistories.Count == 0
+            ? new Dictionary<Guid, IReadOnlyList<DateTimeOffset>>()
+            : await purchaseFrequency.PurchaseDatesForProductsAsync(leafHistories.Keys, ct);
+        var leafLatestPurchases = leafHistories.Count == 0
+            ? new Dictionary<Guid, PriceObservation>()
+            : await pricingQueries.LatestPurchasePricesAsync(leafHistories.Keys, ct);
+
+        var variantPurchaseDates = variantIds.Count == 0
+            ? new Dictionary<Guid, IReadOnlyList<DateTimeOffset>>()
+            : await purchaseFrequency.PurchaseDatesForProductsAsync(variantIds, ct);
+        var variantLatestPurchases = variantIds.Count == 0
+            ? new Dictionary<Guid, PriceObservation>()
+            : await pricingQueries.LatestPurchasePricesAsync(variantIds, ct);
 
         var result = new Dictionary<DealId, DealPurchaseContext>();
         foreach (var view in views)
         {
             if (view.SuggestedProductId is not { } productId)
                 continue;
-            if (!histories.TryGetValue(productId, out var history))
-                continue; // no purchase history at all — skip silently (the ticket's stated behaviour)
-            if (!latestPurchases.TryGetValue(productId, out var latest))
-                continue;
+
+            IReadOnlyList<PriceHistoryPoint>? history;
+            DateOnly lastPurchasedAt;
+            TimeSpan? interval;
+            Guid? averageBasisUnitId;
+
+            if (IsParent(productId))
+            {
+                if (!parentRollups.TryGetValue(productId, out var rolledHistory))
+                    continue; // no purchase history on any live variant — skip silently
+                history = rolledHistory.Points;
+                averageBasisUnitId = rolledHistory.ReferenceUnitId;
+
+                var liveVariantIds = productInfo[productId].LiveVariantIds;
+                var mergedDates = liveVariantIds
+                    .SelectMany(vid => variantPurchaseDates.TryGetValue(vid, out var d) ? d : [])
+                    .ToList();
+                interval = PurchaseCadence.AverageInterval(mergedDates);
+
+                var latestObservation = liveVariantIds
+                    .Select(vid => variantLatestPurchases.TryGetValue(vid, out var obs) ? obs : null)
+                    .Where(obs => obs is not null)
+                    .MaxBy(obs => obs!.ObservedAt);
+                if (latestObservation is null)
+                    continue; // no purchase/manual observation on any live variant — skip silently
+                lastPurchasedAt = DateOnly.FromDateTime(latestObservation.ObservedAt.UtcDateTime);
+            }
+            else
+            {
+                if (!leafHistories.TryGetValue(productId, out history))
+                    continue; // no purchase history at all — skip silently (the ticket's stated behaviour)
+                if (!leafLatestPurchases.TryGetValue(productId, out var latest))
+                    continue;
+                lastPurchasedAt = DateOnly.FromDateTime(latest.ObservedAt.UtcDateTime);
+                interval = leafPurchaseDates.TryGetValue(productId, out var dates)
+                    ? PurchaseCadence.AverageInterval(dates)
+                    : null;
+                averageBasisUnitId = null; // the historical per-BASE-unit contract
+            }
 
             // A zero average (a $0.00 free/promo purchase observation normalizes to a 0m unit price and is
             // still a usable PriceHistoryStats.Average input) would divide-by-zero below — skip the whole
@@ -260,25 +371,70 @@ public sealed class ReviewDeals(
             if (PriceHistoryStats.Average(history) is not { } averagePrice || averagePrice <= 0m)
                 continue;
 
-            decimal? dealUnitPrice = view.UnitId is { } unitId
-                ? await unitPriceCalculator.TryNormalizeAsync(view.Price, view.Quantity ?? 1m, unitId, ct)
-                : null;
+            // plantry-oh27.6 fix: a parent's average is expressed per 1 of averageBasisUnitId (the rollup's
+            // reference unit, the parent's own DefaultUnitId) — the deal's own price must be normalized onto
+            // that SAME basis, never via IUnitPriceCalculator (which always yields a per-BASE-unit price),
+            // or the two are compared on different scales (PercentDelta silently nonsensical).
+            var dealUnitPrice = averageBasisUnitId is { } referenceUnitId
+                ? await ConvertDealPriceToReferenceUnitAsync(view, productId, referenceUnitId, ct)
+                : view.UnitId is { } unitId
+                    ? await unitPriceCalculator.TryNormalizeAsync(view.Price, view.Quantity ?? 1m, unitId, ct)
+                    : null;
             var percentDelta = dealUnitPrice is { } dup
                 ? Math.Round((dup - averagePrice) / averagePrice * 100m, 1)
                 : (decimal?)null;
-
-            var interval = purchaseDates.TryGetValue(productId, out var dates)
-                ? PurchaseCadence.AverageInterval(dates)
-                : null;
 
             result[view.DealId] = new DealPurchaseContext(
                 averagePrice,
                 dealUnitPrice,
                 percentDelta,
                 interval,
-                DateOnly.FromDateTime(latest.ObservedAt.UtcDateTime));
+                lastPurchasedAt,
+                averageBasisUnitId);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Normalizes a deal's own advertised price onto <paramref name="referenceUnitId"/> — the same basis
+    /// <see cref="PriceHistoryRollup"/> expressed a parent's rolled-up average in (plantry-oh27.6) — using
+    /// the identical math <see cref="EffectivePriceRollup.ConvertToReferenceUnitAsync"/> applies to each
+    /// observation: <c>price / (quantity × convert(1 fromUnit → referenceUnit))</c>. A deal with no
+    /// advertised unit, a non-positive quantity, or no conversion path into the reference unit yields null —
+    /// the deal is still shown, just without a percent comparison (never an incomparable number).
+    /// </summary>
+    private async Task<decimal?> ConvertDealPriceToReferenceUnitAsync(
+        DealReviewView view, Guid parentProductId, Guid referenceUnitId, CancellationToken ct)
+    {
+        if (view.UnitId is not { } unitId)
+            return null;
+
+        var quantity = view.Quantity ?? 1m;
+        if (quantity <= 0m)
+            return null;
+
+        decimal factor;
+        if (unitId == referenceUnitId)
+        {
+            factor = 1m;
+        }
+        else
+        {
+            var converted = await productUnitConverter.ConvertAsync(parentProductId, 1m, unitId, referenceUnitId, ct);
+            if (converted.IsFailure || converted.Value <= 0m)
+            {
+                logger.LogWarning(
+                    "ReviewDeals: deal {DealId} could not be converted from unit {DealUnitId} into parent " +
+                    "{ParentProductId}'s reference unit {ReferenceUnitId} — the purchase-context percent " +
+                    "comparison is omitted for this card.",
+                    view.DealId.Value, unitId, parentProductId, referenceUnitId);
+                return null;
+            }
+            factor = converted.Value;
+        }
+
+        var convertedQuantity = quantity * factor;
+        return convertedQuantity > 0m ? view.Price / convertedQuantity : null;
     }
 
     private static readonly IReadOnlyDictionary<DealId, DealPurchaseContext> EmptyPurchaseContexts =
@@ -443,7 +599,7 @@ public sealed class ReviewDeals(
         if (!includePurchaseContext)
             return view;
 
-        var purchaseContexts = await BuildPurchaseContextsAsync([view], ct);
+        var purchaseContexts = await BuildPurchaseContextsAsync([view], suggestionNames, ct);
         return purchaseContexts.TryGetValue(view.DealId, out var context) ? view with { Purchase = context } : view;
     }
 
@@ -480,6 +636,10 @@ public sealed class ReviewDeals(
                                        && suggestionNames.TryGetValue(productId, out var productInfo)
             ? productInfo.DefaultUnitId
             : null;
+        // plantry-oh27.6: drives the "any variant" hint on every review surface.
+        var suggestedProductIsParent = deal.SuggestedProductId is { } pid
+                                        && suggestionNames.TryGetValue(pid, out var pInfo)
+            && pInfo.IsParent;
 
         return new DealReviewView(
             deal.Id,
@@ -500,7 +660,8 @@ public sealed class ReviewDeals(
             deal.AutoMatched,
             deal.UnitId,
             duplicateDealIds: duplicateDealIds ?? [],
-            SuggestedProductUnitId: suggestedProductUnitId);
+            SuggestedProductUnitId: suggestedProductUnitId,
+            SuggestedProductIsParent: suggestedProductIsParent);
     }
 
 

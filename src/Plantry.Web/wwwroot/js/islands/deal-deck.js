@@ -56,6 +56,8 @@ import {
  * @property {string|null} unitMismatchHint     accessible explanation when the unit identities differ
  * @property {boolean} hasSuggestion
  * @property {string|null} suggestedProductName
+ * @property {boolean} suggestedProductIsParent a parent match (plantry-oh27.6) — confirming fans the
+ *   observation out to every live variant; renders the "any variant" hint
  * @property {string|null} reasoning
  * @property {boolean} isNoise                 a $0.00 flyer-noise row (still individually rejectable)
  * @property {string} confirmUrl              htmx POST url (?handler=Confirm&dealId=&flyer=&step=2)
@@ -313,7 +315,7 @@ export function mountDealDeck(mount, config) {
             <div class="focus-card__match-head">
               <div>
                 <div class="focus-card__src">Your catalog</div>
-                <div class="focus-card__product">${escapeHtml(card.suggestedProductName ?? "")}</div>
+                <div class="focus-card__product">${escapeHtml(card.suggestedProductName ?? "")}${card.suggestedProductIsParent ? ` <span class="rk">any variant</span>` : ""}</div>
               </div>
               ${card.inventoryUnitCode ? `
               <span class="inventory-unit">

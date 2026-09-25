@@ -19,9 +19,14 @@ public sealed class InventoryQueryServiceTests
 
     private InventoryQueryService Service(
         FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, IQuantityConverter converter, Guid? household,
-        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays) =>
-        new(stocks, catalog, new FakeConversionProvider(converter),
-            new FakeExpiringSoonHorizon(horizonDays), Clock, new FakeTenantContext(household));
+        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays, FakeLowStockRuleRepository? rules = null)
+    {
+        var conversions = new FakeConversionProvider(converter);
+        var tenant = new FakeTenantContext(household);
+        return new(stocks, rules ?? new FakeLowStockRuleRepository(), catalog, conversions,
+            new FakeExpiringSoonHorizon(horizonDays), Clock, tenant,
+            new OnHandRollupQuery(stocks, catalog, conversions, tenant));
+    }
 
     private FakeCatalogReadFacade Catalog()
     {
@@ -319,10 +324,11 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(4m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m, Clock); // 4 ≤ 5 → running low
         stocks.Items.Add(stock);
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), _productId, 5m, Clock)); // 4 ≤ 5 → running low
 
-        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household, rules: rules).ListPantryAsync();
 
         var item = Assert.Single(pantry);
         Assert.Equal(5m, item.LowStockThreshold);
@@ -335,10 +341,11 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(10m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m, Clock); // 10 > 5 → not running low
         stocks.Items.Add(stock);
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), _productId, 5m, Clock)); // 10 > 5 → not running low
 
-        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).ListPantryAsync();
+        var pantry = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household, rules: rules).ListPantryAsync();
 
         var item = Assert.Single(pantry);
         Assert.Equal(5m, item.LowStockThreshold);
@@ -369,10 +376,11 @@ public sealed class InventoryQueryServiceTests
         var stocks = new FakeProductStockRepository();
         var stock = ProductStock.Start(HouseholdId.From(_household), _productId, Clock);
         stock.AddStock(5m, _grams, _location, _user, Clock);
-        stock.SetLowStockThreshold(5m, Clock); // exactly at threshold → running low
         stocks.Items.Add(stock);
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), _productId, 5m, Clock)); // exactly at threshold → running low
 
-        var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household).FindDetailAsync(_productId);
+        var detail = await Service(stocks, Catalog(), new IdentityQuantityConverter(), _household, rules: rules).FindDetailAsync(_productId);
 
         Assert.NotNull(detail);
         Assert.Equal(5m, detail!.LowStockThreshold);
@@ -394,6 +402,200 @@ public sealed class InventoryQueryServiceTests
         Assert.False(detail.IsRunningLow);
     }
 
+    // ── Parent product detail / pantry list (plantry-oh27.7) ─────────────
+
+    [Fact]
+    public async Task FindDetail_Parent_Aggregates_OnHand_Across_Live_Variants_With_Breakdown()
+    {
+        var parentId = Guid.CreateVersion7();
+        var variant1 = Guid.CreateVersion7();
+        var variant2 = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository();
+        var stock1 = ProductStock.Start(HouseholdId.From(_household), variant1, Clock);
+        stock1.AddStock(4m, _grams, _location, _user, Clock);
+        var stock2 = ProductStock.Start(HouseholdId.From(_household), variant2, Clock);
+        stock2.AddStock(6m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock1);
+        stocks.Items.Add(stock2);
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Bubly", "Drinks", _grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(variant1, "Bubly Lime", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.Products.Add(new CatalogProductInfo(variant2, "Bubly Grapefruit", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.UnitCodes[_grams] = "g";
+
+        var detail = await Service(stocks, catalog, new IdentityQuantityConverter(), _household).FindDetailAsync(parentId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(10m, detail!.TotalQuantity);
+        Assert.Empty(detail.Lots);
+        Assert.Empty(detail.History);
+        Assert.Equal(2, detail.Variants.Count);
+        Assert.Contains(detail.Variants, v => v.VariantId == variant1 && v.Name == "Bubly Lime" && v.OnHand == 4m);
+        Assert.Contains(detail.Variants, v => v.VariantId == variant2 && v.Name == "Bubly Grapefruit" && v.OnHand == 6m);
+        Assert.Empty(detail.UnconvertedVariantIds);
+    }
+
+    [Fact]
+    public async Task FindDetail_Parent_Excludes_Unconverted_Variant_From_Total_But_Lists_It()
+    {
+        var parentId = Guid.CreateVersion7();
+        var convertibleVariant = Guid.CreateVersion7();
+        var unconvertibleVariant = Guid.CreateVersion7();
+        var otherUnit = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository();
+        var stock1 = ProductStock.Start(HouseholdId.From(_household), convertibleVariant, Clock);
+        stock1.AddStock(4m, _grams, _location, _user, Clock);
+        var stock2 = ProductStock.Start(HouseholdId.From(_household), unconvertibleVariant, Clock);
+        stock2.AddStock(2m, otherUnit, _location, _user, Clock);
+        stocks.Items.Add(stock1);
+        stocks.Items.Add(stock2);
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Bubly", "Drinks", _grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(convertibleVariant, "Bubly Lime", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.Products.Add(new CatalogProductInfo(unconvertibleVariant, "Bubly Weird", "Drinks", otherUnit, "?", CanHoldStock: true, ParentProductId: parentId));
+        catalog.UnitCodes[_grams] = "g";
+
+        // No conversion registered between otherUnit and _grams — FactorQuantityConverter fails closed.
+        var converter = new FactorQuantityConverter(new Dictionary<(Guid, Guid), decimal>());
+        var detail = await Service(stocks, catalog, converter, _household).FindDetailAsync(parentId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(4m, detail!.TotalQuantity); // only the convertible variant contributes
+        Assert.Equal(2, detail.Variants.Count); // both still listed, never silently dropped
+        Assert.Equal([unconvertibleVariant], detail.UnconvertedVariantIds);
+        // IsLow reflects the variant's OWN on-hand (2, in its own unrelated unit) — a failed conversion
+        // is a display concern (UnconvertedVariantIds), never mistaken for "out of stock".
+        Assert.False(detail.Variants.Single(v => v.VariantId == unconvertibleVariant).IsLow);
+    }
+
+    [Fact]
+    public async Task FindDetail_Parent_IsRunningLow_Against_Aggregate_Using_Parent_Rule()
+    {
+        var parentId = Guid.CreateVersion7();
+        var variant1 = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository();
+        var stock1 = ProductStock.Start(HouseholdId.From(_household), variant1, Clock);
+        stock1.AddStock(3m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock1);
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Bubly", "Drinks", _grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(variant1, "Bubly Lime", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.UnitCodes[_grams] = "g";
+
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), parentId, 5m, Clock)); // 3 <= 5
+
+        var detail = await Service(stocks, catalog, new IdentityQuantityConverter(), _household, rules: rules).FindDetailAsync(parentId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(5m, detail!.LowStockThreshold);
+        Assert.True(detail.IsRunningLow);
+    }
+
+    [Fact]
+    public async Task ListPantry_Includes_Parent_With_Rule_Even_When_No_Variant_Is_Stocked()
+    {
+        var parentId = Guid.CreateVersion7();
+        var variant1 = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository(); // nothing stocked at all
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Bubly", "Drinks", _grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(variant1, "Bubly Lime", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.UnitCodes[_grams] = "g";
+
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), parentId, 5m, Clock));
+
+        var items = await Service(stocks, catalog, new IdentityQuantityConverter(), _household, rules: rules).ListPantryAsync();
+
+        var parentRow = Assert.Single(items, i => i.ProductId == parentId);
+        Assert.True(parentRow.IsParent);
+        Assert.Equal(0m, parentRow.TotalQuantity);
+        Assert.Equal(5m, parentRow.LowStockThreshold);
+        Assert.True(parentRow.IsRunningLow); // 0 <= 5
+    }
+
+    [Fact]
+    public async Task ListPantry_Includes_Parent_With_At_Least_One_Stocked_Live_Variant()
+    {
+        var parentId = Guid.CreateVersion7();
+        var variant1 = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository();
+        var stock1 = ProductStock.Start(HouseholdId.From(_household), variant1, Clock);
+        stock1.AddStock(9m, _grams, _location, _user, Clock);
+        stocks.Items.Add(stock1);
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Bubly", "Drinks", _grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(variant1, "Bubly Lime", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.UnitCodes[_grams] = "g";
+
+        var items = await Service(stocks, catalog, new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        var parentRow = Assert.Single(items, i => i.ProductId == parentId);
+        Assert.True(parentRow.IsParent);
+        Assert.Equal(9m, parentRow.TotalQuantity);
+    }
+
+    [Fact]
+    public async Task ListPantry_Excludes_Depleted_Shell_Parent_With_No_Rule()
+    {
+        var parentId = Guid.CreateVersion7();
+        var variant1 = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository();
+        var stock1 = ProductStock.Start(HouseholdId.From(_household), variant1, Clock);
+        stock1.AddStock(9m, _grams, _location, _user, Clock);
+        stock1.Consume(9m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, Clock);
+        stocks.Items.Add(stock1); // the ProductStock row survives past its last lot — a "depleted shell"
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Bubly", "Drinks", _grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(variant1, "Bubly Lime", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.UnitCodes[_grams] = "g";
+
+        var items = await Service(stocks, catalog, new IdentityQuantityConverter(), _household).ListPantryAsync();
+
+        Assert.DoesNotContain(items, i => i.ProductId == parentId);
+    }
+
+    [Fact]
+    public async Task ListPantry_Includes_Depleted_Shell_Parent_With_Rule_But_Marks_Not_Stocked()
+    {
+        var parentId = Guid.CreateVersion7();
+        var variant1 = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository();
+        var stock1 = ProductStock.Start(HouseholdId.From(_household), variant1, Clock);
+        stock1.AddStock(9m, _grams, _location, _user, Clock);
+        stock1.Consume(9m, _grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, Clock);
+        stocks.Items.Add(stock1); // depleted shell, but the parent still carries a household rule
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Bubly", "Drinks", _grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(variant1, "Bubly Lime", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.UnitCodes[_grams] = "g";
+
+        var rules = new FakeLowStockRuleRepository();
+        rules.Items.Add(LowStockRule.Create(HouseholdId.From(_household), parentId, 5m, Clock));
+
+        var items = await Service(stocks, catalog, new IdentityQuantityConverter(), _household, rules: rules).ListPantryAsync();
+
+        var parentRow = Assert.Single(items, i => i.ProductId == parentId);
+        Assert.True(parentRow.IsParent);
+        Assert.False(parentRow.IsStocked);
+        Assert.Equal(0m, parentRow.TotalQuantity);
+        Assert.True(parentRow.IsRunningLow); // 0 <= 5
+    }
+
     // ── GetConsumptionStatsAsync (plantry-fuej: days-of-supply + waste rate) ─────────────────────
 
     /// <summary>Mutable "now" so a test can backdate journal rows outside the velocity window.</summary>
@@ -403,9 +605,14 @@ public sealed class InventoryQueryServiceTests
     }
 
     private InventoryQueryService ServiceWithClock(
-        FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, IQuantityConverter converter, IClock clock) =>
-        new(stocks, catalog, new FakeConversionProvider(converter),
-            new FakeExpiringSoonHorizon(), clock, new FakeTenantContext(_household));
+        FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, IQuantityConverter converter, IClock clock)
+    {
+        var conversions = new FakeConversionProvider(converter);
+        var tenant = new FakeTenantContext(_household);
+        return new(stocks, new FakeLowStockRuleRepository(), catalog, conversions,
+            new FakeExpiringSoonHorizon(), clock, tenant,
+            new OnHandRollupQuery(stocks, catalog, conversions, tenant));
+    }
 
     [Fact(DisplayName = "plantry-fuej: returns null when the product has no stock record at all")]
     public async Task GetConsumptionStats_ReturnsNull_WhenNoStockRecord()

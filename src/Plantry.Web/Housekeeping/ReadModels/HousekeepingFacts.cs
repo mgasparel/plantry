@@ -20,7 +20,12 @@ public sealed record ProductFact(
     bool TrackStock,
     Guid DefaultUnitId,
     Guid? DefaultLocationId = null,
-    bool IsParent = false);
+    bool IsParent = false,
+    /// <summary>The parent product's id (DM-19) when this product is a live variant; null for a root
+    /// product (a plain leaf or a parent itself). Added (plantry-oh27.3) so
+    /// <see cref="StapleNoLowStockAlertDetector"/> can fold a variant without its own low-stock rule into
+    /// its parent's purchase-frequency group — mirrors <c>CatalogProductInfo.ParentProductId</c>.</summary>
+    Guid? ParentProductId = null);
 
 /// <summary>Unit display facts from <c>catalog.units</c>.</summary>
 public sealed record UnitFact(

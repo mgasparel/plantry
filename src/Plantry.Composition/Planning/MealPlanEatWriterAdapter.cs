@@ -58,6 +58,7 @@ namespace Plantry.Web.MealPlanning;
 /// </summary>
 public sealed class MealPlanEatWriterAdapter(
     IProductStockRepository stocks,
+    ILowStockRuleRepository rules,
     ICatalogReadFacade catalog,
     IProductConversionProvider conversions,
     IJournalEntriesBySourceRefReader journalReader,
@@ -96,7 +97,7 @@ public sealed class MealPlanEatWriterAdapter(
         var command = new ConsumeStockCommand(
             productId, quantity, unitId, StockReason.Consumed, userId,
             targetEntryId: null, sourceRef: plannedDishId,
-            stocks, catalog, conversions, clock, tenant,
+            stocks, rules, catalog, conversions, clock, tenant,
             StockSourceType.Eat, sourceLineRef: token, logger: consumeLogger);
 
         var result = await command.ExecuteAsync(ct);

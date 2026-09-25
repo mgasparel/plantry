@@ -3,13 +3,22 @@ namespace Plantry.Market.Application;
 /// <summary>
 /// A resolved catalog product's display fields, projected for the Deals read side (DM-3). <see cref="CategoryName"/>
 /// is null when the product has no category assigned — the Deals page files those under an "Uncategorized"
-/// group when grouping by category.
+/// group when grouping by category. <see cref="IsParent"/>/<see cref="LiveVariantIds"/> (plantry-oh27.6) let a
+/// deal resolve to a parent: <c>ConfirmDeal</c> fans the price observation out to every live variant, and
+/// <c>ReviewDeals</c> rolls the purchase context up across them. <see cref="LiveVariantIds"/> is always empty
+/// for a leaf (non-parent) product.
 /// </summary>
 public sealed record DealProductInfo(
     Guid ProductId,
     string Name,
     string? CategoryName,
-    Guid? DefaultUnitId = null);
+    Guid? DefaultUnitId = null,
+    bool IsParent = false,
+    IReadOnlyList<Guid>? liveVariantIds = null)
+{
+    /// <summary>Live (non-archived) variant ids of this parent — empty for a leaf, per <see cref="IsParent"/>.</summary>
+    public IReadOnlyList<Guid> LiveVariantIds { get; } = liveVariantIds ?? [];
+}
 
 /// <summary>
 /// Read port onto Catalog for product validation (deals-domain-model §7/§8). Before <c>ConfirmDeal</c>
@@ -24,10 +33,16 @@ public interface ICatalogProductReader
     Task<bool> ExistsAsync(Guid productId, CancellationToken ct = default);
 
     /// <summary>
-    /// The current household's live, stock-eligible products, projected as <see cref="ProductCandidate"/>s
-    /// for the stage-2 <see cref="IDealMatcher"/> (DJ2 step 4). Passed <b>in</b> to the matcher so the
-    /// untrusted AI adapter never touches Catalog and can only ever suggest one of these ids (ADR-007) —
-    /// the deal twin of Intake's <c>ICatalogHintProvider</c>. RLS-scoped to the armed household.
+    /// The current household's live products, projected as <see cref="ProductCandidate"/>s for the stage-2
+    /// <see cref="IDealMatcher"/> (DJ2 step 4). Passed <b>in</b> to the matcher so the untrusted AI adapter
+    /// never touches Catalog and can only ever suggest one of these ids (ADR-007) — the deal twin of
+    /// Intake's <c>ICatalogHintProvider</c>. RLS-scoped to the armed household.
+    /// <para>
+    /// Includes parent products (plantry-oh27.6): a flyer deal like "Bubly 12-pack, selected varieties"
+    /// can resolve to the parent — <see cref="ProductCandidate.IsParent"/> tells the matcher a parent
+    /// candidate stands for "any of its variants"; the fan-out to every live variant happens at confirm
+    /// (<c>ConfirmDeal</c>), never here.
+    /// </para>
     /// </summary>
     Task<IReadOnlyList<ProductCandidate>> ListCandidatesAsync(CancellationToken ct = default);
 

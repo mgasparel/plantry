@@ -64,10 +64,45 @@ public sealed class FakeReviewReferenceDataProvider(ReviewReferenceData data) : 
 /// method is exercised on this page. Register it in place of the concrete service in ConfigureTestServices.
 /// </summary>
 public sealed class StubInventoryQueryService(int inStock, int expiringSoon)
-    : InventoryQueryService(null!, null!, null!, null!, null!, null!)
+    : InventoryQueryService(null!, null!, null!, null!, null!, null!, null!, null!)
 {
     public override Task<int> CountInStockAsync(CancellationToken ct = default) => Task.FromResult(inStock);
     public override Task<int> CountExpiringSoonAsync(CancellationToken ct = default) => Task.FromResult(expiringSoon);
+}
+
+/// <summary>Shared in-memory <see cref="ILowStockRuleRepository"/> fake for WAF harnesses (plantry-oh27.1)
+/// — keyed by (household, product), mirrors <c>FakeLowStockRuleRepository</c> in Plantry.Tests.Unit.</summary>
+public sealed class FakeLowStockRuleRepository : ILowStockRuleRepository
+{
+    public List<LowStockRule> Items { get; } = [];
+
+    public Task<LowStockRule?> FindAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default) =>
+        Task.FromResult(Items.SingleOrDefault(r => r.HouseholdId == householdId && r.ProductId == productId));
+
+    public Task<IReadOnlyDictionary<Guid, LowStockRule>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyDictionary<Guid, LowStockRule>)Items
+            .Where(r => r.HouseholdId == householdId)
+            .ToDictionary(r => r.ProductId));
+
+    public Task AddAsync(LowStockRule rule, CancellationToken ct = default)
+    {
+        Items.Add(rule);
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> TryAddAndSaveAsync(LowStockRule rule, CancellationToken ct = default)
+    {
+        Items.Add(rule);
+        return Task.FromResult(true);
+    }
+
+    public Task RemoveAsync(LowStockRule rule, CancellationToken ct = default)
+    {
+        Items.Remove(rule);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 /// <summary>
