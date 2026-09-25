@@ -75,6 +75,11 @@ public static class CompositionServiceCollectionExtensions
         services.AddScoped<Plantry.Market.Application.ICatalogProductReader, DealCatalogProductReaderAdapter>();
         services.AddScoped<IPurchaseFrequencyReader, PurchaseFrequencyReaderAdapter>();
         services.AddScoped<IDealShoppingListWriter, DealShoppingListWriterAdapter>();
+        // Deals→Catalog unit-conversion ACL (plantry-oh27.6): feeds PriceHistoryRollup.ForProductsAsync
+        // from ReviewDeals (which lives in Plantry.Market.Application, not Composition) when a pending
+        // deal's suggested product is a parent — rolling the "you pay $X" purchase context up across its
+        // live variants without ReviewDeals itself depending on Catalog (ADR-010/DM-3).
+        services.AddScoped<Plantry.Market.Application.IProductUnitConverter, DealUnitConverterAdapter>();
 
         // Meal Planning ACLs onto Recipes (tags, recipe read model), Identity (household members via the
         // ASP.NET-free IHouseholdDirectory port), Catalog, Inventory, Pricing, and Shopping.

@@ -632,6 +632,12 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
             .OrderBy(p => p.ObservedAt)
             .ToList());
 
+    public Task<IReadOnlyList<PriceObservation>> ListLiveBySourceRefAsync(
+        PriceSource source, Guid sourceRef, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>(Items
+            .Where(p => p.Source == source && p.SourceRef == sourceRef && p.SupersededById is null)
+            .ToList());
+
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
         Task.FromResult(Items
             .Where(p => p.SkuId == skuId && (p.Source == PriceSource.Purchase || p.Source == PriceSource.Manual))

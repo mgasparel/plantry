@@ -204,6 +204,10 @@ public sealed class DealMatcher : IDealMatcher
             sb.Append('[').Append(c.Id).Append("] ").Append(c.Name);
             if (!string.IsNullOrWhiteSpace(c.Brand))
                 sb.Append(" — ").Append(c.Brand);
+            // Parent candidates (plantry-oh27.6): a deal can resolve to a parent, meaning "any of its
+            // variants" — told to the model textually rather than restructuring the prompt/response shape.
+            if (c.IsParent)
+                sb.Append(" (any variant)");
             sb.Append('\n');
         }
         sb.AppendLine();

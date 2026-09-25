@@ -123,6 +123,17 @@ public interface IPriceObservationRepository
         return result;
     }
 
+    /// <summary>Every still-live (<c>superseded_by_id IS NULL</c>, ADR-023 A7) observation of
+    /// <paramref name="source"/> whose <see cref="PriceObservation.SourceRef"/> equals <paramref name="sourceRef"/>
+    /// (plantry-oh27.6): a parent-resolved deal's fan-out writes one <c>source='deal'</c> observation per live
+    /// variant, all sharing the deal's id as <c>SourceRef</c> — this is how <c>ConfirmDeal</c> discovers which
+    /// variants already have a row (resumability: skip on re-drive) and which live rows to supersede on a
+    /// Correct. Tracked entities (like <see cref="ListPurchasesAwaitingStoreAsync"/>) so a caller's
+    /// <see cref="PriceObservation.Supersede"/> mutation persists on the next <see cref="SaveChangesAsync"/>.
+    /// No ordering guarantee; the caller groups by <see cref="PriceObservation.ProductId"/>.</summary>
+    Task<IReadOnlyList<PriceObservation>> ListLiveBySourceRefAsync(
+        PriceSource source, Guid sourceRef, CancellationToken ct = default);
+
     /// <summary>Batch counterpart to <see cref="ActiveDealForPurchaseAsync"/> (plantry-bb7p): of the given
     /// products (each paired with its purchase unit price), which have at least one active Confirmed deal at
     /// <paramref name="storeId"/> covering <paramref name="observedDate"/> that qualifies that unit price

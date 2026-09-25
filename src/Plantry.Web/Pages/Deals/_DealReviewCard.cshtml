@@ -92,6 +92,12 @@
                 <div class="match-suggest__label">
                     @(Model.IsAlreadyConfirmed ? "Currently matched to" : "Did you mean") &mdash;
                     <span>@Model.SuggestedProductName</span>
+                    @if (Model.SuggestedProductIsParent)
+                    {
+                        @* Parent match (plantry-oh27.6): confirming fans the observation out to every live
+                           variant — "any variant" tells the reviewer what accepting this suggestion means. *@
+                        <span class="rk">any variant</span>
+                    }
                 </div>
                 @if (!string.IsNullOrWhiteSpace(Model.SuggestedProductUnitCode))
                 {
@@ -127,7 +133,7 @@
            history — never rendered with a blank/zero stand-in. *@
         <div class="deal-review-row__purchase-context">
             <span class="chip-stat">
-                You pay <b>@MoneyDisplay.Format(DealReviewDisplay.PriceForUnit(purchase.AverageUnitPrice, Model.SuggestedProductUnitFactorToBase), displayCurrency)@averagePriceBasis</b> avg
+                You pay <b>@MoneyDisplay.Format(DealReviewDisplay.AverageUnitPriceForDisplay(purchase, Model.SuggestedProductUnitFactorToBase), displayCurrency)@averagePriceBasis</b> avg
                 @if (purchase.PercentDelta is { } pct)
                 {
                     <text>&rarr; deal is <b class="@(pct < 0 ? "delta--good" : "delta--bad")">@Math.Abs(pct)% @(pct < 0 ? "below" : "above")</b></text>

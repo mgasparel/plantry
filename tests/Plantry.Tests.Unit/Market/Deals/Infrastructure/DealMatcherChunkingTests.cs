@@ -198,6 +198,26 @@ public sealed class DealMatcherChunkingTests
                 Assert.Contains(candidate.Id.ToString(), call.UserText);
     }
 
+    [Fact(DisplayName = "A parent candidate's prompt line carries the '(any variant)' hint; a leaf candidate's does not (plantry-oh27.6)")]
+    public async Task Parent_Candidate_Prompt_Line_Carries_The_AnyVariant_Hint()
+    {
+        var parentId = Guid.NewGuid();
+        var leafId = Guid.NewGuid();
+        var candidates = new[]
+        {
+            new ProductCandidate(parentId, "Bubly", "Bubly", IsParent: true),
+            new ProductCandidate(leafId, "Whole Milk 2%", "Beatrice"),
+        };
+        var chat = new ScriptedChatClient(Unmatched);
+        var matcher = Matcher(chat, chunkSize: 40);
+
+        await matcher.MatchBatchAsync(Deals(1), candidates);
+
+        var userText = Assert.Single(chat.Calls).UserText;
+        Assert.Contains("Bubly — Bubly (any variant)", userText);
+        Assert.DoesNotContain("Whole Milk 2% — Beatrice (any variant)", userText);
+    }
+
     [Fact]
     public async Task An_OperationCanceledException_Propagates_Out_Of_MatchBatchAsync()
     {

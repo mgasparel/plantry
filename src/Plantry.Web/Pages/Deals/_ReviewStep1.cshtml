@@ -55,6 +55,11 @@
                 <span class="check-row__arrow" aria-hidden="true">&rarr;</span>
                 <span class="check-row__match">
                     <span class="check-row__product">@d.SuggestedProductName</span>
+                    @if (d.SuggestedProductIsParent)
+                    {
+                        @* Parent match (plantry-oh27.6): confirming fans the observation out to every live variant. *@
+                        <span class="rk">any variant</span>
+                    }
                     @if (!string.IsNullOrWhiteSpace(d.SuggestedProductUnitCode))
                     {
                         <span class="check-row__meta inventory-unit">

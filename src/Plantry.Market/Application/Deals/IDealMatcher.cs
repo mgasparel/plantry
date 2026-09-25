@@ -12,7 +12,11 @@ namespace Plantry.Market.Application;
 /// <param name="Id">catalog.product id — the sole legal value for a suggested match.</param>
 /// <param name="Name">The product's display name, shown to the model for matching.</param>
 /// <param name="Brand">The product's brand, if known — helps disambiguate branded advertised items.</param>
-public sealed record ProductCandidate(Guid Id, string Name, string? Brand = null);
+/// <param name="IsParent">True when this candidate is a parent product (plantry-oh27.6) — a deal can
+/// resolve to it, meaning "any of its variants" (the fan-out happens at confirm, never here). Rendered as
+/// a textual hint in the prompt so the model understands what accepting a parent candidate means; the
+/// prompt shape itself is otherwise unchanged.</param>
+public sealed record ProductCandidate(Guid Id, string Name, string? Brand = null, bool IsParent = false);
 
 /// <summary>
 /// The stage-2 matcher (DJ2 step 4 / §8): resolve a <b>batch</b> of normalized <see cref="RawDeal"/>s to

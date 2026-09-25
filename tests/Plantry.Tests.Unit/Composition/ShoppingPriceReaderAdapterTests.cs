@@ -264,6 +264,12 @@ internal sealed class FakePriceObservationRepository : IPriceObservationReposito
             .OrderBy(o => o.ObservedAt)
             .ToList());
 
+    public Task<IReadOnlyList<PriceObservation>> ListLiveBySourceRefAsync(
+        PriceSource source, Guid sourceRef, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>(_items
+            .Where(o => o.Source == source && o.SourceRef == sourceRef && o.SupersededById is null)
+            .ToList());
+
     public Task<IReadOnlySet<Guid>> ProductIdsWithAnyObservationAsync(IEnumerable<Guid> productIds, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlySet<Guid>>(_items.Select(o => o.ProductId).ToHashSet());
 }

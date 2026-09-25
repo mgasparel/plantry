@@ -182,6 +182,43 @@ public sealed class RecordObservationCommandTests
         Assert.Equal(dealId, purchase.MatchedDealId);
     }
 
+    [Fact(DisplayName = "A parent-matched deal's fan-out (plantry-oh27.6) is hit unchanged by a purchase on the leaf variant it landed on")]
+    public async Task Purchase_On_Fanned_Out_Variant_Hits_Its_Own_Deal_Row()
+    {
+        // Simulates ConfirmDeal.RecordDealObservationsAsync's fan-out: a parent-matched deal writes one
+        // Deal-source observation per live variant, all sharing the same SourceRef (the deal id) but each
+        // with its OWN ProductId — exactly what DealHitMatcher.FindAsync (leaf-keyed, store-scoped) needs
+        // to see for the leaf-purchase match to fire, with no change to DealHitMatcher itself.
+        var repo = new FakePriceObservationRepository();
+        var storeId = Guid.CreateVersion7();
+        var dealId = Guid.CreateVersion7();
+        var today = DateOnly.FromDateTime(Now.UtcDateTime);
+        var variantA = Guid.CreateVersion7();
+        var variantB = Guid.CreateVersion7();
+
+        PriceObservation SeedFannedDeal(Guid variantProductId) => PriceObservation.Record(
+            HouseholdId.From(Household), variantProductId, null,
+            price: 0.00798m, quantity: 1m, unitId: UnitId,
+            unitPrice: 0.00798m, source: PriceSource.Deal,
+            merchantText: null, sourceRef: dealId, observedAt: Now, userId: UserId,
+            validFrom: today.AddDays(-1), validTo: today.AddDays(1), storeId: storeId);
+        repo.Items.Add(SeedFannedDeal(variantA));
+        repo.Items.Add(SeedFannedDeal(variantB));
+
+        var calculator = new FakeUnitPriceCalculator(0.00798m);
+        // A purchase of variant A only — must match variant A's own fanned-out row, never variant B's,
+        // even though both share the deal's SourceRef and an identical price/window/store.
+        var result = await new RecordObservationCommand(
+            variantA, null, 3.99m, 500m, UnitId, "Superstore", Guid.CreateVersion7(), Now, UserId,
+            PriceSource.Purchase, repo, calculator, new FakeTenantContext(Household), NullLogger, storeId: storeId)
+            .ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        var purchase = repo.Items.Single(p => p.Source == PriceSource.Purchase);
+        Assert.Equal(dealId, purchase.MatchedDealId);
+        Assert.Equal(variantA, purchase.ProductId);
+    }
+
     [Fact]
     public async Task Purchase_At_The_Dearer_Of_Two_Active_Deals_Matches_That_Deal_Not_The_Cheapest()
     {

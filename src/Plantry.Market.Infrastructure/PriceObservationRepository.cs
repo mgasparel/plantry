@@ -71,6 +71,12 @@ public sealed class PriceObservationRepository(MarketDbContext db) : IPriceObser
             .ThenBy(p => p.Price)
             .FirstOrDefaultAsync(ct);
 
+    public async Task<IReadOnlyList<PriceObservation>> ListLiveBySourceRefAsync(
+        PriceSource source, Guid sourceRef, CancellationToken ct = default) =>
+        await db.PriceObservations
+            .Where(p => p.Source == source && p.SourceRef == sourceRef && p.SupersededById == null)
+            .ToListAsync(ct);
+
     public async Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default) =>
         await db.PriceObservations
             .Where(p => p.ProductId == productId

@@ -193,6 +193,9 @@ internal sealed class StubPriceObservationRepository : IPriceObservationReposito
         Task.FromResult<PriceObservation?>(null);
     public Task<IReadOnlyList<PriceObservation>> HistoryForProductAsync(Guid productId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<PriceObservation>>([]);
+    public Task<IReadOnlyList<PriceObservation>> ListLiveBySourceRefAsync(
+        PriceSource source, Guid sourceRef, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<PriceObservation>>([]);
     public Task<PriceObservation?> LatestForSkuAsync(Guid skuId, CancellationToken ct = default) =>
         Task.FromResult<PriceObservation?>(null);
     public Task<PriceObservation?> CheapestActiveDealForProductAsync(

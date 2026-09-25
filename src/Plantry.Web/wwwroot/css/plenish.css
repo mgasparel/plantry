@@ -2429,6 +2429,19 @@ details[open].sheet-defaults > .sheet-defaults__summary .sheet-defaults__chev { 
 .suggest-opt.sel { border-color: var(--color-accent); background: var(--color-accent-subtle); color: var(--color-accent); font-weight: 600; }
 .suggest-opt .rk { font-size: 11px; color: var(--color-text-faint, var(--color-text-muted)); font-family: var(--font-mono, monospace); }
 
+/* "any variant" hint (plantry-oh27.6) — a deal or match matched to a parent product renders the same
+   trailing .rk label pattern in three Deals-review contexts that don't use .suggest-opt/.searchable-select:
+   the review card's "did you mean" chip, the step-1 checklist row's match column, and the judgement-call
+   deck's focus card. Same visual treatment as .suggest-opt .rk (muted, small, monospace). */
+.match-suggest__label .rk,
+.check-row__match .rk,
+.focus-card__product .rk {
+  font-size: 11px;
+  color: var(--color-text-faint, var(--color-text-muted));
+  font-family: var(--font-mono, monospace);
+  margin-left: 6px;
+}
+
 @media (max-width: 900px) {
   .review { grid-template-columns: 1fr; }
   .review__receipt { border-right: none; border-bottom: 1px solid var(--color-border); overflow-y: visible; }
