@@ -278,8 +278,9 @@ public sealed class LowStockRuleTests(PostgresFixture db) : IAsyncLifetime
         var stocks = new ProductStockRepository(NewInventoryDb(household));
         var rules = new LowStockRuleRepository(NewInventoryDb(household));
         var tenant = new TestTenant(household.Value);
+        var rollup = new OnHandRollupQuery(stocks, catalog, conversions, tenant);
 
-        return new InventoryQueryService(stocks, rules, catalog, conversions, new FixedHorizon(), SystemClock.Instance, tenant);
+        return new InventoryQueryService(stocks, rules, catalog, conversions, new FixedHorizon(), SystemClock.Instance, tenant, rollup);
     }
 
     private DbContextOptions<PantryDbContext> InventoryOptions() =>

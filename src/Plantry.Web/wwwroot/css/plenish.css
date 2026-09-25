@@ -1104,6 +1104,12 @@ button.bottom-nav__item {
   box-shadow: var(--shadow-card);
   padding: 4px;
 }
+/* `top: 30px` above is calibrated to .row-actions-menu__trigger's fixed 26px height (⋯ row actions).
+   A wrapper whose trigger is a full-size button instead (e.g. the parent product detail page's "Add
+   stock to a variant" primary action, plantry-oh27.7) is taller than that, so the panel would open
+   overlapping the trigger's own bottom edge — this modifier anchors it to the trigger's REAL rendered
+   height instead of the 26px assumption. */
+.row-actions-menu--btn .row-actions-menu__panel { top: calc(100% + 4px); }
 .row-actions-menu__item {
   display: block;
   width: 100%;

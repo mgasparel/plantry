@@ -1,0 +1,49 @@
+@model Plantry.Web.Pages.Pantry.Products.VariantBreakdownPartialModel
+@using Plantry.Pantry.Application
+@{
+    // Parent-product replacement for _StockDetail's lots/history block (plantry-oh27.7) — a parent never
+    // owns lots or a journal (epic constraint), so this shows one row per live variant instead: name
+    // (linking through to the variant's own detail page, where stock actions actually live), its own
+    // on-hand, the converted amount when it differs from the parent's display unit, and a low/out marker
+    // reusing the same .badge pill styles _DataGrid already renders (Gate: reuse, not a new component).
+    var d = Model.Detail;
+}
+<div id="stock-detail" class="stock-detail" @(Model.Oob ? "hx-swap-oob=true" : "")>
+    <section class="catalog-section">
+        <h2 class="catalog-section__heading">Variants<small>@d.Variants.Count variant@(d.Variants.Count == 1 ? "" : "s")</small></h2>
+        @if (d.Variants.Count == 0)
+        {
+            <p class="empty-state">No live variants yet — add a variant from the catalog to start stocking this product.</p>
+        }
+        else
+        {
+            <div class="catalog-list">
+                @foreach (var v in d.Variants)
+                {
+                    <div class="catalog-list__item">
+                        <a class="recipe-row__name" href="@Url.Page("./Detail", new { id = v.VariantId })">@v.Name</a>
+                        <span class="lot-row__qty">
+                            @v.OnHand.ToString("0.###") <small>@v.UnitCode</small>
+                            @if (v.ConvertedOnHand is { } converted && !string.Equals(v.UnitCode, d.DisplayUnitCode, StringComparison.Ordinal))
+                            {
+                                <span class="lot-row__when">(@converted.ToString("0.###") @d.DisplayUnitCode)</span>
+                            }
+                        </span>
+                        @if (v.IsLow)
+                        {
+                            <span class="badge @(v.OnHand <= 0m ? "badge--danger" : "badge--warning")">@(v.OnHand <= 0m ? "Out" : "Low")</span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @if (d.UnconvertedVariantIds.Count > 0)
+        {
+            <p class="field__hint">@d.UnconvertedVariantIds.Count variant@(d.UnconvertedVariantIds.Count == 1 ? "" : "s") could not be converted into @d.DisplayUnitCode and are excluded from the total above.</p>
+        }
+    </section>
+</div>
+@if (Model.Oob)
+{
+    <partial name="_VitalsTiles" model="new Plantry.Web.Pages.Pantry.Products.VitalsTilesPartialModel(Model.Detail, true, Model.Today, Model.ExpiringSoonDays)" />
+}

@@ -122,8 +122,9 @@ public sealed class ArchivedProductVisibilityTests(PostgresFixture db) : IAsyncL
         var stocks = new ProductStockRepository(NewInventoryDb());
         var rules = new LowStockRuleRepository(NewInventoryDb());
         var tenant = new TestTenant(_household.Value);
+        var rollup = new OnHandRollupQuery(stocks, catalog, conversions, tenant);
 
-        return new InventoryQueryService(stocks, rules, catalog, conversions, new FixedHorizon(), Clock, tenant);
+        return new InventoryQueryService(stocks, rules, catalog, conversions, new FixedHorizon(), Clock, tenant, rollup);
     }
 
     private PantryDbContext NewInventoryDb()

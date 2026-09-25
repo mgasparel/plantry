@@ -35,9 +35,14 @@ public sealed class ExpiringSoonQueryTests
     private InventoryQueryService Service(
         FakeProductStockRepository stocks, FakeCatalogReadFacade catalog,
         IQuantityConverter converter, Guid? household,
-        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays) =>
-        new(stocks, new FakeLowStockRuleRepository(), catalog, new FakeConversionProvider(converter),
-            new FakeExpiringSoonHorizon(horizonDays), Clock, new FakeTenantContext(household));
+        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays)
+    {
+        var conversions = new FakeConversionProvider(converter);
+        var tenant = new FakeTenantContext(household);
+        return new(stocks, new FakeLowStockRuleRepository(), catalog, conversions,
+            new FakeExpiringSoonHorizon(horizonDays), Clock, tenant,
+            new OnHandRollupQuery(stocks, catalog, conversions, tenant));
+    }
 
     private FakeCatalogReadFacade Catalog(params (Guid id, string name)[] products)
     {

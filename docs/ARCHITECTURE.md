@@ -123,6 +123,18 @@ Aggregates are modified one-per-transaction. Cross-aggregate references are by I
 
 **Disambiguation at cook time.** When the cook flow resolves a parent-typed ingredient, it does not auto-select a variant. Instead it produces a disambiguation set — all children of the parent whose `default_unit_id` (or any of their unit conversions) is compatible with the ingredient's unit. The user selects which variant(s) to consume and may split the quantity across multiple. Each confirmed selection issues an independent `ProductStock.Consume` call on the chosen child `ProductId`. If the disambiguation set is empty (no child shares the ingredient's unit), the ingredient is treated identically to a stockout.
 
+**Rollup surfaces (plantry-oh27).** A parent never owns a `ProductStock` row — every "how much/what does it cost/is it low" question about a parent is answered by folding its live (non-archived) variants at query time, never by a stored parent-level total:
+
+| Surface | Rollup |
+|---|---|
+| On-hand | `IOnHandRollupQuery` (Inventory/Application) — Σ each live variant's own on-hand, converted into the parent's default unit; a variant whose unit fails to convert is excluded from the sum but still listed (never silently dropped). Backs the pantry list, the parent product detail page's aggregate/variant-breakdown, and the shopping/staple low-stock reads. |
+| Price history | `PriceHistoryRollup` (Market/Application) — the union of every live variant's price observations, each converted into the parent's default unit; mirrors `EffectivePriceRollup`'s selection policy so a parent's displayed price and its price-history sparkline/median can never disagree. |
+| Low-stock threshold | `LowStockRule` (Inventory/Domain, repository port `ILowStockRuleRepository`) — a threshold record keyed by `(household_id, product_id)` where `product_id` may be a parent OR a leaf; superseded the old `ProductStock.LowStockThreshold` column (which could never target a parent, since a parent never owns that row). A parent's rule is evaluated against the on-hand rollup's total, not any single variant. |
+| Suggestions / staple detector | Pantry suggestions and the staple no-low-stock-alert detector roll a variant's shortfall up to its parent before surfacing it, so a household sees one actionable item per product group rather than one per variant. |
+| Shopping list | A shopping-list item may target a parent directly; its basket price and subline read the same rollups above. |
+| Deals | The deal matcher's candidate pool includes parents; confirming a parent-matched deal fans the observation out to every live variant (a deal is a per-unit fact, and only variants carry stock to apply it to). |
+| Parent product detail page | `/Pantry/Products/Detail/{id}` for a parent: aggregate on-hand + per-variant breakdown (via the on-hand rollup), the threshold sheet (targeting the parent's `LowStockRule`), and the price-history sparkline/median (via the price rollup). Stock actions (add/consume/move/amend) and "Set price" stay disabled on the parent — those are leaf facts; the page offers a one-click picker through to a live variant's own detail page instead. |
+
 ---
 
 ## Multi-tenancy

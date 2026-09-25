@@ -11,8 +11,10 @@ namespace Plantry.Tests.Unit.Inventory.Application;
 ///
 /// The load-bearing invariant is agreement with the list queries they summarise:
 /// <list type="bullet">
-///   <item>CountInStock equals the row count of ListPantryAsync (same inclusion predicate) across
-///         multi-lot, zero-stock (depleted), and orphan-product cases.</item>
+///   <item>CountInStock equals the row count of ListPantryAsync's leaf loop (same inclusion predicate)
+///         across multi-lot, zero-stock (depleted), and orphan-product cases — but deliberately
+///         EXCLUDES ListPantryAsync's rolled-up parent rows (plantry-oh27.7): a parent row groups stock
+///         its variants already contribute, so it is not additional stock to count.</item>
 ///   <item>CountExpiringSoon equals ExpiringSoonAsync's count while under the cap, and exceeds it when
 ///         more than ExpiringSoonMaxItems qualify (it is uncapped).</item>
 ///   <item>Expired lots count; undated lots don't; lots beyond the horizon don't.</item>
@@ -34,9 +36,14 @@ public sealed class InventoryCountQueriesTests
 
     private InventoryQueryService Service(
         FakeProductStockRepository stocks, FakeCatalogReadFacade catalog, Guid? household,
-        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays) =>
-        new(stocks, new FakeLowStockRuleRepository(), catalog, new FakeConversionProvider(new IdentityQuantityConverter()),
-            new FakeExpiringSoonHorizon(horizonDays), Clock, new FakeTenantContext(household));
+        int horizonDays = HouseholdInventorySettings.DefaultExpiringSoonDays)
+    {
+        var conversions = new FakeConversionProvider(new IdentityQuantityConverter());
+        var tenant = new FakeTenantContext(household);
+        return new(stocks, new FakeLowStockRuleRepository(), catalog, conversions,
+            new FakeExpiringSoonHorizon(horizonDays), Clock, tenant,
+            new OnHandRollupQuery(stocks, catalog, conversions, tenant));
+    }
 
     private FakeCatalogReadFacade Catalog(params (Guid id, string name)[] products)
     {
@@ -85,6 +92,30 @@ public sealed class InventoryCountQueriesTests
 
         Assert.Equal(2, pantry.Count);        // multiLot + dated
         Assert.Equal(pantry.Count, count);
+    }
+
+    [Fact(DisplayName = "plantry-oh27.7: CountInStock excludes ListPantry's rolled-up parent rows")]
+    public async Task CountInStock_Excludes_RolledUp_Parent_Rows()
+    {
+        var parentId = Guid.CreateVersion7();
+        var variant1 = Guid.CreateVersion7();
+
+        var stocks = new FakeProductStockRepository();
+        stocks.Items.Add(StockWith(variant1, (9m, null)));
+
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Bubly", "Drinks", _grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(variant1, "Bubly Lime", "Drinks", _grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.UnitCodes[_grams] = "g";
+        catalog.LocationNames[_location] = "Pantry";
+
+        var service = Service(stocks, catalog, _household);
+
+        var pantry = await service.ListPantryAsync();
+        var count = await service.CountInStockAsync();
+
+        Assert.Equal(2, pantry.Count);  // the leaf variant row + the rolled-up parent row
+        Assert.Equal(1, count);         // the count deliberately stays leaf-only — no double-count
     }
 
     [Fact(DisplayName = "plantry-lxm2: CountInStock agrees with ListPantry when a stocked product is archived")]

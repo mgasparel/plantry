@@ -64,7 +64,7 @@ public sealed class FakeReviewReferenceDataProvider(ReviewReferenceData data) : 
 /// method is exercised on this page. Register it in place of the concrete service in ConfigureTestServices.
 /// </summary>
 public sealed class StubInventoryQueryService(int inStock, int expiringSoon)
-    : InventoryQueryService(null!, null!, null!, null!, null!, null!, null!)
+    : InventoryQueryService(null!, null!, null!, null!, null!, null!, null!, null!)
 {
     public override Task<int> CountInStockAsync(CancellationToken ct = default) => Task.FromResult(inStock);
     public override Task<int> CountExpiringSoonAsync(CancellationToken ct = default) => Task.FromResult(expiringSoon);

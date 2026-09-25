@@ -34,7 +34,36 @@
 <page-header eyebrow="@Model.Detail.CategoryName" title="@Model.Detail.Name"
              cross-link-text="View in catalog →"
              cross-link-href="@Url.Page("/Catalog/Products/Detail", new { id = Model.ProductId })">
-    <partial name="_PrimaryStockAction" model="new Plantry.Web.Pages.Pantry.Products.PrimaryStockActionPartialModel(Model.ProductId, hasStock, false)" />
+    @if (Model.IsParentProduct)
+    {
+        @* Parent products never hold stock directly (epic constraint, plantry-oh27.7) — Consume/Add
+           stock are replaced by a one-click picker straight to a live variant's own detail page, where
+           the real stock actions live. Reuses the ⋯ row-actions-menu Alpine pattern already used for
+           per-lot actions in _StockDetail.cshtml — no new command, no new library component. *@
+        <div class="row-actions-menu row-actions-menu--btn" x-data="{ open: false }" @@click.outside="open = false">
+            <button type="button" class="btn btn--primary" aria-haspopup="true"
+                    :aria-expanded="open.toString()" @@click="open = !open">
+                Add stock to a variant
+            </button>
+            <div class="row-actions-menu__panel" x-show="open" x-cloak>
+                @if (Model.Detail.Variants.Count == 0)
+                {
+                    <span class="row-actions-menu__item" style="opacity:.6;">No live variants yet</span>
+                }
+                else
+                {
+                    @foreach (var v in Model.Detail.Variants)
+                    {
+                        <a class="row-actions-menu__item" href="@Url.Page("./Detail", new { id = v.VariantId })" @@click="open = false">@v.Name</a>
+                    }
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <partial name="_PrimaryStockAction" model="new Plantry.Web.Pages.Pantry.Products.PrimaryStockActionPartialModel(Model.ProductId, hasStock, false)" />
+    }
 </page-header>
 
 @* Vitals strip (plantry-sbpk): On hand / Next expiry / Price / Low-stock alert — a 4-up stat grid
@@ -54,7 +83,16 @@
    neither enough price history nor any consumption/discard history yet (degrade gracefully). *@
 <partial name="_StatsPanel" model="Model.Stats" />
 
-<partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null, Model.Chips, Model.AmendableLines, Model.HistoryWhenLocal, Model.TodayDate, Model.ExpiringSoonDays)" />
+@if (Model.IsParentProduct)
+{
+    @* A parent has nothing for _StockDetail (no lots, no journal) — the variant breakdown replaces it
+       (plantry-oh27.7). *@
+    <partial name="_VariantBreakdown" model="new Plantry.Web.Pages.Pantry.Products.VariantBreakdownPartialModel(Model.Detail, false, Model.TodayDate, Model.ExpiringSoonDays)" />
+}
+else
+{
+    <partial name="_StockDetail" model="new Plantry.Web.Pages.Pantry.Products.StockDetailPartialModel(Model.Detail, false, null, Model.Chips, Model.AmendableLines, Model.HistoryWhenLocal, Model.TodayDate, Model.ExpiringSoonDays)" />
+}
 
 @* Product→recipes cross-context read (plantry-o0r8): every household recipe that directly references
    this product, either as an ingredient ("Used in") or as its declared cook yield ("Made by"). *@
