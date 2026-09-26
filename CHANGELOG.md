@@ -2,7 +2,7 @@
 
 All notable changes to Plantry are documented here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions correspond to semver image tags published to GHCR (`plantry-web:<version>`).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions correspond to semver image tags published to GHCR (`ghcr.io/mgasparel/plantry/web:<version>`).
 
 ---
 
@@ -36,6 +36,12 @@ A breaking schema migration is signalled by a major version bump. There is **no 
 ---
 
 ## Unreleased
+
+## 0.1.0 — 2026-07-12
+
+First alpha release. Pre-`1.0.0`: no stability guarantees — breaking schema
+migrations may appear at any version. Published as `linux/amd64` GHCR images
+(`ghcr.io/mgasparel/plantry/web:0.1.0`, `.../migrator:0.1.0`) for self-hosting.
 
 ### Added
 
