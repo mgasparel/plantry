@@ -1,5 +1,6 @@
 @page
 @model Plantry.Web.Pages.Recipes.IndexModel
+@using Plantry.Recipes.Application
 @{
     ViewData["Title"] = "Recipes";
     // .recipes-browse-wrap (max-width 1260px) sets its own width; opt out of the default
@@ -8,8 +9,8 @@
 
     var cookableLine = Model.Result.CookableCount switch
     {
-        1 => "1 recipe ready to make tonight without a shopping trip.",
-        > 1 => $"{Model.Result.CookableCount} recipes ready to make tonight without a shopping trip.",
+        1 => "1 plated recipe ready to make tonight without a shopping trip.",
+        > 1 => $"{Model.Result.CookableCount} plated recipes ready to make tonight without a shopping trip.",
         _ => "Stock up to unlock what you can cook."
     };
     var recipesSubtitle = $"What you can cook with what you have. {cookableLine}";
@@ -47,6 +48,8 @@
                        hx-include="#recipes-filter-form"
                        autocomplete="off" />
             </div>
+
+            @await Html.PartialAsync("_RecipeScopeControl", Model)
 
             @* Tag filter chips *@
             @if (Model.Result.AllTags.Count > 0)
@@ -130,6 +133,7 @@
             <input type="hidden" name="tagId" value="@(Model.TagId?.ToString() ?? "")" />
             <input type="hidden" name="soon" value="@(Model.Soon ? "true" : "false")" />
             <input type="hidden" name="desc" value="@(Model.Desc ? "true" : "false")" />
+            <input type="hidden" name="scope" value="@(Model.BrowseScope == RecipeBrowseScope.All ? "all" : "plated")" />
         </div>
     </form>
 

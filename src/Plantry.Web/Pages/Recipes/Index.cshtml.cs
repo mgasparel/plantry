@@ -30,6 +30,14 @@ public sealed class IndexModel(BrowseRecipesQuery query, DisplayCurrencyAccessor
     [BindProperty(SupportsGet = true)]
     public bool Desc { get; set; } = true;
 
+    [BindProperty(SupportsGet = true)]
+    public string? Scope { get; set; }
+
+    public RecipeBrowseScope BrowseScope =>
+        string.Equals(Scope, "all", StringComparison.OrdinalIgnoreCase)
+            ? RecipeBrowseScope.All
+            : RecipeBrowseScope.Plated;
+
     // ── View model ───────────────────────────────────────────────────────────
 
     public BrowseRecipesResult Result { get; private set; } = null!;
@@ -82,7 +90,8 @@ public sealed class IndexModel(BrowseRecipesQuery query, DisplayCurrencyAccessor
             TagId: TagId,
             UseSoon: Soon,
             Sort: sort,
-            SortDescending: descending);
+            SortDescending: descending,
+            Scope: BrowseScope);
 
         // Signed-in member's id (plantry-zlwp.1) — powers each row's MyStars. Guid.TryParse defensively:
         // an absent/malformed claim degrades to MyStars=null on every row rather than throwing.

@@ -37,9 +37,9 @@ public sealed class RecipeReadModelAdapter(
     public async Task<IReadOnlyList<RecipeReadModel>> LoadActiveCorpusAsync(CancellationToken ct = default)
     {
         var rows = await db.Recipes.Where(r => r.ArchivedAt == null).OrderBy(r => r.Id)
-            .Select(r => new { r.Id, r.Name, TagIds = r.Tags.Select(t => t.TagId.Value).ToList(), ProductIds = r.Ingredients.Select(i => i.ProductId).ToList(), r.DefaultServings, HasPhoto = r.Photo != null, r.CookTimeMinutes })
+            .Select(r => new { r.Id, r.Name, TagIds = r.Tags.Select(t => t.TagId.Value).ToList(), ProductIds = r.Ingredients.Select(i => i.ProductId).ToList(), r.DefaultServings, HasPhoto = r.Photo != null, r.CookTimeMinutes, r.IsPlated })
             .ToListAsync(ct);
-        var models = await BuildReadModelsAsync(rows.Select(r => new RecipeProjection(r.Id.Value, r.Name, r.TagIds, r.ProductIds, r.DefaultServings, r.HasPhoto, r.CookTimeMinutes)).ToList(), ct);
+        var models = await BuildReadModelsAsync(rows.Select(r => new RecipeProjection(r.Id.Value, r.Name, r.TagIds, r.ProductIds, r.DefaultServings, r.HasPhoto, r.CookTimeMinutes, r.IsPlated)).ToList(), ct);
         return rows.Select(r => models[r.Id.Value]).ToList();
     }
 
@@ -62,6 +62,7 @@ public sealed class RecipeReadModelAdapter(
                 r.DefaultServings,
                 HasPhoto = r.Photo != null,
                 r.CookTimeMinutes,
+                r.IsPlated,
             })
             .FirstOrDefaultAsync(ct);
 
@@ -76,7 +77,8 @@ public sealed class RecipeReadModelAdapter(
                 row.ProductIds,
                 row.DefaultServings,
                 row.HasPhoto,
-                row.CookTimeMinutes),
+                row.CookTimeMinutes,
+                row.IsPlated),
         ], ct);
         return models.GetValueOrDefault(row.Id.Value);
     }
@@ -102,6 +104,7 @@ public sealed class RecipeReadModelAdapter(
                 r.DefaultServings,
                 HasPhoto = r.Photo != null,
                 r.CookTimeMinutes,
+                r.IsPlated,
             })
             .ToListAsync(ct);
 
@@ -112,7 +115,8 @@ public sealed class RecipeReadModelAdapter(
             r.ProductIds,
             r.DefaultServings,
             r.HasPhoto,
-            r.CookTimeMinutes)).ToList(), ct);
+            r.CookTimeMinutes,
+            r.IsPlated)).ToList(), ct);
     }
 
     public async Task<IReadOnlyList<RecipeReadModel>> SearchAsync(
@@ -134,6 +138,7 @@ public sealed class RecipeReadModelAdapter(
                 r.DefaultServings,
                 HasPhoto = r.Photo != null,
                 r.CookTimeMinutes,
+                r.IsPlated,
             })
             .ToListAsync(ct);
 
@@ -144,7 +149,8 @@ public sealed class RecipeReadModelAdapter(
             r.ProductIds,
             r.DefaultServings,
             r.HasPhoto,
-            r.CookTimeMinutes)).ToList(), ct);
+            r.CookTimeMinutes,
+            r.IsPlated)).ToList(), ct);
         return rows.Select(r => models[r.Id.Value]).ToList();
     }
 
@@ -290,11 +296,12 @@ public sealed class RecipeReadModelAdapter(
     /// <inheritdoc />
     public async Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default)
     {
-        // Targeted full-corpus query: does ANY non-archived recipe carry this tag?
-        // Never filtered by the 50-cap candidate list from SearchAsync.
+        // Targeted full-corpus query: does ANY non-archived, plated recipe carry this tag?
+        // Never filtered by the 50-cap candidate list from SearchAsync. Automatic feasibility is
+        // intentionally scoped to the same plated candidate corpus as generation.
         var tid = TagId.From(tagId);
         return await db.Recipes
-            .Where(r => r.ArchivedAt == null)
+            .Where(r => r.ArchivedAt == null && r.IsPlated)
             .AnyAsync(r => r.Tags.Any(t => t.TagId == tid), ct);
     }
 
@@ -447,7 +454,8 @@ public sealed class RecipeReadModelAdapter(
                     row.HasPhoto,
                     row.CookTimeMinutes,
                     tagFacts,
-                    profile);
+                    profile,
+                    row.IsPlated);
             });
     }
 
@@ -468,5 +476,6 @@ public sealed class RecipeReadModelAdapter(
         IReadOnlyList<Guid> ProductIds,
         int DefaultServings,
         bool HasPhoto,
-        int? CookTimeMinutes);
+        int? CookTimeMinutes,
+        bool IsPlated = true);
 }

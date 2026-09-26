@@ -20,6 +20,9 @@ public sealed class AcceptProposalService(
     IClock clock,
     ILogger<AcceptProposalService> logger)
 {
+    public const string RecipeNoLongerPlatedReason =
+        "This suggestion includes a recipe that is no longer plated. Generate a new suggestion or add the recipe manually.";
+
     /// <summary>
     /// Accepts all pending proposals for a week. Re-validates each proposal (trust boundary).
     /// Calls MealPlan.ApplyProposal atomically. Clears the store on completion.
@@ -36,16 +39,19 @@ public sealed class AcceptProposalService(
             return new AcceptResult(0, 0);
 
         var monday = Domain.MealPlan.NormalizeToMonday(weekStart);
-        var (candidates, constraintMap) = await BuildValidationContextAsync(householdId, pending, ct);
+        var context = await BuildValidationContextAsync(householdId, pending, ct);
 
         var validatedProposals = new List<ProposedMeal>();
         var rejected = 0;
+        var rejections = new List<ProposalRejection>();
 
         foreach (var proposal in pending)
         {
             var cellKey = CellKey(proposal.Date, proposal.MealSlotId);
-            var constraints = constraintMap.GetValueOrDefault(cellKey) ?? GenerationConstraints.Empty;
-            var result = ProposalAcl.Validate(proposal, candidates, constraints);
+            var constraints = context.ConstraintMap.GetValueOrDefault(cellKey) ?? GenerationConstraints.Empty;
+            var result = context.UnplatedCellKeys.Contains(cellKey)
+                ? AclValidationResult.Unfilled
+                : ProposalAcl.Validate(proposal, context.Candidates, constraints);
 
             if (result.IsValid && result.ValidatedProposal is not null)
                 validatedProposals.Add(result.ValidatedProposal);
@@ -55,6 +61,13 @@ public sealed class AcceptProposalService(
                     "Proposal re-validation failed for cell {Date}/{SlotId} — recipe may have been removed.",
                     proposal.Date, proposal.MealSlotId.Value);
                 rejected++;
+                rejections.Add(new ProposalRejection(
+                    proposal.Date,
+                    proposal.MealSlotId,
+                    context.SlotLabels.GetValueOrDefault(cellKey, proposal.MealSlotId.Value.ToString()),
+                    context.UnplatedCellKeys.Contains(cellKey)
+                        ? RecipeNoLongerPlatedReason
+                        : "This suggestion could not be accepted because one or more recipes are no longer available."));
             }
         }
 
@@ -70,7 +83,7 @@ public sealed class AcceptProposalService(
         logger.LogInformation(
             "AcceptAll completed for week {WeekStart}. Accepted: {Accepted}, Rejected: {Rejected}.",
             weekStart, accepted, rejected);
-        return new AcceptResult(accepted, rejected);
+        return new AcceptResult(accepted, rejected, rejections);
     }
 
     /// <summary>
@@ -90,18 +103,31 @@ public sealed class AcceptProposalService(
         if (proposal is null)
             return new AcceptCellResult(Accepted: false, Reason: "No pending proposal for this cell.");
 
-        var (candidates, constraintMap) = await BuildValidationContextAsync(householdId, [proposal], ct);
+        var context = await BuildValidationContextAsync(householdId, [proposal], ct);
         var cellKey = CellKey(date, slotId);
-        var constraints = constraintMap.GetValueOrDefault(cellKey) ?? GenerationConstraints.Empty;
+        var constraints = context.ConstraintMap.GetValueOrDefault(cellKey) ?? GenerationConstraints.Empty;
 
-        var result = ProposalAcl.Validate(proposal, candidates, constraints);
+        var isUnplated = context.UnplatedCellKeys.Contains(cellKey);
+        var result = isUnplated
+            ? AclValidationResult.Unfilled
+            : ProposalAcl.Validate(proposal, context.Candidates, constraints);
         if (!result.IsValid || result.ValidatedProposal is null)
         {
             logger.LogWarning(
                 "AcceptCell re-validation failed for cell {Date}/{SlotId} — recipe may have been removed.",
                 date, slotId.Value);
             await proposalStore.RemoveAsync(storeKey, date, slotId, ct);
-            return new AcceptCellResult(Accepted: false, Reason: "Proposal failed re-validation (recipe may have been removed).");
+            var reason = isUnplated
+                ? RecipeNoLongerPlatedReason
+                : "This suggestion could not be accepted because one or more recipes are no longer available.";
+            return new AcceptCellResult(
+                Accepted: false,
+                Reason: reason,
+                Rejection: new ProposalRejection(
+                    date,
+                    slotId,
+                    context.SlotLabels.GetValueOrDefault(cellKey, slotId.Value.ToString()),
+                    reason));
         }
 
         var monday = Domain.MealPlan.NormalizeToMonday(date);
@@ -137,17 +163,28 @@ public sealed class AcceptProposalService(
     /// Builds the validation context for a set of proposals: fresh candidate list + constraint map
     /// re-resolved from current household data (trust boundary — data may have changed since generate).
     /// </summary>
-    private async Task<(List<CandidateRecipe> Candidates, Dictionary<string, GenerationConstraints> ConstraintMap)>
+    private async Task<ProposalValidationContext>
         BuildValidationContextAsync(
             HouseholdId householdId,
             IReadOnlyList<ProposedMeal> proposals,
             CancellationToken ct)
     {
-        // Fresh candidates
-        var recipesReadModels = await recipeReader.SearchAsync(string.Empty, maxResults: 50, ct);
-        var candidates = recipesReadModels
-            .Select(r => new CandidateRecipe(r.RecipeId, r.Name, r.TagIds, r.DefaultServings, null))
+        // Fresh candidates: read the exact recipe ids in the pending proposals. The old 50-result search
+        // could reject a valid suggestion simply because its name sorted after the inline-search page.
+        var recipeIds = proposals
+            .SelectMany(p => p.Dishes)
+            .Select(d => d.RecipeId)
+            .Distinct()
             .ToList();
+        var recipesReadModels = await recipeReader.GetByIdsAsync(recipeIds, ct);
+        var candidates = recipesReadModels
+            .Values
+            .Select(r => new CandidateRecipe(r.RecipeId, r.Name, r.TagIds, r.DefaultServings, null, IsPlated: r.IsPlated))
+            .ToList();
+        var unplatedCellKeys = proposals
+            .Where(p => p.Dishes.Any(d => recipesReadModels.TryGetValue(d.RecipeId, out var recipe) && !recipe.IsPlated))
+            .Select(p => CellKey(p.Date, p.MealSlotId))
+            .ToHashSet();
 
         // Re-resolve constraints per slot
         var slotConfig = await slotConfigRepo.FindByHouseholdAsync(householdId, ct);
@@ -167,6 +204,7 @@ public sealed class AcceptProposalService(
         }
 
         var constraintMap = new Dictionary<string, GenerationConstraints>();
+        var slotLabels = new Dictionary<string, string>();
         foreach (var proposal in proposals)
         {
             var cellKey = CellKey(proposal.Date, proposal.MealSlotId);
@@ -176,9 +214,10 @@ public sealed class AcceptProposalService(
             constraintMap[cellKey] = slot is not null
                 ? constraintResolver.ResolveForGeneration(slot.Id, slot, allPrefs)
                 : GenerationConstraints.Empty;
+            slotLabels[cellKey] = slot?.Label ?? proposal.MealSlotId.Value.ToString();
         }
 
-        return (candidates, constraintMap);
+        return new ProposalValidationContext(candidates, constraintMap, slotLabels, unplatedCellKeys);
     }
 
     private static string CellKey(DateOnly date, MealSlotId slotId) =>
@@ -186,7 +225,26 @@ public sealed class AcceptProposalService(
 }
 
 /// <summary>Result of <see cref="AcceptProposalService.AcceptAllAsync"/>.</summary>
-public sealed record AcceptResult(int Accepted, int Rejected);
+public sealed record AcceptResult(
+    int Accepted,
+    int Rejected,
+    IReadOnlyList<ProposalRejection>? Rejections = null);
 
 /// <summary>Result of <see cref="AcceptProposalService.AcceptCellAsync"/>.</summary>
-public sealed record AcceptCellResult(bool Accepted, string? Reason);
+public sealed record AcceptCellResult(
+    bool Accepted,
+    string? Reason,
+    ProposalRejection? Rejection = null);
+
+/// <summary>Structured identity and reason for a proposal skipped at acceptance time.</summary>
+public sealed record ProposalRejection(
+    DateOnly Date,
+    MealSlotId SlotId,
+    string SlotLabel,
+    string Reason);
+
+internal sealed record ProposalValidationContext(
+    List<CandidateRecipe> Candidates,
+    Dictionary<string, GenerationConstraints> ConstraintMap,
+    Dictionary<string, string> SlotLabels,
+    IReadOnlySet<string> UnplatedCellKeys);

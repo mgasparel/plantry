@@ -82,6 +82,17 @@ public sealed class RecipeTests
         Assert.Equal(1, result.Value.DefaultServings);
     }
 
+    [Fact]
+    public void Create_Defaults_To_Plated_And_Can_Be_Unplated()
+    {
+        var recipe = NewRecipe();
+        Assert.True(recipe.IsPlated);
+
+        recipe.SetPlated(false, Clock);
+
+        Assert.False(recipe.IsPlated);
+    }
+
     // ── Rename ────────────────────────────────────────────────────────────────
 
     [Fact]

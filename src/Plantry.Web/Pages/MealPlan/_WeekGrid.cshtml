@@ -11,6 +11,31 @@
 }
 else
 {
+    @if (Model.NoPlatedRecipesAvailable)
+    {
+        <div class="alert alert--info plan-feedback" role="status">
+            <strong>No plated recipes are available for automatic planning.</strong>
+            Mark a suitable recipe as Plated or add recipes manually.
+        </div>
+    }
+
+    @if (Model.AcceptanceRejections.Count > 0)
+    {
+        <div class="alert alert--warning plan-feedback" role="status">
+            <strong>
+                @Model.AcceptanceAcceptedCount suggestion@(Model.AcceptanceAcceptedCount == 1 ? "" : "s") accepted;
+                @Model.AcceptanceRejections.Count skipped.
+            </strong>
+            @foreach (var rejection in Model.AcceptanceRejections)
+            {
+                <div class="plan-feedback__item">
+                    @rejection.Date.ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture) ·
+                    @rejection.SlotLabel — @rejection.Reason
+                </div>
+            }
+        </div>
+    }
+
     @* railOpen defaults open on desktop, but auto-collapsed at the narrow/mobile breakpoint
        (<=1000px) so the insights rail never steals width from the 7-day grid there — the grid
        gets full width and horizontally scrolls (plantry-3j7h). Below the breakpoint the rail

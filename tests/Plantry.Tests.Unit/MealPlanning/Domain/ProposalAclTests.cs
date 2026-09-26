@@ -77,6 +77,26 @@ public sealed class ProposalAclTests
         Assert.Null(result.ValidatedProposal);
     }
 
+    [Fact(DisplayName = "Validate_UnplatedDish_RejectsWholeCell")]
+    public void Validate_UnplatedDish_RejectsWholeCell()
+    {
+        var unplatedId = Guid.NewGuid();
+        var platedId = Guid.NewGuid();
+        var candidates = new List<CandidateRecipe>
+        {
+            new(unplatedId, "Side", [], DefaultServings: 4, CostPerServing: null, IsPlated: false),
+            MakeCandidate(platedId),
+        };
+
+        var result = ProposalAcl.Validate(
+            MakeProposal((unplatedId, 4), (platedId, 4)),
+            candidates,
+            MakeConstraints());
+
+        Assert.False(result.IsValid);
+        Assert.Null(result.ValidatedProposal);
+    }
+
     // ── restricted tag auto-drop ─────────────────────────────────────────────────
 
     [Fact(DisplayName = "Validate_RestrictedTag_DropsConflictingDish")]

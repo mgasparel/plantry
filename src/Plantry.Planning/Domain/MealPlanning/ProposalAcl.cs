@@ -24,6 +24,11 @@ public static class ProposalAcl
         var candidateMap = candidates.ToDictionary(c => c.RecipeId);
         var validDishes = new List<(ProposedDish Dish, CandidateRecipe Recipe)>();
 
+        // A top-level recipe becoming unchecked invalidates the whole cell. Dropping only that dish
+        // would silently turn a two-dish suggestion into a different meal at acceptance time.
+        if (proposed.Dishes.Any(d => candidateMap.TryGetValue(d.RecipeId, out var candidate) && !candidate.IsPlated))
+            return AclValidationResult.Unfilled;
+
         // Derived union of all Restricted tag IDs (fast drop test).
         var allRestrictedTagIds = constraints.RestrictedTagIds;
 

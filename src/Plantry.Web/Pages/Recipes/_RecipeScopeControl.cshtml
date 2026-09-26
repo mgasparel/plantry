@@ -1,0 +1,26 @@
+@model Plantry.Web.Pages.Recipes.IndexModel
+@using Plantry.Recipes.Application
+
+<div id="recipes-scope-control" class="recipes-scope-control" role="group" aria-label="Recipe scope" hx-swap-oob="outerHTML">
+    <button type="button"
+            class="recipes-scope-control__btn @(Model.BrowseScope == RecipeBrowseScope.Plated ? "is-active" : "")"
+            aria-pressed="@(Model.BrowseScope == RecipeBrowseScope.Plated ? "true" : "false")"
+            hx-get="/Recipes"
+            hx-target="#recipes-results"
+            hx-swap="innerHTML"
+            hx-include="#recipes-filter-form"
+            hx-vals='{"scope":"plated"}'>
+        <svg class="icon" aria-hidden="true"><use href="#i-plate" /></svg>
+        Plated
+    </button>
+    <button type="button"
+            class="recipes-scope-control__btn @(Model.BrowseScope == RecipeBrowseScope.All ? "is-active" : "")"
+            aria-pressed="@(Model.BrowseScope == RecipeBrowseScope.All ? "true" : "false")"
+            hx-get="/Recipes"
+            hx-target="#recipes-results"
+            hx-swap="innerHTML"
+            hx-include="#recipes-filter-form"
+            hx-vals='{"scope":"all"}'>
+        All
+    </button>
+</div>

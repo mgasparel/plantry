@@ -60,13 +60,13 @@ public sealed class BrowseRecipesQuery(
         {
             // Unauthenticated — caller should never reach here (authorization guard on page), but
             // return an empty result rather than throwing.
-            return new BrowseRecipesResult(allTags, [], CookableCount: 0);
+            return new BrowseRecipesResult(allTags, [], CookableCount: 0, ActiveRecipeCount: 0);
         }
 
         // Load all non-archived recipes with their ingredients and tags (no photo per resolved call 3).
         var allRecipes = await recipes.ListForBrowseAsync(ct);
         if (allRecipes.Count == 0)
-            return new BrowseRecipesResult(allTags, [], CookableCount: 0);
+            return new BrowseRecipesResult(allTags, [], CookableCount: 0, ActiveRecipeCount: 0);
 
         // Lightweight existence projection: which recipe ids have a photo stored?
         // Selects only the PK column from recipe_photo — no bytea loaded, honouring resolved call 3.
@@ -105,10 +105,15 @@ public sealed class BrowseRecipesQuery(
             computed.Add(await BuildRowAsync(r, recipesById, photoIds, recipeRatings, memberById, userId, today, ct));
         }
 
-        var cookableCount = computed.Count(row => row.FullyCookable);
+        var cookableCount = computed.Count(row => row.IsPlated && row.FullyCookable);
 
         // ── Filter ───────────────────────────────────────────────────────────────
         IEnumerable<RecipeBrowseRow> filtered = computed;
+
+        // Plated is the ordinary collection scope. Keep the complete computed set available for
+        // inclusion expansion and cookability calculations; scope only the visible roots here.
+        if (filter.Scope == RecipeBrowseScope.Plated)
+            filtered = filtered.Where(row => row.IsPlated);
 
         if (!string.IsNullOrEmpty(filter.NameQuery))
         {
@@ -160,7 +165,7 @@ public sealed class BrowseRecipesQuery(
                 : filtered.OrderBy(r => r.FulfillmentPct).ToList(),
         };
 
-        return new BrowseRecipesResult(allTags, rows, cookableCount);
+        return new BrowseRecipesResult(allTags, rows, cookableCount, ActiveRecipeCount: computed.Count);
     }
 
     /// <summary>
@@ -282,7 +287,8 @@ public sealed class BrowseRecipesQuery(
             MyStars: myStars,
             HouseholdAvg: householdAvg,
             RatedCount: ratedCount,
-            Breakdown: breakdown
+            Breakdown: breakdown,
+            IsPlated: recipe.IsPlated
         );
     }
 }
@@ -303,7 +309,15 @@ public sealed record BrowseRecipesFilter(
     Guid? TagId = null,
     bool UseSoon = false,
     BrowseSort Sort = BrowseSort.Fulfillment,
-    bool SortDescending = true);
+    bool SortDescending = true,
+    RecipeBrowseScope Scope = RecipeBrowseScope.Plated);
+
+/// <summary>Visible collection scope. Inline selectors deliberately do not use this scope.</summary>
+public enum RecipeBrowseScope
+{
+    Plated,
+    All,
+}
 
 /// <summary>Sort dimensions for the recipe Browse page (J2, recipes.md resolved call 6).</summary>
 public enum BrowseSort
@@ -334,7 +348,8 @@ public enum BrowseSort
 public sealed record BrowseRecipesResult(
     IReadOnlyList<Tag> AllTags,
     IReadOnlyList<RecipeBrowseRow> Rows,
-    int CookableCount);
+    int CookableCount,
+    int ActiveRecipeCount = 0);
 
 /// <summary>
 /// Read-model row for one recipe in the browse list. Carries pre-computed fulfillment and cost
@@ -383,4 +398,5 @@ public sealed record RecipeBrowseRow(
     int? MyStars = null,
     decimal? HouseholdAvg = null,
     int RatedCount = 0,
-    IReadOnlyList<RecipeRatingBreakdownRow>? Breakdown = null);
+    IReadOnlyList<RecipeRatingBreakdownRow>? Breakdown = null,
+    bool IsPlated = true);

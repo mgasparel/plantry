@@ -117,6 +117,7 @@ import { UnitPicker } from "./unit-picker.js?v=1";
  * @property {"recipe"|"product"} kind
  * @property {string} itemId
  * @property {string} name
+ * @property {boolean} isPlated             recipe classification; omitted/false for products
  * @property {number} defaultServings       recipe default; products still expose 1 for compatibility
  * @property {number|null} quantity         product default quantity (1 for a new product draft)
  * @property {number|null} fulfillmentPercent
@@ -293,7 +294,10 @@ function DishSearch({ slotIdStr, searchJsonUrl, currencySymbol, onAdd }) {
                   ? html`<img class="do-thumb" src=${r.photoUrl} alt=${r.name} />`
                   : html`<div class="do-thumb do-thumb--chip">${initial}</div>`}
                 <div class="do-main">
-                  <div class="do-name">${r.name}</div>
+                  <div class="do-name">
+                    ${r.name}
+                    ${r.isPlated ? html`<span class="recipe-plate-indicator" role="img" aria-label="Plated" title="Plated"><svg class="icon" aria-hidden="true"><use href="#i-plate" /></svg></span>` : ""}
+                  </div>
                   <div class="do-sub">
                     ${r.fulfillmentPercent != null
                       ? html`

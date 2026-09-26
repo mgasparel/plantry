@@ -915,6 +915,8 @@ button.bottom-nav__item {
 .alert--success { background: var(--color-success-bg); color: var(--color-success); border-color: #b8dfc0; }
 .alert--warning { background: var(--color-warning-bg); color: var(--color-warning); border-color: #f8dfa0; }
 .alert--info    { background: var(--color-info-bg);    color: var(--color-info);    border-color: #b3d0f0; }
+.plan-feedback { margin: var(--space-3) var(--space-4) 0; }
+.plan-feedback__item { margin-top: var(--space-2); font-size: var(--font-size-xs); }
 
 /* ── Icon ──────────────────────────────────────────────────────────────────── */
 .icon {
@@ -2803,6 +2805,48 @@ a.recent-title:hover, a.recent-title:focus-visible { text-decoration: underline;
   flex-wrap: wrap;
 }
 .recipes-browse-toolbar__spacer { flex: 1; }
+
+/* Plated / All is request state, so it stays separate from tags and the persisted Gallery/Grid choice. */
+.recipes-scope-control {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  flex: none;
+}
+.recipes-scope-control__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.recipes-scope-control__btn .icon { width: 15px; height: 15px; }
+.recipes-scope-control__btn:hover { color: var(--color-text); }
+.recipes-scope-control__btn.is-active {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.recipe-plate-indicator {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-accent);
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.recipe-plate-indicator .icon { width: 16px; height: 16px; }
 
 /* Search box */
 .recipes-search {
@@ -5757,6 +5801,8 @@ button.sadd svg { width: 13px; height: 13px; }
 
 /* dish-search dropdown sub-line now carries a fulfillment dot, so it lays out as a row */
 .dish-opt .do-sub { display: flex; align-items: center; gap: 6px; }
+.dish-opt .recipe-plate-indicator { margin-left: 2px; color: var(--color-accent); }
+.dish-opt .recipe-plate-indicator .icon { width: 14px; height: 14px; }
 .dish-opt .do-thumb--chip { background: var(--color-surface-2); display: grid; place-items: center; font-weight: 700; font-size: 13px; color: var(--color-text-muted); }
 .dish-opt img.do-thumb { object-fit: cover; }
 

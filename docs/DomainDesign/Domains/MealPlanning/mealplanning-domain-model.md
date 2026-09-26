@@ -259,7 +259,7 @@ Meal Planning depends on these interfaces; the owning contexts implement them. A
 
 | Port | Used by | Surface (read = R / write = W) |
 |---|---|---|
-| **IRecipeReadModel** | Generate, RollUp, Assign, ShopForWeek, Insights | R: list candidate recipes with `tag_id[]`, default servings, **FulfillmentResult** + **CostPerServing** at a given servings; **recent `cook_event` history per recipe** (for the Variety lever, C14) (Recipes read models, DM-20) |
+| **IRecipeReadModel** | Generate, RollUp, Assign, ShopForWeek, Insights | R: list active household recipe candidates with `is_plated` eligibility, `tag_id[]`, default servings, **FulfillmentResult** + **CostPerServing** at a given servings; **recent `cook_event` history per recipe** (for the Variety lever, C14) (Recipes read models, DM-20). Automatic generation receives plated candidates; manual selection and inclusion expansion may read either state. |
 | **ITagReader** | SetPreferences | R: resolve `tag_id` → name + cosmetic category for the preference UI (Recipes vocabulary, DM-20) |
 | **ICatalogProductReader** | Assign, RollUp | R: product name, `track_stock`, default unit, tags — to validate and render a **product dish** (Catalog, DM-10) |
 | **IInventoryStockReader** | Generate, RollUp, ShopForWeek | R: expiring stock + available quantity per product (DM-13) — the **same contract Recipes already defines**, reused; also resolves **product-dish** fulfillment |
