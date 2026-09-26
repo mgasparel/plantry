@@ -159,6 +159,21 @@ public sealed class GeneratePlanService(
         // a deterministic working set below; never let alphabetical ordering decide which recipes exist.
         // The read adapter still bounds the defensive query at 10,000 rows.
         var recipesReadModels = await recipeReader.LoadActiveCorpusAsync(ct);
+        var platedRecipes = recipesReadModels.Where(r => r.IsPlated).ToList();
+        if (recipesReadModels.Count > 0 && platedRecipes.Count == 0)
+        {
+            // Do not fall back to unchecked components. Keep the requested cells empty and let the
+            // page explain the classification gap so the user can mark a suitable recipe or add one
+            // manually.
+            await proposalStore.SetAsync(storeKey, [], ct);
+            return new GeneratePlanResult(
+                ProposedCount: 0,
+                UnfilledCount: emptyCells.Count,
+                Conflicts: [],
+                UnfulfillableCells: [],
+                NoPlatedRecipesAvailable: true);
+        }
+        recipesReadModels = platedRecipes;
         var ratingSummaries = await recipeReader.GetRatingSummariesAsync(
             recipesReadModels.Select(r => r.RecipeId).ToList(), ct);
         var candidateEvidence = await recipeReader.GetCandidateEvidenceAsync(
@@ -180,7 +195,8 @@ public sealed class GeneratePlanService(
                     FulfillmentPercent: evidence?.FulfillmentPercent,
                     HasContributingExpiringStock: evidence?.HasContributingExpiringStock,
                     TagFacts: r.TagFacts,
-                    DiversityProfile: r.DiversityProfile);
+                    DiversityProfile: r.DiversityProfile,
+                    IsPlated: r.IsPlated);
             })
             .ToList();
 
@@ -478,7 +494,9 @@ public sealed record GeneratePlanResult(
     /// (attendee's Required tag × corpus), not of attendees conflicting against each other.
     /// Request-scoped: not persisted — only relevant during the generate/review flow.
     /// </summary>
-    IReadOnlyList<UnfulfillableCell> UnfulfillableCells);
+    IReadOnlyList<UnfulfillableCell> UnfulfillableCells,
+    /// <summary>True when active recipes existed but none were marked Plated for automatic planning.</summary>
+    bool NoPlatedRecipesAvailable = false);
 
 /// <summary>
 /// A single cell flagged as an irreconcilable hard-stance conflict during generation (C6).

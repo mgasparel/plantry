@@ -271,6 +271,7 @@ public sealed class AuthorRecipe(
             if (created.IsFailure)
                 return (null, created.Error);
             recipe = created.Value;
+            recipe.SetPlated(command.IsPlated, clock);
             ApplyScalars(recipe, command);
 
             var lineSet = RecipeLineSet.Create(domainLines, domainInclusions, recipe.Id);
@@ -287,6 +288,7 @@ public sealed class AuthorRecipe(
             var rename = recipe.Rename(name, clock);
             if (rename.IsFailure)
                 return (null, rename.Error);
+            recipe.SetPlated(command.IsPlated, clock);
             ApplyScalars(recipe, command);
 
             var lineSet = RecipeLineSet.Create(domainLines, domainInclusions, recipe.Id);
@@ -447,7 +449,8 @@ public sealed record AuthorRecipeCommand(
     bool YieldEnabled = false,
     Guid? YieldProductId = null,
     decimal? YieldQuantity = null,
-    Guid? YieldUnitId = null);
+    Guid? YieldUnitId = null,
+    bool IsPlated = true);
 
 /// <summary>
 /// One authored inclusion row (recipe-composition.md §3 / D1): "<see cref="Servings"/> servings of

@@ -82,6 +82,7 @@
          removeNewTag(i) { this.newTags.splice(i, 1); },
          dismissSuggestions() { this.tagSuggestDismissed = true; this.tagSuggestions = []; },
          servings: 2,
+         isPlated: true,
          origServings: 2,
          hasIngredients: false,
          scaleMode: 'Keep',
@@ -715,6 +716,15 @@
 							</div>
 						</div>
 					</div>
+					<div class="recipe-classification" style="grid-column:1 / -1">
+						<label style="display:flex;align-items:flex-start;gap:var(--space-2);cursor:pointer">
+							<input type="checkbox" x-model="isPlated" checked="checked" data-val="true" data-val-required="The IsPlated field is required." id="Input_IsPlated" name="Input.IsPlated" value="true">
+							<span>
+								<strong>Plated</strong>
+								<span class="field__hint" style="display:block;margin-top:var(--space-1)">Check this for main courses the meal planner can suggest as a full meal. Leave unchecked for sides, snacks, desserts, and recipe components. You can still add any recipe to a meal manually.</span>
+							</span>
+						</label>
+					</div>
 					<div class="form-grid__field form-grid__field--full">
 						<label class="form-grid__field__label" for="Input_Source">Source</label>
 						<div class="form-grid__field__control">
@@ -1044,7 +1054,14 @@
 							<div class="incl-search__results">
 								<template x-if="inclusionResults.length === 0"><p class="incl-search__empty" x-text="inclusionQuery.trim() ? 'No matching recipes.' : 'Type to search your recipes.'"></p></template>
 								<template x-for="hit in inclusionResults" :key="hit.id"><button type="button" class="incl-search__opt" @click="addInclusion(hit)">
-										<span class="incl-search__opt-name" x-text="hit.name"></span>
+										<span class="incl-search__opt-name">
+											<span x-text="hit.name"></span>
+											<template x-if="hit.isPlated"><span class="recipe-plate-indicator" role="img" aria-label="Plated" title="Plated">
+													<svg class="icon" aria-hidden="true">
+														<use href="#i-plate"></use>
+													</svg>
+												</span></template>
+										</span>
 										<span class="incl-search__opt-meta" x-text="hit.defaultServings + (hit.defaultServings === 1 ? ' serving' : ' servings')"></span>
 									</button></template>
 							</div>
@@ -1382,6 +1399,7 @@ Add the broth and simmer 20 minutes." style="width:100%;resize:vertical;font-fam
 			</button>
 		</div>
 		<input name="__RequestVerificationToken" type="hidden" value="{scrubbed-antiforgery-token}">
+		<input name="Input.IsPlated" type="hidden" value="false">
 		<input name="Input.YieldEnabled" type="hidden" value="false">
 	</form>
 </div>

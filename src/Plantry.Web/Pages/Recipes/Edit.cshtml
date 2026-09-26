@@ -263,6 +263,7 @@
          removeNewTag(i) { this.newTags.splice(i, 1); },
          dismissSuggestions() { this.tagSuggestDismissed = true; this.tagSuggestions = []; },
          servings: @Model.Input.DefaultServings,
+         isPlated: @(Model.Input.IsPlated ? "true" : "false"),
          origServings: @Model.OriginalServings,
          hasIngredients: @(Model.HasExistingIngredients ? "true" : "false"),
          scaleMode: '@Model.Input.ScaleMode.ToString()',
@@ -900,6 +901,16 @@
                         </div>
                     </field>
 
+                    <div class="recipe-classification" style="grid-column:1 / -1">
+                        <label style="display:flex;align-items:flex-start;gap:var(--space-2);cursor:pointer">
+                            <input asp-for="Input.IsPlated" type="checkbox" x-model="isPlated" />
+                            <span>
+                                <strong>Plated</strong>
+                                <span class="field__hint" style="display:block;margin-top:var(--space-1)">Check this for main courses the meal planner can suggest as a full meal. Leave unchecked for sides, snacks, desserts, and recipe components. You can still add any recipe to a meal manually.</span>
+                            </span>
+                        </label>
+                    </div>
+
                     <field asp-for="Input.Source" stacked full>
                         <input asp-for="Input.Source" class="field__input" placeholder="e.g. Family recipe or https://example.com/recipe" />
                     </field>
@@ -1435,7 +1446,14 @@
                                 </template>
                                 <template x-for="hit in inclusionResults" :key="hit.id">
                                     <button type="button" class="incl-search__opt" @@click="addInclusion(hit)">
-                                        <span class="incl-search__opt-name" x-text="hit.name"></span>
+                                        <span class="incl-search__opt-name">
+                                            <span x-text="hit.name"></span>
+                                            <template x-if="hit.isPlated">
+                                                <span class="recipe-plate-indicator" role="img" aria-label="Plated" title="Plated">
+                                                    <svg class="icon" aria-hidden="true"><use href="#i-plate" /></svg>
+                                                </span>
+                                            </template>
+                                        </span>
                                         <span class="incl-search__opt-meta"
                                               x-text="hit.defaultServings + (hit.defaultServings === 1 ? ' serving' : ' servings')"></span>
                                     </button>

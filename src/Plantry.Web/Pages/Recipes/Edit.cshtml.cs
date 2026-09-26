@@ -151,6 +151,7 @@ public sealed class EditModel(
             // Pre-populate scalars
             Input.Name = recipe.Name;
             Input.DefaultServings = recipe.DefaultServings;
+            Input.IsPlated = recipe.IsPlated;
             Input.CookTimeMinutes = recipe.CookTimeMinutes;
             Input.Source = recipe.Source;
             Input.Directions = recipe.Directions;
@@ -352,6 +353,7 @@ public sealed class EditModel(
                 id = r.Id.Value.ToString("D"),
                 name = r.Name,
                 defaultServings = r.DefaultServings,
+                isPlated = r.IsPlated,
             })
             .ToList();
 
@@ -636,7 +638,8 @@ public sealed class EditModel(
             YieldEnabled: Input.YieldEnabled,
             YieldProductId: null,
             YieldQuantity: Input.YieldEnabled ? Input.YieldQuantity : null,
-            YieldUnitId: Input.YieldEnabled ? Input.YieldUnitId : null);
+            YieldUnitId: Input.YieldEnabled ? Input.YieldUnitId : null,
+            IsPlated: Input.IsPlated);
 
         // Diet-tag nudge guard (plantry-qll2.3 / recipe-composition.md §8, D9): capture the recipe's EXPANDED
         // ProductId set BEFORE the save — direct ingredients plus every nested inclusion's products — for edits
@@ -1040,6 +1043,8 @@ public sealed class RecipeEditInput
 {
     public string? Name { get; set; }
     public int DefaultServings { get; set; } = 1;
+    /// <summary>Whether automatic planning may use this recipe as a standalone plated meal.</summary>
+    public bool IsPlated { get; set; } = true;
     public int? CookTimeMinutes { get; set; }
     public string? Source { get; set; }
     public string? Directions { get; set; }

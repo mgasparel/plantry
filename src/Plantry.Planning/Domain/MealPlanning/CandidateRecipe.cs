@@ -51,7 +51,8 @@ public sealed record CandidateRecipe(
     int? FulfillmentPercent = null,
     bool? HasContributingExpiringStock = null,
     IReadOnlyList<RecipeSemanticTagFact>? TagFacts = null,
-    RecipeDiversityProfile? DiversityProfile = null);
+    RecipeDiversityProfile? DiversityProfile = null,
+    bool IsPlated = true);
 
 /// <summary>Three-state completeness for a candidate's live cost evidence.</summary>
 public enum CandidateCostCompleteness

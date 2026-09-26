@@ -228,6 +228,38 @@ public sealed class BrowseRecipesQueryTests
     }
 
     [Fact]
+    public async Task Default_Scope_Returns_Only_Plated_Recipes()
+    {
+        var h = new Harness();
+        h.AddRecipe("Main course");
+        var side = h.AddRecipe("Side dish");
+        side.SetPlated(false, Clock);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter());
+
+        var row = Assert.Single(result.Rows);
+        Assert.Equal("Main course", row.Name);
+        Assert.Equal(1, result.CookableCount);
+        Assert.Equal(2, result.ActiveRecipeCount);
+    }
+
+    [Fact]
+    public async Task All_Scope_Includes_Unplated_Recipes_And_Marks_Plating()
+    {
+        var h = new Harness();
+        h.AddRecipe("Main course");
+        var side = h.AddRecipe("Side dish");
+        side.SetPlated(false, Clock);
+
+        var result = await h.Query.ExecuteAsync(new BrowseRecipesFilter(Scope: RecipeBrowseScope.All));
+
+        Assert.Equal(2, result.Rows.Count);
+        Assert.Contains(result.Rows, row => row.Name == "Main course" && row.IsPlated);
+        Assert.Contains(result.Rows, row => row.Name == "Side dish" && !row.IsPlated);
+        Assert.Equal(1, result.CookableCount);
+    }
+
+    [Fact]
     public async Task All_Tags_Included_In_Result_Regardless_Of_Active_Filter()
     {
         var h = new Harness();

@@ -59,6 +59,7 @@ Recipes is a **downstream consumer** of every Phase-1 context. It owns three agg
 | `Photo` | binary content ref | optional; stored per ADR-009 (Postgres bytea / content table) |
 | `CookTimeMinutes` | `int?` | optional |
 | `DefaultServings` | `int` | required, ≥ 1 (R2) |
+| `IsPlated` | `bool` | household classification; `true` by default and used by automatic meal planning |
 | `Directions` | `string` | single text field; paragraphs = derived `Step`s, `#` line = section reset (C13). Steps are **not** persisted as rows. |
 | `Tags` | `IReadOnlyList<TagId>` | membership set; plain, no strength/polarity (C2) |
 | `Ingredients` | `IReadOnlyList<Ingredient>` | ordered; ≥ 1 to save (R3) |
@@ -71,6 +72,7 @@ Recipes is a **downstream consumer** of every Phase-1 context. It owns three agg
 | `Recipe.Create(householdId, name, defaultServings, clock)` | Factory. Validates name non-blank, servings ≥ 1. Designed to emit (not implemented — see §9) **RecipeCreated**. |
 | `Rename(name, clock)` | Re-validates non-blank; uniqueness is a cross-aggregate check the app layer makes (R1). |
 | `SetSource / SetCookTime / SetPhoto / RemovePhoto / SetDirections(...)` | Field mutators, each `Touch`es `UpdatedAt`. |
+| `SetPlated(isPlated, clock)` | Changes the household's automatic-planning classification and touches `UpdatedAt`; it does not restrict manual meals, cooking, inclusion expansion, or other recipe reads. |
 | `SetTags(IReadOnlyList<TagId>, clock)` | Replaces the membership set. |
 | `ReplaceIngredients(orderedLines, clock)` | **Wholesale replace** of the ordered ingredient list (J7). Re-validates R3–R6. Designed to emit (not implemented — see §9) **RecipeUpdated**. |
 | `ChangeDefaultServings(newServings, ScaleMode, clock)` | Sets servings; `ScaleMode.Proportional` multiplies every stored ingredient quantity by `new ÷ old`, `ScaleMode.Keep` leaves them (J7 step 3). |

@@ -50,6 +50,7 @@ public sealed class RecipesDbContext(DbContextOptions<RecipesDbContext> options)
             b.Property(r => r.CookTimeMinutes).HasColumnName("cook_time_minutes");
             b.Property(r => r.DefaultServings).HasColumnName("default_servings").IsRequired();
             b.Property(r => r.Directions).HasColumnName("directions");
+            b.Property(r => r.IsPlated).HasColumnName("is_plated").IsRequired();
             b.Property(r => r.ArchivedAt).HasColumnName("archived_at");
             b.Property(r => r.CreatedAt).HasColumnName("created_at");
             b.Property(r => r.UpdatedAt).HasColumnName("updated_at");

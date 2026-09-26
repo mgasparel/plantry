@@ -88,12 +88,12 @@ public interface IRecipeReadModel
         CancellationToken ct = default);
 
     /// <summary>
-    /// Returns <see langword="true"/> when ANY recipe in the household's full recipe corpus carries
+    /// Returns <see langword="true"/> when ANY plated recipe in the household's full active corpus carries
     /// <paramref name="tagId"/> — regardless of the 50-cap candidate list from <see cref="SearchAsync"/>.
     /// Used by <see cref="Plantry.Planning.Domain.UnfulfillabilityDetector"/> for feasibility
     /// pre-checks: a confident "you have no vegetarian recipes" would be wrong if recipes outside
     /// the top-50 carry the tag. This is a targeted, cheap corpus query.
-    /// Returns <see langword="false"/> when no non-archived recipe carries the tag.
+    /// Returns <see langword="false"/> when no active plated recipe carries the tag.
     /// </summary>
     Task<bool> AnyRecipeWithTagAsync(Guid tagId, CancellationToken ct = default);
 
@@ -188,7 +188,8 @@ public sealed record RecipeReadModel(
     bool HasPhoto = false,
     int? CookTimeMinutes = null,
     IReadOnlyList<RecipeSemanticTagFact>? TagFacts = null,
-    RecipeDiversityProfile? DiversityProfile = null);
+    RecipeDiversityProfile? DiversityProfile = null,
+    bool IsPlated = true);
 
 /// <summary>One recipe/serving request in a candidate evidence snapshot.</summary>
 public sealed record CandidateRecipeEvidenceRequest(Guid RecipeId, int Servings);

@@ -32,7 +32,8 @@ User Journeys  →  Ubiquitous Language (← here)  →  Domain Model  →  Data
 
 | Term | Kind | Definition |
 |------|------|------------|
-| **Recipe** | Aggregate root | The household's canonical definition of a dish. Holds identity (**Name**, unique per household — C4), **Source**, **Tags**, **Photo**, **Cook time**, **Default servings**, **Directions**, and an **ordered collection of Ingredients**. Owns its Ingredients (composition); the ingredient list is replaced wholesale on edit (J7). Does **not** own CookEvent. |
+| **Recipe** | Aggregate root | The household's canonical definition of a dish. Holds identity (**Name**, unique per household — C4), **Source**, **Tags**, **Photo**, **Cook time**, **Default servings**, **Plated** classification, **Directions**, and an **ordered collection of Ingredients**. Owns its Ingredients (composition); the ingredient list is replaced wholesale on edit (J7). Does **not** own CookEvent. |
+| **Plated** | Recipe classification | A household-shared boolean indicating that automatic meal planning may suggest the recipe as a full meal. New and migrated recipes default to plated. Unchecked recipes remain available for manual meals, inclusion expansion, cooking, and management. |
 | **Ingredient** | Entity (child of Recipe) | One required item in a recipe. Carries a soft-ref **Product** (`product_id`, **never null** — C12), **Quantity** (nullable for untracked — C12), **Unit** (nullable for untracked), optional **GroupHeading**, and an **ordinal** position. May reference a *parent product* (DM-19), resolved to a variant at cook time. |
 | **CookEvent** | Aggregate root (own table — C3) | An immutable record that a recipe was cooked: **Recipe** ref, **ServingsCooked**, **CookedAt**. Append-only; the substrate for future history/frequency features. Lives in the `recipes` schema. |
 

@@ -20,6 +20,13 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     public int DefaultServings { get; private set; }
     public string? Directions { get; private set; }
 
+    /// <summary>
+    /// True when the household considers this recipe suitable as a standalone meal for automatic
+    /// planning and the default Recipes collection view. This is an explicit household decision;
+    /// it does not restrict manual meals, inclusions, cooking, or inventory calculations.
+    /// </summary>
+    public bool IsPlated { get; private set; }
+
     /// <summary>Soft-delete marker (Resolved call 1); a recipe with cook history is never physically removed.</summary>
     public DateTimeOffset? ArchivedAt { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
@@ -99,6 +106,7 @@ public sealed class Recipe : AggregateRoot<RecipeId>
             HouseholdId = householdId,
             Name = name.Trim(),
             DefaultServings = defaultServings,
+            IsPlated = true,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -143,6 +151,7 @@ public sealed class Recipe : AggregateRoot<RecipeId>
             HouseholdId = householdId,
             Name = name.Trim(),
             DefaultServings = defaultServings,
+            IsPlated = true,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -178,6 +187,13 @@ public sealed class Recipe : AggregateRoot<RecipeId>
     public void SetDirections(string? directions, IClock clock)
     {
         Directions = directions;
+        Touch(clock);
+    }
+
+    /// <summary>Sets the household's standalone-meal classification.</summary>
+    public void SetPlated(bool isPlated, IClock clock)
+    {
+        IsPlated = isPlated;
         Touch(clock);
     }
 

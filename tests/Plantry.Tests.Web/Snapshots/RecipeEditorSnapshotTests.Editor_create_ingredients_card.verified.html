@@ -185,7 +185,14 @@
 					<div class="incl-search__results">
 						<template x-if="inclusionResults.length === 0"><p class="incl-search__empty" x-text="inclusionQuery.trim() ? 'No matching recipes.' : 'Type to search your recipes.'"></p></template>
 						<template x-for="hit in inclusionResults" :key="hit.id"><button type="button" class="incl-search__opt" @click="addInclusion(hit)">
-								<span class="incl-search__opt-name" x-text="hit.name"></span>
+								<span class="incl-search__opt-name">
+									<span x-text="hit.name"></span>
+									<template x-if="hit.isPlated"><span class="recipe-plate-indicator" role="img" aria-label="Plated" title="Plated">
+											<svg class="icon" aria-hidden="true">
+												<use href="#i-plate"></use>
+											</svg>
+										</span></template>
+								</span>
 								<span class="incl-search__opt-meta" x-text="hit.defaultServings + (hit.defaultServings === 1 ? ' serving' : ' servings')"></span>
 							</button></template>
 					</div>

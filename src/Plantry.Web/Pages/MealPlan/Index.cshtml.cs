@@ -86,6 +86,15 @@ public sealed class IndexModel(
     /// <summary>Number of pending AI proposals awaiting user action.</summary>
     public int PendingCount => PendingProposals.Count;
 
+    /// <summary>Cells skipped while accepting stale or otherwise invalid proposals.</summary>
+    public IReadOnlyList<ProposalRejection> AcceptanceRejections { get; private set; } = [];
+
+    /// <summary>Number of proposal cells accepted by the most recent accept operation.</summary>
+    public int AcceptanceAcceptedCount { get; private set; }
+
+    /// <summary>True when generation found active recipes but none eligible for automatic planning.</summary>
+    public bool NoPlatedRecipesAvailable { get; private set; }
+
     /// <summary>
     /// Server-computed rolled-up fulfillment/cost for each ghost cell, keyed by "date_slotId".
     /// Populated during LoadWeekAsync so the full-grid swap shows enriched ghost cells (P3-6b).
@@ -304,6 +313,7 @@ public sealed class IndexModel(
         // Bulk pass (whole-week Generate or "just today"): scopeSlotId stays null, so slots opted
         // out of auto-planning are skipped (plantry-av8z).
         var generateResult = await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, scopeSlotId: null, ct);
+        NoPlatedRecipesAvailable = generateResult.NoPlatedRecipesAvailable;
 
         // Re-merge surviving proposals when a per-day scope was used.
         if (scopeDate.HasValue && otherDayProposals is { Count: > 0 })
@@ -334,7 +344,9 @@ public sealed class IndexModel(
 
         var storeKey = BuildStoreKey(householdId);
         var userId = await GetCurrentUserIdAsync(ct);
-        await acceptProposalService.AcceptAllAsync(householdId, WeekStart, storeKey, userId, ct);
+        var result = await acceptProposalService.AcceptAllAsync(householdId, WeekStart, storeKey, userId, ct);
+        AcceptanceAcceptedCount = result.Accepted;
+        AcceptanceRejections = result.Rejections ?? [];
 
         await LoadWeekAsync(week, ct);
         return Partial("_GridWithBarNav", new GridWithBarNavVm(this, BuildPlanBarNavVm(Oob: true)));
@@ -412,7 +424,9 @@ public sealed class IndexModel(
 
         var storeKey = BuildStoreKey(householdId);
         var userId = await GetCurrentUserIdAsync(ct);
-        await acceptProposalService.AcceptCellAsync(householdId, parsedDate, sid, storeKey, userId, ct);
+        var result = await acceptProposalService.AcceptCellAsync(householdId, parsedDate, sid, storeKey, userId, ct);
+        AcceptanceAcceptedCount = result.Accepted ? 1 : 0;
+        AcceptanceRejections = result.Rejection is null ? [] : [result.Rejection];
 
         // Return the full week grid so the pending bar count is always fresh (pending bar lives
         // inside _WeekGrid, so a cell-only swap would leave it stale after per-cell operations).
@@ -1124,6 +1138,7 @@ public sealed class IndexModel(
                 itemId = r.RecipeId.ToString("D"),
                 name = r.Name,
                 defaultServings = r.DefaultServings,
+                isPlated = r.IsPlated,
                 fulfillmentPercent = (object?)enr?.FulfillmentPercent,
                 costPerServing = (object?)costPerServing,
                 hasPhoto = r.HasPhoto,
