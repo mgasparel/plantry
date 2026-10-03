@@ -46,6 +46,12 @@ public sealed class GeneratePlanService(
     /// When null, this is a bulk pass (whole week, or "just today" via <paramref name="scopeDate"/>)
     /// and slots opted out of auto-planning are filtered out.
     /// </param>
+    /// <param name="excludedByCell">
+    /// Recipes the user has already seen proposed for a cell and passed over, keyed by
+    /// <see cref="IProposalRejectionMemory.CellKey"/>. The planner is deterministic, so these are
+    /// removed from that cell's candidates to force a different suggestion. Soft: if excluding them
+    /// would leave the cell with no feasible recipe, the exclusion is ignored for that cell.
+    /// </param>
     public async Task<GeneratePlanResult> ExecuteAsync(
         HouseholdId householdId,
         DateOnly weekStart,
@@ -53,7 +59,8 @@ public sealed class GeneratePlanService(
         PlanningWeights? weights,
         DateOnly? scopeDate = null,
         MealSlotId? scopeSlotId = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyDictionary<string, IReadOnlySet<Guid>>? excludedByCell = null)
     {
         var monday = Domain.MealPlan.NormalizeToMonday(weekStart);
         var effectiveWeights = weights ?? PlanningWeights.Default;
@@ -200,6 +207,30 @@ public sealed class GeneratePlanService(
             })
             .ToList();
 
+        // 5b. Pending (not-yet-accepted) proposals on cells this pass is NOT regenerating are still
+        // part of the week the user is looking at, so they count as variety context too — otherwise
+        // regenerating one cell ignores every other ghost on the grid.
+        var regeneratedKeys = emptyCells.Select(c => CellKey(c.Date, c.Slot.Id)).ToHashSet();
+        var candidatesById = candidates.ToDictionary(c => c.RecipeId);
+        var slotLabelsById = slotConfig.Slots.ToDictionary(s => s.Id, s => s.Label);
+        var pendingElsewhere = (await proposalStore.GetAsync(storeKey, ct))
+            .Where(p => !regeneratedKeys.Contains(CellKey(p.Date, p.MealSlotId)))
+            .Select(p => new
+            {
+                Proposal = p,
+                Recipes = p.Dishes.Select(d => candidatesById.GetValueOrDefault(d.RecipeId)).Where(c => c is not null).Select(c => c!).ToList(),
+            })
+            .Where(x => x.Recipes.Count > 0)
+            .Select(x => new PlannedMealSummary(
+                x.Proposal.Date,
+                slotLabelsById.GetValueOrDefault(x.Proposal.MealSlotId, x.Proposal.MealSlotId.Value.ToString()),
+                x.Recipes.Select(r => r.Name).ToList(),
+                x.Recipes.Select(r => new PlannedRecipeSummary(r.RecipeId, r.DiversityProfile)).ToList(),
+                IsPending: true))
+            .ToList();
+        if (pendingElsewhere.Count > 0)
+            alreadyPlanned = [.. alreadyPlanned, .. pendingElsewhere];
+
         // 6. Load tag vocabulary once for unfulfillable tag name resolution.
         // Flattened to a lookup for O(1) access by tag ID.
         var allTags = await tagReader.ListGroupedAsync(ct);
@@ -280,15 +311,24 @@ public sealed class GeneratePlanService(
                         return attendeeStars.Count == 0 ? c : c with { AttendeeStars = attendeeStars };
                     })
                     .ToList();
+            // Rejection memory: drop recipes the user already passed over for THIS cell so the
+            // deterministic optimizer cannot re-pick them. Applied before shortlisting so the
+            // 50-candidate shortlist backfills. Soft — falls back to the full pool when nothing
+            // feasible would remain.
+            if (excludedByCell is not null
+                && excludedByCell.TryGetValue(CellKey(date, slot.Id), out var excluded)
+                && excluded.Count > 0)
+            {
+                var withoutRejected = slotCandidates.Where(c => !excluded.Contains(c.RecipeId)).ToList();
+                if (withoutRejected.Any(c => IsFeasibleFor(c, constraints)))
+                    slotCandidates = withoutRejected;
+            }
             slotCandidates = CandidateRecipeShortlisting.Select(slotCandidates, constraints, effectiveWeights);
 
             // Required/Restricted filtering is a hard gate. Preserve the requested cell in the result
             // accounting even when the 50-candidate snapshot leaves no feasible recipe; it must not
             // silently disappear before the optimizer or pending-proposal staging.
-            if (!slotCandidates.Any(candidate =>
-                    !candidate.TagIds.Any(constraints.RestrictedTagIds.Contains)
-                    && constraints.AttendeeStances.All(attendee =>
-                        attendee.RequiredTagIds.All(candidate.TagIds.Contains))))
+            if (!slotCandidates.Any(candidate => IsFeasibleFor(candidate, constraints)))
             {
                 unfilledCount++;
                 continue;
@@ -418,7 +458,11 @@ public sealed class GeneratePlanService(
     }
 
     private static string CellKey(DateOnly date, MealSlotId slotId) =>
-        $"{date:yyyy-MM-dd}_{slotId.Value:N}";
+        IProposalRejectionMemory.CellKey(date, slotId);
+
+    private static bool IsFeasibleFor(CandidateRecipe candidate, GenerationConstraints constraints) =>
+        !candidate.TagIds.Any(constraints.RestrictedTagIds.Contains)
+        && constraints.AttendeeStances.All(attendee => attendee.RequiredTagIds.All(candidate.TagIds.Contains));
 
     /// <summary>
     /// Replaces the model-authored explanation at the trust boundary. The rationale is deliberately

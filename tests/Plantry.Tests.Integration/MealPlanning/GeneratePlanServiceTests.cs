@@ -786,6 +786,140 @@ public sealed class GeneratePlanServiceTests
         Assert.Equal(Monday, staged.Date);
     }
 
+    [Fact(DisplayName = "Execute_ExcludedByCell_RegenerateOffersADifferentRecipe — rejected recipe is not re-picked")]
+    public async Task Execute_ExcludedByCell_RegenerateOffersADifferentRecipe()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes:
+            [
+                new RecipeReadModel(Guid.Parse("0193b4a0-9999-7000-8000-000000000001"), "Recipe A", [], 4),
+                new RecipeReadModel(Guid.Parse("0193b4a0-9999-7000-8000-000000000002"), "Recipe B", [], 4),
+            ]);
+
+        await generateService.ExecuteAsync(
+            Household, Monday, "regen-excl", null, scopeDate: Monday, scopeSlotId: breakfast.Id);
+        var first = Assert.Single(await store.GetAsync("regen-excl"));
+        var firstRecipe = first.Dishes[0].RecipeId;
+
+        var excluded = new Dictionary<string, IReadOnlySet<Guid>>
+        {
+            [IProposalRejectionMemory.CellKey(Monday, breakfast.Id)] = new HashSet<Guid> { firstRecipe },
+        };
+        await generateService.ExecuteAsync(
+            Household, Monday, "regen-excl", null, scopeDate: Monday, scopeSlotId: breakfast.Id,
+            excludedByCell: excluded);
+
+        var second = Assert.Single(await store.GetAsync("regen-excl"));
+        Assert.NotEqual(firstRecipe, second.Dishes[0].RecipeId);
+    }
+
+    [Fact(DisplayName = "Execute_ExcludedByCell_OnlyFeasibleRecipe_StillProposed — exclusion is soft, never empties a cell")]
+    public async Task Execute_ExcludedByCell_OnlyFeasibleRecipe_StillProposed()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var onlyRecipe = Guid.Parse("0193b4a0-9999-7000-8000-000000000003");
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(onlyRecipe, "Only recipe", [], 4)]);
+
+        var excluded = new Dictionary<string, IReadOnlySet<Guid>>
+        {
+            [IProposalRejectionMemory.CellKey(Monday, breakfast.Id)] = new HashSet<Guid> { onlyRecipe },
+        };
+        await generateService.ExecuteAsync(
+            Household, Monday, "regen-soft", null, scopeDate: Monday, scopeSlotId: breakfast.Id,
+            excludedByCell: excluded);
+
+        var staged = Assert.Single(await store.GetAsync("regen-soft"));
+        Assert.Equal(onlyRecipe, staged.Dishes[0].RecipeId);
+    }
+
+    [Fact(DisplayName = "Execute_ExcludedByCell_FallsBackWhenOnlyInfeasibleRemain — soft fallback is feasibility-aware")]
+    public async Task Execute_ExcludedByCell_FallsBackWhenOnlyInfeasibleRemain()
+    {
+        var restrictedTag = Guid.Parse("0193b4a0-7777-7000-8000-000000000001");
+        var userId = Guid.Parse("0193b4a0-7777-7000-8000-000000000002");
+        var feasibleId = Guid.Parse("0193b4a0-7777-7000-8000-000000000003");
+        var infeasibleId = Guid.Parse("0193b4a0-7777-7000-8000-000000000004");
+
+        var config = MealSlotConfig.CreateWithDefaults(Household, Clock);
+        foreach (var slot in config.Slots.Where(s => s.IsActive))
+            config.SetDefaultAttendees(slot.Id, [userId], Clock);
+        var breakfast = config.Slots.First(s => s.Label == "Breakfast");
+        var pref = UserPreference.Create(Household, userId, Clock);
+        pref.SetStance(restrictedTag, "Restricted", Clock);
+
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            prefs: [pref],
+            recipes:
+            [
+                new RecipeReadModel(feasibleId, "Feasible", [], 4),
+                new RecipeReadModel(infeasibleId, "Restricted", [restrictedTag], 4),
+            ]);
+
+        var excluded = new Dictionary<string, IReadOnlySet<Guid>>
+        {
+            [IProposalRejectionMemory.CellKey(Monday, breakfast.Id)] = new HashSet<Guid> { feasibleId },
+        };
+        await generateService.ExecuteAsync(
+            Household, Monday, "regen-feasibility", null, scopeDate: Monday, scopeSlotId: breakfast.Id,
+            excludedByCell: excluded);
+
+        var staged = Assert.Single(await store.GetAsync("regen-feasibility"));
+        Assert.Equal(feasibleId, staged.Dishes[0].RecipeId);
+    }
+
+    [Fact(DisplayName = "Execute_PendingProposalOnAnotherCell_CountsAsVarietyContext")]
+    public async Task Execute_PendingProposalOnAnotherCell_CountsAsVarietyContext()
+    {
+        var config = BuildDefaultSlotConfig();
+        var slots = config.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).ToList();
+        var breakfast = slots[0];
+        var lunch = slots[1];
+        var recipeId = Guid.Parse("0193b4a0-8888-7000-8000-000000000001");
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(recipeId, "Only recipe", [], 4)]);
+
+        await store.SetAsync("pending-elsewhere",
+            [new ProposedMeal(Monday, lunch.Id, [], [new ProposedDish(recipeId, 4, 1)], "seed")]);
+
+        await generateService.ExecuteAsync(
+            Household, Monday, "pending-elsewhere", null, scopeDate: Monday, scopeSlotId: breakfast.Id);
+
+        var staged = Assert.Single(await store.GetAsync("pending-elsewhere"), p => p.MealSlotId == breakfast.Id);
+        var exact = Assert.Single(Assert.Single(staged.Dishes).ScoreBreakdown!.VarietyContributions,
+            c => c.Facet == RecipeDiversityFacet.ExactRecipe);
+        Assert.True(exact.PriorUse > 0m, "A pending proposal on another cell must count as prior use.");
+    }
+
+    [Fact(DisplayName = "Execute_PendingProposalOnRegeneratedCell_DoesNotCountAsVarietyContext")]
+    public async Task Execute_PendingProposalOnRegeneratedCell_DoesNotCountAsVarietyContext()
+    {
+        var config = BuildDefaultSlotConfig();
+        var breakfast = config.Slots.Where(s => s.IsActive).OrderBy(s => s.Ordinal).First();
+        var recipeId = Guid.Parse("0193b4a0-8888-7000-8000-000000000002");
+        var (generateService, _, store, _, _) = BuildStack(
+            slotConfig: config,
+            recipes: [new RecipeReadModel(recipeId, "Only recipe", [], 4)]);
+
+        await store.SetAsync("pending-same-cell",
+            [new ProposedMeal(Monday, breakfast.Id, [], [new ProposedDish(recipeId, 4, 1)], "seed")]);
+
+        await generateService.ExecuteAsync(
+            Household, Monday, "pending-same-cell", null, scopeDate: Monday, scopeSlotId: breakfast.Id);
+
+        var staged = Assert.Single(await store.GetAsync("pending-same-cell"), p => p.MealSlotId == breakfast.Id);
+        Assert.DoesNotContain(
+            Assert.Single(staged.Dishes).ScoreBreakdown!.VarietyContributions,
+            c => c.Facet == RecipeDiversityFacet.ExactRecipe && c.PriorUse > 0m);
+    }
+
     [Fact(DisplayName = "Execute_AllSlotsOptedOut_ReturnsZeroWithoutStaging — no eligible slots short-circuits")]
     public async Task Execute_AllSlotsOptedOut_ReturnsZero_WithoutCallingPlanner()
     {
