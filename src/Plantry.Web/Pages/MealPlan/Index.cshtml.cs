@@ -31,6 +31,7 @@ public sealed class IndexModel(
     GeneratePlanService generatePlanService,
     AcceptProposalService acceptProposalService,
     IPendingProposalStore pendingProposalStore,
+    IProposalRejectionMemory rejectionMemory,
     PlanFulfillmentService fulfillmentService,
     PlanCostingService costingService,
     PlanInsightsService planInsightsService,
@@ -301,18 +302,26 @@ public sealed class IndexModel(
         //   preserve pending proposals on OTHER days, exactly as OnPostRegenerateCellAsync does.
         //   Snapshot the surviving proposals first, then merge after generation.
         IReadOnlyList<ProposedMeal>? otherDayProposals = null;
+        var allBeforeGenerate = await pendingProposalStore.GetAsync(storeKey, ct);
         if (scopeDate.HasValue)
         {
-            var allBefore = await pendingProposalStore.GetAsync(storeKey, ct);
             var scopeKey = scopeDate.Value.ToString("yyyy-MM-dd");
-            otherDayProposals = allBefore
+            otherDayProposals = allBeforeGenerate
                 .Where(p => p.Date.ToString("yyyy-MM-dd") != scopeKey)
                 .ToList();
         }
 
+        // Re-generating replaces every pending proposal in scope, so the user has implicitly passed
+        // over them — remember those recipes so the (deterministic) planner offers something else.
+        await rejectionMemory.RememberAsync(
+            storeKey,
+            scopeDate.HasValue ? allBeforeGenerate.Where(p => p.Date == scopeDate.Value) : allBeforeGenerate,
+            ct);
+        var excluded = await rejectionMemory.GetAsync(storeKey, ct);
+
         // Bulk pass (whole-week Generate or "just today"): scopeSlotId stays null, so slots opted
         // out of auto-planning are skipped (plantry-av8z).
-        var generateResult = await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, scopeSlotId: null, ct);
+        var generateResult = await generatePlanService.ExecuteAsync(householdId, weekStart, storeKey, weights, scopeDate, scopeSlotId: null, ct, excluded);
         NoPlatedRecipesAvailable = generateResult.NoPlatedRecipesAvailable;
 
         // Re-merge surviving proposals when a per-day scope was used.
@@ -361,6 +370,7 @@ public sealed class IndexModel(
         await LoadWeekAsync(week, ct);
 
         var storeKey = BuildStoreKey(householdId);
+        await rejectionMemory.RememberAsync(storeKey, await pendingProposalStore.GetAsync(storeKey, ct), ct);
         await acceptProposalService.DiscardAsync(storeKey, ct);
 
         await LoadWeekAsync(week, ct);
@@ -449,6 +459,11 @@ public sealed class IndexModel(
         await LoadWeekAsync(week ?? DomainMealPlan.NormalizeToMonday(parsedDate).ToString("yyyy-MM-dd"), ct);
 
         var storeKey = BuildStoreKey(householdId);
+        var rejectedCellKey = CellKey(parsedDate, sid);
+        await rejectionMemory.RememberAsync(
+            storeKey,
+            (await pendingProposalStore.GetAsync(storeKey, ct)).Where(p => CellKey(p.Date, p.MealSlotId) == rejectedCellKey),
+            ct);
         await acceptProposalService.RejectCellAsync(storeKey, parsedDate, sid, ct);
 
         // Return the full week grid so the pending bar count is always fresh.
@@ -655,7 +670,10 @@ public sealed class IndexModel(
             .Where(p => CellKey(p.Date, p.MealSlotId) != cellKey)
             .ToList();
 
-        // 2. Remove the old proposal for this cell so the planner proposes a fresh one.
+        // 2. Remember the proposal being replaced (the planner is deterministic — without this it
+        //    would re-pick the identical recipe), then remove it so the planner proposes a fresh one.
+        await rejectionMemory.RememberAsync(storeKey, allBefore.Where(p => CellKey(p.Date, p.MealSlotId) == cellKey), ct);
+        var excluded = await rejectionMemory.GetAsync(storeKey, ct);
         await pendingProposalStore.RemoveAsync(storeKey, parsedDate, sid, ct);
 
         // 3. Re-run generation scoped to just this one cell (scopeDate + single-slot).
@@ -669,7 +687,8 @@ public sealed class IndexModel(
             weights: null,
             scopeDate: parsedDate,
             scopeSlotId: sid,
-            ct);
+            ct,
+            excluded);
 
         // 4. Merge: read the newly-staged proposal(s) for this cell, then SetAsync
         //    the union of other-cell proposals + new cell proposal(s).
@@ -723,7 +742,8 @@ public sealed class IndexModel(
             weights: null,
             scopeDate: parsedDate,
             scopeSlotId: sid,
-            ct);
+            ct,
+            await rejectionMemory.GetAsync(storeKey, ct));
 
         // 3. ExecuteAsync fills ALL empty cells on the date; keep ONLY the new proposal for THIS
         //    cell, then merge with the surviving snapshot so other cells are untouched.

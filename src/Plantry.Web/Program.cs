@@ -607,6 +607,7 @@ builder.Services.AddScoped<IMealPlanWeekReadModel>(sp =>
 builder.Services.AddScoped<GeneratePlanService>();
 builder.Services.AddScoped<AcceptProposalService>();
 builder.Services.AddScoped<IPendingProposalStore, DistributedCachePendingProposalStore>();
+builder.Services.AddScoped<IProposalRejectionMemory, DistributedCacheProposalRejectionMemory>();
 
 // Meal Planning — persisted planning settings (plantry-so5.3).
 // HouseholdPlanningSettings (household default budget/weights) + WeekPlanningOverride (per-week override).
