@@ -93,9 +93,11 @@ complete until the feature branch is pushed and its PR has merged. If a gate blo
    ```
    Confirm with `gh pr view` that the PR is open and every required CI check has
    passed for the current candidate.
-5. **Enable auto-merge only after all gates pass:**
+5. **Enable auto-merge only after all gates pass:** Refresh `origin/main` and
+   verify the candidate and integration base still match the passing local,
+   independent review, QA, and CI evidence as required by `factory-land`.
    ```bash
-   gh pr merge <pr-number> --auto --merge
+   gh pr merge <pr-number> --auto --merge --match-head-commit <candidate-sha>
    ```
 6. **Confirm merge before closing** - Verify `gh pr view` reports MERGED, record
    the merged commit in Beads, and only then close the issue. Clean up only the
