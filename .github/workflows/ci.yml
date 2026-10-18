@@ -38,6 +38,15 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       # Run each suite in its own step, in this order. Never matrix or parallelize these.
+      # WAF and Aspire test processes need a writable key ring on hosted Linux.
+      # This is test-job configuration; production retains its mounted /keys volume.
+      - name: Prepare test key storage
+        shell: bash
+        run: |
+          key_path="$RUNNER_TEMP/plantry-test-keys"
+          mkdir -p "$key_path"
+          echo "DataProtection__KeyPath=$key_path" >> "$GITHUB_ENV"
+
       - name: Unit tests
         shell: bash
         run: |
