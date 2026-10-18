@@ -91,8 +91,10 @@ complete until the feature branch is pushed and its PR has merged. If a gate blo
    git push -u origin issue/<id>   # push the feature branch (never main directly)
    gh pr create --title "<title>" --body "<description>" --base main
    ```
-   Confirm with `gh pr view` that the PR is open and every required CI check has
-   passed for the current candidate.
+   Confirm with `gh pr view` that the PR is open. Follow `factory-land`: the CI
+   workflow `fast` job must succeed for the current candidate even if branch
+   protection is absent or the required-check list is empty. Additional required
+   checks must also pass; missing, skipped, or pending checks never count as PASS.
 5. **Enable auto-merge only after all gates pass:** Refresh `origin/main` and
    verify the candidate and integration base still match the passing local,
    independent review, QA, and CI evidence as required by `factory-land`.
