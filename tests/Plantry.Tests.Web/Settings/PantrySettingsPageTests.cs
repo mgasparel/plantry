@@ -275,6 +275,8 @@ public sealed class PantrySettingsFactory : WebApplicationFactory<Program>
             services.AddSingleton<IHouseholdInventorySettingsRepository>(Repo);
             services.RemoveAll<ILocationRepository>();
             services.AddSingleton<ILocationRepository>(Locations);
+            services.RemoveAll<ICategoryRepository>();
+            services.AddSingleton<ICategoryRepository>(new FakeCategoryRepository());
         });
     }
 }

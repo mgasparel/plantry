@@ -14,7 +14,6 @@ using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
 using Plantry.Tests.Web.Infrastructure;
 using CatalogUnit = Plantry.Pantry.Domain.Unit;
-using CatalogCategory = Plantry.Pantry.Domain.Category;
 
 namespace Plantry.Tests.Web.TakeStock;
 
@@ -2653,40 +2652,6 @@ public sealed class FakeTsUnitRepository : IUnitRepository
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
-/// <summary>
-/// Fake <see cref="ICategoryRepository"/> for L4 fragment tests and <see cref="Plantry.Tests.Web.TakeStockReaderAdapterTests"/>
-/// (plantry-vvqt — the walk redesign's category grouping). Defaults to an empty category list — so
-/// existing fragment-test call sites are unchanged and the Defaults collapsible in the create view
-/// renders with no options other than "— None —" (plantry-y53t) — but accepts an explicit seed list
-/// so adapter tests can assert <see cref="TakeStockReaderAdapter"/>'s category resolution.
-/// WalkModel and TakeStockReaderAdapter both resolve ICategoryRepository.
-/// </summary>
-public sealed class FakeTsCategoryRepository(IReadOnlyList<CatalogCategory>? categories = null) : ICategoryRepository
-{
-    private readonly List<CatalogCategory> _categories = categories?.ToList() ?? [];
-
-    public Task<CatalogCategory?> FindAsync(CategoryId id, CancellationToken ct = default) =>
-        Task.FromResult(_categories.FirstOrDefault(c => c.Id == id));
-
-    public Task<CatalogCategory?> FindByNameAsync(string name, CancellationToken ct = default) =>
-        Task.FromResult(_categories.FirstOrDefault(
-            c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)));
-
-    public Task<List<CatalogCategory>> ListAsync(CancellationToken ct = default) =>
-        Task.FromResult(_categories.ToList());
-
-    public Task<List<CatalogCategory>> ListActiveAsync(CancellationToken ct = default) =>
-        Task.FromResult(_categories.Where(c => !c.IsArchived).ToList());
-
-    public Task AddAsync(CatalogCategory category, CancellationToken ct = default)
-    {
-        _categories.Add(category);
-        return Task.CompletedTask;
-    }
-
-    public Task SaveChangesAsync(CancellationToken ct = default) =>
-        Task.CompletedTask;
-}
 
 // ── In-memory fake conversion provider ───────────────────────────────────────
 
@@ -2771,7 +2736,7 @@ public sealed class TakeStockFragmentFactory : WebApplicationFactory<Program>
 
         // plantry-y53t: Defaults collapsible — WalkModel now resolves ICategoryRepository to load category options.
         services.RemoveAll<ICategoryRepository>();
-        services.AddSingleton<ICategoryRepository, FakeTsCategoryRepository>();
+        services.AddSingleton<ICategoryRepository, FakeCategoryRepository>();
     }
 
     /// <summary>Creates an authenticated HTTP client for the given household.</summary>

@@ -5,7 +5,7 @@ description: >-
   noticed X in the app", "when I tried to do Y, Z happened", "the app feels
   off when I...", logging observations from real usage sessions. DO NOT USE
   FOR: planned feature ideas disconnected from actual use (use `bd create`
-  directly), or code-review findings (use the plantry-code-review skill).
+  directly), or code-review findings (use the factory-review skill).
 license: MIT
 metadata:
   author: plantry

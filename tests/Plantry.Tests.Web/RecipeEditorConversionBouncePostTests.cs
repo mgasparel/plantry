@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Plantry.Pantry.Domain;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -137,6 +138,10 @@ public sealed class RecipeEditorConversionBouncePostTests
 
                 services.RemoveAll<ICatalogWriter>();
                 services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+
+                // EditModel reloads active locations on its POST validation/bounce path.
+                services.RemoveAll<ILocationRepository>();
+                services.AddSingleton<ILocationRepository>(new FakeLocationRepository());
 
                 // Converter that never finds a path → every cross-unit line is a gap.
                 services.RemoveAll<IUnitConverter>();

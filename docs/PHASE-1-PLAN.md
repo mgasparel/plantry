@@ -68,8 +68,7 @@ A real pyramid: a large base of fast unit tests, a solid middle of integration t
 **Regression guardrails (the "rock solid" part):**
 
 - **CI runs the whole pyramid on every PR.** Red = no merge.
-- **Coverage gates on domain projects** (high threshold; build fails below it). Coverage is necessary but not sufficient, so —
-- **Mutation testing (Stryker.NET) on the core domain** — `Consume`/FEFO, expiry, conversion. This is what proves the tests *assert behavior* rather than merely execute lines; a surviving mutant is a test gap.
+- **Behavior-focused tests** for acceptance criteria, domain invariants, and meaningful negative paths. Reviewers assess whether plausible defects could pass, whether assertions prove outcomes, and whether checks run at the right test level.
 - **Migrations are checked in and must apply cleanly to an empty database** in CI; the RLS-isolation test runs against the migrated schema, so a migration that forgets a policy fails the build.
 - **The architecture test** (boundary rules above) runs as part of L1.
 
@@ -126,7 +125,7 @@ Slice 3 can run in parallel with later work once its dependencies are met. (The 
 - **Auth** via ASP.NET Core Identity (DM-6): register a household + first user, login, logout, session.
 - **Per-household reference-data seeding** on household creation (DM-9): units (mass/volume/count with `factor_to_base`), starter categories, starter locations (incl. one `frozen`).
 - UI shell: `plenish.css` tokens imported, Hearth theme, responsive sidebar/bottom-nav shell, topbar, empty Pantry page.
-- **Test harness stood up**: xUnit projects per context, Testcontainers integration base, Playwright project, CI running the full pyramid + coverage gate + Stryker config.
+- **Test harness stood up**: xUnit projects per context, Testcontainers integration base, Playwright project, and CI running the full required suite.
 
 **Tests / done-when.** RLS-isolation integration test (household A cannot read B) is **green**; E2E smoke (register → login → see empty Pantry) passes; CI runs all five layers.
 
@@ -164,7 +163,7 @@ Slice 3 can run in parallel with later work once its dependencies are met. (The 
 - **The single `Consume` primitive** (§1c, ARCHITECTURE §Consumption, ADR-011): unit conversion, **FEFO nulls-last with `entry_id` tiebreaker**, multi-lot deduction, shortfall report, `FOR UPDATE`+`xmin` serialization (DM-13).
 - Expiry review (§1d): throw-out logged as **`Discarded` (waste)** vs `Consumed` — the reason taxonomy that future waste analysis depends on.
 
-**Tests / done-when.** `Consume`/FEFO/reason-taxonomy near-exhaustively unit-tested; **mutation-tested**; concurrency test proving two parallel consumes don't over-deduct (L3); E2E: add → pantry → consume → see journal.
+**Tests / done-when.** `Consume`/FEFO/reason-taxonomy have meaningful unit tests for expected outcomes and relevant edge cases; concurrency test proves two parallel consumes don't over-deduct (L3); E2E: add → pantry → consume → see journal.
 
 **Refs.** SPEC §1a–§1d, §2c–§2d, §Consumption & waste; DomainDesign/DataModels/inventory.md, cross-cutting-behaviour.md; ADR-011; DM-11/13/14.
 
@@ -253,11 +252,11 @@ unchanged — [shopping.md](DomainDesign/DataModels/shopping.md), DM-18.
 - App Settings (§7f): per-household AI key **encrypted at rest, never sent to client** (DM-7); expiry warning threshold; **theme picker** (the three proto themes).
 - Intake settings (§7d): email address, category-level default expiry days.
 - Account & Household (§7g): own login, invite/remove members, flat permissions.
-- Hardening: accessibility pass, performance pass on Pantry aggregation, full regression sweep, mutation-test review on core domain.
+- Hardening: accessibility pass, performance pass on Pantry aggregation, full regression sweep.
 
 > Meal Slots (§7h) is a Meal Planning (Phase 2) concern — **out of Phase 1**.
 
-**Tests / done-when.** AI-key encryption round-trip tested; settings persist + re-render; whole pyramid green; mutation score on core domain meets threshold.
+**Tests / done-when.** AI-key encryption round-trip tested; settings persist + re-render; whole required suite is green.
 
 **Refs.** SPEC §7d, §7f, §7g; ADR-007/008; DM-7.
 

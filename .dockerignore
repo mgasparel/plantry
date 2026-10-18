@@ -13,6 +13,9 @@
 # Worktrees (sibling directory at repo root, not needed in image)
 worktrees/
 
+# Local analyzer output is not part of the application or Docker build.
+StrykerOutput/
+
 # IDE and tool artifacts
 .vs/
 .vscode/
@@ -20,11 +23,6 @@ worktrees/
 *.suo
 *.DotSettings
 *.DotSettings.user
-
-# Stryker mutation-testing outputs
-StrykerOutput/
-stryker-config.json
-stryker-run.ps1
 
 # Documentation and planning (never needed at runtime)
 docs/
@@ -54,7 +52,7 @@ tests/
 .beads/
 tools/
 
-# Node / npm (not used by this project, but guard against accidental addition)
+# Node test artifacts only; the shipped app does not require Node or a bundler.
 node_modules/
 npm-debug.log
 

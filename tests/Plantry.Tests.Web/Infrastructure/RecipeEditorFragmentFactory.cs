@@ -157,6 +157,11 @@ public sealed class RecipeEditorEmptyTagsFactory : WebApplicationFactory<Program
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeUnitConverter());
+
+            // EditModel loads active locations for editor reference data even though this
+            // scenario only varies the tag list.
+            services.RemoveAll<ILocationRepository>();
+            services.AddSingleton<ILocationRepository>(new FakeLocationRepository());
         });
     }
 }

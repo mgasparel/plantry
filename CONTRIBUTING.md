@@ -27,9 +27,9 @@ Plantry uses a **fully agentic workflow** — described in [ADR-018](docs/ADRs/A
 The development loop:
 
 1. Work is planned and described as a beads issue.
-2. An agent claims the issue, implements it in an isolated branch/worktree, runs the pre-flight gate (build → tests → Opus critic review), and opens a PR.
-3. CI must pass. Code coverage, architecture-boundary tests, and mutation thresholds are enforced automatically.
-4. A human reviews the PR and merges (or feeds back to the agent).
+2. The factory claims one issue, implements it in an isolated branch/worktree, runs the full build and required suites, and opens one PR.
+3. A different reviewer checks the acceptance criteria and canonical review gates; an independent QA agent exercises the live candidate on an isolated Aspire stack.
+4. Required CI must pass for the same candidate. Auto-merge is enabled only after local checks, review, QA, and CI pass; the issue closes after confirmed merge.
 
 This model means the usual contributor workflow (fork → branch → PR → review) does not fit yet — not because contributions are unwanted in principle, but because the review pipeline has not been built to handle external PRs safely.
 

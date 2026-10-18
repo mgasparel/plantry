@@ -106,6 +106,36 @@ public sealed class FakeLowStockRuleRepository : ILowStockRuleRepository
 }
 
 /// <summary>
+/// Shared in-memory <see cref="ICategoryRepository"/> fake. Defaults to an empty category list and
+/// accepts an optional seed list for tests that exercise category resolution or sort order.
+/// </summary>
+public sealed class FakeCategoryRepository(IReadOnlyList<Category>? categories = null) : ICategoryRepository
+{
+    private readonly List<Category> _categories = categories?.ToList() ?? [];
+
+    public Task<Category?> FindAsync(CategoryId id, CancellationToken ct = default) =>
+        Task.FromResult(_categories.FirstOrDefault(category => category.Id == id));
+
+    public Task<Category?> FindByNameAsync(string name, CancellationToken ct = default) =>
+        Task.FromResult(_categories.FirstOrDefault(
+            category => string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase)));
+
+    public Task<List<Category>> ListAsync(CancellationToken ct = default) =>
+        Task.FromResult(_categories.ToList());
+
+    public Task<List<Category>> ListActiveAsync(CancellationToken ct = default) =>
+        Task.FromResult(_categories.Where(category => !category.IsArchived).ToList());
+
+    public Task AddAsync(Category category, CancellationToken ct = default)
+    {
+        _categories.Add(category);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>
 /// Shared in-memory <see cref="ILocationRepository"/> fake for WAF harnesses (plantry-iypo code
 /// review — previously duplicated per-test-file as <c>FakeMoveLocationRepository</c>/
 /// <c>FakePantryLocationRepository</c>). Starts empty; seed via <see cref="Seed(Location)"/> for a
