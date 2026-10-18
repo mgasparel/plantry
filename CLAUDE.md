@@ -35,3 +35,50 @@ to the first embedded quote/whitespace boundary, with no error). Use
 `--body-file <file>` / `--stdin` for `create` and `update`. For flags with no file
 variant (`--notes`, `--acceptance`), use a Bash single-quoted heredoc, never
 PowerShell inline.
+
+
+## Session Completion
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT
+complete until the feature branch is pushed and its PR has merged. If a gate blocks delivery, preserve the open PR and record the blocker without claiming completion.
+
+> **Branch model:** nothing is pushed directly to `main`. Each ticket lands via
+> one `issue/<id>` branch and one PR. The `factory-run` procedure owns the
+> implementation, independent review, independent QA, CI, merge, and Beads
+> lifecycle; do not use epic integration branches or batch delivery.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Persist factory state and evidence** - Record the phase and candidate-bound
+   build, suite, review, QA, CI, and PR evidence in Beads. Resume an unfinished
+   ticket before claiming new work.
+4. **PUSH FEATURE BRANCH + OPEN ONE PR** - This is MANDATORY:
+   ```bash
+   git push -u origin issue/<id>   # push the feature branch (never main directly)
+   gh pr create --title "<title>" --body "<description>" --base main
+   ```
+   Confirm with `gh pr view` that the PR is open. Follow `factory-land`: the CI
+   workflow `fast` job must succeed for the current candidate even if branch
+   protection is absent or the required-check list is empty. Additional required
+   checks must also pass; missing, skipped, or pending checks never count as PASS.
+5. **Enable auto-merge only after all gates pass:** Refresh `origin/main` and
+   verify the candidate and integration base still match the passing local,
+   independent review, QA, and CI evidence as required by `factory-land`.
+   ```bash
+   gh pr merge <pr-number> --auto --merge --match-head-commit <candidate-sha>
+   ```
+6. **Confirm merge before closing** - Verify `gh pr view` reports MERGED, record
+   the merged commit in Beads, and only then close the issue. Clean up only the
+   worktree created for that ticket; retain the branch until merge confirmation.
+7. **Verify and hand off** - Confirm the merged PR and push Beads data with
+   `bd dolt push`; provide context for the next session if work remains.
+
+**CRITICAL RULES:**
+- Work is NOT complete until the feature branch is pushed and its PR is merged
+- NEVER push directly to `main` — branch protection will reject it once enabled
+- NEVER enable auto-merge before local verification, independent review, independent QA,
+  and required CI pass on the same candidate
+- NEVER delete the feature branch before the PR merges — CI needs it
+- If `gh pr create` fails, resolve and retry; a local-only branch leaves work stranded

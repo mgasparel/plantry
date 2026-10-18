@@ -64,6 +64,7 @@ Under the hood it's a **modular monolith**: one .NET process, one PostgreSQL dat
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [Docker](https://www.docker.com/) — .NET Aspire uses it to run PostgreSQL and friends locally
 - [Aspire CLI](https://aspire.dev/get-started/install-cli/)
+- Node.js 22 or newer for island JavaScript tests; the shipped app does not require Node.
 
 ### Run the app
 
@@ -92,44 +93,33 @@ Tests are organized by layer:
 | Project | What it covers |
 |---|---|
 | `Plantry.Tests.Unit` | Domain unit tests |
+| `Plantry.Tests.Web` | HTTP, page-model, and rendered-fragment behavior |
 | `Plantry.Tests.Architecture` | Bounded-context boundary rules |
 | `Plantry.Tests.Integration` | Real-Postgres integration tests (via Testcontainers) |
-| `Plantry.Tests.E2E` | End-to-end tests against a running app |
+| `Plantry.Tests.E2E` | Playwright journeys against a test-owned Aspire stack |
 
-Run the fast suites:
-
-```sh
-dotnet test tests/Plantry.Tests.Unit
-dotnet test tests/Plantry.Tests.Architecture
-```
-
-Integration tests need a Postgres connection string:
+Run the complete test gate serially. Integration and Aspire E2E both own Docker-backed infrastructure:
 
 ```sh
-dotnet test tests/Plantry.Tests.Integration
+dotnet build Plantry.sln --configuration Release
+dotnet test tests/Plantry.Tests.Unit --no-build --configuration Release
+dotnet test tests/Plantry.Tests.Integration --no-build --configuration Release
+dotnet test tests/Plantry.Tests.Web --no-build --configuration Release
+dotnet test tests/Plantry.Tests.Architecture --no-build --configuration Release
+dotnet test tests/Plantry.Tests.E2E --no-build --configuration Release
+npm test
 ```
 
-E2E tests require a running instance and aren't part of the standard PR pipeline (see `.github/workflows/ci.yml`).
+The integration suite starts its own Postgres container; the E2E fixture starts a fresh, ephemeral Aspire stack. Neither needs a separately running app instance. The required PR check runs the same build and suites (see `.github/workflows/ci.yml`).
 
-### Mutation testing
+## Quality gates
 
-Domain logic in `Plantry.SharedKernel` and `Plantry.Pantry` (the conversion-resolution and
-product-invariant core — `UnitConverter`, `Product`, `ExpiryDefaultResolver`) is checked with
-[Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/). Stryker mutates one
-source project per run, so each domain has its own config:
-
-```sh
-dotnet stryker --config-file stryker-config.json
-dotnet stryker --config-file stryker-config.catalog.json
-```
-
-A surviving mutant is a test gap — the threshold breaks the build below 60% mutation score.
-
----
-
-## Continuous integration
-
-Every push to `main` and `slice/**`, and every PR into `main`, runs through GitHub Actions (`.github/workflows/ci.yml`): restore, build, unit/architecture/integration tests, and a code coverage gate. See the workflow file for exact thresholds.
+Each ticket is delivered on its own branch and pull request through the factory skills in
+`.claude/skills/factory-*`. The implementer builds the full solution, runs Unit, Integration,
+Web, Architecture, Aspire E2E, and island JavaScript tests serially, then hands the candidate
+to an independent reviewer and an independent live QA agent. The reviewer checks behavioral
+test adequacy; no test-count or coverage-percentage target is used. PR CI repeats the automated
+build and suite gates before automatic merge is enabled.
 
 ---
 
@@ -138,8 +128,8 @@ Every push to `main` and `slice/**`, and every PR into `main`, runs through GitH
 Plantry is engineered **agent-first**. Day-to-day development isn't a human typing in an IDE while an assistant autocompletes — it's a fleet of AI coding agents doing the implementation, with humans steering intent, reviewing outcomes, and setting the guardrails.
 
 - **Issues are the unit of work.** Everything runs through [beads](https://github.com/gastownhall/beads) (`bd`) — a git-native issue tracker agents read and write directly. No work happens off-ticket.
-- **Agents pick up and ship tickets end-to-end.** A worker agent claims a ready issue in its own worktree, implements it, runs the pre-flight gate (build → tests → an Opus critic pass), commits, and opens a PR. An orchestrator can run this loop hands-free across the backlog.
-- **Nothing reaches `main` unguarded.** All work lands via `issue/<id>` branches and PRs behind branch protection: CI, a coverage gate, mutation thresholds, and architecture-boundary tests all have to pass. The agents earn the merge the same way a human would.
+- **Agents pick up and ship tickets end-to-end.** A worker claims one ready issue in its own worktree, implements it, and submits one PR for independent review, live QA, and required CI.
+- **Nothing reaches `main` unguarded.** Auto-merge is enabled only after the current candidate passes local suites, independent review, independent QA, and required CI.
 - **Conventions are encoded, not folklore.** Architecture decisions live in ADRs, domain rules in `Plantry.Tests.Architecture`, and project ethos in `AGENTS.md` / `CLAUDE.md` so every agent starts from the same playbook.
 
 The result: the codebase you're reading was largely written by AI agents, but it's held to human standards by tests, reviews, and decision records — not vibes alone. (Some vibes. See the footer.)

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using ILocationRepository = Plantry.Pantry.Domain.ILocationRepository;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -313,6 +314,10 @@ internal sealed class TagSuggestionFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IUnitConverter>();
             services.AddSingleton<IUnitConverter>(new FakeUnitConverter());
+
+            // Editor GET/POST reference-data reloads include active locations.
+            services.RemoveAll<ILocationRepository>();
+            services.AddSingleton<ILocationRepository>(new FakeLocationRepository());
 
             // The two plantry-qll2.2 seams: the assistive-AI gate and the untrusted LLM suggester.
             services.RemoveAll<IAiAssistanceGateReader>();

@@ -24,7 +24,7 @@ x86/
 # Node / JS test rig (ADR-020 amended 2026-06-24 — test-time Node only; no shipped node_modules)
 node_modules/
 
-# Test / mutation testing output
+# Test output
 TestResults/
 StrykerOutput/
 
@@ -42,13 +42,10 @@ Thumbs.db
 .reviews
 .preflight
 
-# Generated coverage report dumps; curated evidence fixtures remain tracked.
-tools/market-coverage-evidence/real-*
-
 # UI prototype mockups (scratch — decided by eye, not shipped)
 .preview/
 
-# repowise
+# Keep local code-intelligence cache data out of source control.
 .repowise/
 
 # Beads / Dolt files (added by bd init)

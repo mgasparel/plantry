@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using ILocationRepository = Plantry.Pantry.Domain.ILocationRepository;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -362,6 +363,10 @@ public sealed class RecipeInclusionTests
                 services.AddFakeDisplayCurrency();
                 services.AddFakeExpiringSoonHorizon();
                 AddTestAuth(services);
+
+                // EditModel loads active locations on editor GET and POST re-render paths.
+                services.RemoveAll<ILocationRepository>();
+                services.AddSingleton<ILocationRepository>(new FakeLocationRepository());
 
                 Repo = new MultiRecipeRepo(
                     new ConstantTenantContext(HouseholdGuid), _seed);

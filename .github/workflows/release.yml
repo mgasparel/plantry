@@ -3,9 +3,9 @@
 #
 # Triggered by pushing a version tag (e.g. git tag v1.4.0 && git push --tags).
 #
-#   1. verify  — full slow suite (integration + E2E + coverage, Docker-in-CI).
-#                This is the authoritative CI gate ADR-016 places at the release
-#                boundary (amended 2026-06-20): nothing ships unless it passes.
+#   1. verify  — full build and all required suites, including Docker-backed E2E.
+#                PR CI runs the same checks; this release gate protects artifacts
+#                built from a version tag.
 #   2. release — build plantry-web + plantry-migrator, publish the semver tag
 #                family (:1.4.0 :1.4 :1 :latest) to GHCR, mark images public, and
 #                attach the self-host compose assets to a GitHub Release.
@@ -36,14 +36,12 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
-  # ── Stage 1: Full-suite gate (integration + E2E + coverage) ──────────────────
-  # The slow suite that used to run on every CI run now runs once here, gating
-  # the release (and therefore prod). Docker is pre-installed on ubuntu-latest;
-  # the integration + E2E fixtures manage their own Postgres via Testcontainers/
-  # Aspire. A red verify blocks the build, publish, and deploy below.
+  # ── Stage 1: Full build and required test suites ──────────────────────────────
+  # Docker is pre-installed on ubuntu-latest. Integration and Aspire E2E own
+  # Docker-backed infrastructure and run serially.
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +50,17 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+
+      - name: Trust ASP.NET Core development certificate for tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cert_dir="$RUNNER_TEMP/plantry-dev-certs"
+          mkdir -p "$cert_dir"
+          dotnet dev-certs https --export-path "$cert_dir/localhost.crt" --format PEM
+          openssl rehash "$cert_dir"
+          openssl verify -CApath "$cert_dir" "$cert_dir/localhost.crt"
+          echo "SSL_CERT_DIR=$cert_dir:/usr/lib/ssl/certs" >> "$GITHUB_ENV"
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -67,44 +76,72 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      # Install Playwright's Chromium + system deps (CLI ships beside the E2E binaries).
-      - name: Install Playwright browsers
+      # WAF and Aspire test processes need a writable key ring on hosted Linux.
+      # This is test-job configuration; production retains its mounted /keys volume.
+      - name: Prepare test key storage
+        shell: bash
+        run: |
+          key_path="$RUNNER_TEMP/plantry-test-keys"
+          mkdir -p "$key_path"
+          echo "DataProtection__KeyPath=$key_path" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.Unit.log"
+          dotnet test tests/Plantry.Tests.Unit --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Unit suite passed zero tests or emitted no passed count.'; exit 1; }
+
+      - name: Integration tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.Integration.log"
+          dotnet test tests/Plantry.Tests.Integration --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Integration suite passed zero tests or emitted no passed count.'; exit 1; }
+
+      - name: Web tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.Web.log"
+          dotnet test tests/Plantry.Tests.Web --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Web suite passed zero tests or emitted no passed count.'; exit 1; }
+
+      - name: Architecture tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.Architecture.log"
+          dotnet test tests/Plantry.Tests.Architecture --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Architecture suite passed zero tests or emitted no passed count.'; exit 1; }
+
+      - name: Install Playwright Chromium
         run: >
           pwsh tests/Plantry.Tests.E2E/bin/Release/net10.0/playwright.ps1
           install chromium --with-deps
 
-      # ── L1: Domain unit tests (included so the coverage gate sees domain code) ─
-      - name: Unit tests
-        run: >
-          dotnet test tests/Plantry.Tests.Unit
-          --no-build --configuration Release
-          --settings coverage.runsettings
-          --collect:"XPlat Code Coverage"
-          --results-directory coverage/unit
-          --
-          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
+      - name: Aspire E2E tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.E2E.log"
+          dotnet test tests/Plantry.Tests.E2E --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Aspire E2E suite passed zero tests or emitted no passed count.'; exit 1; }
 
-      # ── L3: Integration tests (Testcontainers; self-managed Postgres) ─────────
-      - name: Integration tests
-        run: >
-          dotnet test tests/Plantry.Tests.Integration
-          --no-build --configuration Release
-          --settings coverage.runsettings
-          --collect:"XPlat Code Coverage"
-          --results-directory coverage/integration
-          --
-          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
-      # ── L5: E2E tests (Aspire boots full stack; Playwright drives browser) ────
-      - name: E2E tests
-        run: >
-          dotnet test tests/Plantry.Tests.E2E
-          --no-build --configuration Release
-          --settings coverage.runsettings
-          --collect:"XPlat Code Coverage"
-          --results-directory coverage/e2e
-          --
-          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[Plantry.Web]*,[Plantry.AppHost]*,[Plantry.ServiceDefaults]*,[Plantry.Migrator]*"
+      - name: Island JavaScript tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/island-js-tests.log"
+          npm test 2>&1 | tee "$log"
+          grep -Eq '^[^a-zA-Z0-9]*pass[[:space:]]+[1-9][0-9]*' "$log" || { echo 'Island JS suite passed zero tests or emitted no passed count.'; exit 1; }
 
       # Upload Playwright traces on failure so failures can be diagnosed.
       - name: Upload Playwright traces
@@ -114,22 +151,6 @@ jobs:
           name: playwright-traces
           path: "**/trace.zip"
           retention-days: 7
-
-      # ── Coverage gate (unit + integration + E2E combined) ─────────────────────
-      - name: Coverage report
-        uses: danielpalme/ReportGenerator-GitHub-Action@5
-        with:
-          reports: "coverage/**/*.xml"
-          targetdir: "coverage/report"
-          reporttypes: "HtmlInline;Cobertura"
-
-      - name: Check coverage threshold
-        uses: irongut/CodeCoverageSummary@v1.3.0
-        with:
-          filename: coverage/report/Cobertura.xml
-          badge: false
-          thresholds: "70 85"   # warn at 70%, fail at 85% for domain projects
-          fail_below_min: true
 
   # ── Stage 2: Build + publish semver images and the GitHub Release ────────────
   release:

@@ -1,8 +1,8 @@
 # Plantry Review Criteria
 
-Canonical gate definitions for all Plantry code review. Used by `/plantry-code-review`
-and the autonomous pipeline's Opus critic sub-agent. **Changes must be made here —
-do not duplicate or diverge in either consumer.**
+Canonical gate definitions for all Plantry code review. Used by factory-review and its
+independent reviewer. **Changes must be made here — do not duplicate or diverge in either
+consumer.**
 
 ---
 
@@ -12,8 +12,8 @@ do not duplicate or diverge in either consumer.**
   misuse, race conditions, transaction boundaries.
 - Security: injection (incl. raw SQL/EF interpolated strings), XSS in Razor output,
   authz checks on every handler, secrets in code/config.
-- Tests: do behavior changes have corresponding coverage? Are obvious mutation gaps
-  (per `stryker-config.json`) plausible for the change?
+- Tests: do changed behaviors and relevant invariants have adequate behavioral checks at
+  the right level? Apply Gate 10; do not use coverage percentages or mutation tooling.
 - Reuse/simplification: duplicated logic, unnecessary abstraction, dead code.
 
 ## Gate 2 — Bounded-context and aggregate discipline
@@ -270,10 +270,11 @@ sweeps, not per-case beads.
 | Existing, pre-diff uninstrumented code unrelated to the diff | **NOTE** — no per-case bead; deliberate sweeps own archaeology |
 | Unit test asserting on `ILogger` calls as a side-effect proxy | **FIX** (unless the test is explicitly about log output) |
 
-## Gate 10 — Test quality & determinism
+## Gate 10 — Test adequacy, quality & determinism
 
-Gate 1 asks *"is there coverage?"* — Gate 10 governs whether the tests that exist are
-**sound**: deterministic, at the right altitude, and actually asserting behavior. A test
+Gate 1 asks whether changed behavior has a meaningful test — Gate 10 governs whether the
+tests that exist are **adequate and sound**: deterministic, at the right altitude, and
+actually asserting behavior. A test
 that passes or fails on wall-clock time, machine culture, or scheduling luck is worse than
 no test — it erodes trust in the whole suite and trains reviewers to rerun until green.
 Motivating case: six Today planned-band tests that intermittently missed
@@ -328,25 +329,30 @@ majority**; L3 integration is one suite per context; **L4 (`WebApplicationFactor
 - Match the tier to what is actually being verified; a new test at the wrong altitude is a
   finding even when it is green.
 
-### C. Test value / anti-patterns (**FIX** when in-scope and clearly wrong; else **DEFER**)
+### C. Test adequacy and value (**FIX** when in-scope and clearly wrong; else **DEFER**)
 
-- **Assertion-free or tautological tests** — a test that exercises code but asserts nothing,
-  or asserts a constant against itself, is coverage theatre.
-- **Change-detector / over-mocked tests** that restate the implementation's call sequence
-  (asserting *on the mock* — "was method X called with Y") instead of asserting on the SUT's
-  return value or resulting domain state. This generalizes Gate 9's ban on
-  `Mock<ILogger>.Verify` as an execution proxy (cross-reference it): a test coupled to *how*
-  the code runs rather than *what* it produces breaks on every refactor and catches no bug.
-- **Over-specified / brittle assertions** coupling to incidental detail — exact whitespace,
-  full-HTML string equality, an entire serialized blob — where a targeted selector or single
-  value would prove the behavior without breaking on cosmetic edits.
-- **Hidden or invisible paths.** Branching/loops inside a test that silently skip assertions
-  down one path; "magic fixtures" so large the Arrange is unreadable and no one can tell what
-  is actually under test.
-- **Mutation-gap hook (ties to Gate 1).** A test that would still pass if the behavior it
-  claims to cover were broken — an obvious surviving mutant per `stryker-config.json`. If
-  flipping the guard or the operator under test wouldn't turn the test red, the test doesn't
-  assert the behavior.
+Assess the behavior protected by tests, not how many tests or lines exist:
+
+- **Acceptance criteria and invariants.** Each behavior-bearing acceptance criterion and
+  relevant domain invariant should be protected by an existing or new test at an
+  appropriate level. Existing tests may already provide sufficient protection.
+- **Plausible defects and negative paths.** Ask whether a realistic regression or invalid
+  input could pass the tests. Include relevant rejection, boundary, and failure paths when
+  they materially protect the behavior; do not require exhaustive combinations.
+- **Meaningful outcomes.** Assertions must prove returned values, persisted state, or
+  user-visible results. A method being called or a line being executed is not evidence
+  that the behavior is correct.
+- **Right test level.** Use the L1–L5 pyramid guidance below. Do not duplicate a pure
+  domain assertion only through an expensive end-to-end journey, and do not mock away the
+  persistence, routing, tenancy, or rendered contract that the test claims to verify.
+- **Signal and maintenance cost.** Flag tests that are brittle, redundant, assertion-free,
+  tautological, or over-mocked when they would miss meaningful defects or make routine
+  changes unsafe.
+
+A blocking test finding must identify the specific unprotected behavior or ineffective
+test, explain why a plausible defect would escape, and prescribe a specific scenario and
+outcome assertion that would address it. A request to add tests without that evidence is
+not blocking. Do not add tests merely to reach a count, line percentage, or mutation score.
 
 **Default tier for Gate 10:**
 
@@ -357,8 +363,9 @@ majority**; L3 integration is one suite per context; **L4 (`WebApplicationFactor
 | Asserted/order-determining value comes from `Guid.NewGuid()`/`Random`, or `Thread.Sleep`/`Task.Delay` used as sync | **FIX** |
 | Assertion on unordered-collection `.First()`/indexer, DB rows without `ORDER BY`, or DOM `[i]` without guaranteed order | **FIX** |
 | Culture-sensitive parse/format without `InvariantCulture`; real network/fs/env in a "hermetic" test; async misuse (missing `await`, `.Result`) | **FIX** |
+| A behavior-bearing acceptance criterion or relevant invariant has no meaningful test, or a plausible defect would pass the tests | **FIX** — name the behavior, the escaping defect, and the specific scenario and outcome assertion to add or repair |
 | Pyramid inversion — pure domain logic pinned *only* by an L4/L5 path a fast L1/L2 test would cover | **FIX** — drop the assertion down, building any missing fixture/harness in-case |
-| Assertion-free/tautological, change-detector/over-mocked, or brittle over-specified test | **FIX** — rewrite it in-case, wherever it lives |
+| Assertion-free/tautological, change-detector/over-mocked, redundant, or brittle over-specified test that weakens the signal | **FIX** — rewrite it in-case, wherever it lives |
 
 ---
 
@@ -370,8 +377,8 @@ a mechanical next step.
 
 | Tier | Meaning | What the runner does |
 |------|---------|----------------------|
-| **FIX** | Must be resolved before this change merges. Covers both hard correctness/security/tenancy defects **and** cheap, safe, already-decided quality wins. | Fix it in-loop, then re-run the full gate (build → test → critic). |
-| **DEFER** | A real issue the loop **cannot resolve autonomously** — a `needs-human` decision or a named `cannot-complete` blocker; see the boundary below. Its recommendation must be tree-verified before it's written as bead-ready text — see "Verifying a DEFER recommendation" below. | In the autonomous pipeline: hand the batch of DEFERs to the **fable-arbiter** (`.claude/agents/fable-arbiter.md`), which rules each one FIX-IN-CASE / FILE / ABSORB / DROP — a bead is filed only on a FILE ruling. Outside the pipeline (standalone review): file the `bd` issue directly. Never silently dropped either way. |
+| **FIX** | Must be resolved before this change merges. Covers both hard correctness/security/tenancy defects **and** cheap, safe, already-decided quality wins. | Return it to the implementer, then rerun the full local gate, independent review, and independent QA. |
+| **DEFER** | A real issue the loop **cannot resolve autonomously** — a `needs-human` decision or a named `cannot-complete` blocker; see the boundary below. Its recommendation must be tree-verified before it's written as bead-ready text — see "Verifying a DEFER recommendation" below. | The independent reviewer records the trigger and verified recommendation. The runner records a follow-up only when the work is outside the current acceptance criteria and does not leave this candidate unsafe or unverified. A decision required to satisfy the current ticket is BLOCKED, not a non-blocking DEFER. |
 | **NOTE** | Informational; **no recommended action** (e.g. a pre-existing transitive-dependency warning). A finding with a next step is FIX or DEFER — see *Guardrails on NOTE*. | Record in the report only. |
 
 ### The FIX vs DEFER boundary
@@ -437,16 +444,14 @@ decision, check whether an existing ADR or established pattern already makes the
 it and **FIX** — don't punt a decision to a human that the codebase has already made. Only a fork that
 is genuinely unsettled *and* consequential is a DEFER.
 
-**Tie-breaker: when torn between FIX and DEFER, FIX.** Every fix re-runs the full gate —
-build, all suites, a fresh critic — so a wrong fix is caught before merge, not shipped. A
+**Tie-breaker: when torn between FIX and DEFER, FIX.** Every fix reruns the full local gate,
+independent review, and independent QA, so a wrong fix is caught before merge, not shipped. A
 bead is not cheap: it lands on the owner's triage queue, and deferring work an agent could
 do is the failure mode this boundary exists to prevent.
 
 ### Verifying a DEFER recommendation
 
-Every reviewer that can produce a DEFER — the interactive `/plantry-code-review` skill,
-`plantry-preflight` Stage 3, and the autonomous pipeline's inline critic template in
-`.claude/agents/implement-ticket-worker.md` — is bound by this check. It lives here, in the
+Every reviewer that can produce a DEFER is bound by this check. It lives here, in the
 canonical DEFER definition, so every consumer inherits it rather than each reviewer carrying
 its own copy.
 
@@ -480,11 +485,10 @@ within the review's time budget, don't skip it silently — tag the finding
 `recommendation-unverified` in its DEFER line. This changes what the filed bead *is*: a bead
 tagged `recommendation-unverified` is a **lead** ("this is worth someone looking at"), not a
 **spec** ("here is the fix"). Carry the tag into the bead as a label so whoever eventually works
-it knows to re-derive the recommendation from the tree rather than implement it verbatim. In the
-autonomous pipeline, the critic marks the tag with a `[recommendation-unverified]` suffix on the
-DEFER line (see the critic template's output format in
-`.claude/agents/implement-ticket-worker.md`), and the arbiter treats any so-tagged finding as a
-lead, never a FIX-IN-CASE spec.
+it knows to re-derive the recommendation from the tree rather than implement it verbatim. The
+independent reviewer marks the tag with a `[recommendation-unverified]` suffix on the DEFER
+line. The runner treats any so-tagged finding as a lead, never as a verified implementation
+spec.
 
 Tree verification is a property of the *recommendation*, not of the filing mechanics — a wrong
 recommendation is wrong the moment it's written, regardless of what downstream process later
@@ -519,12 +523,11 @@ author and the reviewer:
   in-case as a separate commit rather than lock it out.
 - **A lock that defers known work must cite or create its companion bead at spec time.**
   The deferred work enters the tracker once, deliberately, when the deferral is decided —
-  not later, "re-discovered" by a critic as if new.
+  not later, "re-discovered" by a reviewer as if new.
 - **Reviewers honor locks and route around them.** A finding covered by a lock is a DEFER
-  whose recommendation names the lock and its companion bead; in the pipeline the arbiter
-  ABSORBs it into that bead. A lock with no declared kind and no companion bead is itself
-  worth a NOTE naming the gap.
-- **Load-bearing locks are never overridden** — not by the reviewer, not by the arbiter,
+  whose recommendation names the lock and its companion bead. A lock with no declared kind
+  and no companion bead is itself worth a NOTE naming the gap.
+- **Load-bearing locks are never overridden** — not by the reviewer or implementer,
   regardless of how cheap the locked work looks.
 
 ### Guardrails on FIX (in-loop auto-fix)
@@ -534,8 +537,8 @@ author and the reviewer:
   change is decided and the gate can verify it. The only hard ceilings are **load-bearing
   spec scope locks** and **`needs-human` decisions**; hitting either mid-fix converts the
   finding to DEFER with that trigger.
-- **Re-verify.** Every FIX re-runs the full gate; FIX is bounded by the loop's pass cap. Confident-but-wrong
-  fixes are caught by test/critic, not shipped.
+- **Re-verify.** Every FIX reruns the full local gate, independent review, and independent
+  QA. Confident-but-wrong fixes are caught before merge.
 
 ### Guardrails on NOTE
 
@@ -579,7 +582,7 @@ finding actually lands.
 | 9 — new handler/service with no `ILogger<T>`, new AI call with no `ActivitySource` span, exception path with no `LogWarning`/`LogError`, PII in log parameters | **FIX** |
 | 9 — existing uninstrumented code on the changed call path | **FIX** — instrument in-case; unrelated archaeology is a **NOTE** |
 | 10 — determinism / anti-flake (ambient time, UTC-vs-local fixture trap, unseeded randomness, `Sleep`/`Delay` as sync, unordered-collection assumptions, culture coupling, async misuse) | **FIX** — a nondeterministic test erodes the gate itself |
-| 10 — pyramid altitude (L4/L5-only coverage of pure domain logic) & test-value anti-patterns (change-detector/over-mocked, tautological, brittle) | **FIX** — drop the assertion down / rewrite in-case, building any needed test-layer harness as part of it |
+| 10 — test adequacy, pyramid altitude, and test-value anti-patterns | **FIX** when a concrete behavior is unprotected or a test weakens the signal; state the behavior and remedy |
 
 ### Calibration anchor
 

@@ -177,7 +177,7 @@ history is recorded. (J4)
   drive the consumes as an **idempotent, reconcilable** follow-on keyed by `cookEventId`
   (cross-context = eventual consistency, **not** a shared transaction — ADR-014); emit
   `RecipeCooked` (with `cookedBy`, O2).
-- Inventory implements `IInventoryConsumer`, wrapping its existing, mutation-tested `Consume`.
+- Inventory implements `IInventoryConsumer`, wrapping its existing, unit-tested `Consume`.
 - **Cook UI**: confirmation screen, scaled quantities, the variant picker, per-line edit,
   shortfall-but-proceed, confirm → return to Detail with fulfillment re-computed.
 

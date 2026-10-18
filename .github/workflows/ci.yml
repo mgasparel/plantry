@@ -1,17 +1,7 @@
 name: CI
 
-# Fast pre-merge gate: build + unit + architecture only (~1.5 min).
-#
-# The slow suite (integration + E2E + coverage) and the production deploy moved
-# to the release-tag pipeline in release.yml — see ADR-016 (amended 2026-06-20).
-#
-# Rationale: under strictly serial development (ADR-016 Decision 3) every issue
-# already runs the FULL suite incl. E2E in the local pre-flight before it lands,
-# so a per-PR CI E2E run was a redundant environment re-run, not first-line
-# coverage. At a high PR rate that re-run (~7 min × every PR, doubled by the
-# push+PR overlap) was the dominant Actions-minute cost. E2E now gates the
-# release tag (and therefore prod), not every PR. CI here is the cheap tripwire
-# that keeps `main` building and green.
+# Required per-PR candidate gate. The five .NET suites run serially because
+# Integration and Aspire E2E both own Docker-backed infrastructure.
 
 on:
   push:
@@ -20,47 +10,31 @@ on:
     branches: [main]
 
 jobs:
-  # ── Change filter: is there anything other than Markdown to build/test? ───────
-  # Docs-only (*.md) changes skip the build/test steps below.
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          # `code` is true when any changed file is NOT Markdown. dorny matches a
-          # file if it matches ANY listed pattern (.some), so a single negated glob
-          # means "matches when the file is not *.md" — an all-Markdown change
-          # matches nothing and `code` is false. Do NOT add a `'**'` line: it
-          # matches everything and would make `code` always true (the negation
-          # would never subtract).
-          filters: |
-            code:
-              - '!**/*.md'
-
-  # ── Fast gate: build + unit + architecture (< 2 min) ─────────────────────────
+  # Keep the `fast` job name stable for existing branch-protection rules.
   fast:
     runs-on: ubuntu-latest
-    needs: changes
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
-        if: needs.changes.outputs.code == 'true'
 
       - name: Setup .NET 10
-        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
 
-      # NuGet package cache — keyed on SDK version + all project files.
+      - name: Trust ASP.NET Core development certificate for tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cert_dir="$RUNNER_TEMP/plantry-dev-certs"
+          mkdir -p "$cert_dir"
+          dotnet dev-certs https --export-path "$cert_dir/localhost.crt" --format PEM
+          openssl rehash "$cert_dir"
+          openssl verify -CApath "$cert_dir" "$cert_dir/localhost.crt"
+          echo "SSL_CERT_DIR=$cert_dir:/usr/lib/ssl/certs" >> "$GITHUB_ENV"
+
       - name: Cache NuGet packages
-        if: needs.changes.outputs.code == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
@@ -69,35 +43,83 @@ jobs:
             nuget-${{ runner.os }}-
 
       - name: Restore
-        if: needs.changes.outputs.code == 'true'
         run: dotnet restore
 
-      - name: Build
-        if: needs.changes.outputs.code == 'true'
+      - name: Build full solution
         run: dotnet build --no-restore --configuration Release
 
-      # ── L1: Domain unit tests ───────────────────────────────────────────────
+      # Run each suite in its own step, in this order. Never matrix or parallelize these.
+      # WAF and Aspire test processes need a writable key ring on hosted Linux.
+      # This is test-job configuration; production retains its mounted /keys volume.
+      - name: Prepare test key storage
+        shell: bash
+        run: |
+          key_path="$RUNNER_TEMP/plantry-test-keys"
+          mkdir -p "$key_path"
+          echo "DataProtection__KeyPath=$key_path" >> "$GITHUB_ENV"
+
       - name: Unit tests
-        if: needs.changes.outputs.code == 'true'
-        run: >
-          dotnet test tests/Plantry.Tests.Unit
-          --no-build --configuration Release
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.Unit.log"
+          dotnet test tests/Plantry.Tests.Unit --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Unit suite passed zero tests or emitted no passed count.'; exit 1; }
 
-      # ── L1: Architecture boundary tests ─────────────────────────────────────
+      - name: Integration tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.Integration.log"
+          dotnet test tests/Plantry.Tests.Integration --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Integration suite passed zero tests or emitted no passed count.'; exit 1; }
+
+      - name: Web tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.Web.log"
+          dotnet test tests/Plantry.Tests.Web --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Web suite passed zero tests or emitted no passed count.'; exit 1; }
+
       - name: Architecture tests
-        if: needs.changes.outputs.code == 'true'
-        run: >
-          dotnet test tests/Plantry.Tests.Architecture
-          --no-build --configuration Release
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.Architecture.log"
+          dotnet test tests/Plantry.Tests.Architecture --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Architecture suite passed zero tests or emitted no passed count.'; exit 1; }
 
-      # ── L1: Island JS unit tests (ADR-020 amended 2026-06-24) ───────────────
-      # Zero npm dependencies — runs node --test directly; no `npm install` needed.
+      - name: Install Playwright Chromium
+        run: >
+          pwsh tests/Plantry.Tests.E2E/bin/Release/net10.0/playwright.ps1
+          install chromium --with-deps
+
+      - name: Aspire E2E tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/Plantry.Tests.E2E.log"
+          dotnet test tests/Plantry.Tests.E2E --no-build --configuration Release --logger "console;verbosity=normal" 2>&1 | tee "$log"
+          grep -Eq '^[[:space:]]*Passed:[[:space:]]*[1-9][0-9]*' "$log" || { echo 'Aspire E2E suite passed zero tests or emitted no passed count.'; exit 1; }
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: "**/trace.zip"
+          retention-days: 7
+
       - name: Setup Node
-        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Island JS tests
-        if: needs.changes.outputs.code == 'true'
-        run: npm test
+      - name: Island JavaScript tests
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/island-js-tests.log"
+          npm test 2>&1 | tee "$log"
+          grep -Eq '^[^a-zA-Z0-9]*pass[[:space:]]+[1-9][0-9]*' "$log" || { echo 'Island JS suite passed zero tests or emitted no passed count.'; exit 1; }

@@ -3,6 +3,7 @@ using Plantry.Pantry.Application;
 using Plantry.SharedKernel;
 using Plantry.SharedKernel.Domain;
 using Plantry.SharedKernel.Tenancy;
+using Plantry.Tests.Web.Infrastructure;
 using Plantry.Tests.Web.TakeStock;
 using Plantry.Web.Inventory;
 using CatalogUnit = Plantry.Pantry.Domain.Unit;
@@ -37,7 +38,7 @@ public sealed class TakeStockReaderAdapterTests
         IReadOnlyList<Category>? categories = null)
     {
         var tenant = new TsTenantContext(householdOverride ?? HouseholdGuid);
-        return new TakeStockReaderAdapter(stocks, prods, unitRepo, locs, new TsPassThroughConversions(), new FakeTsCategoryRepository(categories), tenant);
+        return new TakeStockReaderAdapter(stocks, prods, unitRepo, locs, new TsPassThroughConversions(), new FakeCategoryRepository(categories), tenant);
     }
 
     /// <summary>Creates a unit and registers it in the repo; returns both the unit and its Id.</summary>
@@ -285,7 +286,7 @@ public sealed class TakeStockReaderAdapterTests
     {
         var adapter = new TakeStockReaderAdapter(
             new TsStockRepository(), new TsProductRepository(), new TsUnitRepository(),
-            new TsLocationRepository(), new TsPassThroughConversions(), new FakeTsCategoryRepository(),
+            new TsLocationRepository(), new TsPassThroughConversions(), new FakeCategoryRepository(),
             new TsTenantContext(null));
 
         var result = await adapter.ListLocationRowsAsync(PantryLocId);
@@ -463,7 +464,7 @@ public sealed class TakeStockReaderAdapterTests
     {
         var adapter = new TakeStockReaderAdapter(
             new TsStockRepository(), new TsProductRepository(), new TsUnitRepository(),
-            new TsLocationRepository(), new TsPassThroughConversions(), new FakeTsCategoryRepository(),
+            new TsLocationRepository(), new TsPassThroughConversions(), new FakeCategoryRepository(),
             new TsTenantContext(null));
 
         var result = await adapter.ListNoLocationRowsAsync();
@@ -534,7 +535,7 @@ public sealed class TakeStockReaderAdapterTests
     {
         var adapter = new TakeStockReaderAdapter(
             new TsStockRepository(), new TsProductRepository(), new TsUnitRepository(),
-            new TsLocationRepository(), new TsPassThroughConversions(), new FakeTsCategoryRepository(),
+            new TsLocationRepository(), new TsPassThroughConversions(), new FakeCategoryRepository(),
             new TsTenantContext(null));
 
         var result = await adapter.ListLotsAsync(Guid.CreateVersion7(), PantryLocId);

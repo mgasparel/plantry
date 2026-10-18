@@ -17,7 +17,7 @@ namespace Plantry.Web.Recipes;
 /// contexts; the Recipes projects stay <c>→ SharedKernel only</c>.
 ///
 /// FEFO multi-lot deduction and unit conversion are handled entirely by <c>ProductStock.Consume</c>
-/// (mutation-tested in Plantry.Tests.Unit) — this adapter does not reimplement them.
+/// (covered by Plantry.Tests.Unit) — this adapter does not reimplement them.
 /// </summary>
 public sealed class InventoryConsumerAdapter(
     IProductStockRepository stocks,

@@ -196,10 +196,8 @@ public sealed class PriceHistoryRollupTests
         var queries = new PricingQueries(repo);
 
         // Variants are declared in DESCENDING guid order ("second" before "first") — the opposite of
-        // the expected sorted output — so that a mutant deleting the ThenBy(ProductId) tie-break falls
-        // back to iteration/insertion order and MUST flip Points[0] to 0.020m in every run, rather than
-        // only when insertion order happens to already coincide with guid order (plantry-oh27.5 pass-1
-        // critic — the un-flipped arrangement let the mutant survive 13/20 runs).
+        // the expected sorted output — so removing the ThenBy(ProductId) tie-break falls back to
+        // iteration/insertion order and makes Points[0] incorrect in every run.
         var rollup = await PriceHistoryRollup.ForProductAsync(
             queries, Parent(Live(second, GramId), Live(first, GramId)), Converter());
 

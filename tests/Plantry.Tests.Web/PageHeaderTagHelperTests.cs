@@ -118,8 +118,8 @@ public sealed class PageHeaderTagHelperTests
 
         Assert.DoesNotContain("<script>", html);          // no injected live markup
         Assert.DoesNotContain("\"><script", html);         // href did not break out of its attribute
-        Assert.Contains("&lt;b&gt;x&lt;/b&gt;", html);     // link text encoded (kills text-encode mutant)
+        Assert.Contains("&lt;b&gt;x&lt;/b&gt;", html);     // link text encoded
         Assert.Contains("a=1&amp;b=2", html);              // href ampersand encoded
-        Assert.Contains("&quot;&gt;&lt;script&gt;", html); // href quote/brackets encoded (kills href-encode mutant)
+        Assert.Contains("&quot;&gt;&lt;script&gt;", html); // href quote/brackets encoded
     }
 }

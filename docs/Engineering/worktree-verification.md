@@ -10,7 +10,7 @@ and service discovery adjusts automatically), **isolated user-secrets**, and sup
 instances by design. No launch-profile or port work is needed.
 
 **Two gaps Aspire's isolated mode does not close, both gated behind an explicit `PLANTRY_VERIFY` switch in
-`src/Plantry.AppHost/Program.cs` (plantry-q9zr.14):**
+`src/Plantry.AppHost/Program.cs`:**
 
 1. **The named Postgres data volume.** The AppHost pins `AddPostgres(...).WithDataVolume("plantrydb-data")`.
    Two Postgres containers mounting the same named volume on one data directory risks corruption — so a
@@ -26,10 +26,14 @@ instances by design. No launch-profile or port work is needed.
 Aspire 13 exposes no public isolated-mode flag to auto-detect at build time, so the env var is the reliable
 gate for both.
 
-An empty DB means an empty review queue, so the `FakeDataSeeder` replays a checked-in real-ingest flyer
-fixture (`src/Plantry.Web/Dev/Fixtures/superstore-flyer-2026-07.json`) into a current-week and a prior-week
-flyer, giving `/Deals/Review` a deterministic three-tier queue that never drifts with the live flyer's
-expiry. Seeding is a dev command (`POST /Dev/Seed`), not automatic — drive it after boot.
+An empty DB means no demo household data, so run the dev seed command (`POST /Dev/Seed`) after boot.
+The current `FakeDataSeeder` creates the demo household and seeds catalog products, recipes, inventory,
+price observations, meal plans and attendees, plus Deals review data from the checked-in real-ingest flyer
+fixture (`src/Plantry.Web/Dev/Fixtures/superstore-flyer-2026-07.json`). The Deals fixture includes a
+current-week and prior-week flyer, giving `/Deals/Review` a deterministic three-tier queue that does not
+drift with the live flyer's expiry. `SeedAsync` is idempotent and returns without reseeding if the demo user
+already exists. Use `POST /Dev/Reset` only against the isolated ephemeral database when a clean scenario is
+needed; it deletes and recreates that database's demo data.
 
 ## The recipe (run from the worktree root)
 
@@ -62,11 +66,12 @@ timeout 300 bash -c 'until aspire describe --format Json 2>/dev/null \
 #    AppHosts (yours + primary).
 aspire describe --format Json
 
-# 5. Seed the demo household + the flyer fixture into the fresh ephemeral DB (~8s).
-#    (Replace <web-url> with the https endpoint from step 4; -k accepts the dev cert.)
+# 5. Seed the demo household, catalog, recipes, inventory, pricing, meal plan and Deals fixture
+#    into the fresh ephemeral DB. (Replace <web-url> with the https endpoint from step 4;
+#    -k accepts the dev cert.)
 curl -k -X POST <web-url>/Dev/Seed
 
-# 6. Drive <web-url>/Deals/Review with the epic's Playwright recipe. Sign in as
+# 6. Drive <web-url>/Deals/Review with the ticket's QA scenarios. Sign in as
 #    demo@plantry.dev / demo1234. Expect a three-tier pending queue (401 none / 29 low /
 #    21 high = 451 pending) for the CURRENT week; the prior week's expired-pending deals
 #    must NOT appear (DD14).
@@ -78,7 +83,7 @@ aspire stop --apphost src/Plantry.AppHost
 
 `aspire logs <resource>` gives failure triage if a resource never becomes healthy.
 
-## Gotchas learned in live runs (q9zr.4 / q9zr.6 trials)
+## Gotchas learned in live runs
 
 - **No runtime Razor recompilation.** A `.cshtml`-only edit does NOT take effect on the running
   isolated instance — `aspire stop` → rebuild → `aspire start` again, or you will chase phantom
@@ -88,9 +93,9 @@ aspire stop --apphost src/Plantry.AppHost
 - **Playwright under NODE_PATH is CommonJS-only.** The harness's `NODE_PATH=…@playwright/cli/node_modules`
   works for `require('playwright')`; an ESM `import` ignores NODE_PATH — in an `.mjs` script use
   `createRequire(import.meta.url)` with the absolute path to `…/@playwright/cli/node_modules/playwright/index.js`.
-- **Not all app surfaces are seeded.** The fixture seeds Deals only (no recipes/locations), so
-  Recipes / Take Stock editors are not reachable on a verify instance — regression-proof shared
-  components there via golden-master snapshots instead.
+- **The demo seed includes more than Deals.** The current seeder creates catalog products, recipes,
+  inventory, price observations, and meal-plan/attendee data, as well as the Deals review fixture.
+  Verify `FakeDataSeeder` before relying on a particular scenario because the seed evolves with the app.
 - **A lingering ephemeral Postgres container** may briefly survive `aspire stop`; it never touches
   the named volume, but `docker ps` before declaring victory is cheap.
 
@@ -104,6 +109,10 @@ aspire stop --apphost src/Plantry.AppHost
   primary's Postgres container attached.
 
 ## The seeded fixture at a glance
+
+The demo household also includes catalog products, recipes, inventory, price observations, a meal plan,
+and attendee defaults/overrides. These seeds support verification across the main app surfaces. The Deals
+fixture is specifically shaped for the review workflow:
 
 - **Store**: Real Canadian Superstore (Flipp external id `8006782`), one standing subscription.
 - **Current week** (`today-2 … today+5`, active): all 451 real deals, all **Pending**, in the original tier

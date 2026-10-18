@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using ILocationRepository = Plantry.Pantry.Domain.ILocationRepository;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel;
@@ -132,6 +133,10 @@ public sealed class RecipeEditorConversionDeferTests
 
                 services.RemoveAll<ICatalogWriter>();
                 services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+
+                // EditModel reloads active locations whenever the editor page renders.
+                services.RemoveAll<ILocationRepository>();
+                services.AddSingleton<ILocationRepository>(new FakeLocationRepository());
 
                 // Converter that never finds a path → every cross-unit line is a gap.
                 services.RemoveAll<IUnitConverter>();

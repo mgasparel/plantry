@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using ILocationRepository = Plantry.Pantry.Domain.ILocationRepository;
 using Plantry.Recipes.Application;
 using Plantry.Recipes.Domain;
 using Plantry.SharedKernel.Domain;
@@ -472,6 +473,11 @@ internal sealed class NudgeTriggerFactory : RecipeDetailFragmentFactory
 
             services.RemoveAll<ICatalogWriter>();
             services.AddSingleton<ICatalogWriter>(new FakeCatalogWriter());
+
+            // This derived fixture also drives the real editor POST path, which reloads active
+            // locations as part of its reference data.
+            services.RemoveAll<ILocationRepository>();
+            services.AddSingleton<ILocationRepository>(new FakeLocationRepository());
 
             services.RemoveAll<IAiAssistanceGateReader>();
             services.AddSingleton<IAiAssistanceGateReader>(new StubGateReader(true));

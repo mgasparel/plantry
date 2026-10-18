@@ -345,16 +345,15 @@ public sealed class WeekBagEnricherTests
     }
 
     /// <summary>
-    /// Pins AC5 (plantry-jvd7): <c>UnitFact.FactorToBase</c> is <c>decimal?</c> in the flat SQL
+    /// Pins AC5: <c>UnitFact.FactorToBase</c> is <c>decimal?</c> in the flat SQL
     /// projection (<c>MealPlanWeekReadModel.cs</c>), but the domain field it stands in for is
     /// required-positive — <see cref="Plantry.Web.MealPlanning.WeekBagEnricher"/>'s
     /// <c>BuildConverter</c> deliberately coalesces a null value to <c>1m</c>, preserving the
-    /// week-bag path's pre-jvd7 behaviour exactly. That coalesce is a fully surviving mutant unless
-    /// a covered path actually crosses it: this test prices a Mass unit ("mys") whose
+    /// week-bag path's pre-jvd7 behaviour exactly. The regression is visible only when a path
+    /// crosses the coalesce: this test prices a Mass unit ("mys") whose
     /// <c>FactorToBase</c> is null against a recipe ingredient measured in grams, so
     /// <see cref="CostingService"/> MUST convert mys → g through the coalesced 1m factor to price
-    /// the ingredient at all. Changing the coalesce (e.g. to <c>?? 999m</c>) must turn this test
-    /// red — verified empirically before landing this fix.
+    /// the ingredient at all. Changing the coalesce (e.g. to <c>?? 999m</c>) must fail this test.
     /// </summary>
     [Fact(DisplayName = "Null FactorToBase on a Mass unit coalesces to 1m — pins the AC5 behaviour-preserving mapping (plantry-jvd7)")]
     public async Task NullFactorToBase_OnMassUnit_CoalescesToOne_AndCostsCorrectly()
