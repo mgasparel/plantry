@@ -118,9 +118,17 @@
             <div class="mc-dishes">
                 @for (int i = 0; i < meal.DishNames.Count; i++)
                 {
+                    var dish = cookDishes.ElementAtOrDefault(i);
                     <div class="mc-dish">
                         @if (i > 0) { <span class="md-plus">+</span> }
-                        <span class="md-name">@meal.DishNames[i]</span>
+                        @if (dish is { Kind: Plantry.Planning.Domain.DishKind.Recipe, HasResolvedRecipeName: true } && dish.ItemId != Guid.Empty)
+                        {
+                            <a class="md-name md-recipe-link" href="/Recipes/@dish.ItemId">@meal.DishNames[i]</a>
+                        }
+                        else
+                        {
+                            <span class="md-name">@meal.DishNames[i]</span>
+                        }
                     </div>
                 }
             </div>

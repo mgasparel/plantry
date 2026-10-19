@@ -1411,9 +1411,12 @@ public sealed class IndexModel(
                     bool hasPhoto;
                     string? unitCode = null;
                     Guid? photoRecipeId = null;
+                    var hasResolvedRecipeName = false;
                     if (d.RecipeId.HasValue)
                     {
-                        name = enricher.GetRecipeName(d.RecipeId.Value) ?? "Unknown recipe";
+                        var resolvedName = enricher.GetRecipeName(d.RecipeId.Value);
+                        hasResolvedRecipeName = !string.IsNullOrWhiteSpace(resolvedName);
+                        name = resolvedName ?? "Unknown recipe";
                         kind = DishKind.Recipe;
                         itemId = d.RecipeId.Value;
                         hasPhoto = enricher.GetRecipeHasPhoto(d.RecipeId.Value);
@@ -1480,7 +1483,7 @@ public sealed class IndexModel(
                     dishVms.Add(new MealCardDishVm(
                         d.Id.Value, kind, itemId, name, d.Servings ?? 0, status?.At, hasPhoto, unitCode,
                         needsEatConfirm, photoRecipeId, cookedAtLocalTime,
-                        status?.ConsumedQuantity, consumedUnitCode, d.Quantity, d.UnitId));
+                        status?.ConsumedQuantity, consumedUnitCode, d.Quantity, d.UnitId, hasResolvedRecipeName));
                 }
                 var dishNames = dishVms.Select(v => v.Name).ToList();
 
@@ -2215,7 +2218,8 @@ public sealed class IndexModel(
         /// <summary>Explicit planned product quantity; null for recipe dishes.</summary>
         decimal? Quantity = null,
         /// <summary>Explicit planned product unit; null for recipe dishes.</summary>
-        Guid? UnitId = null);
+        Guid? UnitId = null,
+        bool HasResolvedRecipeName = false);
 
     /// <summary>
     /// View model for the Eat confirm sheet (plantry-yuy3, _EatSheet.cshtml) — the product-dish

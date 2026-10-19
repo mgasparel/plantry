@@ -32,6 +32,8 @@ public sealed class MealCardEnrichmentTests(MealCardEnrichmentFactory factory)
         response.EnsureSuccessStatusCode();
         var html = await response.Content.ReadAsStringAsync();
 
+        Assert.Contains($"<a class=\"md-name md-recipe-link\" href=\"/Recipes/{EnrichmentFixture.RecipeId}\">Test Recipe</a>", html);
+
         // Fulfillment percent rendered in the mc-fulf span
         Assert.Contains("80%", html);
 

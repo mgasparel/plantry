@@ -131,9 +131,9 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
             await Assertions.Expect(card).ToBeVisibleAsync();
             var dialog = page.Locator("#meal-editor-dialog");
 
-            // ── AC1: clicking the card body (a dish name — not a nested <a>/<button>) opens
-            // the editor panel via the card-level onclick bridge. ──
-            await card.Locator(".md-name").First.ClickAsync();
+            // ── AC1: clicking the product dish name (plain text, not an interactive recipe link
+            // or nested button) opens the editor panel via the card-level onclick bridge. ──
+            await card.Locator(".md-name:not(a)").First.ClickAsync();
             await Assertions.Expect(dialog).ToBeVisibleAsync(new() { Timeout = 15_000 });
 
             // Close via Escape — meal-planner.js's global keydown handler closes on Escape.
