@@ -50,6 +50,27 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
 
         await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
         await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+        await context.AddInitScriptAsync(@"(() => {
+            const callsKey = '__plantryTestOpenEditorCalls';
+            let island;
+            Object.defineProperty(window, '__mealPlannerIsland', {
+                configurable: true,
+                get: () => island,
+                set: value => {
+                    if (value && typeof value.openEditor === 'function' && !value.__plantryTestWrapped) {
+                        const openEditor = value.openEditor;
+                        value.openEditor = function (...args) {
+                            const calls = JSON.parse(sessionStorage.getItem(callsKey) || '[]');
+                            calls.push(args);
+                            sessionStorage.setItem(callsKey, JSON.stringify(calls));
+                            return openEditor.apply(this, args);
+                        };
+                        Object.defineProperty(value, '__plantryTestWrapped', { value: true });
+                    }
+                    island = value;
+                }
+            });
+        })();");
 
         try
         {
@@ -132,7 +153,8 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
             var dialog = page.Locator("#meal-editor-dialog");
 
             // Recipe names are native same-tab links. On a narrow viewport they retain their
-            // underline, receive keyboard focus, and navigate without invoking the card editor.
+            // underline and visible keyboard focus. Record production openEditor calls before
+            // navigation unloads the page so link activation cannot hide a card-editor call.
             await page.SetViewportSizeAsync(390, 844);
             var recipeLink = card.Locator("a.md-recipe-link");
             await Assertions.Expect(recipeLink).ToHaveAttributeAsync("href", $"/Recipes/{recipeId}");
@@ -143,18 +165,36 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
             await page.Keyboard.PressAsync("Shift+Tab");
             var focusOutline = await recipeLink.EvaluateAsync<string>("el => getComputedStyle(el).outlineStyle");
             Assert.NotEqual("none", focusOutline);
+
+            await page.EvaluateAsync("() => sessionStorage.removeItem('__plantryTestOpenEditorCalls')");
+            await recipeLink.ClickAsync();
+            await page.WaitForURLAsync($"**/Recipes/{recipeId}");
+            Assert.Equal($"{new Uri(BaseUrl).GetLeftPart(UriPartial.Authority)}/Recipes/{recipeId}", page.Url);
+            Assert.Equal(0, await GetRecordedOpenEditorCallCountAsync(page));
+
+            // Enter activates the same link through the keyboard. Both activations must navigate
+            // in the same tab without calling openEditor before the meal page unloads.
+            await page.GotoAsync($"{BaseUrl}/MealPlan");
+            await page.WaitForURLAsync("**/MealPlan**");
+            card = page.Locator(".meal-card:not(.note)").First;
+            recipeLink = card.Locator("a.md-recipe-link");
+            await page.EvaluateAsync("() => sessionStorage.removeItem('__plantryTestOpenEditorCalls')");
+            await recipeLink.FocusAsync();
             await page.Keyboard.PressAsync("Enter");
             await page.WaitForURLAsync($"**/Recipes/{recipeId}");
             Assert.Equal($"{new Uri(BaseUrl).GetLeftPart(UriPartial.Authority)}/Recipes/{recipeId}", page.Url);
-            await Assertions.Expect(dialog).ToBeHiddenAsync();
+            Assert.Equal(0, await GetRecordedOpenEditorCallCountAsync(page));
+
             await page.GotoAsync($"{BaseUrl}/MealPlan");
             await page.WaitForURLAsync("**/MealPlan**");
             card = page.Locator(".meal-card:not(.note)").First;
 
             // ── AC1: clicking the product dish name (plain text, not an interactive recipe link
             // or nested button) opens the editor panel via the card-level onclick bridge. ──
+            await page.EvaluateAsync("() => sessionStorage.removeItem('__plantryTestOpenEditorCalls')");
             await card.Locator(".md-name:not(a)").First.ClickAsync();
             await Assertions.Expect(dialog).ToBeVisibleAsync(new() { Timeout = 15_000 });
+            Assert.Equal(1, await GetRecordedOpenEditorCallCountAsync(page));
 
             // Close via Escape — meal-planner.js's global keydown handler closes on Escape.
             await page.Keyboard.PressAsync("Escape");
@@ -200,6 +240,9 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    private static Task<int> GetRecordedOpenEditorCallCountAsync(IPage page) =>
+        page.EvaluateAsync<int>("() => JSON.parse(sessionStorage.getItem('__plantryTestOpenEditorCalls') || '[]').length");
 
     private async Task<(Guid ProductId, Guid DefaultUnitId)?> GetProductDetailsAsync(string productName)
     {
