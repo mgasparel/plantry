@@ -116,18 +116,18 @@
         </div>
         <div class="mc-body">
             <div class="mc-dishes">
-                @for (int i = 0; i < meal.DishNames.Count; i++)
+                @for (var dishIndex = 0; dishIndex < cookDishes.Count; dishIndex++)
                 {
-                    var dish = cookDishes.ElementAtOrDefault(i);
+                    var dish = cookDishes[dishIndex];
                     <div class="mc-dish">
-                        @if (i > 0) { <span class="md-plus">+</span> }
+                        @if (dishIndex > 0) { <span class="md-plus">+</span> }
                         @if (dish is { Kind: Plantry.Planning.Domain.DishKind.Recipe, HasResolvedRecipeName: true } && dish.ItemId != Guid.Empty)
                         {
-                            <a class="md-name md-recipe-link" href="/Recipes/@dish.ItemId">@meal.DishNames[i]</a>
+                            <a class="md-name md-recipe-link" href="/Recipes/@dish.ItemId">@dish.Name</a>
                         }
                         else
                         {
-                            <span class="md-name">@meal.DishNames[i]</span>
+                            <span class="md-name">@dish.Name</span>
                         }
                     </div>
                 }

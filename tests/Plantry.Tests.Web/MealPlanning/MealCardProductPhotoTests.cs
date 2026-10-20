@@ -37,6 +37,8 @@ public sealed class MealCardProductPhotoTests
         var imgTag = $"<img class=\"mc-photo-img\" src=\"/Recipes/{ProductPhotoFixture.SoleProducerRecipeId}?handler=Photo\"";
         Assert.Contains(imgTag, html);
         Assert.Contains("alt=\"Leftover Lasagna\"", html);
+        Assert.Contains("<span class=\"md-name\">Leftover Lasagna</span>", html);
+        Assert.DoesNotContain($"class=\"md-name md-recipe-link\" href=\"/Recipes/{ProductPhotoFixture.SoleProducerRecipeId}\">Leftover Lasagna</a>", html);
 
         // Exactly ONE occurrence: Breakfast (product-only) resolves the photo; Dinner ALSO plans the
         // same photo-inheriting product alongside a Recipe-kind dish, but must not also render it
