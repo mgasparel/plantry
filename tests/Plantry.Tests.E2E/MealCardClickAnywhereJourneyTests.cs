@@ -50,6 +50,27 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
 
         await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions { IgnoreHTTPSErrors = true });
         await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = true });
+        await context.AddInitScriptAsync(@"(() => {
+            const callsKey = '__plantryTestOpenEditorCalls';
+            let island;
+            Object.defineProperty(window, '__mealPlannerIsland', {
+                configurable: true,
+                get: () => island,
+                set: value => {
+                    if (value && typeof value.openEditor === 'function' && !value.__plantryTestWrapped) {
+                        const openEditor = value.openEditor;
+                        value.openEditor = function (...args) {
+                            const calls = JSON.parse(sessionStorage.getItem(callsKey) || '[]');
+                            calls.push(args);
+                            sessionStorage.setItem(callsKey, JSON.stringify(calls));
+                            return openEditor.apply(this, args);
+                        };
+                        Object.defineProperty(value, '__plantryTestWrapped', { value: true });
+                    }
+                    island = value;
+                }
+            });
+        })();");
 
         try
         {
@@ -80,11 +101,11 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
             var product = await GetProductDetailsAsync(productName);
             Assert.True(product.HasValue, $"Product '{productName}' not found in catalog.");
 
-            // ── Assign a two-dish meal: one recipe dish (renders the Cook deep-link) + one
-            // product dish (renders the Eat button) — both pending, so both action rows render
-            // on the strip (plantry-0eut). The recipe id is a fixed placeholder (mirrors the
-            // existing TwoDishAssign_ViaFetch_MealCardAppearsOnReload journey) — recipe dishes are
-            // not existence-validated on assign, only rendered via the name-resolution fallback. ──
+            var recipeName = $"Card Link Recipe {Guid.NewGuid():N}"[..24];
+            var recipeId = await CreateRecipeAsync(page, recipeName, productName);
+
+            // ── Assign a two-dish meal: one real recipe dish (name link + Cook action) and one
+            // product dish (Eat button), both pending. ──
             await page.GetByRole(AriaRole.Link, new() { Name = "Meal Plan" }).First.ClickAsync();
             await page.WaitForURLAsync("**/MealPlan**");
             await Assertions.Expect(page.Locator(".wkgrid")).ToBeVisibleAsync();
@@ -103,7 +124,7 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
                     const body = JSON.stringify({
                         mode: 'dishes',
                         dishes: [
-                            { kind: 'recipe', itemId: '00000000-0000-0000-0000-000000000099', servings: 2 },
+                            { kind: 'recipe', itemId: args.recipeId, servings: 2 },
                             { kind: 'product', itemId: args.productId, quantity: 1, unitId: args.unitId }
                         ],
                         att: null,
@@ -122,7 +143,7 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
                         body
                     });
                     return r.status;
-                }", new { url = assignUrl, productId = product!.Value.ProductId.ToString(), unitId = product.Value.DefaultUnitId.ToString(), date, slotId, token });
+                }", new { url = assignUrl, productId = product!.Value.ProductId.ToString(), unitId = product.Value.DefaultUnitId.ToString(), recipeId, date, slotId, token });
             Assert.Equal(200, assignStatus);
 
             await page.GotoAsync($"{BaseUrl}/MealPlan");
@@ -131,10 +152,49 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
             await Assertions.Expect(card).ToBeVisibleAsync();
             var dialog = page.Locator("#meal-editor-dialog");
 
-            // ── AC1: clicking the card body (a dish name — not a nested <a>/<button>) opens
-            // the editor panel via the card-level onclick bridge. ──
-            await card.Locator(".md-name").First.ClickAsync();
+            // Recipe names are native same-tab links. On a narrow viewport they retain their
+            // underline and visible keyboard focus. Record production openEditor calls before
+            // navigation unloads the page so link activation cannot hide a card-editor call.
+            await page.SetViewportSizeAsync(390, 844);
+            var recipeLink = card.Locator("a.md-recipe-link");
+            await Assertions.Expect(recipeLink).ToHaveAttributeAsync("href", $"/Recipes/{recipeId}");
+            var linkStyle = await recipeLink.EvaluateAsync<string>("el => getComputedStyle(el).textDecorationLine");
+            Assert.Contains("underline", linkStyle);
+            await recipeLink.FocusAsync();
+            await page.Keyboard.PressAsync("Tab");
+            await page.Keyboard.PressAsync("Shift+Tab");
+            var focusOutline = await recipeLink.EvaluateAsync<string>("el => getComputedStyle(el).outlineStyle");
+            Assert.NotEqual("none", focusOutline);
+
+            await page.EvaluateAsync("() => sessionStorage.removeItem('__plantryTestOpenEditorCalls')");
+            await recipeLink.ClickAsync();
+            await page.WaitForURLAsync($"**/Recipes/{recipeId}");
+            Assert.Equal($"{new Uri(BaseUrl).GetLeftPart(UriPartial.Authority)}/Recipes/{recipeId}", page.Url);
+            Assert.Equal(0, await GetRecordedOpenEditorCallCountAsync(page));
+
+            // Enter activates the same link through the keyboard. Both activations must navigate
+            // in the same tab without calling openEditor before the meal page unloads.
+            await page.GotoAsync($"{BaseUrl}/MealPlan");
+            await page.WaitForURLAsync("**/MealPlan**");
+            card = page.Locator(".meal-card:not(.note)").First;
+            recipeLink = card.Locator("a.md-recipe-link");
+            await page.EvaluateAsync("() => sessionStorage.removeItem('__plantryTestOpenEditorCalls')");
+            await recipeLink.FocusAsync();
+            await page.Keyboard.PressAsync("Enter");
+            await page.WaitForURLAsync($"**/Recipes/{recipeId}");
+            Assert.Equal($"{new Uri(BaseUrl).GetLeftPart(UriPartial.Authority)}/Recipes/{recipeId}", page.Url);
+            Assert.Equal(0, await GetRecordedOpenEditorCallCountAsync(page));
+
+            await page.GotoAsync($"{BaseUrl}/MealPlan");
+            await page.WaitForURLAsync("**/MealPlan**");
+            card = page.Locator(".meal-card:not(.note)").First;
+
+            // ── AC1: clicking the product dish name (plain text, not an interactive recipe link
+            // or nested button) opens the editor panel via the card-level onclick bridge. ──
+            await page.EvaluateAsync("() => sessionStorage.removeItem('__plantryTestOpenEditorCalls')");
+            await card.Locator(".md-name:not(a)").First.ClickAsync();
             await Assertions.Expect(dialog).ToBeVisibleAsync(new() { Timeout = 15_000 });
+            Assert.Equal(1, await GetRecordedOpenEditorCallCountAsync(page));
 
             // Close via Escape — meal-planner.js's global keydown handler closes on Escape.
             await page.Keyboard.PressAsync("Escape");
@@ -181,6 +241,9 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
+    private static Task<int> GetRecordedOpenEditorCallCountAsync(IPage page) =>
+        page.EvaluateAsync<int>("() => JSON.parse(sessionStorage.getItem('__plantryTestOpenEditorCalls') || '[]').length");
+
     private async Task<(Guid ProductId, Guid DefaultUnitId)?> GetProductDetailsAsync(string productName)
     {
         await using var conn = new NpgsqlConnection(appHost.DbConnectionString);
@@ -193,5 +256,28 @@ public sealed class MealCardClickAnywhereJourneyTests(AppHostFixture appHost) : 
             return null;
 
         return (reader.GetGuid(0), reader.GetGuid(1));
+    }
+
+    private async Task<string> CreateRecipeAsync(IPage page, string recipeName, string productName)
+    {
+        await page.GotoAsync($"{BaseUrl}/Recipes/New");
+        await page.WaitForURLAsync("**/Recipes/New");
+        await page.FillAsync("[name='Input.Name']", recipeName);
+        await page.FillAsync("[name='Input.DefaultServings']", "2");
+        await page.ClickAsync("button:has-text('Add ingredient')");
+        var sheet = page.Locator("#recipe-editor .sheet");
+        await Assertions.Expect(sheet).ToBeVisibleAsync();
+        await sheet.Locator("input[role='combobox']").PressSequentiallyAsync(productName[..8]);
+        await Assertions.Expect(sheet.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName })).ToBeVisibleAsync();
+        await sheet.Locator(".searchable-select__listbox li[role='option']", new() { HasText = productName }).ClickAsync();
+        await sheet.Locator("input[type='number']:visible").FillAsync("1");
+        await sheet.Locator("select:visible").SelectOptionAsync(new SelectOptionValue { Label = "g" });
+        await sheet.Locator(".sheet__actions button.btn--primary").First.ClickAsync();
+        await Assertions.Expect(sheet).Not.ToBeVisibleAsync();
+        await page.ClickAsync("button[type=submit]:has-text('Create Recipe')");
+        await page.WaitForURLAsync("**/Recipes/*", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+        var id = new Uri(page.Url).AbsolutePath.Split('/').Last();
+        Assert.True(Guid.TryParse(id, out _), $"Expected a recipe details URL, got {page.Url}");
+        return id;
     }
 }
