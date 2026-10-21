@@ -44,6 +44,7 @@ import {
   applyStagedProductSelection,
   lineSection,
   isSurePending,
+  sureLineQuantity,
   buildSaveLineBody,
   commitBarCounts,
   estimateHint,
@@ -630,9 +631,9 @@ function DeckCard({ ls, products, stagedProducts = [], units, locations, categor
 // ── Checklist — the "sure things" pool (.check-list / .step-foot) ────────────────
 
 /**
- * @param {{ sureLines: LineState[], products: ProductHydration[], onToggle: (ls: LineState) => void, onBulkConfirm: () => void, onFlashJump: (lineId: string) => void }} props
+ * @param {{ sureLines: LineState[], products: ProductHydration[], units: UnitHydration[], onToggle: (ls: LineState) => void, onBulkConfirm: () => void, onFlashJump: (lineId: string) => void }} props
  */
-function Checklist({ sureLines, products, onToggle, onBulkConfirm }) {
+function Checklist({ sureLines, products, units, onToggle, onBulkConfirm }) {
   const picked = sureLines.filter((l) => l.checked.value).length;
   return html`
     <div class="sec-label">Confirm the sure things <span class="sec-label__count">· ${sureLines.length}</span></div>
@@ -645,6 +646,7 @@ function Checklist({ sureLines, products, onToggle, onBulkConfirm }) {
                    onChange=${() => onToggle(ls)} />
             <span class="raw"><b title=${ls.receiptText}>${prettyRaw(ls.receiptText)}</b></span>
             <span class="to">→ <span class="product">${displayNameFor(ls, products)}</span></span>
+            <span class="check-row__quantity" aria-label="Quantity and unit">${sureLineQuantity(ls, units)}</span>
           </li>`)}
       </ul>
       <div class="step-foot">
@@ -984,7 +986,7 @@ function App({ lines, order, skipStack, baseline, products, stagedProducts, unit
           })()}
 
           ${sureLines.value.length > 0 && html`
-            <${Checklist} sureLines=${sureLines.value} products=${products}
+            <${Checklist} sureLines=${sureLines.value} products=${products} units=${units}
               onToggle=${handlers.toggleCheck} onBulkConfirm=${handlers.bulkConfirm} onFlashJump=${handlers.railJump} />`}
 
           ${confirmedLines.value.length > 0 && html`

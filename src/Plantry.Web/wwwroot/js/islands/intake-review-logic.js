@@ -208,6 +208,24 @@ export function makeLine(seed, signalFn) {
 }
 
 /**
+ * Format the quantity/unit pair the sure-things checklist will send through bulk confirmation.
+ * This intentionally reads the server-computed draft signals, so the checklist shows the same
+ * values the confirmation command re-derives and persists.
+ *
+ * @param {LineState} ls
+ * @param {{id: string, code: string}[]} units
+ * @returns {string}
+ */
+export function sureLineQuantity(ls, units) {
+  const quantity = Number.parseFloat(ls.draftQty.value);
+  const renderedQuantity = Number.isFinite(quantity)
+    ? quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })
+    : "—";
+  const unit = units.find((candidate) => candidate.id === ls.draftUnitId.value)?.code ?? "";
+  return unit ? `${renderedQuantity} ${unit}` : renderedQuantity;
+}
+
+/**
  * The shared deferred Catalog identity used by the staged-product picker and merge path.
  * @typedef {Object} StagedProductHydration
  * @property {string} id

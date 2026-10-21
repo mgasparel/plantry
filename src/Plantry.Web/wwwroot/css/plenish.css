@@ -8035,6 +8035,7 @@ kbd, .kbd {
 .check-row .raw b { font-weight: 650; }
 .check-row .to { color: var(--color-text-muted); white-space: nowrap; }
 .check-row .to .product { color: var(--color-text); font-weight: 650; }
+.check-row__quantity { color: var(--color-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .check-row__deal, .check-row__match { min-width: 0; flex: 1 1 10rem; display: flex; flex-direction: column; gap: 2px; }
 .check-row__name, .check-row__product { overflow-wrap: anywhere; }
 .check-row__name { color: var(--color-text); font-weight: 650; }

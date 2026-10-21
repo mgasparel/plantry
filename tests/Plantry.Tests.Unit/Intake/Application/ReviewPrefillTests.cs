@@ -157,6 +157,22 @@ public sealed class ReviewPrefillTests
     }
 
     [Fact]
+    public void Pending_matched_with_unresolved_explicit_unit_does_not_use_product_default()
+    {
+        // An explicit receipt unit that is absent from household reference data must remain unresolved;
+        // silently substituting the product default would make the visible and persisted pair wrong.
+        var line = Line(LineStatus.Pending,
+            suggestedProductId: MilkId, suggestedProductName: "Milk",
+            suggestedQuantity: 1m, suggestedUnitLabel: "jar");
+
+        var (_, _, _, unitId, _, _, _) = ReviewPrefill.ComputePrefill(
+            line, UnitIdByCode, ProductNameById, ProductDefaultLocationById,
+            ProductDefaultUnitById, ProductDefaultDueDaysById, Today);
+
+        Assert.Null(unitId);
+    }
+
+    [Fact]
     public void Pending_matched_with_default_due_days_computes_expiry()
     {
         // Milk has DefaultDueDays = 7; expiry should be today + 7.
