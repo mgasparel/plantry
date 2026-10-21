@@ -251,6 +251,56 @@ public sealed class StockRoundTripTests(PostgresFixture db) : IAsyncLifetime
         Assert.Empty(result);
     }
 
+    [Fact(DisplayName = "ListWithHistoryForProductsAsync: fresh context loads depleted history and filters ids and household")]
+    public async Task ListWithHistoryForProductsAsync_LoadsRequestedDepletedHistoryWithinHousehold()
+    {
+        var depletedProductId = Guid.CreateVersion7();
+        var unrequestedProductId = Guid.CreateVersion7();
+        var foreignProductId = Guid.CreateVersion7();
+        var otherHousehold = HouseholdId.New();
+
+        await using (var seedDb = NewInventoryDb())
+        {
+            var depleted = ProductStock.Start(_household, depletedProductId, SystemClock.Instance);
+            depleted.AddStock(3m, _unitId, _locationId, _userId, SystemClock.Instance);
+            depleted.Consume(3m, _unitId, StockReason.Discarded, new SameUnitConverter(),
+                _userId, SystemClock.Instance);
+            await seedDb.ProductStocks.AddAsync(depleted);
+
+            var unrequested = ProductStock.Start(_household, unrequestedProductId, SystemClock.Instance);
+            unrequested.AddStock(7m, _unitId, _locationId, _userId, SystemClock.Instance);
+            await seedDb.ProductStocks.AddAsync(unrequested);
+            await seedDb.SaveChangesAsync();
+        }
+
+        await using (var foreignDb = new PantryDbContext(InventoryOptions()))
+        {
+            foreignDb.SetHouseholdId(otherHousehold.Value);
+            var foreign = ProductStock.Start(otherHousehold, foreignProductId, SystemClock.Instance);
+            foreign.AddStock(11m, _unitId, _locationId, _userId, SystemClock.Instance);
+            await foreignDb.ProductStocks.AddAsync(foreign);
+            await foreignDb.SaveChangesAsync();
+        }
+
+        // A new context ensures EF relationship fixup/tracking cannot supply missing collections.
+        await using var readDb = NewInventoryDb();
+        var repo = new ProductStockRepository(readDb);
+        var loaded = await repo.ListWithHistoryForProductsAsync(
+            _household, [depletedProductId, foreignProductId]);
+
+        var onlyStock = Assert.Single(loaded);
+        Assert.Equal(depletedProductId, onlyStock.ProductId);
+        Assert.Empty(onlyStock.ActiveLotsFefo());
+        Assert.Single(onlyStock.Entries);
+        Assert.Equal([StockReason.Purchase, StockReason.Discarded],
+            onlyStock.Journal.OrderBy(j => j.Reason).Select(j => j.Reason).ToArray());
+    }
+
+    private sealed class SameUnitConverter : IQuantityConverter
+    {
+        public Result<decimal> Convert(decimal amount, Guid fromUnitId, Guid toUnitId) => amount;
+    }
+
     private DbContextOptions<PantryDbContext> InventoryOptions() =>
         new DbContextOptionsBuilder<PantryDbContext>().UseNpgsql(db.ConnectionString).Options;
 

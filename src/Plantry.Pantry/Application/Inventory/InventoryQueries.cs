@@ -696,64 +696,122 @@ public class InventoryQueryService(
     }
 
     /// <summary>
-    /// Days-of-supply and waste-rate stats for the product-detail injection (plantry-fuej). The velocity
-    /// denominator is the calendar-day span from the first journal entry through today, clamped between
+    /// Days-of-supply and waste-rate stats for a leaf product or a pooled parent product. The velocity
+    /// denominator is the calendar-day span from the earliest journal entry through today, clamped between
     /// <see cref="MinPaceDays"/> and <see cref="VelocityWindowDays"/>; the numerator remains limited to
-    /// consumed rows in the trailing window. Journal rows for one product can carry mixed units (each row records its own lot's unit, not a canonical one —
-    /// see <see cref="ProductStock.Consume"/>), so every row is converted to the product's display unit
-    /// via <paramref name="ct"/>'s <see cref="IProductConversionProvider"/> before summing — the same
-    /// per-row-convert-then-sum pattern <see cref="SumInDisplayUnit"/> uses for lots, just applied to
-    /// journal deltas instead. A row whose unit fails to convert is silently excluded from both sums
-    /// (same soft-fail posture as <see cref="SumInDisplayUnit"/>) rather than throwing or corrupting the
-    /// rate with an unconverted magnitude. Returns null when there is no stock record for the product, or
-    /// when the product itself cannot be resolved from the catalog (no display unit to convert into).
+    /// consumed rows in the trailing window. Each row is converted from its own unit into the requested
+    /// product's default unit using the converter belonging to the stock's product. Leaf calculations keep
+    /// their historical soft-failure behavior (unconvertible quantities are skipped). Parent calculations
+    /// suppress only a chip whose contributing nonzero quantities cannot be fully converted, so a partial
+    /// pooled estimate is never presented as a complete one.
     /// </summary>
     public async Task<ProductConsumptionStats?> GetConsumptionStatsAsync(Guid productId, CancellationToken ct = default)
     {
         if (tenant.HouseholdId is not { } householdId)
             return null;
 
-        var stock = await stocks.FindWithHistoryAsync(HouseholdId.From(householdId), productId, ct);
-        if (stock is null)
-            return null;
-
         var product = await catalog.FindProductAsync(productId, ct);
         if (product is null)
             return null;
 
-        var converter = await conversions.ForProductAsync(productId, ct);
-        var displayUnitId = product.DefaultUnitId;
-
+        var household = HouseholdId.From(householdId);
         var today = Today();
+        if (product.CanHoldStock)
+        {
+            var stock = await stocks.FindWithHistoryAsync(household, productId, ct);
+            if (stock is null)
+                return null;
+
+            var converter = await conversions.ForProductAsync(productId, ct);
+            return CalculateConsumptionStats([(stock, converter)], product.DefaultUnitId, today,
+                requireCompleteConversions: false);
+        }
+
+        var variants = (await catalog.ListProductsAsync(ct))
+            .Where(p => p.ParentProductId == productId && p.CanHoldStock && !p.IsArchived)
+            .ToList();
+        if (variants.Count == 0)
+            return null;
+
+        var variantIds = variants.Select(p => p.Id).ToArray();
+        var variantStocks = await stocks.ListWithHistoryForProductsAsync(household, variantIds, ct);
+        if (variantStocks.Count == 0)
+            return null;
+
+        var convertersByProduct = await conversions.ForProductsAsync(variantStocks.Select(s => s.ProductId), ct);
+        var sources = new List<(ProductStock Stock, IQuantityConverter Converter)>(variantStocks.Count);
+        foreach (var stock in variantStocks)
+        {
+            var converter = convertersByProduct.TryGetValue(stock.ProductId, out var loadedConverter)
+                ? loadedConverter
+                : await conversions.ForProductAsync(stock.ProductId, ct);
+            sources.Add((stock, converter));
+        }
+
+        return CalculateConsumptionStats(sources, product.DefaultUnitId, today,
+            requireCompleteConversions: true);
+    }
+
+    /// <summary>Shared leaf/parent estimator. For parents, completeness is tracked independently for
+    /// on-hand, recent consumed, and all-history removals so only the affected chip is suppressed.</summary>
+    private static ProductConsumptionStats? CalculateConsumptionStats(
+        IReadOnlyCollection<(ProductStock Stock, IQuantityConverter Converter)> sources,
+        Guid displayUnitId,
+        DateOnly today,
+        bool requireCompleteConversions)
+    {
         var windowStart = new DateTimeOffset(
             today.AddDays(-VelocityWindowDays).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-
-        var consumedInWindow = stock.Journal
+        var journals = sources.SelectMany(s => s.Stock.Journal).ToList();
+        var firstJournalDate = journals.Count == 0
+            ? (DateOnly?)null
+            : journals.Min(j => DateOnly.FromDateTime(j.OccurredAt.UtcDateTime));
+        var recentConsumed = journals
             .Where(j => j.Reason == StockReason.Consumed && j.OccurredAt >= windowStart)
             .ToList();
 
-        decimal? daysOfSupply = null;
-        if (consumedInWindow.Count >= MinConsumptionEventsForVelocity)
+        var recentConsumptionComplete = true;
+        var recentConsumedTotal = SumConvertedAbsolute(recentConsumed, displayUnitId,
+            sources.ToDictionary(s => s.Stock.ProductId, s => s.Converter),
+            requireCompleteConversions, out recentConsumptionComplete);
+
+        var onHandComplete = true;
+        var onHandTotal = 0m;
+        foreach (var (stock, converter) in sources)
         {
-            var firstJournalDate = stock.Journal.Min(j => DateOnly.FromDateTime(j.OccurredAt.UtcDateTime));
-            var observedSpanDays = today.DayNumber - firstJournalDate.DayNumber;
-            var denominatorDays = Math.Clamp(observedSpanDays, MinPaceDays, VelocityWindowDays);
-            var consumedQtyInWindow = SumConvertedAbsolute(consumedInWindow, displayUnitId, converter);
-            if (consumedQtyInWindow > 0m)
+            foreach (var lot in stock.ActiveLotsFefo())
             {
-                var perDay = consumedQtyInWindow / denominatorDays;
-                var onHand = SumInDisplayUnit(stock.ActiveLotsFefo(), displayUnitId, converter);
-                daysOfSupply = Math.Round(onHand / perDay, 1);
+                if (lot.Quantity == 0m)
+                    continue;
+                var converted = converter.Convert(lot.Quantity, lot.UnitId, displayUnitId);
+                if (converted.IsSuccess)
+                    onHandTotal += converted.Value;
+                else
+                    onHandComplete = false;
             }
         }
 
+        decimal? daysOfSupply = null;
+        if (recentConsumed.Count >= MinConsumptionEventsForVelocity && firstJournalDate is { } earliest
+            && recentConsumedTotal > 0m
+            && (!requireCompleteConversions || (recentConsumptionComplete && onHandComplete)))
+        {
+            var observedSpanDays = today.DayNumber - earliest.DayNumber;
+            var denominatorDays = Math.Clamp(observedSpanDays, MinPaceDays, VelocityWindowDays);
+            var perDay = recentConsumedTotal / denominatorDays;
+            daysOfSupply = Math.Round(onHandTotal / perDay, 1);
+        }
+
+        var convertersByProduct = sources.ToDictionary(s => s.Stock.ProductId, s => s.Converter);
+        var consumedTotal = SumConvertedAbsolute(journals.Where(j => j.Reason == StockReason.Consumed),
+            displayUnitId, convertersByProduct, requireCompleteConversions, out var consumedComplete);
+        var discardedTotal = SumConvertedAbsolute(journals.Where(j => j.Reason == StockReason.Discarded),
+            displayUnitId, convertersByProduct, requireCompleteConversions, out var discardedComplete);
+        var allHistoryComplete = consumedComplete && discardedComplete;
+
         decimal? wasteRate = null;
-        var discardedTotal = SumConvertedAbsolute(
-            stock.Journal.Where(j => j.Reason == StockReason.Discarded), displayUnitId, converter);
-        var consumedTotal = SumConvertedAbsolute(
-            stock.Journal.Where(j => j.Reason == StockReason.Consumed), displayUnitId, converter);
         var wasteDenominator = discardedTotal + consumedTotal;
-        if (wasteDenominator > 0m)
+        if (wasteDenominator > 0m && (!requireCompleteConversions || allHistoryComplete))
             wasteRate = discardedTotal / wasteDenominator;
 
         return daysOfSupply is null && wasteRate is null
@@ -761,17 +819,35 @@ public class InventoryQueryService(
             : new ProductConsumptionStats(daysOfSupply, wasteRate);
     }
 
-    /// <summary>Converts each journal row's absolute delta into <paramref name="displayUnitId"/> and sums
-    /// the successes — a failed conversion (mixed incompatible units, rare) is excluded rather than
-    /// corrupting the sum, mirroring <see cref="SumInDisplayUnit"/>'s soft-fail posture for lots.</summary>
+    /// <summary>Converts each journal row's absolute delta into <paramref name="displayUnitId"/> using
+    /// that row's stock-product converter. A nonzero conversion failure is reported for parent completeness
+    /// checks; leaves continue to sum successful conversions as before. Zero rows require no conversion.</summary>
     private static decimal SumConvertedAbsolute(
-        IEnumerable<StockJournalEntry> rows, Guid displayUnitId, IQuantityConverter converter)
+        IEnumerable<StockJournalEntry> rows,
+        Guid displayUnitId,
+        IReadOnlyDictionary<Guid, IQuantityConverter> convertersByProduct,
+        bool requireCompleteConversions,
+        out bool complete)
     {
         var total = 0m;
+        complete = true;
         foreach (var row in rows)
         {
-            var converted = converter.Convert(Math.Abs(row.Delta), row.UnitId, displayUnitId);
-            if (converted.IsSuccess) total += converted.Value;
+            var absoluteDelta = Math.Abs(row.Delta);
+            if (absoluteDelta == 0m)
+                continue;
+
+            if (!convertersByProduct.TryGetValue(row.ProductId, out var converter))
+            {
+                complete = false;
+                continue;
+            }
+
+            var converted = converter.Convert(absoluteDelta, row.UnitId, displayUnitId);
+            if (converted.IsSuccess)
+                total += converted.Value;
+            else if (requireCompleteConversions)
+                complete = false;
         }
         return total;
     }
