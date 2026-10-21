@@ -855,24 +855,62 @@ public sealed class InventoryQueryServiceTests
     public async Task GetConsumptionStats_Parent_RecentConsumptionConversionFailureSuppressesBothChips()
     {
         var parentId = Guid.CreateVersion7();
-        var variantId = Guid.CreateVersion7();
+        var convertibleVariantId = Guid.CreateVersion7();
+        var incompatibleVariantId = Guid.CreateVersion7();
         var grams = Guid.CreateVersion7();
         var incompatible = Guid.CreateVersion7();
         var clock = new MutableClock();
-        var stock = ProductStock.Start(HouseholdId.From(_household), variantId, clock);
-        stock.AddStock(10m, incompatible, _location, _user, clock);
-        stock.Consume(1m, incompatible, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
-        stock.Consume(1m, incompatible, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        var convertibleStock = ProductStock.Start(HouseholdId.From(_household), convertibleVariantId, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(-30);
+        convertibleStock.AddStock(20m, grams, _location, _user, clock);
+        clock.UtcNow = clock.UtcNow.AddDays(30);
+        convertibleStock.Consume(1m, grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        convertibleStock.Consume(1m, grams, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+
+        var incompatibleStock = ProductStock.Start(HouseholdId.From(_household), incompatibleVariantId, clock);
+        incompatibleStock.AddStock(1m, incompatible, _location, _user, clock);
+        incompatibleStock.Consume(1m, incompatible, StockReason.Consumed, new IdentityQuantityConverter(), _user, clock);
+        Assert.Empty(incompatibleStock.ActiveLotsFefo());
         var stocks = new FakeProductStockRepository();
-        stocks.Items.Add(stock);
+        stocks.Items.AddRange([convertibleStock, incompatibleStock]);
         var catalog = new FakeCatalogReadFacade();
         catalog.Products.Add(new CatalogProductInfo(parentId, "Parent", null, grams, "g", CanHoldStock: false));
-        catalog.Products.Add(new CatalogProductInfo(variantId, "Variant", null, grams, "g", CanHoldStock: true, ParentProductId: parentId));
+        catalog.Products.Add(new CatalogProductInfo(convertibleVariantId, "Convertible", null, grams, "g",
+            CanHoldStock: true, ParentProductId: parentId));
+        catalog.Products.Add(new CatalogProductInfo(incompatibleVariantId, "Incompatible", null, incompatible, "unit",
+            CanHoldStock: true, ParentProductId: parentId));
 
         var stats = await ServiceWithClock(stocks, catalog, new FactorQuantityConverter(new()), clock)
             .GetConsumptionStatsAsync(parentId);
 
+        // A partial calculation would use the convertible 2g subtotal against 18g on hand (270 days).
         Assert.Null(stats);
+    }
+
+    [Fact(DisplayName = "plantry-ikul: parent discard-only history remains eligible for waste")]
+    public async Task GetConsumptionStats_Parent_DiscardOnlyHistoryReturnsWasteWithoutDays()
+    {
+        var parentId = Guid.CreateVersion7();
+        var variantId = Guid.CreateVersion7();
+        var grams = Guid.CreateVersion7();
+        var clock = new MutableClock();
+        var stock = ProductStock.Start(HouseholdId.From(_household), variantId, clock);
+        stock.AddStock(5m, grams, _location, _user, clock);
+        stock.Consume(5m, grams, StockReason.Discarded, new IdentityQuantityConverter(), _user, clock);
+
+        var stocks = new FakeProductStockRepository();
+        stocks.Items.Add(stock);
+        var catalog = new FakeCatalogReadFacade();
+        catalog.Products.Add(new CatalogProductInfo(parentId, "Parent", null, grams, "g", CanHoldStock: false));
+        catalog.Products.Add(new CatalogProductInfo(variantId, "Variant", null, grams, "g",
+            CanHoldStock: true, ParentProductId: parentId));
+
+        var stats = await ServiceWithClock(stocks, catalog, new IdentityQuantityConverter(), clock)
+            .GetConsumptionStatsAsync(parentId);
+
+        Assert.NotNull(stats);
+        Assert.Equal(1m, stats!.WasteRate);
+        Assert.Null(stats.DaysOfSupply);
     }
 
     [Fact(DisplayName = "plantry-ikul: incompatible discarded rows suppress waste while preserving parent days")]
