@@ -153,6 +153,69 @@ public sealed class ProductDetailParentTests : IDisposable
         Assert.Contains("median", html, StringComparison.Ordinal);
     }
 
+    [Fact(DisplayName = "Detail GET — parent stats show pooled days of supply and quantity-weighted waste")]
+    public async Task Get_Parent_StatsPanel_ShowsPooledConsumptionStats()
+    {
+        var now = ProductDetailParentFixture.Clock.UtcNow;
+        var clock = ProductDetailParentFixture.Clock;
+
+        clock.UtcNow = now.AddDays(-30);
+        var variantA = ProductStock.Start(ProductDetailParentFixture.Household,
+            ProductDetailParentFixture.Variant1Id, clock);
+        variantA.AddStock(1000m, ProductDetailParentFixture.UnitId, Guid.NewGuid(), Guid.NewGuid(), clock);
+        clock.UtcNow = now;
+        variantA.Consume(250m, ProductDetailParentFixture.UnitId, StockReason.Consumed,
+            new IdentityQuantityConverter(), Guid.NewGuid(), clock);
+        variantA.Consume(250m, ProductDetailParentFixture.UnitId, StockReason.Discarded,
+            new IdentityQuantityConverter(), Guid.NewGuid(), clock);
+
+        clock.UtcNow = now.AddDays(-7);
+        var variantB = ProductStock.Start(ProductDetailParentFixture.Household,
+            ProductDetailParentFixture.Variant2Id, clock);
+        variantB.AddStock(2000m, ProductDetailParentFixture.UnitId, Guid.NewGuid(), Guid.NewGuid(), clock);
+        clock.UtcNow = now;
+        variantB.Consume(500m, ProductDetailParentFixture.UnitId, StockReason.Consumed,
+            new IdentityQuantityConverter(), Guid.NewGuid(), clock);
+        variantB.Consume(100m, ProductDetailParentFixture.UnitId, StockReason.Discarded,
+            new IdentityQuantityConverter(), Guid.NewGuid(), clock);
+        _factory.StockRepo.Items.AddRange([variantA, variantB]);
+
+        var html = await (await AuthClient().GetAsync($"/Pantry/Products/Detail/{ProductDetailParentFixture.ParentId}"))
+            .Content.ReadAsStringAsync();
+        var stats = StatsSection(html);
+
+        Assert.Contains("~<b>76</b> days of supply left", stats, StringComparison.Ordinal);
+        Assert.Contains("<b class=\"delta--bad\">31.8%</b>", stats, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "Detail GET — parent renders a real zero waste value without an ineligible days chip")]
+    public async Task Get_Parent_StatsPanel_RendersZeroWasteAndIndependentlyOmitsDays()
+    {
+        var clock = ProductDetailParentFixture.Clock;
+        var stock = ProductStock.Start(ProductDetailParentFixture.Household,
+            ProductDetailParentFixture.Variant1Id, clock);
+        stock.AddStock(10m, ProductDetailParentFixture.UnitId, Guid.NewGuid(), Guid.NewGuid(), clock);
+        stock.Consume(1m, ProductDetailParentFixture.UnitId, StockReason.Consumed,
+            new IdentityQuantityConverter(), Guid.NewGuid(), clock);
+        _factory.StockRepo.Items.Add(stock);
+
+        var html = await (await AuthClient().GetAsync($"/Pantry/Products/Detail/{ProductDetailParentFixture.ParentId}"))
+            .Content.ReadAsStringAsync();
+        var stats = StatsSection(html);
+
+        Assert.Contains("Waste rate <b class=\"delta--good\">0%</b>", stats, StringComparison.Ordinal);
+        Assert.DoesNotContain("days of supply left", stats, StringComparison.Ordinal);
+    }
+
+    private static string StatsSection(string html)
+    {
+        var start = html.IndexOf("<h2 class=\"catalog-section__heading\">Stats</h2>", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Stats section not found.");
+        var end = html.IndexOf("</section>", start, StringComparison.Ordinal);
+        Assert.True(end >= 0, "Stats section end not found.");
+        return html[start..(end + "</section>".Length)];
+    }
+
     [Fact(DisplayName = "Header — a parent shows the variant picker instead of Consume/Add stock")]
     public async Task Get_Parent_PrimaryAction_ShowsVariantPicker()
     {
@@ -185,7 +248,7 @@ internal static class ProductDetailParentFixture
 {
     internal static readonly Guid HouseholdId = Guid.Parse("dddddddd-0000-0000-0000-000000000002");
     internal static readonly HouseholdId Household = Plantry.SharedKernel.HouseholdId.From(HouseholdId);
-    internal static readonly IClock Clock = Plantry.SharedKernel.Domain.SystemClock.Instance;
+    internal static readonly MutableProductDetailClock Clock = new(new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero));
 
     internal static readonly Guid ParentId = Guid.Parse("eeeeeeee-1111-0000-0000-eee000000001");
     internal static readonly Guid Variant1Id = Guid.Parse("eeeeeeee-1111-0000-0000-eee000000002");
@@ -267,6 +330,8 @@ internal sealed class ProductDetailParentFactory : WebApplicationFactory<Program
         builder.ConfigureTestServices(services =>
         {
             services.AddFakeExpiringSoonHorizon();
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock>(ProductDetailParentFixture.Clock);
             services.AddAuthentication(opts =>
                 {
                     opts.DefaultScheme = TestAuthHandler.SchemeName;
@@ -339,6 +404,11 @@ internal sealed class ProductDetailParentFactory : WebApplicationFactory<Program
             services.AddSingleton<Plantry.Recipes.Domain.IRecipeRepository>(new FakeRecipeRepository());
         });
     }
+}
+
+internal sealed class MutableProductDetailClock(DateTimeOffset utcNow) : IClock
+{
+    public DateTimeOffset UtcNow { get; set; } = utcNow;
 }
 
 /// <summary>Identity for a matching unit; fails for any pair it wasn't told about — used only by the

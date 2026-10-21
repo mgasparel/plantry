@@ -856,13 +856,9 @@ public sealed class DetailModel(
     /// when NEITHER half has anything to show, so <c>_StatsPanel</c> can render nothing at all rather than
     /// an empty card.
     ///
-    /// <para>Parent-aware (plantry-oh27.7): a parent's price half comes from <see cref="PriceHistoryRollup"/>
-    /// — the union of its live variants' history converted into the parent's default unit, the same
-    /// selection policy <see cref="BuildPriceDisplayAsync"/> already uses for the price tile. The
-    /// consumption half is deliberately OUT OF SCOPE for a parent here: summing days-of-supply/waste-rate
-    /// across variants would need its own per-variant journal fold (a separate piece of work, not this
-    /// bead's <c>InventoryQueryService.GetConsumptionStatsAsync</c>, which is leaf-only) — a parent simply
-    /// never shows that half, degrading exactly like a freshly-stocked leaf with no consumption yet.</para>
+    /// <para>A parent's price half comes from <see cref="PriceHistoryRollup"/> — the union of its live
+    /// variants' history converted into the parent's default unit. Its consumption half comes from the
+    /// pooled, parent-aware Inventory query; both chips remain independently nullable.</para>
     /// </summary>
     private async Task<StatsPanelViewModel?> BuildStatsAsync(Guid productId)
     {
@@ -882,9 +878,7 @@ public sealed class DetailModel(
             priceHistory = await pricingQueries.PriceHistoryAsync(productId);
         }
 
-        // Consumption stats have no parent-aware shape yet (see doc comment above) — a parent simply
-        // never has a half to show here.
-        var consumption = isParent ? null : await queries.GetConsumptionStatsAsync(productId);
+        var consumption = await queries.GetConsumptionStatsAsync(productId);
 
         var showPriceHistory = priceHistory.Count >= MinPricePointsForSparkline;
         if (!showPriceHistory && consumption is null)

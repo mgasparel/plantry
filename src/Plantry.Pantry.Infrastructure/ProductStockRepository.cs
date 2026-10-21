@@ -39,6 +39,20 @@ public sealed class ProductStockRepository(PantryDbContext db, ILogger<ProductSt
             .Include(p => p.Journal)
             .FirstOrDefaultAsync(p => p.HouseholdId == householdId && p.ProductId == productId, ct);
 
+    public async Task<IReadOnlyList<ProductStock>> ListWithHistoryForProductsAsync(
+        HouseholdId householdId, IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var ids = productIds.Distinct().ToArray();
+        if (ids.Length == 0)
+            return [];
+
+        return await db.ProductStocks
+            .Where(p => p.HouseholdId == householdId && ids.Contains(p.ProductId))
+            .Include(p => p.Entries)
+            .Include(p => p.Journal)
+            .ToListAsync(ct);
+    }
+
     public Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default) =>
         db.ProductStocks
             .Include(p => p.Entries)

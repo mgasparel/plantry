@@ -21,6 +21,24 @@ public interface IProductStockRepository
     /// <summary>Loads the aggregate with both its lots and its journal history — feeds the product detail read model.</summary>
     Task<ProductStock?> FindWithHistoryAsync(HouseholdId householdId, Guid productId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Loads stock aggregates, including active and depleted lots and full journal history, for the
+    /// requested products in one household. The default implementation preserves compatibility with
+    /// repository fakes by loading each requested product through <see cref="FindWithHistoryAsync"/>.
+    /// </summary>
+    async Task<IReadOnlyList<ProductStock>> ListWithHistoryForProductsAsync(
+        HouseholdId householdId, IEnumerable<Guid> productIds, CancellationToken ct = default)
+    {
+        var result = new List<ProductStock>();
+        foreach (var productId in productIds.Distinct())
+        {
+            var stock = await FindWithHistoryAsync(householdId, productId, ct);
+            if (stock is not null)
+                result.Add(stock);
+        }
+        return result;
+    }
+
     /// <summary>All product-stock aggregates (with lots) for <paramref name="householdId"/> — feeds the pantry read model.</summary>
     Task<List<ProductStock>> ListForHouseholdAsync(HouseholdId householdId, CancellationToken ct = default);
 
