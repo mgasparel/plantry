@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 
 import {
   makeLine,
+  sureLineQuantity,
   mergeStagedProductOption,
   applyStagedProductSelection,
   lineSection,
@@ -104,6 +105,18 @@ function makeState(lineOverrides = {}, prefillOverrides = {}) {
     sig,
   );
 }
+
+describe("sureLineQuantity", () => {
+  it("shows the server-prefilled quantity and matched unit", () => {
+    const ls = makeState({}, { quantity: 1, unitId: "unit-jar" });
+    assert.equal(sureLineQuantity(ls, [{ id: "unit-jar", code: "jar" }]), "1 jar");
+  });
+
+  it("keeps the quantity visible when a unit is unresolved", () => {
+    const ls = makeState({}, { quantity: 2, unitId: null });
+    assert.equal(sureLineQuantity(ls, []), "2");
+  });
+});
 
 // ── buildSaveLineBody ─────────────────────────────────────────────────────────
 

@@ -558,6 +558,47 @@ public sealed class ReviewCommandsTests
     }
 
     [Fact]
+    public async Task ConfirmLines_Preserves_An_Explicit_Receipt_Unit_Over_The_Product_Default()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = session.AddLine(1, "SALAD DRESSING 1 JAR", SuggestedConfidence.High, "{\"x\":1}",
+            suggestedProductId: _productId, suggestedQuantity: 1m, suggestedUnitLabel: "jar");
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = RepoWith(session);
+        var reference = new FakeReviewReferenceDataProvider(new ReviewReferenceData(
+            Products: [new ReviewProductOption(_productId, "Salad dressing", "each", RetryUnitAId, _locationId, [])],
+            Units: [
+                new ReviewUnitOption(RetryUnitAId, "each", "Each", ReviewUnitDimension.Count),
+                new ReviewUnitOption(RetryUnitBId, "jar", "Jar", ReviewUnitDimension.Count)],
+            Locations: [new ReviewLocationOption(_locationId, "Pantry")], Categories: [], Stores: []));
+
+        var result = await ConfirmLines(session, [line.Id], repo, reference, _household).ExecuteAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1m, line.Quantity);
+        Assert.Equal(RetryUnitBId, line.UnitId); // parsed/matched jar survives bulk confirmation
+        Assert.Equal(1, repo.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task ConfirmLines_Rejects_An_Unresolved_Explicit_Unit_Instead_Of_Defaulting()
+    {
+        var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
+        var line = session.AddLine(1, "SALAD DRESSING 1 JAR", SuggestedConfidence.High, "{\"x\":1}",
+            suggestedProductId: _productId, suggestedQuantity: 1m, suggestedUnitLabel: "jar");
+        session.MarkReady("Superstore", Clock.UtcNow);
+        var repo = RepoWith(session);
+
+        var result = await ConfirmLines(session, [line.Id], repo, MatchedReference(), _household).ExecuteAsync();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Intake.LineNotConfirmable", result.Error.Code);
+        Assert.Equal(LineStatus.Pending, line.Status);
+        Assert.Null(line.UnitId);
+        Assert.Equal(0, repo.SaveChangesCalls);
+    }
+
+    [Fact]
     public async Task ConfirmLines_Fails_The_Whole_Command_When_Any_Id_Is_Low_Confidence_And_Confirms_Nothing()
     {
         var session = ImportSession.Start(HouseholdId.From(_household), ImportSourceType.Receipt, _userId, Clock);
